@@ -80,3 +80,7 @@ shapes.ir
 /simple.py
 /simpler.py
 /test_parallel.sh
+benchmark/lubm/models/
+benchmark/lubm/.uba/
+benchmark/lubm/univ-bench.ttl
+benchmark/lubm/lubm-closure.ttl

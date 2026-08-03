@@ -37,6 +37,19 @@ pub struct PreparedEvidenceValidator {
     sparql: SparqlExecutor,
 }
 
+/// Conformance-only totals from one prepared run.
+///
+/// Counts are over normalized `(statement, focus)` pairs — the pairs an
+/// [`EvidenceRun`] materializes evidence for, before authored statements that
+/// normalize together fan the same evidence back out.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ConformanceRun {
+    pub conforms: bool,
+    pub selected_pairs: usize,
+    pub passed: usize,
+    pub failed: usize,
+}
+
 impl PreparedEvidenceValidator {
     /// Prepare embedded data/shapes validation over one graph.
     pub fn new(data: &Graph, schema: &Schema) -> Result<Self, NonStratifiable> {
@@ -134,18 +147,33 @@ impl PreparedEvidenceValidator {
         })
     }
 
-    /// Validate the prepared snapshot and return its complete coverage horizon.
-    pub fn validate(&self, options: &ValidationOptions) -> EvidenceRun {
+    /// Validate the prepared snapshot for conformance only.
+    ///
+    /// Preparation, target selection, and the evaluator are exactly those of
+    /// [`validate`](Self::validate); each selected `(statement, focus)` pair is
+    /// instead decided by one short-circuiting satisfaction test. No evidence is
+    /// materialized and no authored-statement progress is computed, so the
+    /// difference against [`validate`](Self::validate) on the same snapshot is
+    /// the cost of evidence tracing alone.
+    ///
+    /// `options.minimum_severity` is not honored: without failure evidence there
+    /// is no per-constraint severity to weigh, so every failing pair makes
+    /// `conforms` false — the default `Severity::Info` threshold. Only
+    /// `entry_shape_names` applies; `sort_results` is irrelevant to counts.
+    pub fn validate_conformance(&self, options: &ValidationOptions) -> ConformanceRun {
         let backend = self
             .sparql
             .frozen()
             .expect("prepared evidence validator always owns a frozen dataset");
         let mut evaluator = ShapeEvaluator::new(backend, &self.schema.arena, &self.sparql);
-        let mut statements: Vec<Option<StatementEvaluation>> =
-            vec![None; self.raw_schema.statements.len()];
-        let mut conforms = true;
+        let mut run = ConformanceRun {
+            conforms: true,
+            selected_pairs: 0,
+            passed: 0,
+            failed: 0,
+        };
 
-        for (statement_id, statement) in self.schema.statements.iter().enumerate() {
+        for statement in &self.schema.statements {
             if !entry_shape_name_selected(
                 &options.entry_shape_names,
                 self.schema.names.get(&statement.shape).map(String::as_str),
@@ -157,7 +185,72 @@ impl PreparedEvidenceValidator {
             prefetch_sparql_constraints(&self.schema.arena, statement.shape, &foci, &self.sparql);
 
             for focus in foci {
+                run.selected_pairs += 1;
+                if evaluator.holds(&focus, statement.shape) {
+                    run.passed += 1;
+                } else {
+                    run.failed += 1;
+                    run.conforms = false;
+                }
+            }
+        }
+
+        run
+    }
+
+    /// Validate the prepared snapshot and return its complete coverage horizon.
+    pub fn validate(&self, options: &ValidationOptions) -> EvidenceRun {
+        let backend = self
+            .sparql
+            .frozen()
+            .expect("prepared evidence validator always owns a frozen dataset");
+        let mut evaluator = ShapeEvaluator::new(backend, &self.schema.arena, &self.sparql);
+        let mut statements: Vec<Option<StatementEvaluation>> =
+            vec![None; self.raw_schema.statements.len()];
+        let mut conforms = true;
+        // Attribution is opt-in: without profiling this loop pays nothing, so
+        // the evidence-overhead benchmark measures materialization, not timers.
+        let profiling = crate::profile::is_enabled();
+
+        for (statement_id, statement) in self.schema.statements.iter().enumerate() {
+            if !entry_shape_name_selected(
+                &options.entry_shape_names,
+                self.schema.names.get(&statement.shape).map(String::as_str),
+            ) {
+                continue;
+            }
+
+            let label = profiling.then(|| {
+                self.schema
+                    .names
+                    .get(&statement.shape)
+                    .cloned()
+                    .unwrap_or_else(|| format!("@{}", statement.shape.0))
+            });
+            let selection_start = profiling.then(web_time::Instant::now);
+            let foci = focus_nodes_with_evaluator(&self.data, &statement.selector, &mut evaluator);
+            prefetch_sparql_constraints(&self.schema.arena, statement.shape, &foci, &self.sparql);
+            if let (Some(start), Some(label)) = (selection_start, label.as_deref()) {
+                crate::profile::record_shape_work(
+                    &format!("select:{label}"),
+                    start.elapsed().as_micros() as u64,
+                    0,
+                );
+            }
+
+            for focus in foci {
+                let pair_start = profiling
+                    .then(|| (web_time::Instant::now(), crate::profile::evidence_visits()));
                 let evidence = materialize_evidence(&mut evaluator, &focus, statement.shape);
+                if let (Some((start, visits_before)), Some(label)) =
+                    (pair_start, label.as_deref())
+                {
+                    crate::profile::record_shape_work(
+                        label,
+                        start.elapsed().as_micros() as u64,
+                        crate::profile::evidence_visits().saturating_sub(visits_before),
+                    );
+                }
                 if let Evidence::Failure(failure) = &evidence
                     && failure_meets_threshold(
                         &self.schema.arena,
@@ -535,6 +628,35 @@ mod tests {
             }
             PathSupport::Empty => {}
         }
+    }
+
+    #[test]
+    fn conformance_only_run_agrees_with_evidence_run() {
+        let ttl = format!(
+            "{PREFIXES}
+             ex:S a sh:NodeShape ; sh:targetClass ex:T ;
+               sh:property [ sh:path ex:p ; sh:minCount 1 ] .
+             ex:T2 a sh:NodeShape ; sh:targetClass ex:T ;
+               sh:property [ sh:path ex:p ; sh:minCount 1 ] .
+             ex:good a ex:T ; ex:p ex:value .
+             ex:bad a ex:T .
+             ex:unselected ex:p ex:value ."
+        );
+        let parsed = parse_turtle(ttl.as_bytes(), None).unwrap();
+        let loaded = load_turtle(ttl.as_bytes(), None).unwrap();
+        let prepared =
+            PreparedEvidenceValidator::new(&loaded.graph, &parsed.schema).unwrap();
+        let options = ValidationOptions::default();
+        let conformance = prepared.validate_conformance(&options);
+        let evidence = prepared.validate(&options);
+
+        assert_eq!(conformance.conforms, evidence.conforms);
+        assert_eq!(conformance.selected_pairs, 2);
+        assert_eq!(conformance.passed, 1);
+        assert_eq!(conformance.failed, 1);
+        // Two authored statements normalize together, so the evidence run fans
+        // the same two evaluated pairs back out over both of them.
+        assert_eq!(foci(&evidence).len(), 4);
     }
 
     #[test]

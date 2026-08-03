@@ -6,6 +6,7 @@
 //! inference engine (Layer 6) and compiled executors (Layer 7) come later; every
 //! execution mode must agree with this oracle.
 
+pub mod compact;
 pub mod enumerate;
 pub mod evidence;
 pub mod frozen;
@@ -26,8 +27,11 @@ pub mod witness;
 pub use enumerate::{
     EnumOptions, FixpointResult, RepairSolution, candidates, enumerate_repair, repair_to_fixpoint,
 };
+pub use compact::{
+    CompactError, compact, expand, expand_with_catalog, to_compact_json,
+};
 pub use evidence::{
-    PreparedEvidenceValidator, validate_graphs_with_evidence,
+    ConformanceRun, PreparedEvidenceValidator, validate_graphs_with_evidence,
     validate_graphs_with_evidence_and_mode, validate_graphs_with_evidence_and_mode_and_options,
     validate_with_context_and_evidence, validate_with_context_and_evidence_and_options,
     validate_with_evidence, validate_with_evidence_and_options,

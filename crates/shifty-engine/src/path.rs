@@ -26,6 +26,16 @@ pub trait PathBackend {
     fn subjects(&self, predicate: &NamedNode, object: &Term) -> HashSet<Term>;
     /// Predicates of the outgoing triples of `subject` (used by `sh:closed`).
     fn out_predicates(&self, subject: &Term) -> BTreeSet<NamedNode>;
+
+    /// Whether `(subject, predicate, object)` is in the evaluation graph.
+    ///
+    /// Witnessing asks this once per candidate value to certify the edge that
+    /// produced it. The default answers it by materializing the whole successor
+    /// set, which makes a value-set of size `n` cost `O(n²)`; backends with an
+    /// index should override it.
+    fn contains(&self, subject: &Term, predicate: &NamedNode, object: &Term) -> bool {
+        self.objects(subject, predicate).contains(object)
+    }
 }
 
 /// `{ u | (node, u) ∈ ⟦path⟧ }` — nodes reachable forward from `node`.
@@ -126,6 +136,15 @@ impl PathBackend for Graph {
         }
         preds
     }
+
+    fn contains(&self, subject: &Term, predicate: &NamedNode, object: &Term) -> bool {
+        node_of(subject).is_some_and(|s| {
+            Graph::contains(
+                self,
+                oxrdf::TripleRef::new(s.as_ref(), predicate.as_ref(), object.as_ref()),
+            )
+        })
+    }
 }
 
 /// Indexed backend over the dictionary-encoded post-inference snapshot. Built
@@ -158,6 +177,15 @@ impl PathBackend for FrozenIndexedDataset {
                 _ => None,
             })
             .collect()
+    }
+
+    fn contains(&self, subject: &Term, predicate: &NamedNode, object: &Term) -> bool {
+        let s = self.intern(subject);
+        let p = self.intern(&Term::NamedNode(predicate.clone()));
+        let o = self.intern(object);
+        self.scan(Some(s), Some(p), Some(o), GraphSel::Default)
+            .next()
+            .is_some()
     }
 }
 

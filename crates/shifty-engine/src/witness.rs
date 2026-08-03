@@ -11,7 +11,7 @@
 //! guard verbatim, so witnessing agrees with validation by construction.
 
 use crate::frozen::FrozenIndexedDataset;
-use crate::path::{PathBackend, node_of, succ};
+use crate::path::{PathBackend, node_of, pred, succ};
 use crate::sparql::{SparqlDiagnostic, SparqlExecutor};
 use crate::validate::{NonStratifiable, ShapeEvaluator, focus_nodes_with, uses_shapes_graph};
 use oxrdf::{Graph, NamedNode, Term, Triple};
@@ -1042,15 +1042,8 @@ fn relational_witness(
         Shape::UniqueLang(p) => (RelKind::UniqueLang, p.clone(), None),
         _ => unreachable!("relational_witness on non-relational shape"),
     };
-    let with_support = |g: &dyn PathBackend, p: &Path| -> Vec<(Term, PathSupport)> {
-        succ(g, node, p)
-            .into_iter()
-            .map(|v| {
-                let s = path_support(g, node, p, &v).unwrap_or(PathSupport::Empty);
-                (v, s)
-            })
-            .collect()
-    };
+    let with_support =
+        |g: &dyn PathBackend, p: &Path| -> Vec<(Term, PathSupport)> { succ_with_support(g, node, p) };
     let lhs = with_support(g, &lpath);
     let rhs = match &rpred {
         Some(q) => with_support(g, &Path::Pred(q.clone())),
@@ -1149,6 +1142,7 @@ fn evaluate_node(
     scope: &[(Path, ShapeId)],
     stack: &mut Stack,
 ) -> Evidence {
+    crate::profile::record_evidence_visit();
     let key = (id, node.clone());
     if !stack.insert(key.clone()) {
         return Evidence::Satisfaction(SatTrace::Coinductive {
@@ -1360,9 +1354,7 @@ fn evaluate_node(
             let reached = Path::seq(vec![reached_by.clone(), path.clone()]);
             let mut matches = Vec::new();
             let mut rejected = Vec::new();
-            for value in succ(eval.backend(), node, &path) {
-                let support =
-                    path_support(eval.backend(), node, &path, &value).unwrap_or(PathSupport::Empty);
+            for (value, support) in succ_with_support(eval.backend(), node, &path) {
                 match evaluate_node(
                     eval,
                     &value,
@@ -1501,13 +1493,147 @@ fn closed_offenders(
     out
 }
 
+/// Every `π`-successor of `from`, each paired with one concrete certificate.
+///
+/// Same values as [`succ`] and the same kind of certificate as
+/// [`path_support`], but derived in a single traversal. Pairing `succ` with a
+/// per-value `path_support` instead re-derives the whole route for every
+/// candidate: for `sh:class` — which compiles to `type · subClassOf*` — that is
+/// one hierarchy BFS per candidate value, and it dominated evidence
+/// materialization on Brick.
+///
+/// Values are returned in first-reached order and deduplicated, so an
+/// alternative or cycle keeps the first successful route exactly as
+/// `path_support` does.
+fn succ_with_support(g: &dyn PathBackend, from: &Term, path: &Path) -> Vec<(Term, PathSupport)> {
+    match path {
+        Path::Id => vec![(from.clone(), PathSupport::Empty)],
+        Path::Pred(q) => {
+            let Some(subject) = node_of(from) else {
+                return Vec::new();
+            };
+            g.objects(from, q)
+                .into_iter()
+                .map(|object| {
+                    let edge = Triple::new(subject.clone(), q.clone(), object.clone());
+                    (object, PathSupport::Edge(edge))
+                })
+                .collect()
+        }
+        // `Inverse(Pred)` is the common case and its certificate is the same
+        // edge read backwards; anything else falls back to a per-value probe.
+        Path::Inverse(inner) => match inner.as_ref() {
+            Path::Pred(q) => g
+                .subjects(q, from)
+                .into_iter()
+                .filter_map(|subject| {
+                    let node = node_of(&subject)?;
+                    let edge = Triple::new(node, q.clone(), from.clone());
+                    Some((subject, PathSupport::Edge(edge)))
+                })
+                .collect(),
+            _ => pred(g, from, inner)
+                .into_iter()
+                .map(|value| {
+                    let support =
+                        path_support(g, from, path, &value).unwrap_or(PathSupport::Empty);
+                    (value, support)
+                })
+                .collect(),
+        },
+        Path::Alt(branches) => {
+            let mut out = Vec::new();
+            let mut seen = HashSet::new();
+            for branch in branches {
+                for (value, support) in succ_with_support(g, from, branch) {
+                    if seen.insert(value.clone()) {
+                        out.push((value, support));
+                    }
+                }
+            }
+            out
+        }
+        Path::Seq(steps) => {
+            let Some((first, rest)) = steps.split_first() else {
+                return vec![(from.clone(), PathSupport::Empty)];
+            };
+            let mut frontier: Vec<(Term, Vec<PathSupport>)> = Vec::new();
+            let mut seen = HashSet::new();
+            for (value, support) in succ_with_support(g, from, first) {
+                if seen.insert(value.clone()) {
+                    frontier.push((value, vec![support]));
+                }
+            }
+            for step in rest {
+                let mut next: Vec<(Term, Vec<PathSupport>)> = Vec::new();
+                let mut seen = HashSet::new();
+                for (value, chain) in &frontier {
+                    for (reached, support) in succ_with_support(g, value, step) {
+                        if seen.insert(reached.clone()) {
+                            let mut chain = chain.clone();
+                            chain.push(support);
+                            next.push((reached, chain));
+                        }
+                    }
+                }
+                frontier = next;
+            }
+            frontier
+                .into_iter()
+                .map(|(value, chain)| (value, flatten_chain(chain)))
+                .collect()
+        }
+        // One breadth-first walk records every reachable value with the route
+        // that first reached it, replacing one walk per target.
+        Path::Star(inner) => {
+            let mut out = vec![(from.clone(), PathSupport::Empty)];
+            let mut visited: HashSet<Term> = HashSet::from([from.clone()]);
+            let mut queue: VecDeque<(Term, Vec<PathSupport>)> =
+                VecDeque::from([(from.clone(), Vec::new())]);
+            while let Some((current, chain)) = queue.pop_front() {
+                for (next, support) in succ_with_support(g, &current, inner) {
+                    if !visited.insert(next.clone()) {
+                        continue;
+                    }
+                    let mut chain = chain.clone();
+                    chain.push(support);
+                    out.push((next.clone(), PathSupport::Chain(chain.clone())));
+                    queue.push_back((next, chain));
+                }
+            }
+            out
+        }
+    }
+}
+
+/// Splice one level of nested chains, matching `seq_support`'s shape.
+fn flatten_chain(parts: Vec<PathSupport>) -> PathSupport {
+    let mut chain = Vec::with_capacity(parts.len());
+    for part in parts {
+        match part {
+            PathSupport::Empty => {}
+            PathSupport::Chain(inner) => chain.extend(inner),
+            other => chain.push(other),
+        }
+    }
+    if chain.is_empty() {
+        PathSupport::Empty
+    } else {
+        PathSupport::Chain(chain)
+    }
+}
+
 /// The existing triples that make `to` a `π`-successor of `from`, if any. The
 /// edges a deletion would cut to remove `to` from the value set.
 fn path_support(g: &dyn PathBackend, from: &Term, path: &Path, to: &Term) -> Option<PathSupport> {
+    crate::profile::record_path_probe();
     match path {
         Path::Id => (from == to).then_some(PathSupport::Empty),
         Path::Pred(q) => {
-            if g.objects(from, q).contains(to) {
+            // One triple lookup, not one materialized successor set: this is
+            // called once per candidate value, so building the whole set here
+            // makes a value-set of size `n` cost `O(n²)`.
+            if g.contains(from, q, to) {
                 let s = node_of(from)?;
                 Some(PathSupport::Edge(Triple::new(s, q.clone(), to.clone())))
             } else {
@@ -1783,6 +1909,75 @@ mod tests {
             panic!("Alt retains one successful route, got {support:?}")
         };
         assert!(loaded.graph.contains(edge.as_ref()));
+    }
+
+    fn collect_support_edges(support: &PathSupport, out: &mut Vec<Triple>) {
+        match support {
+            PathSupport::Edge(edge) => out.push(edge.clone()),
+            PathSupport::Chain(parts) | PathSupport::Alt(parts) => {
+                parts.iter().for_each(|part| collect_support_edges(part, out));
+            }
+            PathSupport::Empty => {}
+        }
+    }
+
+    #[test]
+    fn traversal_certificates_match_per_value_probing() {
+        // `succ_with_support` replaced `succ` + a `path_support` probe per
+        // value. It must still return exactly the successor set, with a
+        // certificate that probing would accept for each value.
+        let ttl = format!(
+            "{PREFIXES}
+             ex:x ex:p ex:a ; ex:p ex:b ; ex:q ex:c .
+             ex:a ex:r ex:d . ex:d ex:r ex:e .
+             ex:b rdf:type ex:C .
+             ex:C <http://www.w3.org/2000/01/rdf-schema#subClassOf> ex:D .
+             ex:D <http://www.w3.org/2000/01/rdf-schema#subClassOf> ex:E .
+             ex:back ex:p ex:x ."
+        );
+        let loaded = load_turtle(ttl.as_bytes(), None).unwrap();
+        let graph = &loaded.graph;
+        let x = Term::NamedNode(NamedNode::new("http://ex/x").unwrap());
+        let named = |iri: &str| NamedNode::new(iri).unwrap();
+        let paths = vec![
+            Path::Id,
+            Path::Pred(named("http://ex/p")),
+            Path::Inverse(Box::new(Path::Pred(named("http://ex/p")))),
+            Path::Alt(vec![
+                Path::Pred(named("http://ex/p")),
+                Path::Pred(named("http://ex/q")),
+            ]),
+            Path::Seq(vec![
+                Path::Pred(named("http://ex/p")),
+                Path::Pred(named("http://ex/r")),
+            ]),
+            Path::Star(Path::Pred(named("http://ex/r")).into()),
+            Path::Seq(vec![
+                Path::Pred(named("http://www.w3.org/1999/02/22-rdf-syntax-ns#type")),
+                Path::Star(Path::Pred(named("http://www.w3.org/2000/01/rdf-schema#subClassOf")).into()),
+            ]),
+        ];
+
+        for path in paths {
+            let derived = succ_with_support(graph, &x, &path);
+            let values: HashSet<Term> = derived.iter().map(|(v, _)| v.clone()).collect();
+            assert_eq!(values, succ(graph, &x, &path), "values differ for {path:?}");
+            assert_eq!(derived.len(), values.len(), "duplicate value for {path:?}");
+            for (value, support) in &derived {
+                assert!(
+                    path_support(graph, &x, &path, value).is_some(),
+                    "probing rejects {value:?} for {path:?}"
+                );
+                let mut edges = Vec::new();
+                collect_support_edges(support, &mut edges);
+                for edge in edges {
+                    assert!(
+                        graph.contains(edge.as_ref()),
+                        "certificate cites a missing triple for {path:?}"
+                    );
+                }
+            }
+        }
     }
 
     #[test]
