@@ -1483,11 +1483,14 @@ fn closed_offenders(
 ) -> Vec<(NamedNode, Term)> {
     let allowed: HashSet<&NamedNode> = q.iter().collect();
     let mut out = Vec::new();
+    // `out_predicates` is already ordered; the objects behind each are not, and
+    // they are reported verbatim as the offending values. Ordered for the same
+    // reason as `succ_with_support`.
     for p in g.out_predicates(node) {
         if !allowed.contains(&p) {
-            for o in g.objects(node, &p) {
-                out.push((p.clone(), o));
-            }
+            let mut objects: Vec<Term> = g.objects(node, &p).into_iter().collect();
+            objects.sort_by(compare_terms);
+            out.extend(objects.into_iter().map(|object| (p.clone(), object)));
         }
     }
     out
@@ -1505,7 +1508,56 @@ fn closed_offenders(
 /// Values are returned in first-reached order and deduplicated, so an
 /// alternative or cycle keeps the first successful route exactly as
 /// `path_support` does.
+/// Path values with their certificates, in a deterministic order.
+///
+/// [`PathBackend`] yields `HashSet`s, and a `HashSet`'s iteration order varies
+/// between instances, so evidence built straight from one differs between two
+/// runs over the very same snapshot. That is not merely cosmetic: `CountHigh`
+/// names the values past `max` as excess, so a different order reports a
+/// different value as the offender. Ordering here — once, at the single point
+/// where path values enter evidence — makes a run, and any artifact built from
+/// it, reproducible.
+///
+/// Only evidence materialization pays for this. Conformance never calls it:
+/// counts and satisfaction are order-independent, which is why the instability
+/// was invisible until evidence started being serialized.
 fn succ_with_support(g: &dyn PathBackend, from: &Term, path: &Path) -> Vec<(Term, PathSupport)> {
+    let mut values = succ_with_support_unordered(g, from, path);
+    values.sort_by(|(left, _), (right, _)| compare_terms(left, right));
+    values
+}
+
+/// A total order on terms, for reproducibility rather than for meaning.
+///
+/// RDF defines no order across term kinds, so this fixes one: named nodes,
+/// then blank nodes, then literals, each by its lexical form. Literals compare
+/// on value, then datatype, then language, so that terms differing only in
+/// their tag still order stably.
+fn compare_terms(left: &Term, right: &Term) -> std::cmp::Ordering {
+    fn rank(term: &Term) -> u8 {
+        match term {
+            Term::NamedNode(_) => 0,
+            Term::BlankNode(_) => 1,
+            Term::Literal(_) => 2,
+        }
+    }
+    rank(left).cmp(&rank(right)).then_with(|| match (left, right) {
+        (Term::NamedNode(left), Term::NamedNode(right)) => left.as_str().cmp(right.as_str()),
+        (Term::BlankNode(left), Term::BlankNode(right)) => left.as_str().cmp(right.as_str()),
+        (Term::Literal(left), Term::Literal(right)) => left
+            .value()
+            .cmp(right.value())
+            .then_with(|| left.datatype().as_str().cmp(right.datatype().as_str()))
+            .then_with(|| left.language().cmp(&right.language())),
+        _ => std::cmp::Ordering::Equal,
+    })
+}
+
+fn succ_with_support_unordered(
+    g: &dyn PathBackend,
+    from: &Term,
+    path: &Path,
+) -> Vec<(Term, PathSupport)> {
     match path {
         Path::Id => vec![(from.clone(), PathSupport::Empty)],
         Path::Pred(q) => {

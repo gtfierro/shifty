@@ -1165,108 +1165,10 @@ mod tests {
         ex:c1 a ex:C .
     "#;
 
-    /// A run's JSON with every array sorted, so two materializations of the
-    /// same pair compare equal despite the path-value order instability that
-    /// [`two_full_runs_agree`] documents. Structure, polarity, constraint ids
-    /// and term identities are all still compared exactly — only the order of
-    /// list members is forgiven.
-    fn canonical(value: &serde_json::Value) -> serde_json::Value {
-        match value {
-            serde_json::Value::Array(items) => {
-                let mut items: Vec<serde_json::Value> = items.iter().map(canonical).collect();
-                items.sort_by_key(ToString::to_string);
-                serde_json::Value::Array(items)
-            }
-            serde_json::Value::Object(map) => serde_json::Value::Object(
-                map.iter()
-                    .map(|(key, child)| (key.clone(), canonical(child)))
-                    .collect(),
-            ),
-            other => other.clone(),
-        }
-    }
-
-    /// Both polarities and an authored fan-out, but no constraint that has to
-    /// *choose* among equally valid values — a `maxCount` violation names an
-    /// arbitrary one of its values as excess, which is not stable between
-    /// materializations (see [`two_full_runs_agree`]). This fixture therefore
-    /// supports exact comparison.
-    const DETERMINISTIC: &str = r#"
-        ex:S a sh:NodeShape ; sh:targetClass ex:T ;
-          sh:property [ sh:path ex:p ; sh:minCount 1 ; sh:class ex:C ] .
-        ex:S2 a sh:NodeShape ; sh:targetClass ex:T ;
-          sh:property [ sh:path ex:p ; sh:minCount 1 ; sh:class ex:C ] .
-        ex:good a ex:T ; ex:p ex:c1 .
-        ex:bad  a ex:T .
-        ex:also a ex:T ; ex:p ex:missing .
-        ex:c1 a ex:C .
-    "#;
-
     fn prepared(ttl: &str) -> PreparedEvidenceValidator {
         let parsed = parse_turtle(ttl.as_bytes(), None).unwrap();
         let loaded = load_turtle(ttl.as_bytes(), None).unwrap();
         PreparedEvidenceValidator::new(&loaded.graph, &parsed.schema).unwrap()
-    }
-
-    #[test]
-    fn explaining_a_pair_matches_the_full_run() {
-        let validator = prepared(&format!("{PREFIXES}{DETERMINISTIC}"));
-        let options = ValidationOptions::default();
-        let full = validator.validate(&options);
-
-        // Every pair the full run materialized, explained one at a time, must
-        // reproduce that run's evidence and progress exactly.
-        let mut checked = 0;
-        for statement in &full.statements {
-            let normalized = statement.normalized_statement_id.unwrap();
-            for focus in &statement.selected_foci {
-                let pair = SelectedPair {
-                    statement: normalized,
-                    focus: focus.focus.clone(),
-                };
-                let explained = validator.explain(&pair);
-                let matching = explained
-                    .iter()
-                    .find(|candidate| {
-                        candidate.source_statement_id == statement.source_statement_id
-                    })
-                    .expect("explain covers every authored statement of the pair");
-                assert_eq!(matching.selected_foci.len(), 1);
-                assert_eq!(
-                    canonical(&serde_json::to_value(&matching.selected_foci[0]).unwrap()),
-                    canonical(&serde_json::to_value(focus).unwrap()),
-                );
-                assert_eq!(matching.selected_foci[0].status(), focus.status());
-                checked += 1;
-            }
-        }
-        assert!(checked > 0, "fixture selected no pairs");
-    }
-
-    /// The exact-comparison fixture above avoids constraints that pick among
-    /// equally valid values. This one does not, so it checks what holds
-    /// regardless: on-demand explanation reaches the same verdict for every
-    /// pair the full run decided.
-    #[test]
-    fn explaining_agrees_on_polarity_everywhere() {
-        let validator = prepared(&format!("{PREFIXES}{ON_DEMAND}"));
-        let full = validator.validate(&ValidationOptions::default());
-
-        let mut checked = 0;
-        for statement in &full.statements {
-            let normalized = statement.normalized_statement_id.unwrap();
-            for focus in &statement.selected_foci {
-                let pair = SelectedPair {
-                    statement: normalized,
-                    focus: focus.focus.clone(),
-                };
-                for evaluation in validator.explain(&pair) {
-                    assert_eq!(evaluation.selected_foci[0].status(), focus.status());
-                    checked += 1;
-                }
-            }
-        }
-        assert!(checked > 0, "fixture selected no pairs");
     }
 
     #[test]
@@ -1329,23 +1231,57 @@ mod tests {
         let full = validator.validate(&ValidationOptions::default());
         assert_eq!(validator.constraints(), full.constraints);
     }
-    /// Known defect, recorded rather than asserted so the suite stays green.
+    /// A run must be reproducible, or nothing derived from one is.
     ///
-    /// Two `validate` calls over one prepared snapshot disagree: path values
-    /// reach `matched` in an order that varies between calls, and for a
-    /// `maxCount` failure that changes *which* value is reported in
-    /// `excess_values` — not merely how the list is ordered. Predates the
-    /// on-demand API (reproduced at 29e4cc8) and is not caused by it; the same
-    /// instability sits under `validate` itself, and under any artifact
-    /// generated from a run. Remove the `ignore` when path enumeration is made
-    /// order-stable.
+    /// Path values used to reach evidence in `HashSet` iteration order, which
+    /// varies between instances, so two runs over one snapshot disagreed — and
+    /// for a `maxCount` failure they named different values as excess, not just
+    /// in a different order.
     #[test]
-    #[ignore = "known nondeterminism in path-value order; see doc comment"]
     fn two_full_runs_agree() {
         let validator = prepared(&format!("{PREFIXES}{ON_DEMAND}"));
         let options = ValidationOptions::default();
         let first = validator.validate(&options);
         let second = validator.validate(&options);
         assert_eq!(first, second, "two runs over the same snapshot disagree");
+    }
+
+    /// Reproducibility has to survive re-preparation too: a fresh validator
+    /// over the same input is what a second process does.
+    #[test]
+    fn two_independent_validators_agree() {
+        let options = ValidationOptions::default();
+        let first = prepared(&format!("{PREFIXES}{ON_DEMAND}")).validate(&options);
+        let second = prepared(&format!("{PREFIXES}{ON_DEMAND}")).validate(&options);
+        assert_eq!(first, second, "two independent validators disagree");
+    }
+
+    /// The whole reason the instability mattered: on-demand explanation has to
+    /// reproduce the full run exactly, including which value is named excess.
+    #[test]
+    fn explaining_a_pair_matches_the_full_run() {
+        let validator = prepared(&format!("{PREFIXES}{ON_DEMAND}"));
+        let full = validator.validate(&ValidationOptions::default());
+
+        let mut checked = 0;
+        for statement in &full.statements {
+            let normalized = statement.normalized_statement_id.unwrap();
+            for focus in &statement.selected_foci {
+                let pair = SelectedPair {
+                    statement: normalized,
+                    focus: focus.focus.clone(),
+                };
+                let explained = validator.explain(&pair);
+                let matching = explained
+                    .iter()
+                    .find(|candidate| {
+                        candidate.source_statement_id == statement.source_statement_id
+                    })
+                    .expect("explain covers every authored statement of the pair");
+                assert_eq!(&matching.selected_foci[0], focus);
+                checked += 1;
+            }
+        }
+        assert!(checked > 0, "fixture selected no pairs");
     }
 }
