@@ -39,7 +39,16 @@ const VERSION: u64 = 1;
 /// then needs it supplied out of band ([`expand_with_catalog`]). Callers that
 /// already hold the schema the run was produced against should omit it.
 pub fn compact(run: &EvidenceRun, include_catalog: bool) -> serde_json::Result<Value> {
-    let mut value = serde_json::to_value(run)?;
+    Ok(compact_value(serde_json::to_value(run)?, include_catalog))
+}
+
+/// Encode an already-serialized run.
+///
+/// The typed form is not needed to compact — callers holding a run only as JSON
+/// (the language bindings, a stored artifact) can encode it without a typed
+/// round-trip.
+pub fn compact_value(mut value: Value, include_catalog: bool) -> Value {
+    let conforms = value.get("conforms").cloned().unwrap_or(json!(false));
     let catalog = value
         .get_mut("constraints")
         .map(Value::take)
@@ -59,14 +68,14 @@ pub fn compact(run: &EvidenceRun, include_catalog: bool) -> serde_json::Result<V
 
     let mut out = Map::new();
     out.insert("v".into(), json!(VERSION));
-    out.insert("conforms".into(), json!(run.conforms));
+    out.insert("conforms".into(), conforms);
     out.insert("terms".into(), Value::Array(terms.table));
     out.insert("nodes".into(), Value::Array(nodes.table));
     out.insert("statements".into(), statements);
     if let Some(catalog) = catalog {
         out.insert("constraints".into(), catalog);
     }
-    Ok(Value::Object(out))
+    Value::Object(out)
 }
 
 /// Serialize the compact encoding.
@@ -85,6 +94,13 @@ pub fn expand(value: &Value) -> Result<EvidenceRun, CompactError> {
 
 /// Reconstruct a run whose catalog was omitted, using a catalog held elsewhere.
 pub fn expand_with_catalog(value: &Value, catalog: Value) -> Result<EvidenceRun, CompactError> {
+    serde_json::from_value(expand_value(value, catalog)?).map_err(CompactError::Decode)
+}
+
+/// Reconstruct the serialized run without decoding it into the typed form.
+///
+/// The inverse of [`compact_value`], for callers that only move JSON around.
+pub fn expand_value(value: &Value, catalog: Value) -> Result<Value, CompactError> {
     let version = value.get("v").and_then(Value::as_u64);
     if version != Some(VERSION) {
         return Err(CompactError::Version(version));
@@ -110,7 +126,7 @@ pub fn expand_with_catalog(value: &Value, catalog: Value) -> Result<EvidenceRun,
     // holds no references and passes through unchanged.
     out.insert("constraints".into(), restore(&catalog, terms, &expanded));
     out.insert("statements".into(), restore(statements, terms, &expanded));
-    serde_json::from_value(Value::Object(out)).map_err(CompactError::Decode)
+    Ok(Value::Object(out))
 }
 
 /// Why a compact encoding could not be read back.

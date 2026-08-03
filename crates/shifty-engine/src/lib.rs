@@ -28,7 +28,8 @@ pub use enumerate::{
     EnumOptions, FixpointResult, RepairSolution, candidates, enumerate_repair, repair_to_fixpoint,
 };
 pub use compact::{
-    CompactError, compact, expand, expand_with_catalog, to_compact_json,
+    CompactError, compact, compact_value, expand, expand_value, expand_with_catalog,
+    to_compact_json,
 };
 pub use evidence::{
     ConformanceRun, PreparedEvidenceValidator, validate_graphs_with_evidence,

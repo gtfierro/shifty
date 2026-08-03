@@ -106,6 +106,7 @@ from ._shifty import (
     _infer,
     _validate_algebra,
     _validate_w3c,
+    expand_evidence_json as _expand_evidence_json,
     version,
 )
 
@@ -116,6 +117,7 @@ __all__ = [
     "validate",
     "validate_algebra",
     "infer",
+    "expand_evidence",
     "version",
     "__version__",
     "AlgebraResult",
@@ -509,6 +511,52 @@ def delta_from_graph(
     should appear in ``delete`` then ``add`` — the standard replace pattern).
     """
     return RepairDelta.from_ntriples(_to_ntriples(add), _to_ntriples(delete))
+
+
+def expand_evidence(
+    compact: Union[str, dict],
+    catalog: Optional[Union[str, dict, list]] = None,
+    *,
+    as_dict: bool = True,
+) -> Union[str, dict]:
+    """Restore a run compacted by :meth:`EvidenceRun.to_compact_json`.
+
+    The compact encoding stores each distinct evidence node and RDF term once
+    and refers to them by index; this puts the tree back exactly as
+    :meth:`EvidenceRun.to_dict` would have produced it.
+
+    Parameters
+    ----------
+    compact:
+        The compact encoding, as JSON text or an already-parsed ``dict``.
+    catalog:
+        The constraint catalog, required only when the encoding was written
+        with ``include_catalog=False``. This is the ``"constraints"`` value of
+        the original run.
+    as_dict:
+        Return a ``dict`` (the default) or JSON text.
+
+    Examples
+    --------
+    Send evidence across a process boundary without the catalog, which the
+    receiver already has from the schema::
+
+        run = shifty.EvidenceSession(shapes, data).validate()
+        wire = run.to_compact_json(include_catalog=False)
+        catalog = run.to_dict()["constraints"]
+        restored = shifty.expand_evidence(wire, catalog)
+        assert restored == run.to_dict()
+    """
+    import json as _json
+
+    compact_text = compact if isinstance(compact, str) else _json.dumps(compact)
+    catalog_text = (
+        catalog
+        if catalog is None or isinstance(catalog, str)
+        else _json.dumps(catalog)
+    )
+    expanded = _expand_evidence_json(compact_text, catalog_text)
+    return _json.loads(expanded) if as_dict else expanded
 
 
 class EvidenceSession:

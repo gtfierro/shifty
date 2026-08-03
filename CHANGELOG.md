@@ -10,7 +10,12 @@
 - Added `shifty_engine::compact`, a lossless encoding of an `EvidenceRun` that
   hash-conses evidence nodes and RDF terms into shared tables and can elide the
   constraint catalog for consumers that already hold the schema.
+  `compact_value`/`expand_value` encode and decode an already-serialized run
+  without a typed round-trip.
 - Added `PathBackend::contains()` for direct triple-existence checks.
+- Added the compact encoding to the Python bindings:
+  `EvidenceRun.to_compact_json()`, `EvidenceRun.to_compact_dict()`, and
+  `shifty.expand_evidence()`.
 - Added `benchmark/bench_evidence.sh`, `benchmark/summarize_evidence.py`, and
   `benchmark/analyze_evidence_size.py` covering evidence latency and size across
   the Brick and 223P corpora.

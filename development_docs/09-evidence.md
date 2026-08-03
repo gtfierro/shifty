@@ -36,7 +36,10 @@ for consumers that already hold the schema; those runs decode through
 
 The encoding is structural — it interns any tagged `{type, details}` object and
 any RDF term — so it tracks the evidence vocabulary without mirroring every
-variant, and the Python bindings get the same format.
+variant. `compact_value`/`expand_value` operate on already-serialized runs, so a
+caller holding one only as JSON encodes it without a typed round-trip; that is
+how the Python bindings expose it, as `EvidenceRun.to_compact_json()` and
+`shifty.expand_evidence()`.
 
 ## Guarantees
 

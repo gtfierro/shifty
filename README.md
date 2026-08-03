@@ -384,6 +384,33 @@ for statement in run.statements:
 assert run.to_dict() == json.loads(run.to_json())
 ```
 
+#### Compact encoding
+
+Full evidence repeats itself: the same conclusion is reached through many
+parents and written out at each occurrence, and the constraint catalog is
+emitted on every run whatever the findings. `to_compact_json()` hash-conses
+evidence nodes and RDF terms into shared tables and refers to them by index.
+It is lossless — `expand_evidence()` restores exactly what `to_dict()` produced.
+
+```python
+run = shifty.EvidenceSession(shapes, data).validate()
+
+packed = run.to_compact_json()
+assert shifty.expand_evidence(packed) == run.to_dict()
+
+# A consumer that already holds the schema does not need the catalog shipped
+# with every run — on a small graph the catalog is most of the payload.
+wire = run.to_compact_json(include_catalog=False)
+catalog = run.to_dict()["constraints"]
+assert shifty.expand_evidence(wire, catalog) == run.to_dict()
+```
+
+Across the 45 Brick and 19 ASHRAE 223P benchmark models this takes evidence from
+8,901 to 2,559 bytes per selected pair. Which redundancy dominates depends on
+the corpus: repeated subtrees on Brick (a 6× node redundancy), the fixed catalog
+on small 223P models. `to_compact_dict()` returns the same encoding already
+parsed, and `expand_evidence(..., as_dict=False)` returns JSON text.
+
 `walk()` traverses canonical evidence in deterministic pre-order. Projection
 methods preserve first occurrence in that order and deduplicate subsequent
 values or triples. A `PathSupport` is one concrete positive reachability

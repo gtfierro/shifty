@@ -143,3 +143,75 @@ def test_negative_recursive_cycle_is_rejected():
     """
     with pytest.raises(ValueError, match="non-stratifiable"):
         shifty.EvidenceSession(shapes, infer=False)
+
+
+def compaction_fixture():
+    """A run with repeated subtrees: two shapes stating the same constraint."""
+    shapes = PREFIXES + """
+    @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+    ex:S a sh:NodeShape ; sh:targetClass ex:T ;
+        sh:property [ sh:path ex:p ; sh:minCount 1 ; sh:class ex:C ] ;
+        sh:property [ sh:path ex:n ; sh:datatype xsd:integer ] .
+    ex:S2 a sh:NodeShape ; sh:targetClass ex:T ;
+        sh:property [ sh:path ex:p ; sh:minCount 1 ; sh:class ex:C ] .
+    """
+    data = PREFIXES + """
+    ex:good a ex:T ; ex:p ex:c1 ; ex:n 3 ; ex:label "hi"@en .
+    ex:bad a ex:T ; ex:n "not a number" .
+    ex:c1 a ex:C .
+    """
+    return shifty.EvidenceSession(shapes, data, infer=False).validate()
+
+
+def test_compact_round_trips_through_expand():
+    run = compaction_fixture()
+    restored = shifty.expand_evidence(run.to_compact_json())
+    assert restored == run.to_dict()
+
+
+def test_compact_accepts_and_returns_either_text_or_dicts():
+    run = compaction_fixture()
+    from_text = shifty.expand_evidence(run.to_compact_json())
+    from_dict = shifty.expand_evidence(run.to_compact_dict())
+    assert from_text == from_dict == run.to_dict()
+
+    as_text = shifty.expand_evidence(run.to_compact_json(), as_dict=False)
+    assert isinstance(as_text, str)
+    assert json.loads(as_text) == run.to_dict()
+
+
+def test_catalog_can_travel_out_of_band():
+    run = compaction_fixture()
+    wire = run.to_compact_json(include_catalog=False)
+    assert "constraints" not in json.loads(wire)
+
+    catalog = run.to_dict()["constraints"]
+    assert shifty.expand_evidence(wire, catalog) == run.to_dict()
+
+    # Without the catalog the encoding cannot be completed, and says so.
+    with pytest.raises(ValueError, match="catalog"):
+        shifty.expand_evidence(wire)
+
+
+def test_compact_is_smaller_and_elides_the_catalog():
+    run = compaction_fixture()
+    full = len(run.to_json())
+    packed = len(run.to_compact_json())
+    without_catalog = len(run.to_compact_json(include_catalog=False))
+    assert without_catalog < packed < full
+    # Repeated subtrees collapse: fewer stored nodes than emitted ones.
+    stored = len(run.to_compact_dict()["nodes"])
+    emitted = sum(
+        len(focus.evidence.walk())
+        for statement in run.statements
+        for focus in statement.selected_foci
+    )
+    assert stored < emitted
+
+
+def test_a_foreign_version_is_rejected():
+    run = compaction_fixture()
+    encoded = run.to_compact_dict()
+    encoded["v"] = 999
+    with pytest.raises(ValueError, match="version"):
+        shifty.expand_evidence(encoded)

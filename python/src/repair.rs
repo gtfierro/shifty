@@ -1530,6 +1530,26 @@ impl EvidenceValidationOutcome {
             .unbind())
     }
 
+    /// Compact encoding of this run: evidence nodes and RDF terms hash-consed
+    /// into shared tables, and optionally without the constraint catalog.
+    /// Lossless — `shifty.expand_evidence` restores the full run.
+    #[pyo3(signature = (include_catalog=true))]
+    fn to_compact_json(&self, include_catalog: bool) -> PyResult<String> {
+        let value: serde_json::Value = serde_json::from_str(&self.json)
+            .map_err(|error| py_value_error(format!("cannot read evidence: {error}")))?;
+        serde_json::to_string(&shifty_engine::compact_value(value, include_catalog))
+            .map_err(|error| py_value_error(format!("cannot serialize evidence: {error}")))
+    }
+
+    #[pyo3(signature = (include_catalog=true))]
+    fn to_compact_dict(&self, py: Python<'_>, include_catalog: bool) -> PyResult<Py<PyAny>> {
+        let compact = self.to_compact_json(include_catalog)?;
+        Ok(py
+            .import("json")?
+            .call_method1("loads", (compact,))?
+            .unbind())
+    }
+
     fn __bool__(&self) -> bool {
         self.conforms
     }
@@ -1541,6 +1561,30 @@ impl EvidenceValidationOutcome {
             self.statements.len()
         )
     }
+}
+
+/// Restore a run compacted by `EvidenceRun.to_compact_json`.
+///
+/// `catalog` supplies the constraint catalog for an encoding written with
+/// `include_catalog=False`; it is the `"constraints"` value of the original
+/// run. Returns the full run as JSON text.
+#[pyfunction]
+#[pyo3(name = "expand_evidence_json", signature = (compact, catalog=None))]
+pub fn expand_evidence_json(compact: &str, catalog: Option<&str>) -> PyResult<String> {
+    let value: serde_json::Value = serde_json::from_str(compact)
+        .map_err(|error| py_value_error(format!("cannot read compact evidence: {error}")))?;
+    let catalog = match catalog {
+        Some(text) => serde_json::from_str(text)
+            .map_err(|error| py_value_error(format!("cannot read catalog: {error}")))?,
+        None => value
+            .get("constraints")
+            .cloned()
+            .ok_or_else(|| py_value_error("compact evidence omits its constraint catalog; pass catalog=".into()))?,
+    };
+    let expanded = shifty_engine::expand_value(&value, catalog)
+        .map_err(|error| py_value_error(error.to_string()))?;
+    serde_json::to_string(&expanded)
+        .map_err(|error| py_value_error(format!("cannot serialize evidence: {error}")))
 }
 
 /// Prepared evidence validation over one immutable shapes/data snapshot.
@@ -2266,6 +2310,7 @@ impl RepairOutcome {
 
 /// Register the repair classes on the `_shifty` module.
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_function(wrap_pyfunction!(expand_evidence_json, m)?)?;
     m.add_class::<EvidenceSession>()?;
     m.add_class::<EvidenceValidationOutcome>()?;
     m.add_class::<PyStatementEvaluation>()?;
