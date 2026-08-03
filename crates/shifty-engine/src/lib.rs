@@ -32,7 +32,7 @@ pub use compact::{
     sharing, to_compact_json,
 };
 pub use evidence::{
-    ConformanceRun, PreparedEvidenceValidator, validate_graphs_with_evidence,
+    ConformanceRun, PreparedEvidenceValidator, SelectedPair, validate_graphs_with_evidence,
     validate_graphs_with_evidence_and_mode, validate_graphs_with_evidence_and_mode_and_options,
     validate_with_context_and_evidence, validate_with_context_and_evidence_and_options,
     validate_with_evidence, validate_with_evidence_and_options,

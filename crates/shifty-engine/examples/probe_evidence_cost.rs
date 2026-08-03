@@ -97,6 +97,24 @@ fn main() {
     let collector = profile::take().expect("profiling enabled");
     let evidence_cache = collector.shape_cache().clone();
 
+    // ---- arm C: on-demand ---------------------------------------------------
+    // What a caller pays who wants explanations only for what failed: one
+    // conformance pass that also records the failing pairs, then evidence
+    // materialized for those pairs alone.
+    profile::enable();
+    let start = Instant::now();
+    let (_, failures) = prepared.find_failures(&options);
+    let find_ms = start.elapsed().as_secs_f64() * 1e3;
+    let start = Instant::now();
+    let explained: usize = failures
+        .iter()
+        .map(|pair| prepared.explain(pair).len())
+        .sum();
+    let explain_ms = start.elapsed().as_secs_f64() * 1e3;
+    let _ = profile::take();
+    let _ = profile::take_evidence_visits();
+    let _ = profile::take_path_probes();
+
     let pairs = conformance.selected_pairs.max(1) as f64;
     let retained = run.walk().len();
 
@@ -226,6 +244,20 @@ fn main() {
         "materialization total:     {:.1} ms over {} statement(s)",
         materialization_us as f64 / 1e3,
         materialization.len()
+    );
+    println!();
+    println!(
+        "on-demand: {} failing pair(s) of {} selected -> {} explanation(s)",
+        failures.len(),
+        conformance.selected_pairs,
+        explained
+    );
+    println!(
+        "  find_failures {find_ms:.1} ms + explain {explain_ms:.1} ms = {:.1} ms  \
+         ({:.2}x the full evidence run, {:.2}x conformance alone)",
+        find_ms + explain_ms,
+        (find_ms + explain_ms) / evidence_ms.max(f64::MIN_POSITIVE),
+        (find_ms + explain_ms) / conformance_ms.max(f64::MIN_POSITIVE)
     );
 
     let mut ranked = materialization;
