@@ -1332,6 +1332,7 @@ dependencies = [
  "oxrdf",
  "oxsdatatypes",
  "regex",
+ "rustc-hash",
  "serde",
  "serde_json",
  "shifty-algebra",

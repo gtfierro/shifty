@@ -25,6 +25,7 @@ use shifty_algebra::{
     SparqlConstraint,
 };
 use shifty_opt::{FocusSource, PhysicalPlan, analyze};
+use rustc_hash::{FxHashMap, FxHashSet};
 use std::cmp::Ordering;
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fmt;
@@ -36,10 +37,22 @@ struct EvalResult {
     cacheable: bool,
 }
 
+/// Keyed by shape first so a probe can borrow the term instead of owning it: a
+/// flat `(ShapeId, Term)` key cannot be looked up without materializing the
+/// tuple, so every hit paid a `Term` clone it then discarded — 75–82% of probes
+/// on the Brick corpus. Hashing is `Fx` rather than SipHash because these keys
+/// are shape ids and terms from an already-parsed graph, never adversarial
+/// input.
+///
+/// Both are modest: together they are ~3–5% of evidence-materialization time
+/// and 4–15% of conformance time. Key handling is *not* where evidence tracing
+/// spends itself — the cost is re-deriving the same `(shape, focus)` conclusion
+/// through many parents, which needs a cache of evidence values, not a cheaper
+/// probe.
 #[derive(Default)]
 struct EvalState {
-    memo: HashMap<(ShapeId, Term), bool>,
-    active: HashSet<(ShapeId, Term)>,
+    memo: FxHashMap<ShapeId, FxHashMap<Term, bool>>,
+    active: FxHashMap<ShapeId, FxHashSet<Term>>,
     telemetry: Option<ShapeCacheSample>,
 }
 
@@ -96,7 +109,7 @@ impl Drop for ShapeEvaluator<'_> {
         let Some(mut sample) = self.state.telemetry else {
             return;
         };
-        sample.entries = self.state.memo.len();
+        sample.entries = self.state.memo.values().map(HashMap::len).sum();
         sample.estimated_bytes = estimated_memo_bytes(&self.state.memo);
         crate::profile::record_shape_cache(sample);
     }
@@ -813,8 +826,7 @@ fn holds_memoized(
     sparql: &SparqlExecutor,
     state: &mut EvalState,
 ) -> EvalResult {
-    let key = (id, v.clone());
-    if let Some(&holds) = state.memo.get(&key) {
+    if let Some(&holds) = state.memo.get(&id).and_then(|by_term| by_term.get(v)) {
         if let Some(telemetry) = state.telemetry.as_mut() {
             telemetry.hits += 1;
         }
@@ -826,7 +838,7 @@ fn holds_memoized(
     if let Some(telemetry) = state.telemetry.as_mut() {
         telemetry.misses += 1;
     }
-    if !state.active.insert(key.clone()) {
+    if !state.active.entry(id).or_default().insert(v.clone()) {
         if let Some(telemetry) = state.telemetry.as_mut() {
             telemetry.recursion_back_edges += 1;
         }
@@ -949,9 +961,12 @@ fn holds_memoized(
             }
         }
     };
-    state.active.remove(&key);
+    // Reclaim the term the active set owns rather than cloning `v` again: the
+    // miss path then allocates once, not twice.
+    let owned = state.active.get_mut(&id).and_then(|set| set.take(v));
     if result.cacheable {
-        state.memo.insert(key, result.holds);
+        let key = owned.unwrap_or_else(|| v.clone());
+        state.memo.entry(id).or_default().insert(key, result.holds);
         if let Some(telemetry) = state.telemetry.as_mut() {
             telemetry.insertions += 1;
         }
@@ -1028,15 +1043,17 @@ pub(crate) fn is_boolean_true(t: &Term) -> bool {
     matches!(t, Term::Literal(l) if l.datatype() == oxrdf::vocab::xsd::BOOLEAN && l.value() == "true")
 }
 
-fn estimated_memo_bytes(memo: &HashMap<(ShapeId, Term), bool>) -> usize {
+fn estimated_memo_bytes(memo: &FxHashMap<ShapeId, FxHashMap<Term, bool>>) -> usize {
     const CONTROL_BYTE_ESTIMATE: usize = 1;
-    let bucket_bytes =
-        memo.capacity() * (std::mem::size_of::<((ShapeId, Term), bool)>() + CONTROL_BYTE_ESTIMATE);
-    bucket_bytes
-        + memo
-            .keys()
-            .map(|(_, term)| estimated_term_heap_bytes(term))
-            .sum::<usize>()
+    const ENTRY_BYTES: usize = std::mem::size_of::<(Term, bool)>() + CONTROL_BYTE_ESTIMATE;
+    memo.values()
+        .map(|by_term| {
+            by_term.capacity() * ENTRY_BYTES
+                + by_term.keys().map(estimated_term_heap_bytes).sum::<usize>()
+        })
+        .sum::<usize>()
+        + memo.capacity()
+            * (std::mem::size_of::<(ShapeId, FxHashMap<Term, bool>)>() + CONTROL_BYTE_ESTIMATE)
 }
 
 fn estimated_term_heap_bytes(term: &Term) -> usize {
