@@ -99,17 +99,27 @@ for any run.
    :header-rows: 1
 
    * - Cause
-     - Measured on ``bldg1.ttl``
+     - Brick (median)
+     - 223P (median)
    * - Repeated RDF terms
-     - 243,249 occurrences of 548 distinct terms — 444x, rising to 998x on
-       ``bldg11``
+     - 498x
+     - 68x
    * - Repeated evidence subtrees
-     - 105,673 occurrences of 19,765 distinct nodes — 5.3x, roughly constant
-       across the corpus
+     - 5.41x
+     - 1.78x
    * - The constraint catalog
-     - fixed per run regardless of findings; 57% of a small 223P run
+     - fixed per run regardless of findings — 57% of a small 223P run
 
-Terms, not subtrees, are the dominant lever. Together they take ``bldg1`` from
+Terms, not subtrees, are the dominant lever on both corpora. How much either is
+worth, though, is a property of the corpus and not of the encoding: Brick models
+restate a small vocabulary across many similar assets, while 223P models are
+more varied, and the gap between 498x and 68x follows from that rather than from
+anything the encoder does. It shows up in the result — the compact encoding is
+76% smaller on Brick and 50% smaller on 223P, where the fixed catalog is a much
+larger share of a smaller run.
+
+Concretely, on ``bldg1.ttl``: 243,249 term occurrences of 548 distinct terms,
+105,673 evidence-node occurrences of 19,765 distinct nodes, taking the run from
 33.1 MB to 9.5 MB with the catalog and 7.3 MB without.
 
 Measure sharing with ``shifty_engine::sharing()`` rather than by comparing
