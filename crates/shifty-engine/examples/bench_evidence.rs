@@ -83,7 +83,9 @@ authored_pairs,authored_pass_pairs,authored_fail_pairs,\
 statements,\
 evidence_nodes,evidence_nodes_per_pair,\
 evidence_bytes,evidence_bytes_per_pair,run_bytes,\
-compact_bytes,compact_bytes_no_catalog,compact_nodes,compact_terms";
+compact_bytes,compact_bytes_no_catalog,\
+node_occurrences,distinct_nodes,node_redundancy,\
+term_occurrences,distinct_terms,term_redundancy";
 
 fn main() {
     let args = parse_args();
@@ -214,14 +216,10 @@ fn main() {
         let compact_bytes_no_catalog = shifty_engine::to_compact_json(&run, false)
             .expect("compact encoding succeeds")
             .len();
-        let table_len = |key: &str| {
-            encoded
-                .get(key)
-                .and_then(|value| value.as_array())
-                .map_or(0, Vec::len)
-        };
-        let compact_nodes = table_len("nodes");
-        let compact_terms = table_len("terms");
+        // Sharing is reported over the evidence alone. The node and term tables
+        // of `encoded` also hold catalog entries, which would understate the
+        // redundancy by adding distinct entries with no evidence occurrences.
+        let sharing = shifty_engine::sharing(&run).expect("sharing measures");
 
         // Paired per-iteration ratios, computed before `summarize` sorts the
         // samples. The arms are interleaved, so each iteration compares them
@@ -258,8 +256,16 @@ fn main() {
 {statements},\
 {evidence_nodes},{nodes_per_pair:.3},\
 {evidence_bytes},{bytes_per_pair:.1},{run_bytes},\
-{compact_bytes},{compact_bytes_no_catalog},{compact_nodes},{compact_terms}",
+{compact_bytes},{compact_bytes_no_catalog},\
+{node_occurrences},{distinct_nodes},{node_redundancy:.3},\
+{term_occurrences},{distinct_terms},{term_redundancy:.3}",
             suite = args.suite,
+            node_occurrences = sharing.node_occurrences,
+            distinct_nodes = sharing.distinct_nodes,
+            node_redundancy = sharing.node_redundancy(),
+            term_occurrences = sharing.term_occurrences,
+            distinct_terms = sharing.distinct_terms,
+            term_redundancy = sharing.term_redundancy(),
             c_mean = conformance_ms.mean,
             c_sd = conformance_ms.sd,
             c_cv = conformance_ms.cv(),

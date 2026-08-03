@@ -127,6 +127,15 @@ Size columns cover both encodings: `run_bytes` is the full `EvidenceRun`,
 `compact_bytes` the hash-consed encoding, and `compact_bytes_no_catalog` the
 same with the constraint catalog elided for consumers that hold the schema.
 
+`node_redundancy` and `term_redundancy` say *why* the compact encoding is
+smaller: occurrences per distinct entry, for evidence nodes and for RDF terms.
+Both are measured over the evidence alone, excluding the constraint catalog —
+the catalog is interned into the same tables, so counting it would add distinct
+entries that no evidence occurrence refers to and understate the sharing. They
+come from `shifty_engine::sharing()`, which counts against the same predicates
+the encoder interns by, so the reported ratio cannot drift from what compaction
+collapses.
+
 ### Downloading and generating LUBM
 
 Brick and 223P are checked in; LUBM is not. It is distributed by Lehigh, so the

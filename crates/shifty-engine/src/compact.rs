@@ -1,15 +1,25 @@
 //! Compact, lossless encoding of an [`EvidenceRun`](crate::EvidenceRun).
 //!
-//! Full evidence is large for two measured reasons, and they dominate on
+//! Full evidence is large for three measured reasons, and they dominate on
 //! different corpora:
 //!
+//!   * **Repeated terms.** The same IRIs recur at every mention. On
+//!     `brick/models/bldg1.ttl` (2,650 triples) 243,249 term occurrences are
+//!     548 distinct terms — a 444× redundancy, and the single largest lever.
+//!     It grows with the corpus: `bldg11.ttl` reaches 998×.
 //!   * **Repeated subtrees.** The same `(constraint, node)` conclusion is
 //!     reached through many parents, and each occurrence is written out in
-//!     full. On a Brick model 120,811 emitted evidence nodes reduce to 20,165
-//!     distinct ones — a 6× redundancy that is ~57% of the serialized run.
+//!     full. On the same model 105,673 evidence-node occurrences are 19,765
+//!     distinct nodes — 5.3×, and roughly constant across the Brick corpus.
 //!   * **The constraint catalog.** Both arenas are dumped on every run
-//!     regardless of how many findings there are. On a small 223P model that
-//!     fixed cost is ~57% of the run.
+//!     regardless of how many findings there are. On a small 223P model
+//!     (`guideline36-2021-A-1.ttl`, 146 triples) that fixed cost is 2.02 MB of
+//!     a 3.52 MB run — 57%.
+//!
+//! Together, on `bldg1.ttl`, a 33.1 MB run encodes to 9.8 MB with its catalog
+//! and 7.6 MB without. [`sharing`] reports the two redundancy factors for a run
+//! directly, measured against the very predicates the encoder interns by, so a
+//! quoted ratio cannot drift from what compaction actually collapses.
 //!
 //! This encoding removes both without losing anything: evidence nodes and RDF
 //! terms are hash-consed into tables and referenced by index, and the catalog
@@ -47,7 +57,57 @@ pub fn compact(run: &EvidenceRun, include_catalog: bool) -> serde_json::Result<V
 /// The typed form is not needed to compact — callers holding a run only as JSON
 /// (the language bindings, a stored artifact) can encode it without a typed
 /// round-trip.
-pub fn compact_value(mut value: Value, include_catalog: bool) -> Value {
+pub fn compact_value(value: Value, include_catalog: bool) -> Value {
+    encode(value, include_catalog).0
+}
+
+/// How often the interned entries of a run repeat.
+///
+/// Counted over the evidence alone — the `statements` — because that is the
+/// part that grows with the corpus. The catalog is a fixed per-run cost and
+/// would flatter the ratio: it is interned into the same tables, so folding it
+/// in adds distinct entries without adding evidence occurrences.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Sharing {
+    /// Tagged evidence nodes as written out by the full encoding.
+    pub node_occurrences: usize,
+    /// Distinct such nodes, i.e. the size of the node table.
+    pub distinct_nodes: usize,
+    /// RDF terms as written out by the full encoding.
+    pub term_occurrences: usize,
+    /// Distinct such terms, i.e. the size of the term table.
+    pub distinct_terms: usize,
+}
+
+impl Sharing {
+    /// Occurrences per distinct node; 1.0 when nothing repeats.
+    pub fn node_redundancy(&self) -> f64 {
+        ratio(self.node_occurrences, self.distinct_nodes)
+    }
+
+    /// Occurrences per distinct term; 1.0 when nothing repeats.
+    pub fn term_redundancy(&self) -> f64 {
+        ratio(self.term_occurrences, self.distinct_terms)
+    }
+}
+
+fn ratio(occurrences: usize, distinct: usize) -> f64 {
+    if distinct == 0 {
+        1.0
+    } else {
+        occurrences as f64 / distinct as f64
+    }
+}
+
+/// Measure how much a run's evidence repeats, without keeping the encoding.
+///
+/// Reported against the same predicates the encoder interns by, so the ratio
+/// cannot drift from what compaction actually collapses.
+pub fn sharing(run: &EvidenceRun) -> serde_json::Result<Sharing> {
+    Ok(encode(serde_json::to_value(run)?, false).1)
+}
+
+fn encode(mut value: Value, include_catalog: bool) -> (Value, Sharing) {
     let conforms = value.get("conforms").cloned().unwrap_or(json!(false));
     let catalog = value
         .get_mut("constraints")
@@ -61,6 +121,14 @@ pub fn compact_value(mut value: Value, include_catalog: bool) -> Value {
         &mut terms,
         &mut nodes,
     );
+    // Read the counters before the catalog perturbs them: this is the sharing
+    // among the evidence itself.
+    let sharing = Sharing {
+        node_occurrences: nodes.occurrences,
+        distinct_nodes: nodes.table.len(),
+        term_occurrences: terms.occurrences,
+        distinct_terms: terms.table.len(),
+    };
     // The catalog shares the same tables: its shapes are the very constraints
     // the evidence nodes refer to, so interning both together collapses the
     // overlap instead of writing each side out separately.
@@ -75,7 +143,7 @@ pub fn compact_value(mut value: Value, include_catalog: bool) -> Value {
     if let Some(catalog) = catalog {
         out.insert("constraints".into(), catalog);
     }
-    Value::Object(out)
+    (Value::Object(out), sharing)
 }
 
 /// Serialize the compact encoding.
@@ -173,12 +241,16 @@ fn array<'a>(value: &'a Value, key: &str) -> Result<&'a [Value], CompactError> {
 struct Interner {
     table: Vec<Value>,
     index: HashMap<String, usize>,
+    /// Every intern call, whether or not it was a first sight. The excess over
+    /// `table.len()` is exactly what the encoding collapses.
+    occurrences: usize,
 }
 
 impl Interner {
     /// The id for `value`, inserting it on first sight. Keyed by the value's
     /// canonical text, so structurally identical entries collapse.
     fn intern(&mut self, value: Value) -> usize {
+        self.occurrences += 1;
         let key = value.to_string();
         if let Some(&id) = self.index.get(&key) {
             return id;
@@ -342,6 +414,46 @@ mod tests {
         let full = original.to_json().unwrap().len();
         let packed = to_compact_json(&original, true).unwrap().len();
         assert!(packed < full, "compact {packed} not smaller than full {full}");
+    }
+
+    #[test]
+    fn sharing_counts_the_evidence_the_encoder_interns() {
+        let original = run();
+        let measured = sharing(&original).unwrap();
+
+        // Distinct counts are the tables the encoding actually writes, and the
+        // catalog must not inflate them: it is interned into the same tables,
+        // so measuring off the full encoding would report more distinct nodes
+        // than the evidence has occurrences.
+        let encoded = compact(&original, false).unwrap();
+        let table = |key: &str| encoded.get(key).unwrap().as_array().unwrap().len();
+        assert_eq!(measured.distinct_nodes, table("nodes"));
+        assert_eq!(measured.distinct_terms, table("terms"));
+        assert_eq!(
+            table("nodes"),
+            compact(&original, true)
+                .unwrap()
+                .get("nodes")
+                .unwrap()
+                .as_array()
+                .unwrap()
+                .len()
+                .min(table("nodes")),
+            "the catalog only ever adds entries"
+        );
+
+        // Occurrences exceed distinct entries exactly when something repeats,
+        // which is what the fixture is built to do.
+        assert!(measured.node_occurrences > measured.distinct_nodes);
+        assert!(measured.term_occurrences > measured.distinct_terms);
+        assert!(measured.node_redundancy() > 1.0);
+        assert!(measured.term_redundancy() > 1.0);
+    }
+
+    #[test]
+    fn sharing_of_nothing_is_one() {
+        assert_eq!(Sharing::default().node_redundancy(), 1.0);
+        assert_eq!(Sharing::default().term_redundancy(), 1.0);
     }
 
     #[test]

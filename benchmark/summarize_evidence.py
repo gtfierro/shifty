@@ -92,12 +92,19 @@ def load(path: str) -> list[dict]:
         "run_bytes": int,
         "compact_bytes": int,
         "compact_bytes_no_catalog": int,
-        "compact_nodes": int,
-        "compact_terms": int,
+        "node_occurrences": int,
+        "distinct_nodes": int,
+        "node_redundancy": float,
+        "term_occurrences": int,
+        "distinct_terms": int,
+        "term_redundancy": float,
     }
     for row in rows:
+        # Sharing columns postdate the first published runs; a CSV without them
+        # still summarizes, rather than failing on a column nothing plots.
         for key, cast in numeric.items():
-            row[key] = cast(row[key])
+            if key in row:
+                row[key] = cast(row[key])
         row["conforms_conformance"] = row["conforms_conformance"] == "true"
         row["conforms_evidence"] = row["conforms_evidence"] == "true"
     return rows
