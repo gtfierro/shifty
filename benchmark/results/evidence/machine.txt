@@ -1,0 +1,13 @@
+2026-08-04T16:49:11Z
+5171bc0c849ae05b168fde8eda1984db31b1a5df
+rustc 1.97.1 (8bab26f4f 2026-07-14)
+binary: rustc
+commit-hash: 8bab26f4f68e0e26f0bb7960be334d5b520ea452
+commit-date: 2026-07-14
+host: aarch64-apple-darwin
+release: 1.97.1
+LLVM version: 22.1.6
+Darwin MacBook-Air-6.local 25.5.0 Darwin Kernel Version 25.5.0: Tue Jun  9 22:27:52 PDT 2026; root:xnu-12377.121.10~1/RELEASE_ARM64_T8112 arm64
+BENCH_ITERS=10
+BENCH_BUDGET_MS=0
+suites=brick s223
