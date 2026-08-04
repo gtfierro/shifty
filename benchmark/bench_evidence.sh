@@ -6,10 +6,8 @@
 # against dual-evidence execution from that same snapshot.
 #
 # Usage:
-#   ./benchmark/bench_evidence.sh                  # both stock suites -> CSV
+#   ./benchmark/bench_evidence.sh                  # both suites -> CSV
 #   ./benchmark/bench_evidence.sh brick            # one suite
-#   ./benchmark/bench_evidence.sh lubm             # generated LUBM corpus,
-#                                                  # see lubm/generate.sh
 #   BENCH_ITERS=9 ./benchmark/bench_evidence.sh > results/evidence.csv
 #
 # BENCH_ITERS (default 5) is the timed iteration count, the same for every
@@ -43,12 +41,7 @@ for suite in "${SUITES[@]}"; do
     case "$suite" in
         brick) shapes="$SCRIPT_DIR/brick/Brick-closure.ttl" ;;
         s223)  shapes="$SCRIPT_DIR/s223/223p-closure.ttl" ;;
-        lubm)  shapes="$SCRIPT_DIR/lubm/lubm-closure.ttl"
-               if [ ! -f "$shapes" ]; then
-                   echo "lubm suite not generated yet: run ./benchmark/lubm/generate.sh" >&2
-                   exit 2
-               fi ;;
-        *) echo "unknown suite: $suite (expected 'brick', 's223', or 'lubm')" >&2; exit 2 ;;
+        *) echo "unknown suite: $suite (expected 'brick' or 's223')" >&2; exit 2 ;;
     esac
 
     echo "=== $suite ===" >&2

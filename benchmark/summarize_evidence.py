@@ -260,12 +260,12 @@ def emit_per_model(rows: list[dict], markdown: bool) -> None:
         print(line(row))
 
 
-SUITE_LABELS = {"brick": "Brick", "s223": "ASHRAE 223P", "lubm": "LUBM", "all": "All"}
+SUITE_LABELS = {"brick": "Brick", "s223": "ASHRAE 223P", "all": "All"}
 
-# Categorical slots 1–3 of the validated reference palette. Three is the cap
+# Categorical slots 1–2 of the validated reference palette. Three is the cap
 # that clears the all-pairs colour-vision floors, which is the pairlist scatter
 # plots need; a fourth suite folds into a facet rather than a new hue.
-SUITE_COLORS = {"brick": "#2a78d6", "s223": "#eb6834", "lubm": "#1baf7a"}
+SUITE_COLORS = {"brick": "#2a78d6", "s223": "#eb6834"}
 GRID = "#d8d7d2"
 INK = "#0b0b0b"
 MUTED = "#52514e"

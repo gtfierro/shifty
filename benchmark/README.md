@@ -79,7 +79,7 @@ busy and the run should be repeated.
 ### Running one suite
 
 ```sh
-./benchmark/bench_evidence.sh brick > brick.csv     # or s223, or lubm
+./benchmark/bench_evidence.sh brick > brick.csv     # or s223
 ```
 
 Unlike the scripts above it does not shell out to the CLI, because the CLI
@@ -136,32 +136,37 @@ come from `shifty_engine::sharing()`, which counts against the same predicates
 the encoder interns by, so the reported ratio cannot drift from what compaction
 collapses.
 
-### Downloading and generating LUBM
+### Check the ratio's denominator before reading it as a trend
 
-Brick and 223P are checked in; LUBM is not. It is distributed by Lehigh, so the
-ontology and the UBA data generator are downloaded on first run rather than
-vendored here:
+`overhead_ratio_*` sorted by `data_triples` rises steeply — roughly 1.4x on the
+smallest models to ~5x on the largest — which reads as evidence tracing getting
+more expensive on bigger graphs. In the last run it was not: decomposing both
+arms by `evaluated_pairs` showed evidence at a near-constant cost per pair while
+*conformance* got several times cheaper per pair as models grew. The ratio moved
+because the denominator fell.
 
-```sh
-./benchmark/lubm/generate.sh        # 5 universities, ~600k triples
-./benchmark/lubm/generate.sh 25     # any university count
-./benchmark/bench_evidence.sh lubm > lubm.csv
-```
+Worth re-checking against fresh numbers rather than assumed, since it decides
+what the ratio can be claimed to show. Divide `conformance_ms_median` and
+`evidence_ms_median` by `evaluated_pairs` and look at each arm separately. For
+reference, `results/evidence/evidence.csv` as of that run gave, smallest to
+largest model:
 
-`generate.sh` fetches `univ-bench.owl` and `uba1.7.zip` from
-`swat.cse.lehigh.edu` into `benchmark/lubm/.uba/`, runs the generator, converts
-its RDF/XML output to Turtle, and writes one model per university into
-`benchmark/lubm/models/` plus the `lubm-closure.ttl` that `--shapes` wants. It
-needs `java` (UBA is a Java tool), `curl`, `unzip`, and `uv`; downloads and
-generated data are gitignored. `LUBM_SEED` fixes the generator seed (default 0)
-so a corpus is reproducible across machines.
+| | conformance µs/pair | evidence µs/pair |
+|---|---|---|
+| Brick | 125 → 23 | 176 → 130 |
+| 223P | 51 → 15 | 70 → 43 |
 
-Re-running is incremental: the download, generation, and conversion steps each
-skip work that already exists, so changing the university count means clearing
-`benchmark/lubm/.uba/generated` (or the whole `.uba/` directory) first. Because
-university count is a parameter, this is the one suite that can answer whether
-evidence overhead is constant in data size — see `benchmark/lubm/README.md` for
-the scaling sweep and for what the shapes deliberately cover.
+`pnnl-bdg2-1` is the useful check from the other direction — the largest 223P
+model, but the *lowest* ratio in its suite (1.78x), because its conformance is
+anomalously expensive per pair rather than because its evidence is cheap.
+
+Bytes behave differently from time and the two corpora disagreed, which is the
+part most worth confirming: `evidence_bytes_per_pair` grew about 19x across
+Brick (995 → 19,110) while staying flat on 223P (~2,000) over a comparable size
+range. If that holds it is a statement about structure — Brick's larger models
+having deeper `subClassOf*` chains and more path branching per focus — and not
+about triple count, so it should not be reported as a size effect without
+checking `evidence_nodes_per_pair` alongside it.
 
 ### Attribution
 
@@ -207,14 +212,7 @@ benchmark/
     223p.ttl               # ASHRAE 223P ontology
     223p-closure.ttl       # 223P + all transitive OWL imports (used by scripts)
     models/                # 19 real building models (NIST, LBNL, NREL, PNNL)
-  lubm/
-    shapes.ttl             # the SHACL side of the suite (LUBM ships queries, not shapes)
-    generate.sh            # downloads LUBM and generates the corpus
-    univ-bench.ttl         # ontology            ] generated, gitignored
-    lubm-closure.ttl       # ontology + shapes   ]
-    models/                # one model per university
 ```
 
 The `*-closure.ttl` files are pre-computed and passed as the `--shapes` argument
-so the engine does not need to fetch remote imports at benchmark time. The Brick
-and 223P files are checked in; LUBM's are produced by `generate.sh` above.
+so the engine does not need to fetch remote imports at benchmark time.
