@@ -22,7 +22,7 @@ use std::collections::{BTreeSet, HashSet, VecDeque};
 
 /// Why one focus node failed one statement: the failed sub-structure of `φ`,
 /// pruned to exactly the parts that did not hold. The input to repair synthesis.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
 pub struct FocusWitness {
     pub focus: Term,
     /// Index of the violated `(selector, shape)` statement in the schema.
@@ -31,7 +31,7 @@ pub struct FocusWitness {
 }
 
 /// The relational (pairwise) leaf constraints — distinct from value-type atoms.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash)]
 pub enum RelKind {
     Eq,
     Disj,
@@ -45,7 +45,7 @@ pub enum RelKind {
 ///
 /// This is deliberately *not* a complete deletion cut: an alternative or
 /// cyclic path may have additional routes that are not represented here.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
 #[serde(tag = "type", content = "details", rename_all = "snake_case")]
 pub enum PathSupport {
     /// Reflexive (`Id`): the node reached itself; nothing to cut.
@@ -61,7 +61,7 @@ pub enum PathSupport {
 }
 
 /// A reached value that satisfied a qualified count's nested shape.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
 pub struct QualifiedMatch {
     pub value: Term,
     pub path_support: PathSupport,
@@ -69,7 +69,7 @@ pub struct QualifiedMatch {
 }
 
 /// A reached near-match that failed a qualified count's nested shape.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
 pub struct RejectedCandidate {
     pub value: Term,
     pub path_support: PathSupport,
@@ -77,7 +77,7 @@ pub struct RejectedCandidate {
 }
 
 /// The failed sub-structure of `φ` (additive direction: what to *add*).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
 #[serde(tag = "type", content = "details", rename_all = "snake_case")]
 pub enum Witness {
     /// A value-type leaf failed at `node` (TestConst / TestType / TestKind).
@@ -169,7 +169,7 @@ pub enum Witness {
 
 /// Why `φ` currently *holds* at a node (deletive direction: what to *delete*).
 /// The dual of [`Witness`].
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
 #[serde(tag = "type", content = "details", rename_all = "snake_case")]
 pub enum SatTrace {
     /// `⊤` — vacuously true; no graph edit falsifies it.
@@ -236,7 +236,7 @@ pub enum SatTrace {
 }
 
 /// The applicable evidence polarity for one selected `(statement, focus)` pair.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
 #[serde(tag = "status", content = "evidence", rename_all = "snake_case")]
 pub enum Evidence {
     #[serde(rename = "pass")]
@@ -252,7 +252,7 @@ pub type Failure = Witness;
 /// Public name for pass-side evidence.
 pub type Satisfaction = SatTrace;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash)]
 #[serde(rename_all = "snake_case")]
 pub enum EvaluationStatus {
     Pass,
@@ -341,11 +341,23 @@ pub enum EvidenceNodeRef<'a> {
     Failure(&'a Witness),
 }
 
-impl EvidenceNodeRef<'_> {
+impl<'a> EvidenceNodeRef<'a> {
     pub fn constraint_id(self) -> ShapeId {
         match self {
             Self::Satisfaction(value) => satisfaction_constraint_id(value),
             Self::Failure(value) => failure_constraint_id(value),
+        }
+    }
+
+    /// The node this judgment is about, completing the `(constraint, node)`
+    /// address the shape memo (`validate.rs`) is keyed by.
+    ///
+    /// `None` only for [`SatTrace::Irrefutable`], which is `⊤` and so is about
+    /// no node at all.
+    pub fn node(self) -> Option<&'a Term> {
+        match self {
+            Self::Satisfaction(value) => satisfaction_node(value),
+            Self::Failure(value) => Some(failure_node(value)),
         }
     }
 
@@ -384,7 +396,7 @@ impl EvidenceNodeRef<'_> {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
 pub struct MissingObligation {
     pub constraint_id: ShapeId,
     pub observed_count: u64,
@@ -425,6 +437,34 @@ fn satisfaction_constraint_id(value: &SatTrace) -> ShapeId {
         | SatTrace::NotHeld { shape, .. }
         | SatTrace::Blocked { shape, .. }
         | SatTrace::Coinductive { shape, .. } => *shape,
+    }
+}
+
+fn failure_node(value: &Witness) -> &Term {
+    match value {
+        Witness::Atom { node, .. }
+        | Witness::Relational { node, .. }
+        | Witness::Closed { node, .. }
+        | Witness::Not { node, .. }
+        | Witness::All { node, .. }
+        | Witness::Any { node, .. }
+        | Witness::CountLow { node, .. }
+        | Witness::CountHigh { node, .. }
+        | Witness::Opaque { node, .. } => node,
+    }
+}
+
+fn satisfaction_node(value: &SatTrace) -> Option<&Term> {
+    match value {
+        SatTrace::Irrefutable { .. } => None,
+        SatTrace::Atom { node, .. }
+        | SatTrace::AllHeld { node, .. }
+        | SatTrace::AnyHeld { node, .. }
+        | SatTrace::CountHeld { node, .. }
+        | SatTrace::ForAllHeld { node, .. }
+        | SatTrace::NotHeld { node, .. }
+        | SatTrace::Blocked { node, .. }
+        | SatTrace::Coinductive { node, .. } => Some(node),
     }
 }
 
@@ -756,7 +796,7 @@ impl EvidenceRun {
 }
 
 /// Why a holding shape admits no data-deletion repair.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
 pub enum BlockReason {
     OpaqueSparql,
     /// Falsifying `closed(Q)` would need *adding* a disallowed predicate.

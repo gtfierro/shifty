@@ -17,6 +17,7 @@ pub mod path;
 mod path_plan;
 pub mod profile;
 pub mod report;
+pub mod sharing;
 mod sparql;
 pub use sparql::SparqlDiagnostic;
 pub mod synthesize;
@@ -31,6 +32,7 @@ pub use compact::{
     CompactError, Sharing, compact, compact_value, expand, expand_value, expand_with_catalog,
     sharing, to_compact_json,
 };
+pub use sharing::{ResultSharing, result_sharing};
 pub use evidence::{
     ConformanceRun, PreparedEvidenceValidator, SelectedPair, validate_graphs_with_evidence,
     validate_graphs_with_evidence_and_mode, validate_graphs_with_evidence_and_mode_and_options,
