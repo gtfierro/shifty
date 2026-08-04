@@ -68,12 +68,33 @@ pub fn compact_value(value: Value, include_catalog: bool) -> Value {
 /// part that grows with the corpus. The catalog is a fixed per-run cost and
 /// would flatter the ratio: it is interned into the same tables, so folding it
 /// in adds distinct entries without adding evidence occurrences.
+///
+/// Tagged nodes are split into two families, because they answer different
+/// questions and the mixture is dominated by the wrong one. *Result* nodes are
+/// [`Witness`](crate::witness::Witness) and [`SatTrace`](crate::witness::SatTrace)
+/// — one validation judgment each. *Support* nodes are
+/// [`PathSupport`](crate::witness::PathSupport) certificates, which say how a
+/// value was reached and are not judgments about anything. Both serialize as
+/// `{"type", "details"}` and the encoder interns both, so the combined
+/// [`node_redundancy`](Self::node_redundancy) is a statement about encoding
+/// cost only. Sharing *between validation results* is
+/// [`result_redundancy`](Self::result_redundancy), and on the Brick corpus the
+/// two differ by several fold because support nodes are the large majority of
+/// occurrences.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Sharing {
-    /// Tagged evidence nodes as written out by the full encoding.
+    /// Tagged nodes of either family as written out by the full encoding.
     pub node_occurrences: usize,
     /// Distinct such nodes, i.e. the size of the node table.
     pub distinct_nodes: usize,
+    /// Occurrences of tagged nodes that carry a validation judgment.
+    pub result_occurrences: usize,
+    /// Distinct such nodes.
+    pub distinct_results: usize,
+    /// Occurrences of path-support certificates.
+    pub support_occurrences: usize,
+    /// Distinct such certificates.
+    pub distinct_support: usize,
     /// RDF terms as written out by the full encoding.
     pub term_occurrences: usize,
     /// Distinct such terms, i.e. the size of the term table.
@@ -81,14 +102,38 @@ pub struct Sharing {
 }
 
 impl Sharing {
-    /// Occurrences per distinct node; 1.0 when nothing repeats.
+    /// Occurrences per distinct node over both families; 1.0 when nothing
+    /// repeats.
+    ///
+    /// What the compact encoding collapses. Not a measure of sharing between
+    /// validation results — see [`result_redundancy`](Self::result_redundancy).
     pub fn node_redundancy(&self) -> f64 {
         ratio(self.node_occurrences, self.distinct_nodes)
+    }
+
+    /// Occurrences per distinct validation-judgment node.
+    pub fn result_redundancy(&self) -> f64 {
+        ratio(self.result_occurrences, self.distinct_results)
+    }
+
+    /// Occurrences per distinct path-support certificate.
+    pub fn support_redundancy(&self) -> f64 {
+        ratio(self.support_occurrences, self.distinct_support)
     }
 
     /// Occurrences per distinct term; 1.0 when nothing repeats.
     pub fn term_redundancy(&self) -> f64 {
         ratio(self.term_occurrences, self.distinct_terms)
+    }
+
+    /// Share of tagged-node occurrences that are path support rather than
+    /// validation judgments.
+    pub fn support_share(&self) -> f64 {
+        if self.node_occurrences == 0 {
+            0.0
+        } else {
+            self.support_occurrences as f64 / self.node_occurrences as f64
+        }
     }
 }
 
@@ -117,23 +162,30 @@ fn encode(mut value: Value, include_catalog: bool) -> (Value, Sharing) {
 
     let mut terms = Interner::default();
     let mut nodes = Interner::default();
+    let mut families = Families::default();
     let statements = intern(
         value.get_mut("statements").map(Value::take).unwrap_or(json!([])),
         &mut terms,
         &mut nodes,
+        &mut families,
     );
     // Read the counters before the catalog perturbs them: this is the sharing
     // among the evidence itself.
     let sharing = Sharing {
         node_occurrences: nodes.occurrences,
         distinct_nodes: nodes.table.len(),
+        result_occurrences: families.result_occurrences,
+        distinct_results: families.distinct_results,
+        support_occurrences: families.support_occurrences,
+        distinct_support: families.distinct_support,
         term_occurrences: terms.occurrences,
         distinct_terms: terms.table.len(),
     };
     // The catalog shares the same tables: its shapes are the very constraints
     // the evidence nodes refer to, so interning both together collapses the
     // overlap instead of writing each side out separately.
-    let catalog = include_catalog.then(|| intern(catalog, &mut terms, &mut nodes));
+    let catalog =
+        include_catalog.then(|| intern(catalog, &mut terms, &mut nodes, &mut families));
 
     let mut out = Map::new();
     out.insert("v".into(), json!(VERSION));
@@ -251,28 +303,51 @@ struct Interner {
 }
 
 impl Interner {
-    /// The id for `value`, inserting it on first sight, so that structurally
-    /// identical entries collapse.
+    /// The id for `value` and whether this call created it, inserting on first
+    /// sight so that structurally identical entries collapse.
     ///
     /// Keyed by a structural hash rather than by the value's canonical text.
     /// Serializing each occurrence to a `String` to use as a key allocated once
     /// per *occurrence* and discarded it on every hit — and hits are the whole
     /// point of an interner. On `bldg11.ttl` that was roughly six million
     /// allocations for 371k distinct entries.
-    fn intern(&mut self, value: Value) -> usize {
+    fn intern(&mut self, value: Value) -> (usize, bool) {
         self.occurrences += 1;
         let hash = structural_hash(&value);
         if let Some(bucket) = self.index.get(&hash) {
             for &id in bucket {
                 if self.table[id as usize] == value {
-                    return id as usize;
+                    return (id as usize, false);
                 }
             }
         }
         let id = self.table.len();
         self.table.push(value);
         self.index.entry(hash).or_default().push(id as u32);
-        id
+        (id, true)
+    }
+}
+
+/// Per-family node counts, split out of the single node table the encoding
+/// needs. Every table entry belongs to exactly one family, so counting at
+/// insertion partitions the table exactly.
+#[derive(Default)]
+struct Families {
+    result_occurrences: usize,
+    distinct_results: usize,
+    support_occurrences: usize,
+    distinct_support: usize,
+}
+
+impl Families {
+    fn record(&mut self, result: bool, fresh: bool) {
+        let (occurrences, distinct) = if result {
+            (&mut self.result_occurrences, &mut self.distinct_results)
+        } else {
+            (&mut self.support_occurrences, &mut self.distinct_support)
+        };
+        *occurrences += 1;
+        *distinct += usize::from(fresh);
     }
 }
 
@@ -342,19 +417,42 @@ fn is_term(map: &Map<String, Value>) -> bool {
         && map.contains_key("value")
 }
 
-/// A tagged evidence, path-support, or shape node.
+/// A tagged evidence or path-support node.
 fn is_node(map: &Map<String, Value>) -> bool {
     map.len() == 2 && map.contains_key("type") && map.contains_key("details")
 }
 
+/// Whether a tagged node carries a validation judgment rather than a path
+/// certificate.
+///
+/// Decided by the presence of `shape` in the payload rather than by a list of
+/// variant tags: every `Witness` and `SatTrace` variant carries a `shape`
+/// field, while `PathSupport`'s payloads are a triple or an array of nested
+/// certificates. A tag list would have to be revised whenever a variant is
+/// added, and would misclassify silently when it was not; this follows the
+/// vocabulary the same way the rest of the encoder does. `PathSupport::Empty`
+/// is a unit variant, so it serializes without `details` and is never a node
+/// at all.
+fn is_result(value: &Value) -> bool {
+    value
+        .get("details")
+        .and_then(Value::as_object)
+        .is_some_and(|details| details.contains_key("shape"))
+}
+
 /// Replace every term and tagged node with a table reference, children first.
-fn intern(mut value: Value, terms: &mut Interner, nodes: &mut Interner) -> Value {
+fn intern(
+    mut value: Value,
+    terms: &mut Interner,
+    nodes: &mut Interner,
+    families: &mut Families,
+) -> Value {
     let (term, tagged) = match &value {
         Value::Object(map) => (is_term(map), is_node(map)),
         _ => (false, false),
     };
     if term {
-        let id = terms.intern(value);
+        let (id, _) = terms.intern(value);
         return json!({ TERM_REF: id });
     }
     // Children are rewritten in place. Collecting them into a fresh `Map` or
@@ -365,19 +463,24 @@ fn intern(mut value: Value, terms: &mut Interner, nodes: &mut Interner) -> Value
         Value::Object(map) => {
             for child in map.values_mut() {
                 let taken = std::mem::replace(child, Value::Null);
-                *child = intern(taken, terms, nodes);
+                *child = intern(taken, terms, nodes, families);
             }
         }
         Value::Array(items) => {
             for item in items.iter_mut() {
                 let taken = std::mem::replace(item, Value::Null);
-                *item = intern(taken, terms, nodes);
+                *item = intern(taken, terms, nodes, families);
             }
         }
         _ => {}
     }
     if tagged {
-        let id = nodes.intern(value);
+        // Classified before interning: the payload is still in hand, and
+        // children have already been replaced by references, which leaves the
+        // `shape` key untouched either way.
+        let result = is_result(&value);
+        let (id, fresh) = nodes.intern(value);
+        families.record(result, fresh);
         json!({ NODE_REF: id })
     } else {
         value
@@ -419,6 +522,8 @@ fn reference(map: &Map<String, Value>, key: &str) -> Option<usize> {
 mod tests {
     use super::*;
     use crate::validate_with_evidence;
+    use crate::witness::{PathSupport, SatTrace};
+    use oxrdf::{NamedNode, Triple};
     use shifty_parse::{load_turtle, parse_turtle};
 
     // Exercises every term kind the encoding must recognize — IRIs, blank
@@ -526,6 +631,65 @@ mod tests {
         assert!(measured.term_redundancy() > 1.0);
     }
 
+    // The split exists because the combined node counts are dominated by path
+    // support, so anything read off them as "sharing between results" is
+    // reading the wrong family. Two things pin it: the partition is exact, and
+    // the result side agrees with an independent typed traversal that never
+    // touches JSON.
+    #[test]
+    fn the_node_families_partition_and_agree_with_the_typed_walk() {
+        let original = run();
+        let measured = sharing(&original).unwrap();
+
+        assert_eq!(
+            measured.result_occurrences + measured.support_occurrences,
+            measured.node_occurrences,
+            "every tagged node belongs to exactly one family"
+        );
+        assert_eq!(
+            measured.distinct_results + measured.distinct_support,
+            measured.distinct_nodes,
+            "the families partition the node table"
+        );
+
+        // `walk` visits `Witness`/`SatTrace` and nothing else, by a traversal
+        // written against the types rather than the serialized form.
+        assert_eq!(
+            measured.result_occurrences,
+            original.walk().len(),
+            "result occurrences are exactly the evidence nodes"
+        );
+        assert!(
+            measured.support_occurrences > 0,
+            "the fixture reaches values by a path, so it has certificates"
+        );
+    }
+
+    #[test]
+    fn path_support_is_not_mistaken_for_a_judgment() {
+        // `PathSupport::Edge` and a `Witness` are both `{type, details}`; only
+        // the judgment carries a shape.
+        let edge = serde_json::to_value(PathSupport::Edge(Triple::new(
+            NamedNode::new("urn:s").unwrap(),
+            NamedNode::new("urn:p").unwrap(),
+            NamedNode::new("urn:o").unwrap(),
+        )))
+        .unwrap();
+        assert!(is_node(edge.as_object().unwrap()));
+        assert!(!is_result(&edge));
+
+        assert!(!is_result(
+            &serde_json::to_value(PathSupport::Chain(vec![])).unwrap()
+        ));
+
+        let judgment = serde_json::to_value(SatTrace::Irrefutable {
+            shape: shifty_algebra::ShapeId(0),
+        })
+        .unwrap();
+        assert!(is_node(judgment.as_object().unwrap()));
+        assert!(is_result(&judgment));
+    }
+
     // The structural hash replaced a canonical-text key, so what needs pinning
     // is that it still agrees with equality: one table entry per distinct
     // value, and never two distinct values sharing an id.
@@ -551,23 +715,31 @@ mod tests {
         ];
 
         let mut interner = Interner::default();
-        let first: Vec<usize> = distinct
+        let first: Vec<(usize, bool)> = distinct
             .iter()
             .map(|value| interner.intern(value.clone()))
             .collect();
-        assert_eq!(first, (0..distinct.len()).collect::<Vec<_>>());
+        assert_eq!(
+            first,
+            (0..distinct.len()).map(|id| (id, true)).collect::<Vec<_>>(),
+            "every distinct value is a fresh insertion"
+        );
 
-        // Re-interning returns the original ids and adds nothing.
-        let again: Vec<usize> = distinct
+        // Re-interning returns the original ids, reports no insertion, and adds
+        // nothing to the table.
+        let again: Vec<(usize, bool)> = distinct
             .iter()
             .map(|value| interner.intern(value.clone()))
             .collect();
-        assert_eq!(again, first);
+        assert_eq!(
+            again,
+            first.iter().map(|&(id, _)| (id, false)).collect::<Vec<_>>()
+        );
         assert_eq!(interner.table.len(), distinct.len());
         assert_eq!(interner.occurrences, 2 * distinct.len());
 
         // Every id resolves back to the value that produced it.
-        for (value, &id) in distinct.iter().zip(first.iter()) {
+        for (value, &(id, _)) in distinct.iter().zip(first.iter()) {
             assert_eq!(&interner.table[id], value);
         }
     }
