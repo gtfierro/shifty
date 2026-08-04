@@ -596,6 +596,21 @@ def test_witnesses_for_accepts_angle_brackets_and_rejects_unknown():
         raise AssertionError("expected ValueError for an unknown shape")
 
 
+def test_witnesses_and_satisfactions_report_the_shape_that_selected_them():
+    s = two_shape_session()
+    # The session builds these objects from the normalized schema rather than the
+    # evidence run's source schema, so pin shape_iri on that path too.
+    assert {w.shape_iri for w in s.witnesses()} == {
+        "http://example.org/PersonShape",
+        "http://example.org/WidgetShape",
+    }
+    scoped = s.witnesses_for("http://example.org/PersonShape")
+    assert [w.shape_iri for w in scoped] == ["http://example.org/PersonShape"]
+    assert [
+        fs.shape_iri for fs in s.satisfactions_for("http://example.org/PersonShape")
+    ] == ["http://example.org/PersonShape"]
+
+
 def test_satisfactions_for_lists_passing_foci_with_matched_values():
     s = two_shape_session()
     sats = s.satisfactions_for("http://example.org/PersonShape")

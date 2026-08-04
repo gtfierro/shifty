@@ -108,7 +108,8 @@ for any run.
      - 5.41x
      - 1.78x
    * - The constraint catalog
-     - fixed per run regardless of findings — 57% of a small 223P run
+     - fixed per run regardless of findings
+     - fixed per run — 57% of a small run
 
 Terms, not subtrees, are the dominant lever on both corpora. How much either is
 worth, though, is a property of the corpus and not of the encoding: Brick models

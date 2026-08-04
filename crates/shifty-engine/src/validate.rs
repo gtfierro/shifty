@@ -262,6 +262,21 @@ pub(crate) fn entry_shape_name_selected(
         })
 }
 
+/// Is a shape carrying *any* of `actual_names` selected?
+///
+/// The schema-driven form: normalization collapses several named shapes onto
+/// one slot, so a slot answers to every name that reached it. Checking only one
+/// of them would drop a shape the caller explicitly asked for.
+pub(crate) fn entry_shape_any_name_selected(
+    entry_shape_names: &[String],
+    actual_names: &[String],
+) -> bool {
+    entry_shape_names.is_empty()
+        || actual_names
+            .iter()
+            .any(|actual| entry_shape_name_selected(entry_shape_names, Some(actual)))
+}
+
 fn most_severe(reasons: &[Reason]) -> Severity {
     reasons
         .iter()
@@ -466,16 +481,12 @@ fn validate_with_frozen(
     let mut evaluator = ShapeEvaluator::new(backend, &schema.arena, &sparql);
     let mut violations = Vec::new();
     for (i, st) in schema.statements.iter().enumerate() {
-        if !entry_shape_name_selected(
-            &options.entry_shape_names,
-            schema.names.get(&st.shape).map(String::as_str),
-        ) {
+        if !entry_shape_any_name_selected(&options.entry_shape_names, schema.names_of(st.shape)) {
             continue;
         }
         let label = schema
-            .names
-            .get(&st.shape)
-            .cloned()
+            .name_of(st.shape)
+            .map(str::to_string)
             .unwrap_or_else(|| format!("@{}", st.shape.0));
         let foci = focus_nodes_with_evaluator(data, &st.selector, &mut evaluator);
         prefetch_sparql_constraints(&schema.arena, st.shape, &foci, &sparql);
@@ -678,16 +689,12 @@ fn validate_plan_with_frozen(
     let mut evaluator = ShapeEvaluator::new(backend, &plan.arena, &sparql);
     let mut violations = Vec::new();
     for (i, sp) in plan.statements.iter().enumerate() {
-        if !entry_shape_name_selected(
-            &options.entry_shape_names,
-            plan.names.get(&sp.shape).map(String::as_str),
-        ) {
+        if !entry_shape_any_name_selected(&options.entry_shape_names, plan.names_of(sp.shape)) {
             continue;
         }
         let label = plan
-            .names
-            .get(&sp.shape)
-            .cloned()
+            .name_of(sp.shape)
+            .map(str::to_string)
             .unwrap_or_else(|| format!("@{}", sp.shape.0));
         let foci = focus_for_source(data, &sp.source, &mut evaluator);
         prefetch_sparql_constraints(&plan.arena, sp.shape, &foci, &sparql);

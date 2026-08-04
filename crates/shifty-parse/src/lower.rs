@@ -52,20 +52,17 @@ pub fn lower(g: &Loaded) -> Lowered {
         }
         l.parse_rules(s, &selectors);
     }
-    let names = l
-        .cache
-        .iter()
-        .filter_map(|(node, id)| match node {
-            NamedOrBlankNode::NamedNode(n) => Some((*id, n.as_str().to_string())),
-            NamedOrBlankNode::BlankNode(_) => None,
-        })
-        .collect();
-    let schema = Schema {
+    let mut schema = Schema {
         arena: l.arena,
         statements: l.statements,
         rules: l.rules,
-        names,
+        names: Default::default(),
     };
+    for (node, id) in &l.cache {
+        if let NamedOrBlankNode::NamedNode(n) = node {
+            schema.add_name(*id, n.as_str().to_string());
+        }
+    }
     schema.arena.debug_assert_finalized();
     Lowered {
         schema,

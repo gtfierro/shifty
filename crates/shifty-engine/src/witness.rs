@@ -300,6 +300,47 @@ impl Evidence {
         dedup_stable(values)
     }
 
+    /// The values of [`matched_values`](Self::matched_values), grouped by the
+    /// path each was counted along. Groups appear in traversal order and values
+    /// within a group in match order, both deduplicated by first occurrence; a
+    /// path counted at more than one evidence node yields one group holding
+    /// every value counted along it.
+    ///
+    /// This reads the structured match records directly, so callers need not
+    /// parse `explain()` text or re-derive values from supporting triples.
+    pub fn matched_values_by_path(&self) -> Vec<(Path, Vec<Term>)> {
+        let mut pairs = Vec::new();
+        collect_matched_by_path(self, &mut pairs);
+        let mut out: Vec<(Path, Vec<Term>)> = Vec::new();
+        for (path, value) in pairs {
+            match out.iter_mut().find(|(seen, _)| seen == path) {
+                Some((_, values)) => {
+                    if !values.contains(value) {
+                        values.push(value.clone());
+                    }
+                }
+                None => out.push((path.clone(), vec![value.clone()])),
+            }
+        }
+        out
+    }
+
+    /// The matched values counted along `path`, in match order and
+    /// deduplicated — the single-path projection of
+    /// [`matched_values_by_path`](Self::matched_values_by_path). Empty when the
+    /// evidence counted nothing along `path`.
+    pub fn values_for_path(&self, path: &Path) -> Vec<Term> {
+        let mut pairs = Vec::new();
+        collect_matched_by_path(self, &mut pairs);
+        dedup_stable(
+            pairs
+                .into_iter()
+                .filter(|(seen, _)| *seen == path)
+                .map(|(_, value)| value.clone())
+                .collect(),
+        )
+    }
+
     pub fn missing_obligations(&self) -> Vec<MissingObligation> {
         let mut out = Vec::new();
         collect_missing(self, &mut out);
@@ -396,9 +437,23 @@ impl<'a> EvidenceNodeRef<'a> {
     }
 }
 
+/// One cardinality deficit: `node` has `observed_count` values along `path`
+/// satisfying `qualifier`, and needs `required_count`.
+///
+/// Everything needed to describe the missing edge is here, so a driver never
+/// has to read `explain()` to learn what would close the gap. `node` is not
+/// always the focus — a count nested inside a rejected candidate reports its own
+/// node — so filter on it when you mean deficits on the focus itself.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
 pub struct MissingObligation {
     pub constraint_id: ShapeId,
+    /// The node the deficit is about.
+    pub node: Term,
+    /// The path its values were counted along.
+    pub path: Path,
+    /// The shape each counted value must satisfy — what an added value has to
+    /// conform to for the count to move.
+    pub qualifier: ShapeId,
     pub observed_count: u64,
     pub required_count: u64,
     pub missing: u64,
@@ -643,14 +698,47 @@ fn collect_matched(value: &Evidence, out: &mut Vec<Term>) {
     }
 }
 
+/// The same match records [`collect_matched`] reads, each paired with the path
+/// its containing node counted along.
+fn collect_matched_by_path<'a>(value: &'a Evidence, out: &mut Vec<(&'a Path, &'a Term)>) {
+    for node in value.walk() {
+        match node {
+            EvidenceNodeRef::Satisfaction(SatTrace::CountHeld { path, matches, .. }) => {
+                out.extend(matches.iter().map(|(value, _, _)| (path, value)));
+            }
+            EvidenceNodeRef::Satisfaction(SatTrace::ForAllHeld { path, values, .. }) => {
+                out.extend(values.iter().map(|(value, _, _)| (path, value)));
+            }
+            EvidenceNodeRef::Failure(Witness::CountLow {
+                path,
+                qualifying_matches,
+                ..
+            }) => out.extend(qualifying_matches.iter().map(|item| (path, &item.value))),
+            EvidenceNodeRef::Failure(Witness::CountHigh { path, matched, .. }) => {
+                out.extend(matched.iter().map(|(value, _)| (path, value)));
+            }
+            _ => {}
+        }
+    }
+}
+
 fn collect_missing(value: &Evidence, out: &mut Vec<MissingObligation>) {
     for node in value.walk() {
         if let EvidenceNodeRef::Failure(Witness::CountLow {
-            shape, have, min, ..
+            shape,
+            node,
+            path,
+            qualifier,
+            have,
+            min,
+            ..
         }) = node
         {
             out.push(MissingObligation {
                 constraint_id: *shape,
+                node: node.clone(),
+                path: path.clone(),
+                qualifier: *qualifier,
                 observed_count: *have,
                 required_count: *min,
                 missing: min - have,
@@ -880,7 +968,7 @@ pub fn shape_id_for_iri(schema: &Schema, iri: &str) -> Option<ShapeId> {
     schema
         .names
         .iter()
-        .find_map(|(id, name)| (name == iri).then_some(*id))
+        .find_map(|(id, names)| names.iter().any(|name| name == iri).then_some(*id))
 }
 
 /// Witness only the `(focus, statement)` violations whose statement targets
@@ -2122,6 +2210,144 @@ mod tests {
             t,
             SatTrace::CountHeld { matches, .. } if matches.iter().any(|(v, _, _)| v.to_string() == "<http://ex/y>")
         )));
+    }
+
+    fn pred_path(iri: &str) -> Path {
+        Path::Pred(NamedNode::new_unchecked(iri))
+    }
+
+    fn terms(values: &[Term]) -> Vec<String> {
+        values.iter().map(|value| value.to_string()).collect()
+    }
+
+    #[test]
+    fn satisfaction_groups_matched_values_by_the_path_they_were_counted_along() {
+        let ttl = format!(
+            "{PREFIXES}
+            ex:S a sh:NodeShape ; sh:targetNode ex:x ;
+                sh:property [ sh:path ex:p ; sh:minCount 1 ] ;
+                sh:property [ sh:path ex:q ; sh:minCount 1 ] .
+            ex:x ex:p ex:y1, ex:y2 ; ex:q ex:z .
+            "
+        );
+        let parsed = parse_turtle(ttl.as_bytes(), None).unwrap();
+        let loaded = load_turtle(ttl.as_bytes(), None).unwrap();
+        let schema = &parsed.schema;
+        let s = shape_id_for_iri(schema, "http://ex/S").expect("ex:S is named");
+        let sats = satisfy_shape(&loaded.graph, &loaded.graph, schema, s).expect("stratifiable");
+        let evidence = Evidence::Satisfaction(sats[0].trace.clone());
+
+        // One group per counted path. Group order follows evidence traversal,
+        // which is the planner's business, so look each path up by name.
+        let grouped = evidence.matched_values_by_path();
+        assert_eq!(grouped.len(), 2);
+        let group = |iri: &str| {
+            grouped
+                .iter()
+                .find(|(path, _)| *path == pred_path(iri))
+                .map(|(_, values)| terms(values))
+                .expect("path was counted")
+        };
+        assert_eq!(group("http://ex/p"), ["<http://ex/y1>", "<http://ex/y2>"]);
+        assert_eq!(group("http://ex/q"), ["<http://ex/z>"]);
+
+        // The single-path projection agrees with the grouping, and together the
+        // groups partition `matched_values` in the same order.
+        assert_eq!(
+            terms(&evidence.values_for_path(&pred_path("http://ex/p"))),
+            ["<http://ex/y1>", "<http://ex/y2>"],
+        );
+        assert_eq!(
+            terms(&evidence.values_for_path(&pred_path("http://ex/q"))),
+            ["<http://ex/z>"],
+        );
+        assert_eq!(
+            grouped
+                .into_iter()
+                .flat_map(|(_, values)| values)
+                .collect::<Vec<_>>(),
+            evidence.matched_values(),
+        );
+
+        // A path this evidence never counted along is empty, not an error.
+        assert!(
+            evidence
+                .values_for_path(&pred_path("http://ex/absent"))
+                .is_empty()
+        );
+        assert!(evidence.values_for_path(&Path::Id).is_empty());
+    }
+
+    #[test]
+    fn a_short_count_attributes_its_qualifying_matches_to_its_own_path() {
+        // ex:p is short by one; ex:q is met. Both contribute matched values, and
+        // each set must land under the path that counted it.
+        let ttl = format!(
+            "{PREFIXES}
+            ex:S a sh:NodeShape ; sh:targetNode ex:x ;
+                sh:property [ sh:path ex:p ; sh:minCount 3 ] ;
+                sh:property [ sh:path ex:q ; sh:minCount 1 ] .
+            ex:x ex:p ex:y1, ex:y2 ; ex:q ex:z .
+            "
+        );
+        let ws = run(&ttl);
+        assert_eq!(ws.len(), 1);
+        let evidence = Evidence::Failure(ws[0].failure.clone());
+
+        assert_eq!(
+            terms(&evidence.values_for_path(&pred_path("http://ex/p"))),
+            ["<http://ex/y1>", "<http://ex/y2>"],
+        );
+        assert!(
+            evidence
+                .values_for_path(&pred_path("http://ex/q"))
+                .is_empty(),
+            "a satisfied sibling is not part of the failure's evidence",
+        );
+    }
+
+    #[test]
+    fn a_deficit_names_the_node_path_and_qualifier_that_would_close_it() {
+        // ex:x needs two ex:p values of class ex:C and has one; ex:near is
+        // reached but rejected, and its own class check is short as well.
+        let ttl = format!(
+            "{PREFIXES}
+            ex:S a sh:NodeShape ; sh:targetNode ex:x ;
+                sh:property [ sh:path ex:p ;
+                              sh:qualifiedValueShape [ sh:class ex:C ] ;
+                              sh:qualifiedMinCount 2 ] .
+            ex:x ex:p ex:good, ex:near .
+            ex:good a ex:C .
+            "
+        );
+        let parsed = parse_turtle(ttl.as_bytes(), None).unwrap();
+        let loaded = load_turtle(ttl.as_bytes(), None).unwrap();
+        let ws =
+            witness_violations(&loaded.graph, &loaded.graph, &parsed.schema).expect("stratifiable");
+        let obligations = Evidence::Failure(ws[0].failure.clone()).missing_obligations();
+
+        // The deficit on the focus: one more ex:p value, of class ex:C.
+        let on_focus: Vec<_> = obligations
+            .iter()
+            .filter(|item| item.node.to_string() == "<http://ex/x>")
+            .collect();
+        assert_eq!(on_focus.len(), 1);
+        assert_eq!(on_focus[0].path, pred_path("http://ex/p"));
+        assert_eq!((on_focus[0].observed_count, on_focus[0].missing), (1, 1));
+        assert_eq!(
+            shifty_algebra::render::describe_shape(&parsed.schema.arena, on_focus[0].qualifier),
+            "instance of <http://ex/C>",
+            "the qualifier says what an added value must satisfy",
+        );
+
+        // A count nested inside the rejected candidate reports *its* node, so
+        // the two deficits are told apart without reading `explain()`.
+        assert!(
+            obligations
+                .iter()
+                .any(|item| item.node.to_string() == "<http://ex/near>"),
+            "obligations: {obligations:?}",
+        );
     }
 
     /// Does any node in the satisfaction trace satisfy `pred`?

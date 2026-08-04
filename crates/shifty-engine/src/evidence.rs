@@ -9,7 +9,7 @@ use crate::frozen::FrozenIndexedDataset;
 use crate::sparql::SparqlExecutor;
 use crate::validate::{
     NonStratifiable, ShapeEvaluator, ValidationGraphMode, ValidationOptions,
-    entry_shape_name_selected, focus_nodes_with_evaluator, graph_union,
+    entry_shape_any_name_selected, focus_nodes_with_evaluator, graph_union,
     prefetch_sparql_constraints, uses_shapes_graph,
 };
 use crate::witness::{
@@ -224,9 +224,9 @@ impl PreparedEvidenceValidator {
         };
 
         for (statement_id, statement) in self.schema.statements.iter().enumerate() {
-            if !entry_shape_name_selected(
+            if !entry_shape_any_name_selected(
                 &options.entry_shape_names,
-                self.schema.names.get(&statement.shape).map(String::as_str),
+                self.schema.names_of(statement.shape),
             ) {
                 continue;
             }
@@ -332,6 +332,33 @@ impl PreparedEvidenceValidator {
             .collect()
     }
 
+    /// Is this authored statement one the caller asked for?
+    ///
+    /// Checked against the *authored* schema, whose names are lossless. Several
+    /// authored statements can normalize to one, and the caller may have named
+    /// only some of them: selecting the normalized statement must not drag the
+    /// others into the run.
+    fn source_statement_selected(
+        &self,
+        raw_statement: usize,
+        entry_shape_names: &[String],
+    ) -> bool {
+        let raw = &self.raw_schema.statements[raw_statement];
+        entry_shape_any_name_selected(entry_shape_names, self.raw_schema.names_of(raw.shape))
+    }
+
+    /// The authored statements that normalize to `normalized`, in source order.
+    ///
+    /// Common-subexpression elimination makes this one-to-many: several authored
+    /// statements can share one normalized statement, which is why
+    /// [`explain`](Self::explain) returns one evaluation per authored statement
+    /// rather than one per pair. Empty if `normalized` is out of range.
+    pub fn source_statements(&self, normalized: usize) -> &[usize] {
+        self.raw_by_normalized
+            .get(normalized)
+            .map_or(&[], Vec::as_slice)
+    }
+
     /// The constraint catalogs an [`EvidenceRun`] carries.
     ///
     /// Fixed for the snapshot, so a caller explaining pairs one at a time takes
@@ -375,18 +402,17 @@ impl PreparedEvidenceValidator {
         let profiling = crate::profile::is_enabled();
 
         for (statement_id, statement) in self.schema.statements.iter().enumerate() {
-            if !entry_shape_name_selected(
+            if !entry_shape_any_name_selected(
                 &options.entry_shape_names,
-                self.schema.names.get(&statement.shape).map(String::as_str),
+                self.schema.names_of(statement.shape),
             ) {
                 continue;
             }
 
             let label = profiling.then(|| {
                 self.schema
-                    .names
-                    .get(&statement.shape)
-                    .cloned()
+                    .name_of(statement.shape)
+                    .map(str::to_string)
                     .unwrap_or_else(|| format!("@{}", statement.shape.0))
             });
             let selection_start = profiling.then(web_time::Instant::now);
@@ -424,6 +450,9 @@ impl PreparedEvidenceValidator {
                 }
 
                 for &raw_statement in &self.raw_by_normalized[statement_id] {
+                    if !self.source_statement_selected(raw_statement, &options.entry_shape_names) {
+                        continue;
+                    }
                     let raw = &self.raw_schema.statements[raw_statement];
                     let progress = include_progress
                         .then(|| {
@@ -456,6 +485,9 @@ impl PreparedEvidenceValidator {
 
             // Source statements remain visible even when target selection is empty.
             for &raw_statement in &self.raw_by_normalized[statement_id] {
+                if !self.source_statement_selected(raw_statement, &options.entry_shape_names) {
+                    continue;
+                }
                 statements[raw_statement].get_or_insert_with(|| {
                     statement_evaluation(
                         &self.raw_schema,
@@ -762,6 +794,92 @@ mod tests {
         let loaded = load_turtle(ttl.as_bytes(), None).unwrap();
         let outcome = validate_with_evidence(&loaded.graph, &parsed.schema).unwrap();
         (loaded.graph, parsed.schema, outcome)
+    }
+
+    /// Two named shapes stating the *same* constraint, so CSE collapses them.
+    const COLLAPSING: &str = r#"
+        ex:S1 a sh:NodeShape ; sh:targetClass ex:T ;
+            sh:property [ sh:path ex:p ; sh:minCount 1 ] .
+        ex:S2 a sh:NodeShape ; sh:targetClass ex:T ;
+            sh:property [ sh:path ex:p ; sh:minCount 1 ] .
+        ex:bad a ex:T .
+    "#;
+
+    fn scoped_to(schema: &Schema, data: &Graph, name: &str) -> Vec<String> {
+        let prepared = PreparedEvidenceValidator::new(data, schema).expect("stratifiable");
+        let options = ValidationOptions {
+            entry_shape_names: vec![name.to_string()],
+            ..ValidationOptions::default()
+        };
+        prepared
+            .validate(&options)
+            .statements
+            .iter()
+            .map(|statement| {
+                schema
+                    .name_of(schema.statements[statement.source_statement_id].shape)
+                    .unwrap_or("<blank>")
+                    .to_string()
+            })
+            .collect()
+    }
+
+    #[test]
+    fn entry_shape_names_reach_a_shape_that_cse_collapsed_onto_another() {
+        // Both names must work, and each must select only its own statement.
+        // Before names accumulated, one of them selected nothing and the other
+        // dragged in both — and *which* depended on hash iteration order.
+        let ttl = format!("{PREFIXES}{COLLAPSING}");
+        let parsed = parse_turtle(ttl.as_bytes(), None).unwrap();
+        let loaded = load_turtle(ttl.as_bytes(), None).unwrap();
+
+        assert_eq!(
+            scoped_to(&parsed.schema, &loaded.graph, "http://ex/S1"),
+            ["http://ex/S1"],
+        );
+        assert_eq!(
+            scoped_to(&parsed.schema, &loaded.graph, "http://ex/S2"),
+            ["http://ex/S2"],
+        );
+        // Unscoped still reports both authored statements.
+        let prepared =
+            PreparedEvidenceValidator::new(&loaded.graph, &parsed.schema).expect("stratifiable");
+        assert_eq!(
+            prepared
+                .validate(&ValidationOptions::default())
+                .statements
+                .len(),
+            2,
+        );
+    }
+
+    #[test]
+    fn a_collapsed_shape_answers_to_every_name_that_reached_it() {
+        let ttl = format!("{PREFIXES}{COLLAPSING}");
+        let parsed = parse_turtle(ttl.as_bytes(), None).unwrap();
+        let loaded = load_turtle(ttl.as_bytes(), None).unwrap();
+        let prepared =
+            PreparedEvidenceValidator::new(&loaded.graph, &parsed.schema).expect("stratifiable");
+
+        // One normalized statement, carrying both authored names, sorted.
+        let normalized = prepared.schema();
+        assert_eq!(normalized.statements.len(), 1);
+        assert_eq!(
+            normalized.names_of(normalized.statements[0].shape),
+            ["http://ex/S1".to_string(), "http://ex/S2".to_string()],
+        );
+        // `name_of` picks the first, so a display label never depends on hash
+        // iteration order.
+        assert_eq!(
+            normalized.name_of(normalized.statements[0].shape),
+            Some("http://ex/S1"),
+        );
+        // And the reverse lookup finds the slot from either name.
+        assert_eq!(
+            crate::shape_id_for_iri(normalized, "http://ex/S1"),
+            crate::shape_id_for_iri(normalized, "http://ex/S2"),
+        );
+        assert!(crate::shape_id_for_iri(normalized, "http://ex/S2").is_some());
     }
 
     fn foci(outcome: &EvidenceRun) -> Vec<&FocusEvaluation> {

@@ -79,6 +79,21 @@ indexing, and SPARQL preparation are retained by the session.
 ``ex:Untargeted`` has no row because the selector never chose it. The unused
 statement is still present with an empty ``selected_foci`` list.
 
+Walking the statements is the complete view, but a driver usually asks about
+one node or one shape. The run is indexed for both, and a proposed edit can be
+checked against the same session:
+
+.. code-block:: python
+
+   run.failures_for("http://example.org/Bob")        # by focus node
+   run.failures_for_shape("http://example.org/PersonShape")
+   run.covered_shapes()                              # what the run addresses
+
+   after = session.revalidate(delta)                 # the run G ⊕ ΔG would give
+
+These are covered in `Looking up one focus`_, `Looking up one shape`_, and
+`Validating a proposed edit`_.
+
 Inputs and options
 ~~~~~~~~~~~~~~~~~~
 
@@ -144,18 +159,24 @@ The main Python objects expose the following fields:
      - Important fields
    * - ``EvidenceRun``
      - ``conforms`` and ``statements``; ``bool(run)`` is equivalent to
-       ``run.conforms``
+       ``run.conforms``; per-focus and per-shape projections (see below)
+   * - ``ConformanceRun``
+     - ``conforms``, ``selected_pairs``, ``passed``, and ``failed`` — counts
+       only, from the evidence-free entry points
+   * - ``SelectedPair``
+     - ``focus``, ``normalized_statement``, and ``source_statements``: the
+       handle ``find_failures`` returns and ``explain`` takes
    * - ``StatementEvaluation``
      - ``source_statement_id``, ``normalized_statement_id``,
        ``source_constraint_id``, ``normalized_constraint_id``,
-       ``constraint_kind``, ``constraint``, ``selector``, ``target``, and
-       ``selected_foci``
+       ``constraint_kind``, ``constraint``, ``selector``, ``target``,
+       ``shape_iri``, and ``selected_foci``
    * - ``FocusEvaluation``
      - ``focus``, ``status``, ``evidence``, ``satisfaction``, ``failure``, and
        optional ``progress``
    * - ``Satisfaction`` / ``Failure``
-     - The typed evidence tree, its projections, serialization helpers, and
-       human-readable ``explain()`` output
+     - ``shape_iri`` plus the typed evidence tree, its projections,
+       serialization helpers, and human-readable ``explain()`` output
 
 The polarity-specific properties make type-directed code straightforward:
 
@@ -169,6 +190,70 @@ The polarity-specific properties make type-directed code straightforward:
            else:
                assert focus.failure is focus.evidence
                assert focus.satisfaction is None
+
+Looking up one focus
+~~~~~~~~~~~~~~~~~~~~
+
+A run is grouped by statement, but a driver usually asks about a node. The run
+carries a focus index, so these projections cost one lookup rather than a scan
+over every statement. A focus is named by its IRI with or without angle
+brackets, or by the rendered form of a blank node or literal.
+
+``results_for(focus)``
+   Every evaluation of ``focus``, one per statement that selected it, in
+   statement order. A focus no statement selected returns ``[]``.
+
+``failures_for(focus)`` / ``satisfactions_for(focus)``
+   The same list restricted to one polarity, yielding ``Failure`` and
+   ``Satisfaction`` objects directly.
+
+``failure_for(focus, statement=None)`` / ``satisfaction_for(focus, statement=None)``
+   The single evidence object for ``focus``, or the one under authored
+   statement ``statement``. These are strict: a miss raises ``ValueError``, and
+   so does an ambiguous match, naming the statements that could have been
+   meant. Nothing is resolved silently.
+
+.. code-block:: python
+
+   for failure in run.failures_for("http://example.org/boiler-1"):
+       print(failure.statement, failure.explain())
+
+   # One statement per focus is a common shape; say so and let it fail loudly.
+   failure = run.failure_for("http://example.org/boiler-1", statement=3)
+
+Looking up one shape
+~~~~~~~~~~~~~~~~~~~~
+
+The same projections exist for the authored shape a statement heads. They read
+``shape_iri``, which is the shape's IRI, or ``None`` when the shape was written
+as a blank node — an anonymous shape has no name to project by, and its
+evaluations are reachable only through ``statements``.
+
+``covered_shapes()``
+   The named shapes this run has statements for, in statement order without
+   duplicates. A statement whose selector chose nothing still covers its shape.
+
+``results_for_shape(iri)``, ``failures_for_shape(iri)``, ``satisfactions_for_shape(iri)``
+   Every evaluation made under ``iri``, optionally restricted to one polarity,
+   in statement order. Angle brackets are optional.
+
+These distinguish two cases a single empty list would conflate. An IRI that
+names *no shape in the schema* raises ``ValueError`` — a typo should not read as
+a clean bill of health. An IRI that names a real shape this run has no
+statements for returns ``[]``, and ``covered_shapes()`` is how you tell in
+advance:
+
+.. code-block:: python
+
+   for shape in run.covered_shapes():
+       failing = run.failures_for_shape(shape)
+       print(shape, len(failing), "failing focus nodes")
+
+   run.failures_for_shape("http://example.org/NotAShape")   # ValueError
+
+Scoping this way projects a run you already have. To spend no work at all on
+the other shapes, scope the validation itself with
+``validate(shape_names=[...])``; the two agree on the shapes they share.
 
 Source and normalized identity
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -248,9 +333,37 @@ preserve deterministic traversal order and deduplicate by first occurrence.
    Values that qualified or were checked successfully along count and
    all-values constraints.
 
+``values_for_path(path)``
+   The subset of ``matched_values()`` counted along one path, read from the
+   structured match records — no parsing of ``explain()`` text or re-derivation
+   from supporting triples. ``path`` is the rendered form (``ex:p``,
+   ``^ex:p``, ``<http://ex/a>/<http://ex/b>``) or, for a single predicate step,
+   its IRI with or without angle brackets. A path the evidence never counted
+   along returns ``[]``.
+
 ``missing_obligations()``
-   Cardinality deficits with ``constraint_id``, ``observed_count``,
-   ``required_count``, and ``missing``.
+   Cardinality deficits, each describing the edge that would close it:
+   ``node`` has ``observed_count`` values along ``path`` satisfying
+   ``qualifier``, and needs ``required_count``. Also carries ``constraint_id``
+   and ``missing``.
+
+   ``node`` is not always the focus — a count nested inside a rejected
+   candidate reports its own node — so compare it against ``focus`` when you
+   mean deficits on the focus itself. ``path`` is rendered in the spelling
+   ``values_for_path`` accepts, and ``qualifier`` is a structured
+   ``Constraint``, so "what is missing" and "what is already there" are both
+   reachable without reading ``explain()``:
+
+   .. code-block:: python
+
+      for obligation in failure.missing_obligations():
+          if obligation.node != failure.focus:
+              continue                      # a nested deficit, not the focus's
+          print(
+              f"add {obligation.missing} more {obligation.path} "
+              f"satisfying {obligation.qualifier.definition}; "
+              f"have {failure.values_for_path(obligation.path)}"
+          )
 
 ``offending_values()``
    Values implicated in atomic, closed, relational, and excessive-count
@@ -298,6 +411,111 @@ without losing tree structure or constraint identity:
 The JSON representation uses explicit status and variant tags. Treat those
 tags, ids, and structured fields as the interchange format; ``explain()`` is a
 human-readable rendering rather than a parsing API.
+
+Cheaper entry points
+--------------------
+
+``validate()`` materializes evidence for every selected pair. Three other entry
+points share the same prepared snapshot and cost less, which matters when you
+only need to know *why something failed* and failures are a small minority:
+
+``validate_conformance()``
+   Counts only, no evidence. ``minimum_severity`` does not apply — with no
+   failure evidence there is no per-constraint severity to weigh, so any failing
+   pair makes ``conforms`` false.
+
+``find_failures()``
+   The same pass, plus a :class:`SelectedPair` handle per failing pair.
+
+``explain(pair)`` / ``explain_canonical(pair)``
+   Evidence for one pair, returned as a run holding just that pair, so every
+   projection works on it.
+
+.. code-block:: python
+
+   session = shifty.EvidenceSession(shapes, data)
+   counts, failures = session.find_failures()
+   print(counts.passed, counts.failed)
+
+   for pair in failures:
+       one = session.explain(pair)
+       for failure in one.failures_for(pair.focus):
+           print(failure.explain())
+
+Target selection is not re-run by ``explain``: the pair is taken as already
+selected, which is the point — re-deriving the selection costs what the whole
+pass costs. Pairs should come from ``find_failures`` or an earlier run over the
+same snapshot.
+
+Normalized and authored counts
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``ConformanceRun`` counts *normalized* pairs, because deciding a merged
+statement once is what makes the pass cheap. A run instead reports one focus row
+per *authored* statement. When common-subexpression elimination merges
+statements that state the same constraint, the run has more rows than the
+conformance pass had decisions, and ``selected_pairs`` equals the distinct
+``(normalized_statement_id, focus)`` pairs the run contains.
+
+``SelectedPair`` keeps the two apart deliberately. Its ``normalized_statement``
+is the statement evidence is materialized against; ``source_statements`` lists
+the authored statements that normalize to it, which is why ``explain`` returns
+one evaluation per authored statement rather than one per pair. Everywhere else
+in this API a bare statement id is an authored one, so the field is not called
+``statement``.
+
+The catalog travels separately
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+A run from ``explain`` carries no constraint catalog: it is fixed per snapshot
+rather than per pair, and on a small 223P model it is 57% of a whole run's
+serialized bytes. ``constraints()`` serves it once. That only affects
+serialization — the ``constraint`` objects on statements and evidence are
+present either way — and it is what makes an out-of-band catalog work:
+
+.. code-block:: python
+
+   catalog = session.constraints()          # once per snapshot
+   wire = run.to_compact_json(include_catalog=False)
+   assert shifty.expand_evidence(wire, catalog) == run.to_dict()
+
+Validating a proposed edit
+--------------------------
+
+``EvidenceSession.revalidate(delta)`` returns the run ``validate()`` would
+produce over ``G ⊕ ΔG`` — this session's graph with ``delta`` applied. It is
+pure: the session keeps its own snapshot, so a run taken before the edit stays
+valid and comparable, and the two are diffed with the ordinary projections.
+
+.. code-block:: python
+
+   session = shifty.EvidenceSession(shapes, data)
+   before = session.validate()
+
+   failure = before.failure_for("http://example.org/ahu-1")
+   obligation = next(
+       o for o in failure.missing_obligations() if o.node == failure.focus
+   )
+   # obligation.path and obligation.qualifier say what edge to author.
+   delta = shifty.RepairDelta.from_ntriples(add=my_triples)
+
+   after = session.revalidate(delta)
+   fixed = set(before.failures_for(focus)) and not after.failures_for(focus)
+
+Unlike ``validate()``, this cannot reuse the prepared snapshot: a patched graph
+needs its own normalization, indexing, and SPARQL preparation. It still skips
+file I/O, parsing, and schema lowering, so it is cheaper than building a new
+session but not comparable to a repeated ``validate()``.
+
+``infer`` re-runs SHACL-AF rules over the patched graph. It defaults to
+whatever the session was built with, which keeps the before and after runs on
+the same baseline — a session that never ran the rules does not start now.
+Passing ``infer=False`` patches the already-inferred graph and leaves the rules
+alone. That is cheaper, and sound only if the edit fires none of them:
+inference only ever *adds*, so deleting a triple that supported a derived one
+leaves the derivation stranded, and the edit can look like it conforms when it
+does not. When ``infer`` is on, the rules re-run over the graph as it stood
+before they last ran, so a deletion correctly takes its derivations with it.
 
 Evidence and repair
 -------------------
@@ -360,6 +578,16 @@ setup for the snapshot:
        }
    }
 
+``Evidence`` carries the same projections in Rust. ``matched_values_by_path``
+groups the structured match records by the path each value was counted along,
+and ``values_for_path`` takes the single-path slice:
+
+.. code-block:: rust
+
+   for (path, values) in focus.evidence.matched_values_by_path() {
+       println!("{path:?}: {values:?}");
+   }
+
 For one-shot calls, use ``validate_with_evidence``,
 ``validate_with_context_and_evidence``, or
 ``validate_graphs_with_evidence``. Variants accepting graph mode and
@@ -380,6 +608,13 @@ Semantics and guarantees
   deterministic under the default sorting option.
 * A ``PathSupport`` is a positive reachability certificate. For an alternative
   path, Shifty retains the first successful syntactic alternative.
+* Projections address an existing run and never re-evaluate. Looking a focus or
+  shape up returns the same objects the statements hold, so identity and order
+  are stable across calls.
+* ``revalidate`` is the one evidence call that evaluates a different graph, and
+  it leaves its session untouched. With ``infer`` on it re-runs the rules over
+  the pre-inference graph, so derivations track deletions; with ``infer`` off
+  the already-derived triples are kept as they stand.
 
 Opaque and blocked evidence
 ---------------------------

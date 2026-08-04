@@ -429,7 +429,7 @@ fn witness_dataset(
 /// shape was declared with an IRI/blank-node id (rather than inlined).
 fn shape_name_for(violation: &Violation, schema: &Schema) -> Option<String> {
     let shape_id = schema.statements.get(violation.statement)?.shape;
-    schema.names.get(&shape_id).cloned()
+    schema.name_of(shape_id).map(str::to_string)
 }
 
 fn build_algebra_result(outcome: ValidationOutcome, schema: &Schema) -> ShiftyAlgebraResult {

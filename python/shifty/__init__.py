@@ -16,6 +16,10 @@ Two validation interfaces:
 ``EvidenceSession(shacl_graph, data_graph).validate()``
     Returns complete selected-pair coverage: exactly one structured satisfaction
     trace or failure witness for each selected ``(statement, focus)`` pair.
+    Three cheaper entry points share the same prepared snapshot:
+    ``validate_conformance()`` for counts only, ``find_failures()`` for counts
+    plus the pairs that failed, and ``explain(pair)`` for evidence about one of
+    them. ``revalidate(delta)`` answers ``validate()`` for a proposed edit.
 
 ``infer(data_graph, shapes_graph=None, ...)``
     Run SHACL-AF forward-chaining rules to a fixed point.
@@ -86,7 +90,9 @@ from ._shifty import (
     SatKind,
     InferResult as _RustInferResult,
     Instantiated,
+    ConformanceRun,
     MissingObligation,
+    SelectedPair,
     PathSupport,
     PreparedValidator as _RustPreparedValidator,
     PropertyWitness,
@@ -134,7 +140,9 @@ __all__ = [
     "EvaluationProgress",
     "ChildEvaluation",
     "EvidenceNode",
+    "ConformanceRun",
     "MissingObligation",
+    "SelectedPair",
     "PathSupport",
     "PropertyWitness",
     # ── symbolic repair ──
@@ -564,7 +572,12 @@ class EvidenceSession:
 
     Parsing, lowering, optional inference, and dataset indexing happen in the
     constructor. :meth:`validate` returns every authored statement, including
-    empty selections, with one tagged pass/fail object per selected focus.
+    empty selections, with one tagged pass/fail object per selected focus, and
+    is cheap to repeat because the snapshot is fixed.
+
+    :meth:`revalidate` answers the same question for ``G ⊕ ΔG`` — the graph with
+    a proposed edit applied — without disturbing this session's snapshot. It
+    re-prepares, so it is not as cheap as a repeated :meth:`validate`.
     """
 
     def __init__(
@@ -611,6 +624,96 @@ class EvidenceSession:
             minimum_severity,
             sort_results,
         )
+
+    def revalidate(
+        self,
+        delta: RepairDelta,
+        *,
+        infer: Optional[bool] = None,
+        shape_names: Optional[Sequence[str]] = None,
+        minimum_severity: str = "info",
+        sort_results: bool = True,
+    ) -> EvidenceRun:
+        """Return the run :meth:`validate` would produce over ``G ⊕ ΔG`` — this
+        session's graph with ``delta`` applied.
+
+        Pure: the session keeps its own snapshot, so a run taken before the edit
+        stays valid and comparable. Unlike :meth:`validate` this cannot reuse the
+        prepared snapshot — a patched graph needs its own normalization,
+        indexing, and SPARQL preparation — though it still skips file I/O,
+        parsing, and schema lowering.
+
+        ``infer`` re-runs SHACL-AF rules over the patched graph, so an added
+        triple can fire a rule and a deleted one stops supporting what it
+        derived. It defaults to whatever the session was built with, keeping the
+        before and after runs on the same baseline. Pass ``False`` to patch the
+        already-inferred graph and leave the rules alone — cheaper, and sound
+        only if the edit fires none of them.
+        """
+        return self._inner.revalidate(
+            delta,
+            infer,
+            list(shape_names) if shape_names is not None else None,
+            minimum_severity,
+            sort_results,
+        )
+
+    def validate_conformance(
+        self, *, shape_names: Optional[Sequence[str]] = None
+    ) -> ConformanceRun:
+        """Decide every selected pair without materializing evidence.
+
+        The cheapest of the four entry points. ``minimum_severity`` does not
+        apply: with no failure evidence there is no per-constraint severity to
+        weigh, so any failing pair makes ``conforms`` false.
+        """
+        return self._inner.validate_conformance(
+            list(shape_names) if shape_names is not None else None
+        )
+
+    def find_failures(
+        self, *, shape_names: Optional[Sequence[str]] = None
+    ) -> tuple[ConformanceRun, list[SelectedPair]]:
+        """The same pass as :meth:`validate_conformance`, plus a
+        :class:`SelectedPair` handle for each pair that failed.
+
+        This followed by :meth:`explain` on the pairs you care about is far
+        cheaper than :meth:`validate` when failures are a small share of
+        selected pairs, which is the usual case.
+        """
+        return self._inner.find_failures(
+            list(shape_names) if shape_names is not None else None
+        )
+
+    def explain(self, pair: SelectedPair) -> EvidenceRun:
+        """Materialize evidence for one ``pair``, as a run holding just that
+        pair — every projection works on the result.
+
+        Target selection is *not* re-run; ``pair`` is taken as already selected.
+        Pairs should come from :meth:`find_failures` or an earlier run over this
+        snapshot.
+
+        The returned run carries **no constraint catalog** — it is fixed per
+        snapshot, so take it once from :meth:`constraints`. That affects only
+        serialization; the ``constraint`` objects on statements and evidence are
+        present either way.
+        """
+        return self._inner.explain(pair)
+
+    def explain_canonical(self, pair: SelectedPair) -> EvidenceRun:
+        """:meth:`explain` without the authored-statement progress view."""
+        return self._inner.explain_canonical(pair)
+
+    def constraints(self) -> dict:
+        """The source and normalized constraint catalogs for this snapshot.
+
+        Fixed for the snapshot, so a caller explaining pairs one at a time takes
+        this once rather than paying for it per pair. It is also the ``catalog``
+        argument of :func:`expand_evidence`, which is what makes
+        ``to_compact_json(include_catalog=False)`` usable — the catalog travels
+        once, out of band.
+        """
+        return self._inner.constraints()
 
 
 class RepairSession:

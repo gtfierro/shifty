@@ -53,9 +53,22 @@ pub struct PhysicalPlan {
     pub arena: ShapeArena,
     pub statements: Vec<StatementPlan>,
     /// IRI names for named shape nodes, copied from the source schema for
-    /// profiling and diagnostics (same contents as `Schema::names`).
+    /// profiling and diagnostics (same contents as `Schema::names`, including
+    /// the several names a collapsed shape can answer to).
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
-    pub names: HashMap<ShapeId, String>,
+    pub names: HashMap<ShapeId, Vec<String>>,
+}
+
+impl PhysicalPlan {
+    /// The display name for `id` — see [`Schema::name_of`].
+    pub fn name_of(&self, id: ShapeId) -> Option<&str> {
+        self.names.get(&id)?.first().map(String::as_str)
+    }
+
+    /// Every authored name that reached `id` — see [`Schema::names_of`].
+    pub fn names_of(&self, id: ShapeId) -> &[String] {
+        self.names.get(&id).map_or(&[], Vec::as_slice)
+    }
 }
 
 /// Plan a (normalized) schema.
