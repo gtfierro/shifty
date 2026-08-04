@@ -268,6 +268,23 @@ impl PreparedEvidenceValidator {
     /// The constraint catalog is not included, since it is fixed per snapshot
     /// rather than per pair; take it once from [`constraints`](Self::constraints).
     pub fn explain(&self, pair: &SelectedPair) -> Vec<StatementEvaluation> {
+        self.explain_with_progress(pair, true)
+    }
+
+    /// Materialize only the canonical evidence for one pair.
+    ///
+    /// This omits the optional authored-statement progress view while retaining
+    /// the satisfaction trace or failure witness and the authored identities.
+    /// It is the per-pair counterpart of [`validate_canonical`](Self::validate_canonical).
+    pub fn explain_canonical(&self, pair: &SelectedPair) -> Vec<StatementEvaluation> {
+        self.explain_with_progress(pair, false)
+    }
+
+    fn explain_with_progress(
+        &self,
+        pair: &SelectedPair,
+        include_progress: bool,
+    ) -> Vec<StatementEvaluation> {
         let Some(statement) = self.schema.statements.get(pair.statement) else {
             return Vec::new();
         };
@@ -288,13 +305,17 @@ impl PreparedEvidenceValidator {
             .iter()
             .map(|&raw_statement| {
                 let raw = &self.raw_schema.statements[raw_statement];
-                let progress = source_progress(
-                    &mut evaluator,
-                    &self.raw_schema.arena,
-                    raw.shape,
-                    &self.shape_map,
-                    &pair.focus,
-                );
+                let progress = include_progress
+                    .then(|| {
+                        source_progress(
+                            &mut evaluator,
+                            &self.raw_schema.arena,
+                            raw.shape,
+                            &self.shape_map,
+                            &pair.focus,
+                        )
+                    })
+                    .flatten();
                 let mut evaluation = statement_evaluation(
                     &self.raw_schema,
                     &self.schema,
@@ -325,6 +346,22 @@ impl PreparedEvidenceValidator {
 
     /// Validate the prepared snapshot and return its complete coverage horizon.
     pub fn validate(&self, options: &ValidationOptions) -> EvidenceRun {
+        self.validate_with_progress(options, true)
+    }
+
+    /// Validate the prepared snapshot and return canonical evidence only.
+    ///
+    /// The optional authored-statement progress view is omitted. This is the
+    /// evidence interface benchmarked against conformance-only validation.
+    pub fn validate_canonical(&self, options: &ValidationOptions) -> EvidenceRun {
+        self.validate_with_progress(options, false)
+    }
+
+    fn validate_with_progress(
+        &self,
+        options: &ValidationOptions,
+        include_progress: bool,
+    ) -> EvidenceRun {
         let backend = self
             .sparql
             .frozen()
@@ -367,8 +404,7 @@ impl PreparedEvidenceValidator {
                 let pair_start = profiling
                     .then(|| (web_time::Instant::now(), crate::profile::evidence_visits()));
                 let evidence = materialize_evidence(&mut evaluator, &focus, statement.shape);
-                if let (Some((start, visits_before)), Some(label)) =
-                    (pair_start, label.as_deref())
+                if let (Some((start, visits_before)), Some(label)) = (pair_start, label.as_deref())
                 {
                     crate::profile::record_shape_work(
                         label,
@@ -389,13 +425,17 @@ impl PreparedEvidenceValidator {
 
                 for &raw_statement in &self.raw_by_normalized[statement_id] {
                     let raw = &self.raw_schema.statements[raw_statement];
-                    let progress = source_progress(
-                        &mut evaluator,
-                        &self.raw_schema.arena,
-                        raw.shape,
-                        &self.shape_map,
-                        &focus,
-                    );
+                    let progress = include_progress
+                        .then(|| {
+                            source_progress(
+                                &mut evaluator,
+                                &self.raw_schema.arena,
+                                raw.shape,
+                                &self.shape_map,
+                                &focus,
+                            )
+                        })
+                        .flatten();
                     statements[raw_statement]
                         .get_or_insert_with(|| {
                             statement_evaluation(
@@ -769,8 +809,7 @@ mod tests {
         );
         let parsed = parse_turtle(ttl.as_bytes(), None).unwrap();
         let loaded = load_turtle(ttl.as_bytes(), None).unwrap();
-        let prepared =
-            PreparedEvidenceValidator::new(&loaded.graph, &parsed.schema).unwrap();
+        let prepared = PreparedEvidenceValidator::new(&loaded.graph, &parsed.schema).unwrap();
         let options = ValidationOptions::default();
         let conformance = prepared.validate_conformance(&options);
         let evidence = prepared.validate(&options);
@@ -1037,6 +1076,52 @@ mod tests {
             panic!("expected compact conjunction failure")
         };
         assert_eq!(failed.len(), 1);
+    }
+
+    #[test]
+    fn canonical_interfaces_omit_progress_without_changing_evidence() {
+        let ttl = format!(
+            "{PREFIXES}
+             ex:S a sh:NodeShape ; sh:targetNode ex:x ;
+               sh:nodeKind sh:IRI ;
+               sh:property [ sh:path ex:p ; sh:minCount 1 ] ."
+        );
+        let parsed = parse_turtle(ttl.as_bytes(), None).unwrap();
+        let loaded = load_turtle(ttl.as_bytes(), None).unwrap();
+        let prepared = PreparedEvidenceValidator::new(&loaded.graph, &parsed.schema).unwrap();
+        let options = ValidationOptions::default();
+
+        let complete = prepared.validate(&options);
+        let canonical = prepared.validate_canonical(&options);
+        assert_eq!(complete.conforms, canonical.conforms);
+        assert_eq!(complete.constraints, canonical.constraints);
+        assert_eq!(complete.statements.len(), canonical.statements.len());
+
+        for (with_progress, without_progress) in complete
+            .statements
+            .iter()
+            .flat_map(|statement| &statement.selected_foci)
+            .zip(
+                canonical
+                    .statements
+                    .iter()
+                    .flat_map(|statement| &statement.selected_foci),
+            )
+        {
+            assert!(with_progress.progress.is_some());
+            assert!(without_progress.progress.is_none());
+            assert_eq!(with_progress.focus, without_progress.focus);
+            assert_eq!(with_progress.evidence, without_progress.evidence);
+        }
+
+        let (_, failures) = prepared.find_failures(&options);
+        let explained = prepared.explain_canonical(&failures[0]);
+        assert!(
+            explained
+                .iter()
+                .flat_map(|statement| &statement.selected_foci)
+                .all(|focus| focus.progress.is_none())
+        );
     }
 
     #[test]

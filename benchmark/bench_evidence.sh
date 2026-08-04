@@ -1,16 +1,18 @@
 #!/usr/bin/env bash
-# Evidence-tracing overhead across the Brick and 223P model corpora.
+# Evidence-interface overhead across the Brick and 223P model corpora.
 #
 # For every model: prepare one validator snapshot (parse, inference,
 # normalization, indexing — all untimed), then time conformance-only execution
-# against dual-evidence execution from that same snapshot.
+# against full canonical evidence and failure-only on-demand evidence from that
+# same snapshot.
 #
 # Usage:
 #   ./benchmark/bench_evidence.sh                  # both suites -> CSV
 #   ./benchmark/bench_evidence.sh brick            # one suite
-#   BENCH_ITERS=9 ./benchmark/bench_evidence.sh > results/evidence.csv
+#   BENCH_ITERS=10 BENCH_METADATA=results/evidence-machine.txt \
+#     ./benchmark/bench_evidence.sh > results/evidence.csv
 #
-# BENCH_ITERS (default 5) is the timed iteration count, the same for every
+# BENCH_ITERS (default 10) is the timed iteration count, the same for every
 # model. BENCH_BUDGET_MS is an escape hatch for corpora too slow for a fixed
 # count: set it to a millisecond budget and the count adapts down to
 # BENCH_MIN_ITERS (default 3). It is 0 (off) by default.
@@ -22,9 +24,10 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-ITERATIONS="${BENCH_ITERS:-5}"
+ITERATIONS="${BENCH_ITERS:-10}"
 MIN_ITERS="${BENCH_MIN_ITERS:-3}"
 BUDGET_MS="${BENCH_BUDGET_MS:-0}"
+METADATA="${BENCH_METADATA:-}"
 SUITES=("$@")
 if [ ${#SUITES[@]} -eq 0 ]; then
     SUITES=(brick s223)
@@ -35,6 +38,26 @@ BIN="$ROOT/target/release/examples/bench_evidence"
 echo "building bench_evidence…" >&2
 cargo build --release --quiet --manifest-path "$ROOT/Cargo.toml" \
     -p shifty-engine --example bench_evidence 2>&1 | tail -3 >&2
+
+if [ -n "$METADATA" ]; then
+    mkdir -p "$(dirname "$METADATA")"
+    {
+        date -u '+%Y-%m-%dT%H:%M:%SZ'
+        git -C "$ROOT" rev-parse HEAD
+        rustc -Vv
+        uname -a
+        if command -v lscpu >/dev/null 2>&1; then
+            lscpu
+        fi
+        if [ -r /proc/meminfo ]; then
+            sed -n '1,5p' /proc/meminfo
+        fi
+        echo "BENCH_ITERS=$ITERATIONS"
+        echo "BENCH_BUDGET_MS=$BUDGET_MS"
+        echo "suites=${SUITES[*]}"
+    } > "$METADATA"
+    echo "wrote benchmark metadata to $METADATA" >&2
+fi
 
 header_flag=""
 for suite in "${SUITES[@]}"; do
