@@ -16,16 +16,17 @@ use pyo3::prelude::*;
 use pyo3::pybacked::PyBackedBytes;
 use shifty_algebra::{Schema, Selector, ShapeArena, ShapeId};
 use shifty_engine::{
-    Evidence as IrEvidence, FocusSat as IrSat, FocusWitness as IrFocus,
-    PathSupport as IrPathSupport, PreparedEvidenceValidator, SatTrace, ValidationOptions, Witness,
-    apply as engine_apply, candidates as engine_candidates, gate as engine_gate, graph_union,
-    satisfy_shape, shape_id_for_iri, synthesize, witness_node, witness_shape, witness_violations,
+    Evidence as IrEvidence, EvidenceKind as IrEvidenceKind, EvidenceOrigin as IrEvidenceOrigin,
+    FocusSat as IrSat, FocusWitness as IrFocus, PathSupport as IrPathSupport,
+    PreparedEvidenceValidator, SatTrace, ValidationOptions, Witness, apply as engine_apply,
+    candidates as engine_candidates, gate as engine_gate, graph_union, satisfy_shape,
+    shape_id_for_iri, synthesize_with_origins, witness_node, witness_shape, witness_violations,
 };
 use shifty_repair::{
     Edit, EditOp, Hole as IrHole, HoleConstraint, NodeId, Plan, RepairTree as IrTree, Slot,
     instantiate,
 };
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 
 // ── shared rendering (ports of the CLI renderers; kept local to the binding) ────
@@ -219,6 +220,107 @@ fn render_tree(t: &IrTree, arena: &ShapeArena, indent: usize, out: &mut Vec<Stri
 
 // ── flat witness summary ────────────────────────────────────────────────────────
 
+/// Exact kind of a structured evidence node. Unlike `WitnessKind` and
+/// `SatKind`, which classify flattened driver summaries, this enum is a
+/// one-to-one projection of the Rust evidence grammar.
+#[pyclass(eq, eq_int, hash, frozen, name = "EvidenceKind")]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub enum PyEvidenceKind {
+    Irrefutable,
+    AtomHeld,
+    AllHeld,
+    AnyHeld,
+    CountHeld,
+    AllValuesHeld,
+    NotHeld,
+    Blocked,
+    Coinductive,
+    AtomFailed,
+    RelationalFailed,
+    ClosedFailed,
+    NotFailed,
+    AllFailed,
+    AnyFailed,
+    CountLow,
+    CountHigh,
+    Opaque,
+}
+
+impl From<IrEvidenceKind> for PyEvidenceKind {
+    fn from(kind: IrEvidenceKind) -> Self {
+        match kind {
+            IrEvidenceKind::Irrefutable => Self::Irrefutable,
+            IrEvidenceKind::AtomHeld => Self::AtomHeld,
+            IrEvidenceKind::AllHeld => Self::AllHeld,
+            IrEvidenceKind::AnyHeld => Self::AnyHeld,
+            IrEvidenceKind::CountHeld => Self::CountHeld,
+            IrEvidenceKind::AllValuesHeld => Self::AllValuesHeld,
+            IrEvidenceKind::NotHeld => Self::NotHeld,
+            IrEvidenceKind::Blocked => Self::Blocked,
+            IrEvidenceKind::Coinductive => Self::Coinductive,
+            IrEvidenceKind::AtomFailed => Self::AtomFailed,
+            IrEvidenceKind::RelationalFailed => Self::RelationalFailed,
+            IrEvidenceKind::ClosedFailed => Self::ClosedFailed,
+            IrEvidenceKind::NotFailed => Self::NotFailed,
+            IrEvidenceKind::AllFailed => Self::AllFailed,
+            IrEvidenceKind::AnyFailed => Self::AnyFailed,
+            IrEvidenceKind::CountLow => Self::CountLow,
+            IrEvidenceKind::CountHigh => Self::CountHigh,
+            IrEvidenceKind::Opaque => Self::Opaque,
+        }
+    }
+}
+
+impl From<PyEvidenceKind> for IrEvidenceKind {
+    fn from(kind: PyEvidenceKind) -> Self {
+        match kind {
+            PyEvidenceKind::Irrefutable => Self::Irrefutable,
+            PyEvidenceKind::AtomHeld => Self::AtomHeld,
+            PyEvidenceKind::AllHeld => Self::AllHeld,
+            PyEvidenceKind::AnyHeld => Self::AnyHeld,
+            PyEvidenceKind::CountHeld => Self::CountHeld,
+            PyEvidenceKind::AllValuesHeld => Self::AllValuesHeld,
+            PyEvidenceKind::NotHeld => Self::NotHeld,
+            PyEvidenceKind::Blocked => Self::Blocked,
+            PyEvidenceKind::Coinductive => Self::Coinductive,
+            PyEvidenceKind::AtomFailed => Self::AtomFailed,
+            PyEvidenceKind::RelationalFailed => Self::RelationalFailed,
+            PyEvidenceKind::ClosedFailed => Self::ClosedFailed,
+            PyEvidenceKind::NotFailed => Self::NotFailed,
+            PyEvidenceKind::AllFailed => Self::AllFailed,
+            PyEvidenceKind::AnyFailed => Self::AnyFailed,
+            PyEvidenceKind::CountLow => Self::CountLow,
+            PyEvidenceKind::CountHigh => Self::CountHigh,
+            PyEvidenceKind::Opaque => Self::Opaque,
+        }
+    }
+}
+
+impl PyEvidenceKind {
+    fn as_str(self) -> &'static str {
+        IrEvidenceKind::from(self).as_str()
+    }
+
+    fn status_str(self) -> &'static str {
+        match IrEvidenceKind::from(self).status() {
+            shifty_engine::EvaluationStatus::Pass => "pass",
+            shifty_engine::EvaluationStatus::Fail => "fail",
+        }
+    }
+}
+
+#[pymethods]
+impl PyEvidenceKind {
+    #[getter]
+    fn status(&self) -> &'static str {
+        self.status_str()
+    }
+
+    fn __str__(&self) -> &'static str {
+        self.as_str()
+    }
+}
+
 /// The kind of a failing witness leaf — the enumerated discriminant of
 /// [`WitnessAtom`]. `Not` marks a `¬φ` that holds and must be falsified; the
 /// `Count*` variants an under-/over-satisfied cardinality.
@@ -241,6 +343,8 @@ pub enum WitnessKind {
 pub struct WitnessAtom {
     /// The leaf kind (see [`WitnessKind`]).
     pub kind: WitnessKind,
+    /// Exact structured evidence kind this flattened leaf projects from.
+    pub evidence_kind: PyEvidenceKind,
     /// Algebra arena id of the failed constraint that produced this atom.
     pub constraint_id: u32,
     /// Stable semantic kind of that constraint.
@@ -273,6 +377,15 @@ fn witness_atom(
 ) -> WitnessAtom {
     WitnessAtom {
         kind,
+        evidence_kind: match kind {
+            WitnessKind::Atom => PyEvidenceKind::AtomFailed,
+            WitnessKind::Relational => PyEvidenceKind::RelationalFailed,
+            WitnessKind::Closed => PyEvidenceKind::ClosedFailed,
+            WitnessKind::CountLow => PyEvidenceKind::CountLow,
+            WitnessKind::CountHigh => PyEvidenceKind::CountHigh,
+            WitnessKind::Not => PyEvidenceKind::NotFailed,
+            WitnessKind::Opaque => PyEvidenceKind::Opaque,
+        },
         constraint_id: shape.0,
         constraint_kind: constraint_kind_to_py(shifty_algebra::ConstraintKind::of(arena, shape)),
         path,
@@ -413,6 +526,8 @@ pub enum SatKind {
 pub struct SatAtom {
     /// The leaf kind (see [`SatKind`]).
     pub kind: SatKind,
+    /// Exact structured evidence kind whose payload produced this summary row.
+    pub evidence_kind: PyEvidenceKind,
     /// The π path to the matched value, if any.
     pub path: Option<String>,
     /// The matched/holding node value, if any.
@@ -441,6 +556,7 @@ fn sat_leaves(s: &SatTrace, out: &mut Vec<SatAtom>) {
             node, reached_by, ..
         } => out.push(SatAtom {
             kind: SatKind::Atom,
+            evidence_kind: PyEvidenceKind::AtomHeld,
             path: Some(path_str(reached_by)),
             value: Some(node.to_string()),
             detail: "value-type test holds".into(),
@@ -461,6 +577,7 @@ fn sat_leaves(s: &SatTrace, out: &mut Vec<SatAtom>) {
             for (v, _, _) in matches {
                 out.push(SatAtom {
                     kind: SatKind::Match,
+                    evidence_kind: PyEvidenceKind::CountHeld,
                     path: Some(path_str(path)),
                     value: Some(v.to_string()),
                     detail: format!("matched value (count {bounds})"),
@@ -471,6 +588,7 @@ fn sat_leaves(s: &SatTrace, out: &mut Vec<SatAtom>) {
             for (value, _, trace) in values {
                 out.push(SatAtom {
                     kind: SatKind::Match,
+                    evidence_kind: PyEvidenceKind::AllValuesHeld,
                     path: Some(path_str(path)),
                     value: Some(value.to_string()),
                     detail: "checked value satisfies universal qualifier".into(),
@@ -490,18 +608,21 @@ fn sat_leaves(s: &SatTrace, out: &mut Vec<SatAtom>) {
         }
         SatTrace::NotHeld { node, .. } => out.push(SatAtom {
             kind: SatKind::Not,
+            evidence_kind: PyEvidenceKind::NotHeld,
             path: None,
             value: Some(node.to_string()),
             detail: "negation holds (the inner shape fails)".into(),
         }),
         SatTrace::Blocked { node, reason, .. } => out.push(SatAtom {
             kind: SatKind::Blocked,
+            evidence_kind: PyEvidenceKind::Blocked,
             path: None,
             value: Some(node.to_string()),
             detail: format!("holds, no enumerable values ({reason:?})"),
         }),
         SatTrace::Coinductive { node, .. } => out.push(SatAtom {
             kind: SatKind::Coinductive,
+            evidence_kind: PyEvidenceKind::Coinductive,
             path: None,
             value: Some(node.to_string()),
             detail: "assumed (gfp back-edge)".into(),
@@ -862,10 +983,14 @@ impl RepairSession {
         let fw = py
             .allow_threads(|| witness_node(&self.context, &self.schema, &term, ShapeId(shape_id)))
             .map_err(|e| py_value_error(format!("non-stratifiable schema: {e}")))?;
-        Ok(fw.map(|fw| RepairTree {
-            inner: synthesize(&self.schema.arena, &fw),
-            schema: Arc::clone(&self.schema),
-            data: Arc::clone(&self.data),
+        Ok(fw.map(|fw| {
+            let synthesized = synthesize_with_origins(&self.schema.arena, &fw);
+            RepairTree {
+                inner: synthesized.tree,
+                origins: synthesized.origins,
+                schema: Arc::clone(&self.schema),
+                data: Arc::clone(&self.data),
+            }
         }))
     }
 
@@ -1005,6 +1130,9 @@ fn build_target(sel: &Selector, schema: &Schema) -> Target {
 
 #[pyclass(get_all, frozen, name = "EvidenceNode")]
 pub struct PyEvidenceNode {
+    /// Exact typed discriminant of this structured node.
+    pub evidence_kind: PyEvidenceKind,
+    /// Compatibility spelling of `evidence_kind` in snake case.
     pub kind: String,
     pub status: String,
     pub constraint_id: u32,
@@ -1118,13 +1246,11 @@ fn evidence_nodes(value: &IrEvidence) -> Vec<PyEvidenceNode> {
                     IrEvidence::Failure(value.clone())
                 }
             };
+            let evidence_kind = PyEvidenceKind::from(node.evidence_kind());
             PyEvidenceNode {
-                kind: node.kind().to_string(),
-                status: match node.status() {
-                    shifty_engine::EvaluationStatus::Pass => "pass",
-                    shifty_engine::EvaluationStatus::Fail => "fail",
-                }
-                .to_string(),
+                evidence_kind,
+                kind: evidence_kind.as_str().to_string(),
+                status: evidence_kind.status_str().to_string(),
                 constraint_id: node.constraint_id().0,
                 json: evidence.to_json().expect("evidence node is serializable"),
             }
@@ -1345,9 +1471,11 @@ impl FocusWitness {
 
     /// Synthesize the repair space (`RepairTree`) for this violation.
     fn repair_tree(&self, py: Python<'_>) -> RepairTree {
-        let tree = py.allow_threads(|| synthesize(&self.schema.arena, &self.inner));
+        let synthesized =
+            py.allow_threads(|| synthesize_with_origins(&self.schema.arena, &self.inner));
         RepairTree {
-            inner: tree,
+            inner: synthesized.tree,
+            origins: synthesized.origins,
             schema: Arc::clone(&self.schema),
             data: Arc::clone(&self.data),
         }
@@ -2598,12 +2726,72 @@ impl EvidenceSession {
 #[pyclass(name = "RepairTree")]
 pub struct RepairTree {
     inner: IrTree,
+    origins: BTreeMap<NodeId, Vec<IrEvidenceOrigin>>,
     schema: Arc<Schema>,
     data: Arc<Graph>,
 }
 
+/// The evidence occurrence that justified one repair-tree node.
+#[pyclass(get_all, eq, frozen, name = "RepairOrigin")]
+#[derive(Clone, PartialEq, Eq)]
+pub struct RepairOrigin {
+    pub statement_id: usize,
+    pub path: Vec<usize>,
+    pub constraint_id: u32,
+    pub node: Option<String>,
+    pub status: String,
+    pub evidence_kind: PyEvidenceKind,
+    /// Compatibility spelling of `evidence_kind` in snake case.
+    pub kind: String,
+}
+
+impl From<&IrEvidenceOrigin> for RepairOrigin {
+    fn from(origin: &IrEvidenceOrigin) -> Self {
+        let evidence_kind = PyEvidenceKind::from(origin.kind);
+        Self {
+            statement_id: origin.statement,
+            path: origin.path.clone(),
+            constraint_id: origin.constraint_id.0,
+            node: origin.node.as_ref().map(ToString::to_string),
+            status: evidence_kind.status_str().to_string(),
+            evidence_kind,
+            kind: evidence_kind.as_str().to_string(),
+        }
+    }
+}
+
+#[pymethods]
+impl RepairOrigin {
+    fn __repr__(&self) -> String {
+        format!(
+            "RepairOrigin(statement={}, path={:?}, kind={:?})",
+            self.statement_id, self.path, self.kind
+        )
+    }
+}
+
 #[pymethods]
 impl RepairTree {
+    /// Stable id of the root repair operator.
+    #[getter]
+    fn root_id(&self) -> u32 {
+        self.inner.id().0
+    }
+
+    /// Evidence occurrences justifying `node_id`, or the root when omitted.
+    /// A joint synthetic node can have several origins; an ordinary node has
+    /// one. Unknown ids return an empty list.
+    #[pyo3(signature = (node_id=None))]
+    fn origins(&self, node_id: Option<u32>) -> Vec<RepairOrigin> {
+        let node = NodeId(node_id.unwrap_or_else(|| self.inner.id().0));
+        self.origins
+            .get(&node)
+            .into_iter()
+            .flatten()
+            .map(RepairOrigin::from)
+            .collect()
+    }
+
     /// True if no data repair is possible in scope (opaque SPARQL / identity /
     /// coinductive).
     #[getter]
@@ -2663,7 +2851,11 @@ impl RepairTree {
     }
 
     fn __repr__(&self) -> String {
-        format!("RepairTree(blocked={})", self.inner.is_blocked())
+        format!(
+            "RepairTree(root_id={}, blocked={})",
+            self.inner.id().0,
+            self.inner.is_blocked()
+        )
     }
 }
 
@@ -3067,11 +3259,13 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<FocusSatisfaction>()?;
     m.add_class::<Target>()?;
     m.add_class::<TargetKind>()?;
+    m.add_class::<PyEvidenceKind>()?;
     m.add_class::<WitnessAtom>()?;
     m.add_class::<WitnessKind>()?;
     m.add_class::<SatAtom>()?;
     m.add_class::<SatKind>()?;
     m.add_class::<RepairTree>()?;
+    m.add_class::<RepairOrigin>()?;
     m.add_class::<Hole>()?;
     m.add_class::<Choice>()?;
     m.add_class::<ChoiceKind>()?;

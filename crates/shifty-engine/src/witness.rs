@@ -1,8 +1,8 @@
 //! The witnessing evaluator (`docs/06-repair.md` §5) — the structured, lossless
 //! sibling of [`explain`](crate::validate). For a focus node that fails a
-//! statement it returns a [`Witness`]: the failed sub-DAG of `φ`, pruned to
+//! statement it returns a [`Failure`]: the failed sub-DAG of `φ`, pruned to
 //! exactly what did not hold, with the structural gap at each node. Its dual,
-//! [`SatTrace`], records *why* a shape currently holds, so a `Not(φ)` failure can
+//! [`Satisfaction`], records *why* a shape currently holds, so a `Not(φ)` failure can
 //! be repaired by breaking `φ`. One dispatcher produces both tagged polarities;
 //! they are mutually recursive only in their data grammar through `Not`.
 //!
@@ -27,7 +27,7 @@ pub struct FocusWitness {
     pub focus: Term,
     /// Index of the violated `(selector, shape)` statement in the schema.
     pub statement: usize,
-    pub failure: Witness,
+    pub failure: Failure,
 }
 
 /// The relational (pairwise) leaf constraints — distinct from value-type atoms.
@@ -65,7 +65,7 @@ pub enum PathSupport {
 pub struct QualifiedMatch {
     pub value: Term,
     pub path_support: PathSupport,
-    pub satisfaction: Box<SatTrace>,
+    pub satisfaction: Box<Satisfaction>,
 }
 
 /// A reached near-match that failed a qualified count's nested shape.
@@ -73,13 +73,13 @@ pub struct QualifiedMatch {
 pub struct RejectedCandidate {
     pub value: Term,
     pub path_support: PathSupport,
-    pub failure: Box<Witness>,
+    pub failure: Box<Failure>,
 }
 
 /// The failed sub-structure of `φ` (additive direction: what to *add*).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
 #[serde(tag = "type", content = "details", rename_all = "snake_case")]
-pub enum Witness {
+pub enum Failure {
     /// A value-type leaf failed at `node` (TestConst / TestType / TestKind).
     /// `produced_by` names the triples that made `node` a value (`Some` for a
     /// value-scoped atom, `None` for one on the focus itself).
@@ -112,19 +112,19 @@ pub enum Witness {
     Not {
         shape: ShapeId,
         node: Term,
-        inner: Box<SatTrace>,
+        inner: Box<Satisfaction>,
     },
     /// Conjunction: every listed child failed and ALL must be repaired.
     All {
         shape: ShapeId,
         node: Term,
-        failed: Vec<Witness>,
+        failed: Vec<Failure>,
     },
     /// Disjunction: no branch held; repairing ANY ONE suffices.
     Any {
         shape: ShapeId,
         node: Term,
-        branches: Vec<Witness>,
+        branches: Vec<Failure>,
     },
     /// `∃≥min π.q` under-satisfied: `have` values match, `min` required.
     ///
@@ -156,7 +156,7 @@ pub enum Witness {
         matched: Vec<(Term, PathSupport)>,
         max: u64,
         excess_values: Vec<(Term, PathSupport)>,
-        per_value: Vec<(Term, Witness)>,
+        per_value: Vec<(Term, Failure)>,
     },
     /// Opaque SPARQL — no algebraic witness.
     Opaque {
@@ -167,11 +167,15 @@ pub enum Witness {
     },
 }
 
+/// Compatibility spelling retained for the repair-facing API. New public code
+/// should use [`Failure`], the vocabulary shared with [`Evidence`].
+pub type Witness = Failure;
+
 /// Why `φ` currently *holds* at a node (deletive direction: what to *delete*).
-/// The dual of [`Witness`].
+/// The dual of [`Failure`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
 #[serde(tag = "type", content = "details", rename_all = "snake_case")]
-pub enum SatTrace {
+pub enum Satisfaction {
     /// `⊤` — vacuously true; no graph edit falsifies it.
     Irrefutable { shape: ShapeId },
     /// A value-type leaf holds at `node`; `produced_by` names the edges to cut.
@@ -187,13 +191,13 @@ pub enum SatTrace {
     AllHeld {
         shape: ShapeId,
         node: Term,
-        children: Vec<SatTrace>,
+        children: Vec<Satisfaction>,
     },
     /// Disjunction holds because these branches hold ⟹ break EVERY one.
     AnyHeld {
         shape: ShapeId,
         node: Term,
-        satisfied: Vec<SatTrace>,
+        satisfied: Vec<Satisfaction>,
     },
     /// `∃[min..max] π.q` holds. `matches` carries each counted value with its
     /// concrete path certificate and q-satisfaction trace.
@@ -202,7 +206,7 @@ pub enum SatTrace {
         node: Term,
         path: Path,
         qualifier: ShapeId,
-        matches: Vec<(Term, PathSupport, SatTrace)>,
+        matches: Vec<(Term, PathSupport, Satisfaction)>,
         observed_count: u64,
         min: Option<u64>,
         max: Option<u64>,
@@ -215,13 +219,13 @@ pub enum SatTrace {
         node: Term,
         path: Path,
         qualifier: ShapeId,
-        values: Vec<(Term, PathSupport, SatTrace)>,
+        values: Vec<(Term, PathSupport, Satisfaction)>,
     },
     /// `¬φ` holds because `φ` fails ⟹ make `φ` hold. Flips to the additive side.
     NotHeld {
         shape: ShapeId,
         node: Term,
-        inner_fails: Box<Witness>,
+        inner_fails: Box<Failure>,
     },
     /// Holds but cannot be falsified by data deletion in scope (closed / relational
     /// / opaque SPARQL).
@@ -235,28 +239,101 @@ pub enum SatTrace {
     Coinductive { shape: ShapeId, node: Term },
 }
 
+/// Compatibility spelling retained while repair internals migrate to the
+/// unified evidence vocabulary. New public code should use [`Satisfaction`].
+pub type SatTrace = Satisfaction;
+
 /// The applicable evidence polarity for one selected `(statement, focus)` pair.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
 #[serde(tag = "status", content = "evidence", rename_all = "snake_case")]
 pub enum Evidence {
     #[serde(rename = "pass")]
-    Satisfaction(SatTrace),
+    Satisfaction(Satisfaction),
     #[serde(rename = "fail")]
-    Failure(Witness),
+    Failure(Failure),
 }
-
-/// Public name for failure-side evidence. `Witness` remains as an internal and
-/// repair-facing spelling while callers migrate to the unified vocabulary.
-pub type Failure = Witness;
-
-/// Public name for pass-side evidence.
-pub type Satisfaction = SatTrace;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash)]
 #[serde(rename_all = "snake_case")]
 pub enum EvaluationStatus {
     Pass,
     Fail,
+}
+
+/// Stable, polarity-aware discriminant for an evidence node.
+///
+/// This is the shared enumeration used when evidence must be named without
+/// copying its variant payload, including repair-origin links and language
+/// bindings. It is distinct from repair choice kinds and candidate enumeration.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash)]
+#[serde(rename_all = "snake_case")]
+pub enum EvidenceKind {
+    Irrefutable,
+    AtomHeld,
+    AllHeld,
+    AnyHeld,
+    CountHeld,
+    AllValuesHeld,
+    NotHeld,
+    Blocked,
+    Coinductive,
+    AtomFailed,
+    RelationalFailed,
+    ClosedFailed,
+    NotFailed,
+    AllFailed,
+    AnyFailed,
+    CountLow,
+    CountHigh,
+    Opaque,
+}
+
+impl EvidenceKind {
+    pub fn status(self) -> EvaluationStatus {
+        match self {
+            Self::Irrefutable
+            | Self::AtomHeld
+            | Self::AllHeld
+            | Self::AnyHeld
+            | Self::CountHeld
+            | Self::AllValuesHeld
+            | Self::NotHeld
+            | Self::Blocked
+            | Self::Coinductive => EvaluationStatus::Pass,
+            Self::AtomFailed
+            | Self::RelationalFailed
+            | Self::ClosedFailed
+            | Self::NotFailed
+            | Self::AllFailed
+            | Self::AnyFailed
+            | Self::CountLow
+            | Self::CountHigh
+            | Self::Opaque => EvaluationStatus::Fail,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Irrefutable => "irrefutable",
+            Self::AtomHeld => "atom_held",
+            Self::AllHeld => "all_held",
+            Self::AnyHeld => "any_held",
+            Self::CountHeld => "count_held",
+            Self::AllValuesHeld => "all_values_held",
+            Self::NotHeld => "not_held",
+            Self::Blocked => "blocked",
+            Self::Coinductive => "coinductive",
+            Self::AtomFailed => "atom_failed",
+            Self::RelationalFailed => "relational_failed",
+            Self::ClosedFailed => "closed_failed",
+            Self::NotFailed => "not_failed",
+            Self::AllFailed => "all_failed",
+            Self::AnyFailed => "any_failed",
+            Self::CountLow => "count_low",
+            Self::CountHigh => "count_high",
+            Self::Opaque => "opaque",
+        }
+    }
 }
 
 impl Evidence {
@@ -403,35 +480,101 @@ impl<'a> EvidenceNodeRef<'a> {
     }
 
     pub fn status(self) -> EvaluationStatus {
+        self.evidence_kind().status()
+    }
+
+    pub fn evidence_kind(self) -> EvidenceKind {
         match self {
-            Self::Satisfaction(_) => EvaluationStatus::Pass,
-            Self::Failure(_) => EvaluationStatus::Fail,
+            Self::Satisfaction(value) => match value {
+                SatTrace::Irrefutable { .. } => EvidenceKind::Irrefutable,
+                SatTrace::Atom { .. } => EvidenceKind::AtomHeld,
+                SatTrace::AllHeld { .. } => EvidenceKind::AllHeld,
+                SatTrace::AnyHeld { .. } => EvidenceKind::AnyHeld,
+                SatTrace::CountHeld { .. } => EvidenceKind::CountHeld,
+                SatTrace::ForAllHeld { .. } => EvidenceKind::AllValuesHeld,
+                SatTrace::NotHeld { .. } => EvidenceKind::NotHeld,
+                SatTrace::Blocked { .. } => EvidenceKind::Blocked,
+                SatTrace::Coinductive { .. } => EvidenceKind::Coinductive,
+            },
+            Self::Failure(value) => match value {
+                Witness::Atom { .. } => EvidenceKind::AtomFailed,
+                Witness::Relational { .. } => EvidenceKind::RelationalFailed,
+                Witness::Closed { .. } => EvidenceKind::ClosedFailed,
+                Witness::Not { .. } => EvidenceKind::NotFailed,
+                Witness::All { .. } => EvidenceKind::AllFailed,
+                Witness::Any { .. } => EvidenceKind::AnyFailed,
+                Witness::CountLow { .. } => EvidenceKind::CountLow,
+                Witness::CountHigh { .. } => EvidenceKind::CountHigh,
+                Witness::Opaque { .. } => EvidenceKind::Opaque,
+            },
         }
     }
 
     pub fn kind(self) -> &'static str {
+        self.evidence_kind().as_str()
+    }
+
+    /// Immediate evidence children in stable semantic order.
+    ///
+    /// This is the shared grammar of failure and satisfaction evidence. `Not`
+    /// crosses polarity; qualified counts can contain both satisfaction traces
+    /// for matches and failure witnesses for rejected candidates. Callers that
+    /// only need structure should use this instead of maintaining another
+    /// variant-specific recursive walk.
+    pub fn children(self) -> Vec<Self> {
+        let mut out = Vec::new();
+        self.for_each_child(|child| out.push(child));
+        out
+    }
+
+    fn for_each_child(self, mut visit: impl FnMut(Self)) {
         match self {
-            Self::Satisfaction(value) => match value {
-                SatTrace::Irrefutable { .. } => "irrefutable",
-                SatTrace::Atom { .. } => "atom_held",
-                SatTrace::AllHeld { .. } => "all_held",
-                SatTrace::AnyHeld { .. } => "any_held",
-                SatTrace::CountHeld { .. } => "count_held",
-                SatTrace::ForAllHeld { .. } => "all_values_held",
-                SatTrace::NotHeld { .. } => "not_held",
-                SatTrace::Blocked { .. } => "blocked",
-                SatTrace::Coinductive { .. } => "coinductive",
-            },
             Self::Failure(value) => match value {
-                Witness::Atom { .. } => "atom_failed",
-                Witness::Relational { .. } => "relational_failed",
-                Witness::Closed { .. } => "closed_failed",
-                Witness::Not { .. } => "not_failed",
-                Witness::All { .. } => "all_failed",
-                Witness::Any { .. } => "any_failed",
-                Witness::CountLow { .. } => "count_low",
-                Witness::CountHigh { .. } => "count_high",
-                Witness::Opaque { .. } => "opaque",
+                Witness::Not { inner, .. } => visit(Self::Satisfaction(inner)),
+                Witness::All { failed, .. } => {
+                    failed.iter().for_each(|child| visit(Self::Failure(child)))
+                }
+                Witness::Any { branches, .. } => branches
+                    .iter()
+                    .for_each(|child| visit(Self::Failure(child))),
+                Witness::CountLow {
+                    qualifying_matches,
+                    rejected_candidates,
+                    ..
+                } => {
+                    qualifying_matches.iter().for_each(|item| {
+                        visit(Self::Satisfaction(&item.satisfaction));
+                    });
+                    rejected_candidates
+                        .iter()
+                        .for_each(|item| visit(Self::Failure(&item.failure)));
+                }
+                Witness::CountHigh { per_value, .. } => per_value
+                    .iter()
+                    .for_each(|(_, child)| visit(Self::Failure(child))),
+                Witness::Atom { .. }
+                | Witness::Relational { .. }
+                | Witness::Closed { .. }
+                | Witness::Opaque { .. } => {}
+            },
+            Self::Satisfaction(value) => match value {
+                SatTrace::AllHeld { children, .. } => children
+                    .iter()
+                    .for_each(|child| visit(Self::Satisfaction(child))),
+                SatTrace::AnyHeld { satisfied, .. } => satisfied
+                    .iter()
+                    .for_each(|child| visit(Self::Satisfaction(child))),
+                SatTrace::CountHeld { matches, .. } => matches
+                    .iter()
+                    .for_each(|(_, _, child)| visit(Self::Satisfaction(child))),
+                SatTrace::ForAllHeld { values, .. } => values
+                    .iter()
+                    .for_each(|(_, _, child)| visit(Self::Satisfaction(child))),
+                SatTrace::NotHeld { inner_fails, .. } => visit(Self::Failure(inner_fails)),
+                SatTrace::Irrefutable { .. }
+                | SatTrace::Atom { .. }
+                | SatTrace::Blocked { .. }
+                | SatTrace::Coinductive { .. } => {}
             },
         }
     }
@@ -524,63 +667,16 @@ fn satisfaction_node(value: &SatTrace) -> Option<&Term> {
 }
 
 fn walk_evidence<'a>(value: &'a Evidence, out: &mut Vec<EvidenceNodeRef<'a>>) {
-    match value {
-        Evidence::Satisfaction(value) => walk_sat(value, out),
-        Evidence::Failure(value) => walk_failure(value, out),
-    }
+    let root = match value {
+        Evidence::Satisfaction(value) => EvidenceNodeRef::Satisfaction(value),
+        Evidence::Failure(value) => EvidenceNodeRef::Failure(value),
+    };
+    walk_node(root, out);
 }
 
-fn walk_failure<'a>(value: &'a Witness, out: &mut Vec<EvidenceNodeRef<'a>>) {
-    out.push(EvidenceNodeRef::Failure(value));
-    match value {
-        Witness::Not { inner, .. } => walk_sat(inner, out),
-        Witness::All { failed, .. } => failed.iter().for_each(|child| walk_failure(child, out)),
-        Witness::Any { branches, .. } => {
-            branches.iter().for_each(|child| walk_failure(child, out));
-        }
-        Witness::CountLow {
-            qualifying_matches,
-            rejected_candidates,
-            ..
-        } => {
-            qualifying_matches
-                .iter()
-                .for_each(|item| walk_sat(&item.satisfaction, out));
-            rejected_candidates
-                .iter()
-                .for_each(|item| walk_failure(&item.failure, out));
-        }
-        Witness::CountHigh { per_value, .. } => per_value
-            .iter()
-            .for_each(|(_, child)| walk_failure(child, out)),
-        Witness::Atom { .. }
-        | Witness::Relational { .. }
-        | Witness::Closed { .. }
-        | Witness::Opaque { .. } => {}
-    }
-}
-
-fn walk_sat<'a>(value: &'a SatTrace, out: &mut Vec<EvidenceNodeRef<'a>>) {
-    out.push(EvidenceNodeRef::Satisfaction(value));
-    match value {
-        SatTrace::AllHeld { children, .. } => {
-            children.iter().for_each(|child| walk_sat(child, out));
-        }
-        SatTrace::AnyHeld { satisfied, .. } => {
-            satisfied.iter().for_each(|child| walk_sat(child, out));
-        }
-        SatTrace::CountHeld { matches, .. } => matches
-            .iter()
-            .for_each(|(_, _, child)| walk_sat(child, out)),
-        SatTrace::ForAllHeld { values, .. } => {
-            values.iter().for_each(|(_, _, child)| walk_sat(child, out))
-        }
-        SatTrace::NotHeld { inner_fails, .. } => walk_failure(inner_fails, out),
-        SatTrace::Irrefutable { .. }
-        | SatTrace::Atom { .. }
-        | SatTrace::Blocked { .. }
-        | SatTrace::Coinductive { .. } => {}
-    }
+fn walk_node<'a>(value: EvidenceNodeRef<'a>, out: &mut Vec<EvidenceNodeRef<'a>>) {
+    out.push(value);
+    value.for_each_child(|child| walk_node(child, out));
 }
 
 fn support_triples(value: &PathSupport, out: &mut Vec<Triple>) {
@@ -2362,5 +2458,114 @@ mod tests {
             SatTrace::ForAllHeld { values, .. } => values.iter().any(|(_, _, c)| any_sat(c, pred)),
             _ => false,
         }
+    }
+
+    #[test]
+    fn shared_child_grammar_is_preorder_and_crosses_polarity_at_not() {
+        let node = Term::NamedNode(NamedNode::new_unchecked("http://ex/x"));
+        let failure = Evidence::Failure(Witness::All {
+            shape: ShapeId(0),
+            node: node.clone(),
+            failed: vec![
+                Witness::Not {
+                    shape: ShapeId(1),
+                    node: node.clone(),
+                    inner: Box::new(SatTrace::Irrefutable { shape: ShapeId(2) }),
+                },
+                Witness::Opaque {
+                    shape: ShapeId(3),
+                    node: node.clone(),
+                    messages: Vec::new(),
+                    diagnostic: None,
+                },
+            ],
+        });
+
+        let root = failure.walk()[0];
+        assert_eq!(
+            root.children()
+                .into_iter()
+                .map(EvidenceNodeRef::kind)
+                .collect::<Vec<_>>(),
+            ["not_failed", "opaque"],
+        );
+        assert_eq!(
+            failure
+                .walk()
+                .into_iter()
+                .map(|item| (item.kind(), item.status()))
+                .collect::<Vec<_>>(),
+            [
+                ("all_failed", EvaluationStatus::Fail),
+                ("not_failed", EvaluationStatus::Fail),
+                ("irrefutable", EvaluationStatus::Pass),
+                ("opaque", EvaluationStatus::Fail),
+            ],
+        );
+
+        let satisfaction = Evidence::Satisfaction(SatTrace::NotHeld {
+            shape: ShapeId(4),
+            node,
+            inner_fails: Box::new(Witness::Opaque {
+                shape: ShapeId(5),
+                node: Term::NamedNode(NamedNode::new_unchecked("http://ex/x")),
+                messages: Vec::new(),
+                diagnostic: None,
+            }),
+        });
+        assert_eq!(
+            satisfaction
+                .walk()
+                .into_iter()
+                .map(|item| (item.kind(), item.status()))
+                .collect::<Vec<_>>(),
+            [
+                ("not_held", EvaluationStatus::Pass),
+                ("opaque", EvaluationStatus::Fail),
+            ],
+        );
+    }
+
+    #[test]
+    fn evidence_kind_is_an_exhaustive_polarity_discriminant() {
+        let passing = [
+            EvidenceKind::Irrefutable,
+            EvidenceKind::AtomHeld,
+            EvidenceKind::AllHeld,
+            EvidenceKind::AnyHeld,
+            EvidenceKind::CountHeld,
+            EvidenceKind::AllValuesHeld,
+            EvidenceKind::NotHeld,
+            EvidenceKind::Blocked,
+            EvidenceKind::Coinductive,
+        ];
+        let failing = [
+            EvidenceKind::AtomFailed,
+            EvidenceKind::RelationalFailed,
+            EvidenceKind::ClosedFailed,
+            EvidenceKind::NotFailed,
+            EvidenceKind::AllFailed,
+            EvidenceKind::AnyFailed,
+            EvidenceKind::CountLow,
+            EvidenceKind::CountHigh,
+            EvidenceKind::Opaque,
+        ];
+
+        assert!(
+            passing
+                .iter()
+                .all(|kind| kind.status() == EvaluationStatus::Pass)
+        );
+        assert!(
+            failing
+                .iter()
+                .all(|kind| kind.status() == EvaluationStatus::Fail)
+        );
+        let names = passing
+            .iter()
+            .chain(&failing)
+            .map(|kind| kind.as_str())
+            .collect::<HashSet<_>>();
+        assert_eq!(names.len(), passing.len() + failing.len());
     }
 }

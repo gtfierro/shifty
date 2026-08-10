@@ -532,12 +532,37 @@ failing focus can therefore move directly from explanation to symbolic repair:
            print(focus.failure.explain())
            repair_tree = focus.failure.repair_tree()
            print(repair_tree.explain())
+           for origin in repair_tree.origins():
+               print(origin.statement_id, origin.path, origin.kind)
+
+``RepairTree.root_id`` is the stable address of its root operator, and
+``origins(node_id)`` returns the evidence occurrences that justify any repair
+node. An origin records the normalized statement id, its child-index path in
+the evidence tree, constraint id, judgment node, status, and evidence kind.
+Most nodes have one origin; a joint synthetic node can have several. This makes
+the route from validation evidence to a repair choice inspectable rather than
+depending on two walks happening to use the same positions.
 
 The complement is equally important: satisfaction evidence explains which
 facts and nested decisions currently make the shape hold. When repair crosses
 a negation, this satisfaction trace supplies the deletive side of synthesis.
 Both polarities therefore share traversal and projection infrastructure rather
 than being unrelated report formats.
+
+Every item returned by ``evidence.walk()`` has an exact typed
+``EvidenceKind`` in ``item.evidence_kind``. Its ``status`` property is
+``"pass"`` or ``"fail"`` and its string form is the existing snake-case kind:
+
+.. code-block:: python
+
+   for item in focus.evidence.walk():
+       assert item.status == item.evidence_kind.status
+       assert item.kind == str(item.evidence_kind)  # compatibility spelling
+
+``WitnessKind`` and ``SatKind`` remain the coarser kinds of flattened summary
+rows. Summary rows also expose ``evidence_kind`` so, for example, a
+``SatKind.Match`` says whether it came from ``EvidenceKind.CountHeld`` or
+``EvidenceKind.AllValuesHeld``.
 
 Rust API
 --------

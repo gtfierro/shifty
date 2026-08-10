@@ -108,12 +108,79 @@ def test_negation_crossing_and_tagged_json_are_structured():
     failed = next(focus.evidence for focus in foci if focus.status == "fail")
     assert {node.status for node in passed.walk()} == {"pass", "fail"}
     assert {node.status for node in failed.walk()} == {"pass", "fail"}
+    for node in [*passed.walk(), *failed.walk()]:
+        assert isinstance(node.evidence_kind, shifty.EvidenceKind)
+        assert node.kind == str(node.evidence_kind)
+        assert node.status == node.evidence_kind.status
+    assert shifty.EvidenceKind.NotHeld in {
+        node.evidence_kind for node in passed.walk()
+    }
+    assert shifty.EvidenceKind.NotFailed in {
+        node.evidence_kind for node in failed.walk()
+    }
 
     encoded = run.to_json()
     decoded = run.to_dict()
     assert json.loads(encoded) == decoded
     focus_json = decoded["statements"][0]["selected_foci"]
     assert {item["evidence"]["status"] for item in focus_json} == {"pass", "fail"}
+
+
+def test_evidence_kind_is_the_complete_typed_polarity_vocabulary():
+    passing = [
+        shifty.EvidenceKind.Irrefutable,
+        shifty.EvidenceKind.AtomHeld,
+        shifty.EvidenceKind.AllHeld,
+        shifty.EvidenceKind.AnyHeld,
+        shifty.EvidenceKind.CountHeld,
+        shifty.EvidenceKind.AllValuesHeld,
+        shifty.EvidenceKind.NotHeld,
+        shifty.EvidenceKind.Blocked,
+        shifty.EvidenceKind.Coinductive,
+    ]
+    failing = [
+        shifty.EvidenceKind.AtomFailed,
+        shifty.EvidenceKind.RelationalFailed,
+        shifty.EvidenceKind.ClosedFailed,
+        shifty.EvidenceKind.NotFailed,
+        shifty.EvidenceKind.AllFailed,
+        shifty.EvidenceKind.AnyFailed,
+        shifty.EvidenceKind.CountLow,
+        shifty.EvidenceKind.CountHigh,
+        shifty.EvidenceKind.Opaque,
+    ]
+
+    assert len(set(passing + failing)) == 18
+    assert {kind.status for kind in passing} == {"pass"}
+    assert {kind.status for kind in failing} == {"fail"}
+    assert str(shifty.EvidenceKind.AllValuesHeld) == "all_values_held"
+    assert str(shifty.EvidenceKind.CountHigh) == "count_high"
+
+
+def test_disjunction_evidence_obeys_the_boolean_duality_law():
+    shapes = PREFIXES + """
+    ex:S a sh:NodeShape ; sh:targetNode ex:x, ex:y ;
+        sh:or ( [ sh:class ex:A ] [ sh:class ex:B ] ) .
+    """
+    data = PREFIXES + "ex:x a ex:A . ex:y a ex:C ."
+    run = shifty.EvidenceSession(shapes, data, infer=False).validate()
+    results = {result.focus: result for result in selected_foci(run)}
+
+    passing = results["<http://ex/x>"].evidence.walk()
+    failing = results["<http://ex/y>"].evidence.walk()
+    assert shifty.EvidenceKind.AnyHeld in {
+        node.evidence_kind for node in passing
+    }
+    assert shifty.EvidenceKind.AnyFailed in {
+        node.evidence_kind for node in failing
+    }
+    # A holding disjunction retains only holding branches, all on the positive
+    # side. A failed disjunction retains every branch, all on the negative side.
+    assert {node.status for node in passing} == {"pass"}
+    assert {node.status for node in failing} == {"fail"}
+    assert sum(
+        node.evidence_kind == shifty.EvidenceKind.CountLow for node in failing
+    ) >= 2
 
 
 def test_repeated_validate_is_stable_and_matches_ordinary_validation():

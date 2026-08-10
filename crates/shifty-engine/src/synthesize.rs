@@ -2,8 +2,8 @@
 //!
 //! Two mutually-recursive folds turn the failed sub-DAG of `φ` into the inspectable
 //! repair space a driver fills:
-//! - [`Synth::repair`] (additive) walks a [`Witness`], emitting adds.
-//! - [`Synth::break_`] (deletive) walks a [`SatTrace`], emitting deletes.
+//! - [`Synth::repair`] (additive) walks a failure, emitting adds.
+//! - [`Synth::break_`] (deletive) walks a satisfaction, emitting deletes.
 //!
 //! They cross at `Not`. The third design direction — a structural `build` that
 //! expands a fresh value's qualifier shape — is represented in this first cut by a
@@ -12,50 +12,185 @@
 //! fuel: the recursion bottoms out at the witness/trace leaves.
 
 use crate::witness::{
-    BlockReason as WBlock, FocusWitness, PathSupport, RelKind, SatTrace, Witness,
+    BlockReason as WBlock, EvaluationStatus, EvidenceKind, EvidenceNodeRef, FocusWitness,
+    PathSupport, RelKind, SatTrace, Witness,
 };
 use oxrdf::{NamedOrBlankNode, Term, Triple};
+use serde::{Deserialize, Serialize};
 use shifty_algebra::{Path, Shape, ShapeArena, ShapeId};
 use shifty_repair::{
     BlockReason, Edit, Hole, HoleConstraint, NodeId, RepairTree, Slot, TriplePattern,
 };
+use std::collections::{BTreeMap, BTreeSet};
 
 /// Add-edges plus the fresh interior holes they introduce.
 type Materialized = (Vec<Edit>, Vec<(Hole, HoleConstraint)>);
 
+/// The exact evidence occurrence that justified a synthesized repair node.
+/// `path` is a child-index path from the root evidence node under `statement`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EvidenceOrigin {
+    pub statement: usize,
+    pub path: Vec<usize>,
+    pub constraint_id: ShapeId,
+    pub node: Option<Term>,
+    pub status: EvaluationStatus,
+    pub kind: EvidenceKind,
+}
+
+/// A repair tree together with the evidence origins of every retained node.
+///
+/// Origins live at the engine synthesis boundary rather than in
+/// `shifty-repair`: the latter remains a pure, reusable repair IR with no
+/// dependency on validation evidence. A joint synthetic node can have several
+/// origins; an ordinary evidence-derived node has one.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SynthesizedRepair {
+    pub tree: RepairTree,
+    pub origins: BTreeMap<NodeId, Vec<EvidenceOrigin>>,
+}
+
+impl SynthesizedRepair {
+    pub fn origins_for(&self, node: NodeId) -> &[EvidenceOrigin] {
+        self.origins.get(&node).map(Vec::as_slice).unwrap_or(&[])
+    }
+
+    pub fn into_tree(self) -> RepairTree {
+        self.tree
+    }
+}
+
 /// Synthesize the repair space for one focus node failing one statement.
 pub fn synthesize(arena: &ShapeArena, w: &FocusWitness) -> RepairTree {
-    let mut s = Synth::new(arena);
-    s.repair(&w.failure)
+    let mut s = Synth::new(arena, false);
+    s.repair_witness(w)
+}
+
+/// Synthesize one violation and retain the evidence origin of every repair
+/// node. This is the traceable form used by interactive and publication-facing
+/// drivers; [`synthesize`] remains the compatibility projection to the pure IR.
+pub fn synthesize_with_origins(arena: &ShapeArena, w: &FocusWitness) -> SynthesizedRepair {
+    let mut s = Synth::new(arena, true);
+    let tree = s.repair_witness(w);
+    s.finish(tree)
 }
 
 /// Per-focus grouping: `All` over a focus's statement-witnesses, so a driver can
 /// fill one plan that fixes everything a focus violates at once.
 pub fn synthesize_focus(arena: &ShapeArena, ws: &[FocusWitness]) -> RepairTree {
-    let mut s = Synth::new(arena);
-    let children: Vec<RepairTree> = ws.iter().map(|w| s.repair(&w.failure)).collect();
+    let mut s = Synth::new(arena, false);
+    let children: Vec<RepairTree> = ws.iter().map(|w| s.repair_witness(w)).collect();
     s.all(children)
+}
+
+/// Joint synthesis with evidence origins. The synthetic grouping node points to
+/// every root failure it combines.
+pub fn synthesize_focus_with_origins(arena: &ShapeArena, ws: &[FocusWitness]) -> SynthesizedRepair {
+    let mut s = Synth::new(arena, true);
+    let children: Vec<RepairTree> = ws.iter().map(|w| s.repair_witness(w)).collect();
+    let roots = ws
+        .iter()
+        .map(|w| evidence_origin(w.statement, &[], EvidenceNodeRef::Failure(&w.failure)))
+        .collect();
+    let tree = s.with_origins(roots, |s| s.all(children));
+    s.finish(tree)
 }
 
 struct Synth<'a> {
     arena: &'a ShapeArena,
     next_node: u32,
     next_hole: u32,
+    statement: Option<usize>,
+    evidence_path: Vec<usize>,
+    current_origins: Vec<EvidenceOrigin>,
+    origins: BTreeMap<NodeId, Vec<EvidenceOrigin>>,
+    track_origins: bool,
 }
 
 impl<'a> Synth<'a> {
-    fn new(arena: &'a ShapeArena) -> Self {
+    fn new(arena: &'a ShapeArena, track_origins: bool) -> Self {
         Self {
             arena,
             next_node: 0,
             next_hole: 0,
+            statement: None,
+            evidence_path: Vec::new(),
+            current_origins: Vec::new(),
+            origins: BTreeMap::new(),
+            track_origins,
         }
     }
 
     fn node(&mut self) -> NodeId {
         let n = NodeId(self.next_node);
         self.next_node += 1;
+        if !self.current_origins.is_empty() {
+            self.origins.insert(n, self.current_origins.clone());
+        }
         n
+    }
+
+    fn finish(mut self, tree: RepairTree) -> SynthesizedRepair {
+        let mut retained = BTreeSet::new();
+        collect_tree_nodes(&tree, &mut retained);
+        self.origins.retain(|node, _| retained.contains(node));
+        SynthesizedRepair {
+            tree,
+            origins: self.origins,
+        }
+    }
+
+    fn repair_witness(&mut self, witness: &FocusWitness) -> RepairTree {
+        let previous_statement = self.statement.replace(witness.statement);
+        let previous_path = std::mem::take(&mut self.evidence_path);
+        let tree = self.repair(&witness.failure);
+        self.evidence_path = previous_path;
+        self.statement = previous_statement;
+        tree
+    }
+
+    fn with_origins<T>(
+        &mut self,
+        origins: Vec<EvidenceOrigin>,
+        f: impl FnOnce(&mut Self) -> T,
+    ) -> T {
+        let previous = std::mem::replace(&mut self.current_origins, origins);
+        let value = f(self);
+        self.current_origins = previous;
+        value
+    }
+
+    fn with_evidence<T>(
+        &mut self,
+        evidence: EvidenceNodeRef<'_>,
+        f: impl FnOnce(&mut Self) -> T,
+    ) -> T {
+        if !self.track_origins {
+            return f(self);
+        }
+        let statement = self
+            .statement
+            .expect("evidence synthesis must be rooted in a FocusWitness");
+        let origin = evidence_origin(statement, &self.evidence_path, evidence);
+        self.with_origins(vec![origin], f)
+    }
+
+    fn with_child<T>(&mut self, index: usize, f: impl FnOnce(&mut Self) -> T) -> T {
+        if !self.track_origins {
+            return f(self);
+        }
+        self.evidence_path.push(index);
+        let value = f(self);
+        self.evidence_path.pop();
+        value
+    }
+
+    fn repair_child(&mut self, index: usize, value: &Witness) -> RepairTree {
+        self.with_child(index, |s| s.repair(value))
+    }
+
+    fn break_child(&mut self, index: usize, value: &SatTrace) -> RepairTree {
+        self.with_child(index, |s| s.break_(value))
     }
 
     fn hole(&mut self) -> Hole {
@@ -123,9 +258,13 @@ impl<'a> Synth<'a> {
         }
     }
 
-    // ── additive: Witness → RepairTree ──
+    // ── additive: Failure → RepairTree ──
 
     fn repair(&mut self, w: &Witness) -> RepairTree {
+        self.with_evidence(EvidenceNodeRef::Failure(w), |s| s.repair_inner(w))
+    }
+
+    fn repair_inner(&mut self, w: &Witness) -> RepairTree {
         match w {
             Witness::Atom {
                 shape, produced_by, ..
@@ -152,13 +291,21 @@ impl<'a> Synth<'a> {
                     .collect();
                 self.edits(edits, vec![])
             }
-            Witness::Not { inner, .. } => self.break_(inner),
+            Witness::Not { inner, .. } => self.break_child(0, inner),
             Witness::All { failed, .. } => {
-                let cs = failed.iter().map(|c| self.repair(c)).collect();
+                let cs = failed
+                    .iter()
+                    .enumerate()
+                    .map(|(index, child)| self.repair_child(index, child))
+                    .collect();
                 self.all(cs)
             }
             Witness::Any { branches, .. } => {
-                let cs = branches.iter().map(|c| self.repair(c)).collect();
+                let cs = branches
+                    .iter()
+                    .enumerate()
+                    .map(|(index, child)| self.repair_child(index, child))
+                    .collect();
                 self.any(cs)
             }
             Witness::CountLow {
@@ -284,7 +431,11 @@ impl<'a> Synth<'a> {
     ) -> RepairTree {
         if !per_value.is_empty() {
             // ∀-encoding: fix each offending value in place.
-            let cs = per_value.iter().map(|(_, w)| self.repair(w)).collect();
+            let cs = per_value
+                .iter()
+                .enumerate()
+                .map(|(index, (_, witness))| self.repair_child(index, witness))
+                .collect();
             return self.all(cs);
         }
         // plain maxCount: delete (have - max) of the matched values.
@@ -467,9 +618,13 @@ impl<'a> Synth<'a> {
         }
     }
 
-    // ── deletive: SatTrace → RepairTree ──
+    // ── deletive: Satisfaction → RepairTree ──
 
     fn break_(&mut self, s: &SatTrace) -> RepairTree {
+        self.with_evidence(EvidenceNodeRef::Satisfaction(s), |this| this.break_inner(s))
+    }
+
+    fn break_inner(&mut self, s: &SatTrace) -> RepairTree {
         match s {
             SatTrace::Atom { produced_by, .. } => match cut_edge(produced_by) {
                 Some(edge) => self.edits(vec![Edit::delete(delete_pattern(&edge))], vec![]),
@@ -477,12 +632,20 @@ impl<'a> Synth<'a> {
             },
             SatTrace::AllHeld { children, .. } => {
                 // break any one conjunct.
-                let cs = children.iter().map(|c| self.break_(c)).collect();
+                let cs = children
+                    .iter()
+                    .enumerate()
+                    .map(|(index, child)| self.break_child(index, child))
+                    .collect();
                 self.any(cs)
             }
             SatTrace::AnyHeld { satisfied, .. } => {
                 // break every satisfied disjunct.
-                let cs = satisfied.iter().map(|c| self.break_(c)).collect();
+                let cs = satisfied
+                    .iter()
+                    .enumerate()
+                    .map(|(index, child)| self.break_child(index, child))
+                    .collect();
                 self.all(cs)
             }
             SatTrace::CountHeld { matches, min, .. } => {
@@ -490,7 +653,11 @@ impl<'a> Synth<'a> {
                 // cut breaks all of them (sound, non-minimal); needs a min>0 to be
                 // falsifiable by deletion at all.
                 if matches!(min, Some(m) if *m > 0) {
-                    let cs = matches.iter().map(|(_, _, t)| self.break_(t)).collect();
+                    let cs = matches
+                        .iter()
+                        .enumerate()
+                        .map(|(index, (_, _, trace))| self.break_child(index, trace))
+                        .collect();
                     self.all(cs)
                 } else {
                     self.blocked(BlockReason::Unsupported(
@@ -501,11 +668,12 @@ impl<'a> Synth<'a> {
             SatTrace::ForAllHeld { values, .. } => {
                 let choices = values
                     .iter()
-                    .map(|(_, _, trace)| self.break_(trace))
+                    .enumerate()
+                    .map(|(index, (_, _, trace))| self.break_child(index, trace))
                     .collect();
                 self.any(choices)
             }
-            SatTrace::NotHeld { inner_fails, .. } => self.repair(inner_fails),
+            SatTrace::NotHeld { inner_fails, .. } => self.repair_child(0, inner_fails),
             SatTrace::Irrefutable { .. } => {
                 self.blocked(BlockReason::Unsupported("tautology".into()))
             }
@@ -523,6 +691,34 @@ impl<'a> Synth<'a> {
             }
             SatTrace::Coinductive { .. } => self.blocked(BlockReason::Coinductive),
         }
+    }
+}
+
+fn evidence_origin(
+    statement: usize,
+    path: &[usize],
+    evidence: EvidenceNodeRef<'_>,
+) -> EvidenceOrigin {
+    EvidenceOrigin {
+        statement,
+        path: path.to_vec(),
+        constraint_id: evidence.constraint_id(),
+        node: evidence.node().cloned(),
+        status: evidence.status(),
+        kind: evidence.evidence_kind(),
+    }
+}
+
+fn collect_tree_nodes(tree: &RepairTree, out: &mut BTreeSet<NodeId>) {
+    out.insert(tree.id());
+    match tree {
+        RepairTree::All { children, .. } | RepairTree::Any { children, .. } => {
+            children
+                .iter()
+                .for_each(|child| collect_tree_nodes(child, out));
+        }
+        RepairTree::Repeat { body, .. } => collect_tree_nodes(body, out),
+        RepairTree::Noop(_) | RepairTree::Blocked(..) | RepairTree::Edits { .. } => {}
     }
 }
 
@@ -557,7 +753,7 @@ fn subj_term(t: &Triple) -> Term {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::witness::witness_violations;
+    use crate::witness::{Evidence, witness_violations};
     use shifty_parse::{load_turtle, parse_turtle};
     use shifty_repair::{Plan, instantiate};
 
@@ -574,6 +770,92 @@ mod tests {
             witness_violations(&loaded.graph, &loaded.graph, &parsed.schema).expect("stratifiable");
         assert_eq!(ws.len(), 1, "expected exactly one focus witness");
         (synthesize(&parsed.schema.arena, &ws[0]), parsed.schema)
+    }
+
+    #[test]
+    fn every_retained_repair_node_links_to_its_exact_evidence_occurrence() {
+        let ttl = format!(
+            "{PREFIXES}
+            ex:S a sh:NodeShape ; sh:targetNode ex:x ;
+                sh:not [ sh:class ex:C ] .
+            ex:x a ex:C .
+            "
+        );
+        let parsed = parse_turtle(ttl.as_bytes(), None).unwrap();
+        let loaded = load_turtle(ttl.as_bytes(), None).unwrap();
+        let witnesses =
+            witness_violations(&loaded.graph, &loaded.graph, &parsed.schema).expect("stratifiable");
+        assert_eq!(witnesses.len(), 1);
+
+        let synthesized = synthesize_with_origins(&parsed.schema.arena, &witnesses[0]);
+        assert_eq!(
+            synthesize(&parsed.schema.arena, &witnesses[0]),
+            synthesized.tree,
+            "origin capture must not change the compatibility repair tree",
+        );
+        let mut nodes = BTreeSet::new();
+        collect_tree_nodes(&synthesized.tree, &mut nodes);
+        assert_eq!(
+            synthesized.origins.keys().copied().collect::<BTreeSet<_>>(),
+            nodes,
+            "every retained repair node has an origin and discarded smart-constructor nodes do not",
+        );
+
+        let evidence = Evidence::Failure(witnesses[0].failure.clone());
+        for origins in synthesized.origins.values() {
+            assert_eq!(origins.len(), 1);
+            let origin = &origins[0];
+            let mut cursor = evidence.walk()[0];
+            for &index in &origin.path {
+                cursor = cursor.children()[index];
+            }
+            assert_eq!(origin.statement, witnesses[0].statement);
+            assert_eq!(origin.constraint_id, cursor.constraint_id());
+            assert_eq!(origin.node.as_ref(), cursor.node());
+            assert_eq!(origin.status, cursor.status());
+            assert_eq!(origin.kind, cursor.evidence_kind());
+        }
+
+        assert!(
+            synthesized
+                .origins
+                .values()
+                .flatten()
+                .any(|origin| origin.status == EvaluationStatus::Pass),
+            "repairing a failed Not must link its deletive operators to the inner satisfaction",
+        );
+    }
+
+    #[test]
+    fn joint_repair_root_links_every_failure_it_groups() {
+        let ttl = format!(
+            "{PREFIXES}
+            ex:S1 a sh:NodeShape ; sh:targetNode ex:x ;
+                sh:property [ sh:path ex:p ; sh:minCount 1 ] .
+            ex:S2 a sh:NodeShape ; sh:targetNode ex:x ;
+                sh:property [ sh:path ex:q ; sh:minCount 1 ] .
+            "
+        );
+        let parsed = parse_turtle(ttl.as_bytes(), None).unwrap();
+        let loaded = load_turtle(ttl.as_bytes(), None).unwrap();
+        let witnesses =
+            witness_violations(&loaded.graph, &loaded.graph, &parsed.schema).expect("stratifiable");
+        assert_eq!(witnesses.len(), 2);
+
+        let synthesized = synthesize_focus_with_origins(&parsed.schema.arena, &witnesses);
+        let RepairTree::All { id, .. } = &synthesized.tree else {
+            panic!("two independent obligations must retain a joint All root")
+        };
+        let origins = synthesized.origins_for(*id);
+        assert_eq!(origins.len(), 2);
+        assert_eq!(
+            origins
+                .iter()
+                .map(|origin| origin.statement)
+                .collect::<BTreeSet<_>>(),
+            witnesses.iter().map(|witness| witness.statement).collect(),
+        );
+        assert!(origins.iter().all(|origin| origin.path.is_empty()));
     }
 
     #[test]

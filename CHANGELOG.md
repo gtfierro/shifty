@@ -4,6 +4,21 @@
 
 ### Added
 
+- Added `EvidenceNodeRef::children()`, the common immediate-child relation for
+  failure and satisfaction evidence. `Evidence::walk()` now derives its
+  pre-order traversal from this shared grammar, including polarity crossings at
+  negation and qualified counts.
+- Added the typed `EvidenceKind` discriminant and made `Failure` and
+  `Satisfaction` the canonical Rust evidence enum definitions. `Witness` and
+  `SatTrace` remain source-compatible aliases for repair callers. Python now
+  exposes the same exhaustive `EvidenceKind` on `EvidenceNode`, `RepairOrigin`,
+  `WitnessAtom`, and `SatAtom`; legacy kind strings and flattened
+  `WitnessKind`/`SatKind` categories remain available.
+- Added `synthesize_with_origins()` / `synthesize_focus_with_origins()`. Their
+  `SynthesizedRepair` links every retained repair node to the exact typed
+  evidence occurrence that justified it: statement, child-index path,
+  constraint, judgment node, polarity, and evidence kind. Python `RepairTree`
+  exposes the same links through `root_id` and `origins()`.
 - Added `PreparedEvidenceValidator::validate_conformance()`: the conformance-only
   counterpart of `validate()` over the same prepared snapshot, so evidence
   tracing can be measured against an otherwise identical execution.

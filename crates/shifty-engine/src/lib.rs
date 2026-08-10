@@ -50,7 +50,10 @@ pub use report::{
     report_to_graph, validate_report, validate_report_graphs, validate_report_graphs_with_mode,
     validate_report_graphs_with_mode_and_options, validate_report_with_options,
 };
-pub use synthesize::{synthesize, synthesize_focus};
+pub use synthesize::{
+    EvidenceOrigin, SynthesizedRepair, synthesize, synthesize_focus, synthesize_focus_with_origins,
+    synthesize_with_origins,
+};
 pub use validate::{
     EngineOptions, NonStratifiable, Reason, UnsupportedPolicy, ValidationGraphMode,
     ValidationOptions, ValidationOutcome, Violation, focus_nodes, graph_union, validate,
@@ -62,10 +65,10 @@ pub use validate::{
 };
 pub use witness::{
     BlockReason, ChildEvaluation, ConstraintCatalog, ConstraintRecord, EvaluationProgress,
-    EvaluationStatus, Evidence, EvidenceNodeRef, EvidenceRun, EvidenceSummary, Failure,
-    FocusEvaluation, FocusSat, FocusWitness, MissingObligation, PathSupport, QualifiedMatch,
-    RejectedCandidate, RelKind, SatTrace, Satisfaction, StatementEvaluation, Witness,
-    satisfy_shape, shape_id_for_iri, witness_node, witness_shape, witness_violations,
+    EvaluationStatus, Evidence, EvidenceKind, EvidenceNodeRef, EvidenceRun, EvidenceSummary,
+    Failure, FocusEvaluation, FocusSat, FocusWitness, MissingObligation, PathSupport,
+    QualifiedMatch, RejectedCandidate, RelKind, SatTrace, Satisfaction, StatementEvaluation,
+    Witness, satisfy_shape, shape_id_for_iri, witness_node, witness_shape, witness_violations,
 };
 
 #[cfg(test)]
