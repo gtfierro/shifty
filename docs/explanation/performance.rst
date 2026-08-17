@@ -1,17 +1,19 @@
-Evidence performance
-====================
+What evidence costs
+===================
 
 Evidence tracing is the part of Shifty that costs something. Deciding
 conformance answers one bit per ``(statement, focus)`` pair and may stop at the
 first thing that settles it; materializing evidence must build the whole
-derivation and keep it. This page records what that costs, which API to reach
-for, and — because several of the answers are counter-intuitive — how each
-optimization was measured and what was learned when a hypothesis failed.
+derivation and keep it.
 
-Choosing an API
----------------
+This page records what that costs, which entry point to reach for, and —
+because several of the answers are counter-intuitive — how each optimization
+was measured and what was learned when a hypothesis failed.
 
-Three entry points share one prepared snapshot, so parsing, inference,
+Choosing an entry point
+-----------------------
+
+Four entry points share one prepared snapshot, so parsing, inference,
 normalization, stratification, indexing, and SPARQL preparation are paid once:
 
 .. code-block:: text
@@ -61,6 +63,10 @@ catalog is fixed per snapshot rather than per pair, so it comes separately from
 ``constraints()`` — on a small 223P model the catalog is 57% of a whole run's
 serialized bytes, which would swamp a single pair.
 
+These four are methods on the Rust ``PreparedEvidenceValidator``. The Python
+bindings currently expose the whole-run ``validate`` only, so the cheap failure
+path is a Rust-level API today.
+
 Where the cost goes
 -------------------
 
@@ -108,7 +114,8 @@ for any run.
      - 5.41x
      - 1.78x
    * - The constraint catalog
-     - fixed per run regardless of findings — 57% of a small 223P run
+     - Fixed per run regardless of findings
+     - 57% of a small 223P run
 
 Terms, not subtrees, are the dominant lever on both corpora. How much either is
 worth, though, is a property of the corpus and not of the encoding: Brick models
@@ -139,7 +146,7 @@ measurement contradicted; those are recorded as such, because the reasoning
 that produced them is easy to repeat.
 
 Ordering path values (reproducibility)
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 ``PathBackend`` yields ``HashSet``s, whose iteration order varies between
 instances, and evidence was built straight from one. Two ``validate`` calls
@@ -161,7 +168,7 @@ distinct JSON and could not be hash-consed together. Determinism and sharing
 turn out to be the same property.
 
 Interning without allocating per occurrence
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Compaction cost more than the validation it encoded — 17.9 s against 5.9 s on
 ``bldg11`` — which puts it out of reach of any caller wanting it inline. Two
@@ -210,10 +217,10 @@ anything reported.
 Explaining one pair at a time
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Described under `Choosing an API`_ above. The conformance pass is generic over
-an observer so that ``validate_conformance`` still costs exactly what it did —
-it is the baseline the overhead benchmark divides by, and inflating it would
-flatter every ratio measured against it.
+Described under `Choosing an entry point`_ above. The conformance pass is
+generic over an observer so that ``validate_conformance`` still costs exactly
+what it did — it is the baseline the overhead benchmark divides by, and
+inflating it would flatter every ratio measured against it.
 
 What is not done
 ----------------

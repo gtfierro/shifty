@@ -50,20 +50,6 @@
 }
 
 /* ─────────────────────────────────────────────────────────
-   Section intro blurbs
-   ───────────────────────────────────────────────────────── */
-.sh-section-intro {
-  font-size: 1.05rem;
-  color: var(--color-foreground-secondary);
-  border-left: 3px solid var(--color-brand-primary);
-  padding: 0.6rem 1rem;
-  margin-bottom: 2rem;
-  line-height: 1.6;
-  background: var(--color-background-secondary);
-  border-radius: 0 6px 6px 0;
-}
-
-/* ─────────────────────────────────────────────────────────
    Playground launch box
    ───────────────────────────────────────────────────────── */
 .sh-playground-launch {

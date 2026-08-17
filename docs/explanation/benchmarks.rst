@@ -1,17 +1,18 @@
 Benchmarks
 ==========
 
-Performance of Shifty's ``validate`` pipeline (inference + validation) across
-real building models, tracked over each release.
+Performance of Shifty's ``validate`` pipeline — inference plus validation —
+across real building models, tracked over each release.
 
-Wall-clock ``validate`` time is dominated by a **fixed setup cost** — preparing
-the shapes graph — that is paid no matter how small the data graph is.  A
-16-triple Brick model still takes ~3.7 s.  So the raw number mostly reflects
-model size, and a single average hides *which part* of the engine a release
-improved.
+The headline number is misleading on its own, and it is worth understanding why
+before reading the chart. Wall-clock ``validate`` time is dominated by a
+**fixed setup cost**: preparing the shapes graph, paid in full no matter how
+small the data graph is. A 16-triple Brick model still takes about 3.7 seconds.
+So the raw number mostly reflects the size of the *shapes*, and an average
+across a corpus hides which part of the engine a release actually improved — a
+change that halves validation time barely moves a total that is mostly startup.
 
-Each bar below is the measured time to validate one model, averaged over the
-corpus, split into the three things that time is spent on.
+Each bar below is therefore split into the three things the time is spent on.
 
 .. raw:: html
 
@@ -319,20 +320,41 @@ Regenerating benchmark data
    cd docs && make html
 
 ``run_history.sh`` benchmarks every release tag, then the current checkout as a
-final ``HEAD`` entry.  Tagged results are reused when they already exist, so a
+final ``HEAD`` entry. Tagged results are reused when they already exist, so a
 repeat run only re-measures ``HEAD`` — but the first run measures every tag and
-takes hours.  To refresh just the ``HEAD`` entry after a code change:
+takes hours. To refresh just the ``HEAD`` entry after a code change:
 
 .. code-block:: bash
 
    BENCH_ONLY_HEAD=1 ./benchmark/run_history.sh
    cd docs && make html
 
-Because ``HEAD`` is built from the working tree, uncommitted changes are
-included; the run logs the commit it started from and whether the tree was
-dirty.  ``BENCH_HEAD=0`` restricts a run to tags only, and ``BENCH_ITERS``
-controls how many samples each measurement takes (default 3, median reported).
+``HEAD`` is built from the working tree, so uncommitted changes are included;
+the run logs the commit it started from and whether the tree was dirty.
+``BENCH_HEAD=0`` restricts a run to tags only, and ``BENCH_ITERS`` controls how
+many samples each measurement takes (default 3, median reported).
 
-Shapes and models always come from the current checkout, so changing a fixture
-invalidates every previously recorded result — delete
+Shapes and models always come from the current checkout. That means changing a
+fixture invalidates every previously recorded result — the old numbers were
+measured against a different input and are no longer comparable. Delete
 ``benchmark/results/v*/`` and re-run the full history when that happens.
+
+Reading these numbers
+---------------------
+
+Two cautions, both learned the hard way.
+
+**A ratio is only meaningful next to its denominator.** When an optimization
+speeds up the baseline more than the thing being measured, the reported ratio
+gets *worse* even though both arms got faster. Absolute times belong beside any
+ratio quoted from this corpus; :doc:`performance` has a worked example of that
+happening.
+
+**These are per-process runs.** Each model pays setup once because every
+measurement is a fresh process. That is the right model for the CLI and the
+wrong one for a library caller, who can amortize setup across many data graphs
+with ``PreparedValidator``. The setup segment of each bar is roughly what that
+amortization is worth.
+
+For the separate question of what *evidence* costs on top of validation, see
+:doc:`performance`.

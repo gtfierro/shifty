@@ -5,8 +5,8 @@ Shifty
 
    <div class="sh-hero">
      <p class="sh-tagline">
-       Formalism-first SHACL validation and SHACL-AF inference —
-       available as a CLI, Python library, and browser playground.
+       A SHACL validation and SHACL-AF inference engine that compiles shapes to
+       an algebra — and can tell you <em>why</em> a node passed or failed.
      </p>
      <div class="sh-badges">
        <a href="https://pypi.org/project/pyshifty/"><img src="https://img.shields.io/pypi/v/pyshifty.svg" alt="PyPI"></a>
@@ -21,33 +21,69 @@ Shifty
      </div>
    </div>
 
-Shifty implements both **SHACL Core validation** and **SHACL-AF forward-chaining
-inference**, grounded in the algebraic treatment of
-`Common Foundations for SHACL, ShEx, and PG-Schema <https://arxiv.org/abs/2502.01295>`_.
-Shapes are compiled to a path algebra (π) and shape grammar (φ) before
-evaluation — the same IR drives both validation and inference.
+A SHACL validator answers a yes/no question: does this graph conform to these
+shapes? That answer is enough to gate a pipeline, and not much else. If a node
+failed, you usually want to know which constraint failed and on which triples.
+If it passed, you may want to know *what* satisfied the constraint — the sensor
+that matched, the value that qualified — and today you get that by writing a
+second query that duplicates the shape's logic.
 
-- **Full SHACL Core validation** — node and property shapes, all standard constraint components
-- **SHACL-AF inference** — ``sh:rule`` evaluation (Triple Rules and SPARQL Construct Rules) to a fixed point
-- **Algebraic IR** — normalization, CSE, and cost-ordered physical planning before any execution
-- **Multiple frontends** — CLI, Python bindings (``pyshifty``), and a browser-native WebAssembly module
+Shifty is built around the observation that the validator already knows all of
+this. It computes the answer by structural recursion over the constraint; the
+derivation exists in memory and is then thrown away. Shifty keeps it. That
+single decision is what the :doc:`evidence <reference/evidence>` interface, the
+:doc:`shape map <reference/shape-maps>` view, and the
+:doc:`symbolic repair <reference/repair>` layer are all built on: they are
+projections of the same derivation, not separate re-implementations of SHACL.
+
+Making that affordable is why shapes are compiled rather than interpreted.
+Shifty lowers SHACL to a path algebra (π) and a shape grammar (φ) taken from
+`Common Foundations for SHACL, ShEx, and PG-Schema <https://arxiv.org/abs/2502.01295>`_,
+normalizes it, and plans it. The same intermediate representation drives
+validation, inference, evidence, and repair — so a constraint has one meaning
+in the system, not four.
+
+Shifty runs as a command-line tool, a Python library (``pyshifty``), a C++17
+static library, and a WebAssembly module that runs in the browser.
+
+Where to start
+--------------
+
+.. list-table::
+   :widths: 25 75
+
+   * - :doc:`Tutorials <tutorials/index>`
+     - Start here if you are new. Two worked lessons that take you from an
+       empty directory to a validated graph, then to a graph the engine
+       repaired for you.
+   * - :doc:`How-to guides <how-to/index>`
+     - Recipes for a specific job: run inference, extract bindings, drive a
+       repair loop, inspect the compiled plan.
+   * - :doc:`Reference <reference/index>`
+     - Exact behaviour of the CLI flags, the Python API, the evidence data
+       model, and the supported SHACL feature set.
+   * - :doc:`Explanation <explanation/index>`
+     - Why the engine is built this way — the algebra, the recursion
+       semantics, what evidence costs, and what it is measured to cost.
 
 Quick start
 -----------
 
-**CLI** — validate a data graph against SHACL shapes:
+Validate a data graph against a shapes graph:
 
 .. code-block:: bash
 
    shifty validate --shapes shapes.ttl --data data.ttl
 
-Run SHACL-AF rules to a fixed point and print the inferred triples:
+.. code-block:: text
 
-.. code-block:: bash
+   conforms: false
+   violations: 1
+     <http://example.org/bob>  [severity: Violation; target: class(<http://example.org/Person>)]
+         - [Violation] (<http://example.org/email>) <http://example.org/bob> → at least 1 value(s) required along <http://example.org/email>, found 0
+         - [Violation] (<http://example.org/name>) "123"^^<http://www.w3.org/2001/XMLSchema#integer> → test(datatype(xsd:string)) not satisfied
 
-   shifty infer --shapes rules.ttl --data data.ttl
-
-**Python** — validate with a pyshacl-compatible interface:
+The same thing from Python, with a ``pyshacl``-compatible signature:
 
 .. code-block:: python
 
@@ -55,28 +91,16 @@ Run SHACL-AF rules to a fixed point and print the inferred triples:
 
    conforms, report_graph, results_text = shifty.validate(data, shapes)
 
-Run inference and retrieve the extended graph:
-
-.. code-block:: python
-
-   result = shifty.infer(data, rules)
-   g = result.graph()           # rdflib.Graph with original + inferred triples
-
-**Browser** — `open the live playground <https://shifty.gtf.fyi/playground/>`_ to run
-validation and inference entirely in your browser with no installation required.
-
-Contents
---------
+And in the browser: the `playground <https://shifty.gtf.fyi/playground/>`_ runs
+the whole engine as WebAssembly, so nothing you paste into it leaves your
+machine.
 
 .. toctree::
    :maxdepth: 2
+   :hidden:
 
-   getting-started
-   evidence
-   evidence-performance
-   feature-support
-   benchmark
-   cli/index
-   python-api/index
-   playground
+   tutorials/index
+   how-to/index
+   reference/index
+   explanation/index
    Rust API (docs.rs) <https://docs.rs/shifty-engine>
