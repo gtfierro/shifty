@@ -1,22 +1,20 @@
-Explaining, and repairing, a failure
-====================================
+Asking why a node passed or failed
+==================================
 
-:doc:`first-validation` ended with a report saying Bob was wrong. This tutorial
-asks the engine three progressively harder questions about the same graph:
+:doc:`reading-results` ended on two questions a validation result cannot
+answer, because a result is a list of failures: *which nodes passed?* and *why,
+exactly, did this one fail?*
 
-1. Why did Bob fail — not which constraint, but the whole derivation?
-2. What is the complete set of edits that would make him pass?
-3. Can the engine apply one and confirm it worked?
-
-By the end you will have watched a repair loop take a failing graph, propose a
-patch, check that the patch does not break anything else, and re-validate to a
-conforming graph.
+This tutorial answers both with the evidence interface, which keeps the
+derivation the validator built instead of discarding it once the boolean has
+been extracted. By the end you will be able to tell a passing node from an
+unchecked one, and read a failure as a tree rather than a message.
 
 Set up
 ------
 
-Restore the failing version of ``data.ttl`` from the previous tutorial, so
-there is something to explain:
+Use the failing version of ``data.ttl`` from the first tutorial, so there is
+something to explain:
 
 .. code-block:: turtle
 
@@ -97,8 +95,10 @@ most zero values satisfy ¬φ". So a universal constraint appears as a count wit
 violates it. This is the algebra showing through; :doc:`../explanation/architecture`
 explains the encoding.
 
-``[cuttable]`` is the engine noting that this leaf is supported by a concrete
-triple it could delete. That is what makes the next section possible.
+``[cuttable]`` is the engine noting that this leaf rests on a concrete triple —
+one that could be pointed at, or removed, to change the outcome. Leaves that
+have no such finite support say so instead; :doc:`../explanation/recursion`
+covers the case where that happens.
 
 Two things are worth knowing before you build on this. ``explain()`` produces
 text for humans — parse ``walk()``, ``constraint_kind``, and the structured
@@ -107,173 +107,129 @@ evidence is *canonical*: a failed conjunction keeps the children that establish
 the failure and drops passing siblings, so the tree is a proof rather than a
 log. When you want the siblings too, ``focus.progress`` has them.
 
-From evidence to a repair
--------------------------
+Ask what satisfied the passing node
+-----------------------------------
 
-The evidence tree says which facts are responsible for the failure. Inverting
-it — asking which edits would remove the failure — is a mechanical
-transformation over the same structure, and that is what the repair layer does.
+Alice conforms. The interesting question is *with what* — and this is the one a
+validation report cannot answer at all, because Alice does not appear in it.
 
-The CLI shows the result directly:
-
-.. code-block:: bash
-
-   shifty repair --shapes shapes.ttl --data data.ttl
-
-.. code-block:: text
-
-   <http://example.org/bob>  [target: class(<http://example.org/Person>)]
-     All — do all:
-       Edits:
-         del <http://example.org/bob> <http://example.org/name> "123"^^<http://www.w3.org/2001/XMLSchema#integer>
-         add <http://example.org/bob> <http://example.org/name> ?0
-         ?0 : typed value
-       Repeat [1..∞]:
-         Edits:
-           add <http://example.org/bob> <http://example.org/email> ?1
-           ?1 : any node
-
-This is a *repair template*, and it mirrors the evidence tree branch for
-branch. Two features of it matter.
-
-``?0`` and ``?1`` are **holes** — typed placeholders. The engine will not
-invent Bob's email address for you, because it has no way to know it; the hole
-records what a legal value would have to look like (``?0`` must be a value of
-the right datatype, ``?1`` may be any node) and leaves the choice to you.
-
-``Repeat [1..∞]`` is a **variadic block**. The email constraint has a lower
-bound and no upper bound, so the template says "one or more instances of this
-block", with the count left open. A ``minCount 3`` would produce ``[3..∞]``.
-
-Nothing here is a decision. The template describes the whole space of repairs;
-picking a point in it is the caller's job. That separation is deliberate and is
-argued in :doc:`../explanation/repair-design`.
-
-Driving the loop
-----------------
-
-Now do it from Python, making the choices yourself. The instantiation loop
-below is the standard shape, and it is iterative for a reason worth
-understanding.
+Rather than walking the satisfaction tree by hand, use the projections. They
+work identically on both polarities:
 
 .. code-block:: python
 
-   session = shifty.RepairSession(shapes, data, infer=False)
-   failure = session.witnesses()[0]
-   tree = failure.repair_tree()
-
-   # Your policy for filling a hole. A real driver would consult a
-   # database, a user, or a model; this one hardcodes two answers.
-   VALUES = {
-       "any node": '"bob@example.org"',
-       "datatype(xsd:string)": '"Bob"',
-   }
-
-   plan = shifty.RepairPlan()
-   instance = tree.instantiate(plan)
-   while not instance.is_complete:
-       for node_id in instance.open_choices:
-           plan.count(node_id, 1)          # one instance of each Repeat
-       for hole in instance.open_holes:
-           plan.bind(hole.id, VALUES[hole.constraint])
-       instance = tree.instantiate(plan)
-
-   print("add:   ", instance.delta.add)
-   print("delete:", instance.delta.delete)
+   for statement in run.statements:
+       for focus in statement.selected_foci:
+           evidence = focus.evidence
+           print(focus.status, focus.focus)
+           print("   matched: ", evidence.matched_values())
+           print("   support: ", evidence.supporting_triples())
 
 .. code-block:: text
 
-   add:    [('<http://example.org/bob>', '<http://example.org/email>', '"bob@example.org"'),
-            ('<http://example.org/bob>', '<http://example.org/name>', '"Bob"')]
-   delete: [('<http://example.org/bob>', '<http://example.org/name>', '"123"^^<http://www.w3.org/2001/XMLSchema#integer>')]
+   pass <http://example.org/alice>
+      matched:  ['"alice@example.org"', '"Alice"']
+      support:  ['<http://example.org/alice> <http://example.org/email> "alice@example.org"',
+                 '<http://example.org/alice> <http://example.org/name> "Alice"']
+   fail <http://example.org/bob>
+      matched:  ['"123"^^<http://www.w3.org/2001/XMLSchema#integer>']
+      support:  ['<http://example.org/bob> <http://example.org/name> "123"^^<http://www.w3.org/2001/XMLSchema#integer>']
 
-The loop repeats because choosing a count *creates holes*. Before you say how
-many emails to add, the ``Repeat`` body is a template with one hole in it;
-after you say "one", that body is stamped out once and its hole becomes a
-concrete hole with its own id, which ``instantiate`` reports as newly open. Fill
-counts first, then bind what appears, and re-instantiate until
-``is_complete``. Binding a hole you saw before the count was fixed silently
-binds the wrong thing.
+``matched_values()`` on Alice returns the two values that actually satisfied her
+obligations. That is the answer you would otherwise get by writing a second
+query that re-implements the shape's property paths — and which could drift out
+of sync with the shape. ``supporting_triples()`` gives the triples underneath
+them, in N-Triples form.
 
-``instantiate`` is a pure fold of your plan over the template: it validates
-nothing and applies nothing.
-
-Checking the patch before applying it
--------------------------------------
-
-A repair that fixes one node by breaking another is not a repair. So the delta
-goes through a gate, which re-validates the whole graph and diffs the
-violations:
+Note that Bob has matched values too. On a failing node they mean "these are the
+values the constraint counted", which for his ``max 0`` datatype check is
+precisely the value that offended. Which brings us to the failure-side
+projections:
 
 .. code-block:: python
 
-   outcome = session.gate(instance.delta)
-   print("fixed:", len(outcome.fixed))
-   print("introduced:", len(outcome.introduced))
-   print("remaining:", len(outcome.remaining))
-   print("is_progress:", outcome.is_progress)
+   for statement in run.statements:
+       for focus in statement.selected_foci:
+           if focus.status != "fail":
+               continue
+           print("offending:", focus.evidence.offending_values())
+           for gap in focus.evidence.missing_obligations():
+               print(f"need {gap.missing} more: "
+                     f"observed {gap.observed_count}, required {gap.required_count}")
 
 .. code-block:: text
 
-   fixed: 1
-   introduced: 0
-   remaining: 0
-   is_progress: True
+   offending: ['"123"^^<http://www.w3.org/2001/XMLSchema#integer>']
+   need 1 more: observed 0, required 1
 
-``introduced`` is the one that matters: a delta is **sound** exactly when it is
-empty. Progress is soundness plus having fixed something. The gate returns this
-verdict and does nothing with it — accepting a repair is another decision the
-library leaves to you.
+These are structured, not prose: ``gap.missing`` is an integer you can act on.
+A repair tool, a data-entry form, or a coverage dashboard all want this rather
+than the sentence "at least 1 value(s) required".
 
-Accept it, and re-witness from the patched graph:
+See the siblings a proof leaves out
+-----------------------------------
+
+Canonical evidence is decisive: Bob's tree contains what makes him fail and
+nothing else. Sometimes you want the fuller picture — "two of these three
+obligations are met" is useful to a person, and is not what a proof contains.
+
+``focus.progress`` reports the immediate authored children and their statuses:
 
 .. code-block:: python
 
-   session = session.advance(instance.delta)
-   print("remaining failures:", len(session.witnesses()))
-
-   repaired = session.to_graph()      # an rdflib.Graph
-   print(repaired.serialize(format="turtle"))
+   for statement in run.statements:
+       for focus in statement.selected_foci:
+           if focus.progress is None:
+               continue
+           print(focus.focus)
+           for child in focus.progress.evaluated_children:
+               print("   ", child.source_constraint_ref,
+                     child.constraint_kind, child.status)
 
 .. code-block:: text
 
-   remaining failures: 0
+   <http://example.org/alice>
+       1 ConstraintKind.Cardinality pass
+       4 ConstraintKind.Conjunction pass
+   <http://example.org/bob>
+       1 ConstraintKind.Cardinality fail
+       4 ConstraintKind.Conjunction fail
 
-``advance`` returns a *new* session over ``G ⊕ ΔG`` with the same compiled
-schema, so the shapes are not re-parsed and inference is not re-run. Wrapping
-the whole thing in ``while session.witnesses():`` is the fixpoint driver — and
-because each iteration is gated, it either converges or tells you which failure
-it could not make progress on.
+Progress reports *that* each child passed or failed without materializing
+*why* — that is what makes it cheap. When you need the full evidence for one of
+them, ask the session directly:
 
-The CLI has that driver built in, if you want the result rather than the
-control:
+.. code-block:: python
 
-.. code-block:: bash
+   detail = session.evidence_for(focus.focus, child.normalized_constraint_ref)
+   # {"status": "pass", "evidence": {...}}
 
-   shifty repair --shapes shapes.ttl --data data.ttl --apply
-
-It writes the repaired graph as N-Triples on stdout. It picks holes by
-enumeration over terms already in the graph, which is fine for a demonstration
-and is rarely what you want in production — that is precisely the choice the
-Python API hands back to you.
+The division of labour is worth remembering: canonical evidence answers *why
+did this result hold?*, progress answers *what happened to the authored
+children along the way?*, and ``evidence_for`` fills in any one of them on
+demand.
 
 What you have seen
 ------------------
 
-Three views of one computation. The evidence tree is the derivation the
-validator built; the repair template is that derivation inverted; the gate is
-the validator run again over a proposed edit. None of them re-implements SHACL,
-which is why they cannot disagree with each other about whether a graph
-conforms.
+The evidence interface is the validator's own derivation, kept rather than
+discarded. That is why it cannot disagree with ``validate()`` about whether a
+graph conforms — there is no second implementation of SHACL involved, only a
+richer return value from the same fold.
+
+It also has a cost. Materializing evidence for every selected pair runs
+2.5–5.4x the time of deciding conformance, and grows with model size. If you
+only care about failures — which is most callers — there is a much cheaper
+path; :doc:`../explanation/performance` has the measurements and the entry
+points.
 
 Where to go next:
 
-- :doc:`../how-to/shape-maps` — when the shape is really an extraction schema
-  and you want the *values* a conforming node bound, not a pass/fail.
-- :doc:`../reference/evidence` and :doc:`../reference/repair` — the exact data
-  model, for building on rather than reading.
+- :doc:`../how-to/shape-maps` — the same bindings as a flat table, for when a
+  shape is really an extraction schema.
+- :doc:`../reference/evidence` — the exact data model, for building on.
 - :doc:`../explanation/evidence-design` — why evidence is shaped this way, and
-  what it is honestly not able to explain.
-- :doc:`../explanation/performance` — what keeping the derivation costs, in
-  measured numbers, and which entry point to use when you only care about
-  failures.
+  what it honestly cannot explain.
+- :doc:`../how-to/repair` — **experimental**: failure evidence is also the
+  input to a symbolic repair layer that computes which edits would make a node
+  conform. It is early and its API is expected to change.

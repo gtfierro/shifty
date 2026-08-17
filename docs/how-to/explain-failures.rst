@@ -179,23 +179,6 @@ It is lossless and round-trips exactly. Drop the catalog when the receiver
 already has the schema — it is fixed per snapshot regardless of how many
 findings there are, and on a small run it can be the majority of the bytes.
 
-Turn a failure into a repair
-----------------------------
-
-Failure evidence is the same witness the repair layer consumes, so this is one
-method call away:
-
-.. code-block:: python
-
-   for statement in run.statements:
-       for focus in statement.selected_foci:
-           if focus.failure is None:
-               continue
-           print(focus.failure.explain())
-           print(focus.failure.repair_tree().explain())
-
-:doc:`repair` continues from there.
-
 See also
 --------
 
@@ -205,3 +188,6 @@ See also
 - ``python/examples/evidence_point_list.py`` — a larger worked example over
   BuildingMOTIF point-list shapes, with passing, failing, empty-selection and
   unselected cases.
+- :doc:`repair` — **experimental**: failure evidence is also the witness the
+  symbolic repair layer consumes, so ``focus.failure.repair_tree()`` is one
+  call away. Early, and expected to change.

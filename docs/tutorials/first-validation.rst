@@ -218,8 +218,8 @@ passes for the wrong reason.
 Where to go next
 ----------------
 
-:doc:`explaining-a-failure` continues with this same graph and asks the engine
-why Bob failed, and what would fix him.
+:doc:`reading-results` continues with this same graph, and moves from reading a
+report to writing code that consumes one.
 
 For a specific job — running SHACL-AF rules, extracting bindings from a
 conforming node, or looking at how the shapes were compiled — the

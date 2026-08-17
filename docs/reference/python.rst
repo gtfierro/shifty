@@ -4,9 +4,9 @@ Python API reference
 The ``pyshifty`` package exposes the engine through `PyO3 <https://pyo3.rs>`_
 bindings. Install with ``pip install pyshifty``; import as ``shifty``.
 
-This page covers validation and inference. The evidence, shape-map, and repair
-interfaces have their own pages: :doc:`evidence`, :doc:`shape-maps`,
-:doc:`repair`.
+This page covers validation and inference. The evidence and shape-map
+interfaces have their own pages: :doc:`evidence` and :doc:`shape-maps`. The
+experimental repair API is in :doc:`repair`.
 
 Graph inputs
 ------------
@@ -107,64 +107,111 @@ Requires ``rdflib`` at call time, since it constructs the report graph.
        -> AlgebraResult
 
 The same validation, returning structured objects instead of an RDF report. It
-does not require ``rdflib``.
+does not require ``rdflib``, and it is the entry point to reach for when your
+program — rather than a person or another SHACL tool — is the consumer.
 
 .. code-block:: python
 
    result = shifty.validate_algebra(data, shapes)
 
-   print(result.conforms)
    for violation in result.violations:
-       print(violation.focus_node)      # failing focus node
-       print(violation.statement_id)    # stable statement id
-       print(violation.constraint_id)   # statement-level algebra id
-       print(violation.shape_name)      # the shape that targeted it, if named
        for reason in violation.reasons:
-           print(reason.message)          # human-readable description
-           print(reason.path)             # property path, if applicable
-           print(reason.value)            # the offending value node
-           print(reason.constraint_kind)  # ConstraintKind.Cardinality, ...
-           print(reason.constraint.render)
+           print(violation.focus_node, reason.constraint_kind, reason.path)
 
-``bool(result)`` is equivalent to ``result.conforms``.
+``AlgebraResult``
+~~~~~~~~~~~~~~~~~
 
-Algebraic provenance
-~~~~~~~~~~~~~~~~~~~~
+.. list-table::
+   :widths: 24 76
+   :header-rows: 1
 
-``Reason.constraint``
-   A ``Constraint`` for the algebra node that produced this cause, with ``id``,
-   ``kind``, ``render``, ``definition``, and ``json`` fields.
+   * - Field
+     - Meaning
+   * - ``conforms``
+     - Whether the run conformed, at the configured ``minimum_severity``.
+       ``bool(result)`` is equivalent.
+   * - ``violations``
+     - One ``Violation`` per failing ``(focus node, statement)``. Findings
+       below ``minimum_severity`` still appear here — the threshold changes
+       only ``conforms``.
+   * - ``results_text``
+     - The findings rendered for a human.
 
-``Reason.constraint_kind``
-   A stable enum: ``ConstraintKind.Cardinality``,
-   ``ConstraintKind.ClassMembership``, ``ConstraintKind.ValueType``,
-   ``ConstraintKind.NodeKind``, ``ConstraintKind.Conjunction``,
-   ``ConstraintKind.Disjunction``, ``ConstraintKind.Sparql``, and others.
-   Branch on this rather than parsing ``message`` or matching Rust type names.
+``Violation``
+~~~~~~~~~~~~~
 
-``Reason.constraint_id``
-   The specific nested algebra node responsible. This differs from
-   ``Violation.constraint_id`` when the violated shape is a conjunction,
-   disjunction, or other composite.
+.. list-table::
+   :widths: 24 76
+   :header-rows: 1
 
-``Violation.statement_id`` / ``Violation.constraint_id``
-   The top-level statement identity, and the join key shared with
-   ``RepairSession.witnesses()``:
+   * - Field
+     - Meaning
+   * - ``focus_node``
+     - The node that failed.
+   * - ``reasons``
+     - One ``Reason`` per thing that went wrong at this node. A node with two
+       broken obligations is one violation with two reasons.
+   * - ``severity``
+     - The most severe severity among its reasons.
+   * - ``shape_name``
+     - The IRI of the shape that targeted this node, when the shape is a named
+       RDF node.
+   * - ``statement_id``
+     - Stable statement identity.
+   * - ``constraint_id``
+     - The algebra id of the statement's **top-level** shape.
 
-.. code-block:: python
+``Reason``
+~~~~~~~~~~
 
-   result = shifty.validate_algebra(data, shapes, infer=False)
-   session = shifty.RepairSession(shapes, data, infer=False)
+.. list-table::
+   :widths: 24 76
+   :header-rows: 1
 
-   witnesses = {
-       (w.focus, w.statement_id, w.constraint_id): w
-       for w in session.witnesses()
-   }
+   * - Field
+     - Meaning
+   * - ``constraint_kind``
+     - A stable enum naming the algebra operator that failed. Branch on this
+       rather than parsing ``message``.
+   * - ``path``
+     - The property path checked, where one applies.
+   * - ``value``
+     - The offending value node. Falls back to the focus node when the failure
+       is an absence and there is no offending value.
+   * - ``message``
+     - Engine-generated description. For display, not for matching on.
+   * - ``author_message``
+     - The shape's own ``sh:message``, or ``None``. Prefer it when present:
+       ``reason.author_message or reason.message``.
+   * - ``severity``
+     - This reason's effective SHACL severity.
+   * - ``constraint``
+     - The ``Constraint`` for the algebra node that produced this cause, with
+       ``id``, ``kind``, ``render``, ``definition``, and ``json``.
+   * - ``constraint_id``
+     - The specific **nested** algebra node responsible. Differs from
+       ``Violation.constraint_id`` whenever the shape is a conjunction,
+       disjunction, or other composite — which is nearly always.
+   * - ``statement_id``
+     - The statement this reason belongs to.
+   * - ``sparql_diagnostic``
+     - Query diagnostic, for a ``ConstraintKind.Sparql`` failure.
 
-   for v in result.violations:
-       witness = witnesses.get((v.focus_node, v.statement_id, v.constraint_id))
-       if witness is not None:
-           print(witness.repair_tree().explain())
+``ConstraintKind``
+~~~~~~~~~~~~~~~~~~
+
+``Cardinality``, ``ValueType``, ``ClassMembership``, ``NodeKind``,
+``Constant``, ``Closed``, ``Conjunction``, ``Disjunction``, ``Negation``,
+``Equals``, ``Disjoint``, ``LessThan``, ``LessThanOrEquals``, ``UniqueLang``,
+``Expression``, ``Sparql``, ``Top``, ``Unknown``.
+
+These name algebra operators, not SHACL keywords. ``sh:minCount``,
+``sh:maxCount``, and ``sh:qualifiedMinCount`` all surface as ``Cardinality``,
+because the compiler lowers them to one counting operator — see
+:doc:`../explanation/architecture`. Use ``reason.constraint`` when you need to
+distinguish them.
+
+:doc:`../tutorials/reading-results` works through consuming these.
 
 ``infer``
 ---------

@@ -17,6 +17,19 @@ starting point.
    infer
    explain-failures
    shape-maps
-   repair
    inspect-pipeline
    browser
+
+Experimental
+------------
+
+.. toctree::
+   :maxdepth: 1
+
+   repair
+
+:doc:`repair` covers the symbolic repair layer, which computes the space of
+edits that would make a failing node conform. It works, but it is early: the
+API is expected to change, several constraint kinds are not yet invertible, and
+it edits data graphs only. Treat it as a preview rather than a stable
+interface.

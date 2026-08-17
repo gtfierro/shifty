@@ -1,14 +1,24 @@
 Repair a graph
 ==============
 
+.. warning::
+
+   **Experimental.** The repair layer is the newest and least settled part of
+   Shifty. Expect the API to change, and expect gaps: several constraint kinds
+   have no invertible form yet, ``sh:equals`` reconciliation is coarse, and
+   repairs edit data graphs only. Validation and inference are stable; this is
+   not. Gate anything it produces before applying it — the API makes that
+   step mandatory for a reason.
+
 Shifty can compute the set of edits that would make a failing node conform. It
 will not choose among them: which term fills a hole, how many values to add,
 which alternative to take, whether to accept the result — all of those are
 yours. The library computes; you decide. :doc:`../explanation/repair-design`
 argues why that line is where it is.
 
-:doc:`../tutorials/explaining-a-failure` walks a complete loop from scratch. The
-recipes below assume you have read it.
+The input is the failure evidence from
+:doc:`../tutorials/explaining-a-failure`; the recipes below assume you have
+read that.
 
 Look at the repair space without writing code
 ---------------------------------------------

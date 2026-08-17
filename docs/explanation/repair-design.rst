@@ -1,6 +1,11 @@
 Why repair computes but does not choose
 =======================================
 
+.. note::
+
+   The repair layer is **experimental**. This page describes the design as it
+   currently stands; the shape of the argument is settled, the API is not.
+
 Validation asks: does ``G, v ⊨ φ``? Repair asks the inverse question:
 
 .. code-block:: text

@@ -11,7 +11,7 @@ trade-offs each one bought — including the ones that turned out badly.
    * - :doc:`architecture`
      - Shapes are compiled, not interpreted. What the algebra is, what each
        layer of the pipeline does, and why one IR drives validation,
-       inference, evidence, and repair alike.
+       inference, and the richer result formats alike.
    * - :doc:`shapes-and-data`
      - The distinction between the shapes graph and the data graph, and the
        separate question of which triples are visible during evaluation. The
@@ -24,15 +24,15 @@ trade-offs each one bought — including the ones that turned out badly.
      - Why the validator keeps its derivation, what "canonical" evidence means
        and why it deliberately omits things, and what it honestly cannot
        explain.
-   * - :doc:`repair-design`
-     - Repair as the abductive dual of validation, and why the library
-       computes the space of fixes but refuses to choose one.
    * - :doc:`performance`
      - What evidence costs, measured. Includes two optimizations that began as
        hypotheses the measurements contradicted.
    * - :doc:`benchmarks`
      - Validation performance across real building models, tracked per
        release.
+   * - :doc:`repair-design`
+     - **Experimental.** Repair as the abductive dual of validation, and why
+       the library computes the space of fixes but refuses to choose one.
 
 .. toctree::
    :maxdepth: 1
@@ -42,6 +42,6 @@ trade-offs each one bought — including the ones that turned out badly.
    shapes-and-data
    recursion
    evidence-design
-   repair-design
    performance
    benchmarks
+   repair-design

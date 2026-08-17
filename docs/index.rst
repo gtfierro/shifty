@@ -5,8 +5,8 @@ Shifty
 
    <div class="sh-hero">
      <p class="sh-tagline">
-       A SHACL validation and SHACL-AF inference engine that compiles shapes to
-       an algebra — and can tell you <em>why</em> a node passed or failed.
+       A SHACL validation and SHACL-AF inference engine, built on a compiled
+       algebra rather than an interpreter over the shapes graph.
      </p>
      <div class="sh-badges">
        <a href="https://pypi.org/project/pyshifty/"><img src="https://img.shields.io/pypi/v/pyshifty.svg" alt="PyPI"></a>
@@ -21,30 +21,59 @@ Shifty
      </div>
    </div>
 
-A SHACL validator answers a yes/no question: does this graph conform to these
-shapes? That answer is enough to gate a pipeline, and not much else. If a node
-failed, you usually want to know which constraint failed and on which triples.
-If it passed, you may want to know *what* satisfied the constraint — the sensor
-that matched, the value that qualified — and today you get that by writing a
-second query that duplicates the shape's logic.
+Shifty does two things: it **validates** RDF graphs against SHACL shapes, and it
+runs **SHACL-AF inference** — ``sh:rule`` entries forward-chained to a fixed
+point. Both are driven by the same compiled representation, so a constraint has
+one meaning in the system rather than one per feature.
 
-Shifty is built around the observation that the validator already knows all of
-this. It computes the answer by structural recursion over the constraint; the
-derivation exists in memory and is then thrown away. Shifty keeps it. That
-single decision is what the :doc:`evidence <reference/evidence>` interface, the
-:doc:`shape map <reference/shape-maps>` view, and the
-:doc:`symbolic repair <reference/repair>` layer are all built on: they are
-projections of the same derivation, not separate re-implementations of SHACL.
+Rather than interpret the shapes graph at validation time, Shifty lowers SHACL
+to a path algebra (π) and a shape grammar (φ) taken from `Common Foundations for
+SHACL, ShEx, and PG-Schema <https://arxiv.org/abs/2502.01295>`_, normalizes it,
+and plans it. SHACL's vocabulary is much larger than its semantics; reducing
+dozens of constraint components to a handful of operators is what makes the
+optimizer, the inference engine, and the result formats below tractable to write
+once each.
 
-Making that affordable is why shapes are compiled rather than interpreted.
-Shifty lowers SHACL to a path algebra (π) and a shape grammar (φ) taken from
-`Common Foundations for SHACL, ShEx, and PG-Schema <https://arxiv.org/abs/2502.01295>`_,
-normalizes it, and plans it. The same intermediate representation drives
-validation, inference, evidence, and repair — so a constraint has one meaning
-in the system, not four.
+- **Full SHACL Core validation** — node and property shapes, all standard
+  constraint components, the full property-path language.
+- **SHACL-AF inference** — triple rules and SPARQL CONSTRUCT rules to a fixed
+  point, with stratification analysis for recursive rulesets.
+- **Recursion with a defined semantics** — cyclic shape references are
+  evaluated in strata; a schema whose recursion runs through a negation is
+  diagnosed and refused rather than guessed at.
+- **Multiple frontends** — CLI, Python (``pyshifty``), a C++17 static library,
+  and a WebAssembly module that runs in the browser.
 
-Shifty runs as a command-line tool, a Python library (``pyshifty``), a C++17
-static library, and a WebAssembly module that runs in the browser.
+Results you can act on
+----------------------
+
+Validation returns a W3C ``sh:ValidationReport`` when you want interoperability.
+When you want to *do* something with the result, ``validate_algebra`` returns
+the same findings as structured objects — no RDF graph to query, and a stable
+constraint kind to branch on:
+
+.. code-block:: python
+
+   result = shifty.validate_algebra(data, shapes)
+
+   for violation in result.violations:
+       print(violation.focus_node, violation.severity)
+       for reason in violation.reasons:
+           print(" ", reason.constraint_kind)   # ConstraintKind.Cardinality
+           print(" ", reason.path)              # <http://example.org/email>
+           print(" ", reason.value)             # the offending value node
+           print(" ", reason.message)           # engine-generated description
+           print(" ", reason.author_message)    # your sh:message, if any
+
+Each reason also carries the algebra node that produced it, so you can see the
+compiled constraint behind a finding rather than reverse-engineering it from
+prose. :doc:`tutorials/reading-results` walks through this.
+
+Going further, the :doc:`evidence interface <reference/evidence>` keeps the
+whole derivation instead of discarding it — which nodes a shape actually
+selected, why each one passed, and which triples supported it. That answers
+questions a validation report structurally cannot, such as "did this profile
+apply to anything?" and "which sensor satisfied this obligation?"
 
 Where to start
 --------------
@@ -53,18 +82,18 @@ Where to start
    :widths: 25 75
 
    * - :doc:`Tutorials <tutorials/index>`
-     - Start here if you are new. Two worked lessons that take you from an
-       empty directory to a validated graph, then to a graph the engine
-       repaired for you.
+     - Start here if you are new. Three lessons: get a validation running,
+       walk its results in code, then ask the engine why each node passed or
+       failed.
    * - :doc:`How-to guides <how-to/index>`
-     - Recipes for a specific job: run inference, extract bindings, drive a
-       repair loop, inspect the compiled plan.
+     - Recipes for a specific job: run inference, extract bindings, inspect
+       the compiled plan.
    * - :doc:`Reference <reference/index>`
      - Exact behaviour of the CLI flags, the Python API, the evidence data
        model, and the supported SHACL feature set.
    * - :doc:`Explanation <explanation/index>`
      - Why the engine is built this way — the algebra, the recursion
-       semantics, what evidence costs, and what it is measured to cost.
+       semantics, and what the measurements say things cost.
 
 Quick start
 -----------
@@ -83,7 +112,13 @@ Validate a data graph against a shapes graph:
          - [Violation] (<http://example.org/email>) <http://example.org/bob> → at least 1 value(s) required along <http://example.org/email>, found 0
          - [Violation] (<http://example.org/name>) "123"^^<http://www.w3.org/2001/XMLSchema#integer> → test(datatype(xsd:string)) not satisfied
 
-The same thing from Python, with a ``pyshacl``-compatible signature:
+Run rules to a fixed point:
+
+.. code-block:: bash
+
+   shifty infer --shapes rules.ttl --data data.ttl
+
+From Python, with a ``pyshacl``-compatible signature:
 
 .. code-block:: python
 
@@ -94,6 +129,12 @@ The same thing from Python, with a ``pyshacl``-compatible signature:
 And in the browser: the `playground <https://shifty.gtf.fyi/playground/>`_ runs
 the whole engine as WebAssembly, so nothing you paste into it leaves your
 machine.
+
+.. note::
+
+   Shifty also has an **experimental** symbolic repair layer, which computes the
+   space of edits that would make a failing node conform. It is early and its
+   API is expected to change; see :doc:`how-to/repair` if you want to try it.
 
 .. toctree::
    :maxdepth: 2

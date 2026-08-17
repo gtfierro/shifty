@@ -18,11 +18,12 @@ For that, see the :doc:`how-to guides <../how-to/index>` and
        serialization.
    * - :doc:`shape-maps`
      - Typed keys, bindings, and terms.
-   * - :doc:`repair`
-     - Sessions, templates, holes, plans, deltas, and the gate.
    * - :doc:`feature-support`
      - Which parts of SHACL Core and SHACL-AF are implemented, and what
        happens at the edges.
+   * - :doc:`repair`
+     - **Experimental.** Sessions, templates, holes, plans, deltas, and the
+       gate.
 
 The Rust API is documented separately on
 `docs.rs/shifty-engine <https://docs.rs/shifty-engine>`_.
@@ -35,5 +36,5 @@ The Rust API is documented separately on
    python
    evidence
    shape-maps
-   repair
    feature-support
+   repair

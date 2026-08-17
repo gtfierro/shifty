@@ -1,6 +1,12 @@
 Repair reference
 ================
 
+.. warning::
+
+   **Experimental.** This API is expected to change. Treat the object model
+   below as a description of the current version rather than a stable
+   contract.
+
 The repair API computes the space of edits that would make a failing node
 conform, and applies whichever ones you choose. It decides nothing itself:
 which focus to fix, which term fills a hole, which alternative to take, how
