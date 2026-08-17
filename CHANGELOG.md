@@ -4,6 +4,21 @@
 
 ### Added
 
+- Added `shifty.shape_map()` / `shifty.ShapeMap` to the Python bindings: a
+  ShEx-shapemap-style view one level above the evidence trees. Each selected
+  `(shape, focus)` pair becomes a `Mapping` whose keys are the shape's property
+  obligations — bound keys carry the values the data supplied (exact even on
+  partially-conforming foci), unbound keys carry the witness subtree, the
+  shortfall count, and near-miss candidates. Keys default to
+  `path→QualifierClass` renderings and are customizable via `key=`.
+- Added `PreparedEvidenceValidator::explain_constraint()`: evidence for one
+  focus against any *normalized* constraint id, not just a statement's top
+  shape. Exposed in Python as `EvidenceSession.evidence_for()`. This is the
+  drill-down for the passes a failing conjunction's witness elides — the
+  run's `EvaluationProgress` says a child passed; this materializes why.
+- Added `shape_name` to `StatementEvaluation`, `Failure`, and `Satisfaction`
+  in the Python bindings: the statement's source shape IRI, when named.
+
 - Added `PreparedEvidenceValidator::validate_conformance()`: the conformance-only
   counterpart of `validate()` over the same prepared snapshot, so evidence
   tracing can be measured against an otherwise identical execution.

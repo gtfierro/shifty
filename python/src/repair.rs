@@ -1154,6 +1154,14 @@ pub struct FocusWitness {
 
 #[pymethods]
 impl FocusWitness {
+    /// The IRI of the statement's source shape, when the shape is a named
+    /// (non-blank) RDF node. `None` for anonymous shapes.
+    #[getter]
+    fn shape_name(&self) -> Option<String> {
+        let statement = &self.selector_schema.statements[self.statement];
+        self.selector_schema.names.get(&statement.shape).cloned()
+    }
+
     /// The target selector as a structured [`Target`] (its `kind`, the class /
     /// predicate / node it picks out, …) — the inspectable form of `.target`.
     #[getter]
@@ -1290,6 +1298,14 @@ pub struct FocusSatisfaction {
 
 #[pymethods]
 impl FocusSatisfaction {
+    /// The IRI of the statement's source shape, when the shape is a named
+    /// (non-blank) RDF node. `None` for anonymous shapes.
+    #[getter]
+    fn shape_name(&self) -> Option<String> {
+        let statement = &self.selector_schema.statements[self.statement];
+        self.selector_schema.names.get(&statement.shape).cloned()
+    }
+
     /// The target selector as a structured [`Target`] — the inspectable form of
     /// `.target`, identical to the witness side for the same statement.
     #[getter]
@@ -1475,6 +1491,14 @@ pub struct PyStatementEvaluation {
 
 #[pymethods]
 impl PyStatementEvaluation {
+    /// The IRI of the statement's source shape, when the shape is a named
+    /// (non-blank) RDF node. `None` for anonymous shapes.
+    #[getter]
+    fn shape_name(&self) -> Option<String> {
+        let statement = &self.selector_schema.statements[self.source_statement_id];
+        self.selector_schema.names.get(&statement.shape).cloned()
+    }
+
     #[getter]
     fn selector(&self) -> Target {
         build_target(
@@ -1576,10 +1600,9 @@ pub fn expand_evidence_json(compact: &str, catalog: Option<&str>) -> PyResult<St
     let catalog = match catalog {
         Some(text) => serde_json::from_str(text)
             .map_err(|error| py_value_error(format!("cannot read catalog: {error}")))?,
-        None => value
-            .get("constraints")
-            .cloned()
-            .ok_or_else(|| py_value_error("compact evidence omits its constraint catalog; pass catalog=".into()))?,
+        None => value.get("constraints").cloned().ok_or_else(|| {
+            py_value_error("compact evidence omits its constraint catalog; pass catalog=".into())
+        })?,
     };
     let expanded = shifty_engine::expand_value(&value, catalog)
         .map_err(|error| py_value_error(error.to_string()))?;
@@ -1843,6 +1866,34 @@ impl EvidenceSession {
             statements,
             json,
         })
+    }
+
+    /// Evidence for `focus` against one *normalized* constraint id — any
+    /// constraint in the run's catalog, not just a statement's top-level shape.
+    ///
+    /// A failing conjunction's failure evidence carries only the failing
+    /// children; the run's `EvaluationProgress` says which children passed
+    /// without materializing why. This is the drill-down for those elided
+    /// passes: give it the focus (N-Triples syntax, as `FocusEvaluation.focus`
+    /// renders it) and a child's `normalized_constraint_ref`, and it returns
+    /// the same tagged dict a run's `evidence` entries use
+    /// (`{"status": "pass"|"fail", "evidence": {...}}`).
+    ///
+    /// No target selection is involved: the pair is taken as given, and a focus
+    /// no statement selects still yields well-defined evidence.
+    fn evidence_for(&self, py: Python<'_>, focus: &str, constraint_id: u32) -> PyResult<Py<PyAny>> {
+        let term = parse_term(focus).map_err(py_value_error)?;
+        let evidence = self
+            .prepared
+            .explain_constraint(&term, ShapeId(constraint_id))
+            .ok_or_else(|| {
+                py_value_error(format!(
+                    "constraint id {constraint_id} is not in the normalized schema"
+                ))
+            })?;
+        let json = serde_json::to_string(&evidence)
+            .map_err(|error| py_value_error(format!("cannot serialize evidence: {error}")))?;
+        Ok(py.import("json")?.call_method1("loads", (json,))?.unbind())
     }
 
     fn __repr__(&self) -> String {

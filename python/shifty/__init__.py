@@ -17,6 +17,14 @@ Two validation interfaces:
     Returns complete selected-pair coverage: exactly one structured satisfaction
     trace or failure witness for each selected ``(statement, focus)`` pair.
 
+``shape_map(shacl_graph, data_graph, ...)``
+    One level above the evidence trees: a ShEx-shapemap-style view with one
+    :class:`Mapping` per selected ``(shape, focus)`` pair, each a key→value
+    record of the shape's property obligations — bound keys carry the matched
+    values (including on partially-conforming foci), unbound keys carry the
+    witness subtree, shortfall count, and near-misses. See
+    :mod:`shifty.shapemap`.
+
 ``infer(data_graph, shapes_graph=None, ...)``
     Run SHACL-AF forward-chaining rules to a fixed point.
     Returns an :class:`InferResult`; call ``.graph()`` to get the
@@ -110,6 +118,8 @@ from ._shifty import (
     version,
 )
 
+from .shapemap import Binding, BindingKey, Mapping, ShapeMap, shape_map
+
 if TYPE_CHECKING:
     import rdflib
 
@@ -118,6 +128,11 @@ __all__ = [
     "validate_algebra",
     "infer",
     "expand_evidence",
+    "shape_map",
+    "ShapeMap",
+    "Mapping",
+    "Binding",
+    "BindingKey",
     "version",
     "__version__",
     "AlgebraResult",
@@ -611,6 +626,23 @@ class EvidenceSession:
             minimum_severity,
             sort_results,
         )
+
+    def evidence_for(self, focus: str, constraint_id: int) -> dict:
+        """Evidence for *focus* against one *normalized* constraint id — any
+        constraint in the run's catalog, not just a statement's top shape.
+
+        A failing conjunction's failure evidence carries only the failing
+        children; the run's ``EvaluationProgress`` says which children passed
+        without materializing why. This is the drill-down for those elided
+        passes: pass the focus (N-Triples syntax, as
+        ``FocusEvaluation.focus`` renders it) and a child's
+        ``normalized_constraint_ref``, and get back the same tagged dict a
+        run's evidence entries use (``{"status": "pass"|"fail", "evidence":
+        {...}}``). No target selection is involved: the pair is taken as
+        given, and a focus no statement selects still yields well-defined
+        evidence.
+        """
+        return self._inner.evidence_for(focus, constraint_id)
 
 
 class RepairSession:

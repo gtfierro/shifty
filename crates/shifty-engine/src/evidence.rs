@@ -311,6 +311,36 @@ impl PreparedEvidenceValidator {
             .collect()
     }
 
+    /// Materialize evidence for one focus against one *normalized* constraint —
+    /// any arena id, not just a statement's top-level shape.
+    ///
+    /// This is the sub-statement counterpart of [`explain`](Self::explain): a
+    /// failing conjunction's [`Witness`] carries only its failing children, so a
+    /// caller reconstructing per-property coverage uses the run's
+    /// [`EvaluationProgress`] to learn which children passed and this method to
+    /// materialize the satisfaction evidence the witness elided. Like
+    /// [`explain`](Self::explain), no target selection is involved: the pair is
+    /// taken as given, and a focus no statement selects still yields
+    /// well-defined evidence. Returns `None` when `constraint` is not an arena
+    /// id of the normalized schema (see [`schema`](Self::schema)).
+    pub fn explain_constraint(&self, focus: &oxrdf::Term, constraint: ShapeId) -> Option<Evidence> {
+        if (constraint.0 as usize) >= self.schema.arena.len() {
+            return None;
+        }
+        let backend = self
+            .sparql
+            .frozen()
+            .expect("prepared evidence validator always owns a frozen dataset");
+        let mut evaluator = ShapeEvaluator::new(backend, &self.schema.arena, &self.sparql);
+        prefetch_sparql_constraints(
+            &self.schema.arena,
+            constraint,
+            std::slice::from_ref(focus),
+            &self.sparql,
+        );
+        Some(materialize_evidence(&mut evaluator, focus, constraint))
+    }
+
     /// The constraint catalogs an [`EvidenceRun`] carries.
     ///
     /// Fixed for the snapshot, so a caller explaining pairs one at a time takes
@@ -367,8 +397,7 @@ impl PreparedEvidenceValidator {
                 let pair_start = profiling
                     .then(|| (web_time::Instant::now(), crate::profile::evidence_visits()));
                 let evidence = materialize_evidence(&mut evaluator, &focus, statement.shape);
-                if let (Some((start, visits_before)), Some(label)) =
-                    (pair_start, label.as_deref())
+                if let (Some((start, visits_before)), Some(label)) = (pair_start, label.as_deref())
                 {
                     crate::profile::record_shape_work(
                         label,
@@ -769,8 +798,7 @@ mod tests {
         );
         let parsed = parse_turtle(ttl.as_bytes(), None).unwrap();
         let loaded = load_turtle(ttl.as_bytes(), None).unwrap();
-        let prepared =
-            PreparedEvidenceValidator::new(&loaded.graph, &parsed.schema).unwrap();
+        let prepared = PreparedEvidenceValidator::new(&loaded.graph, &parsed.schema).unwrap();
         let options = ValidationOptions::default();
         let conformance = prepared.validate_conformance(&options);
         let evidence = prepared.validate(&options);
