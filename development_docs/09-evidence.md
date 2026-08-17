@@ -39,7 +39,30 @@ any RDF term — so it tracks the evidence vocabulary without mirroring every
 variant. `compact_value`/`expand_value` operate on already-serialized runs, so a
 caller holding one only as JSON encodes it without a typed round-trip; that is
 how the Python bindings expose it, as `EvidenceRun.to_compact_json()` and
-`shifty.expand_evidence()`.
+`shifty.expand_evidence()`, and how the C++ SDK does, as
+`EvidenceRun::compact_json()` and `shifty::expand_evidence()`.
+
+## Bindings
+
+The Python and C++ surfaces cover the same operations: the whole horizon
+(`validate`), the conformance baseline (`validate_conformance`), scan-then-explain
+(`find_failures` + `explain`), the per-snapshot catalog (`constraints`), and the
+compact codec.
+
+The C++ SDK draws the typed/JSON line differently, because the C ABI hands over
+opaque handles and length-delimited UTF-8 rather than live RDF terms. The
+statement and focus structure — ids, constraint kind, rendered selector, focus
+term, polarity — is typed; the evidence tree itself crosses as JSON, per focus
+(`FocusEvidence::evidence_json`) or per run (`EvidenceRun::json()`). Mirroring
+the evidence variants through a C ABI would fix a deeply recursive tagged union
+into a flat accessor surface that the vocabulary would outgrow; the compact
+codec already treats the serialized form as the interchange, so the binding
+follows it.
+
+`explain` returns statements without a catalog, so the C++ binding wraps them in
+an `EvidenceRun` whose catalog is empty rather than introducing a second result
+shape. One JSON shape means the compact codec and every accessor work on either
+entry point.
 
 ## Guarantees
 

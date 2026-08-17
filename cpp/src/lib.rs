@@ -8,8 +8,9 @@ use oxrdf::{Dataset as OxDataset, Graph, GraphName, Quad, Term};
 use oxttl::{NTriplesSerializer, TurtleSerializer};
 use shifty_algebra::{Schema, Severity};
 use shifty_engine::{
-    EngineOptions, ValidationGraphMode, ValidationOptions as EngineValidationOptions,
-    ValidationOutcome, ValidationReport, Violation, infer_graphs,
+    ConformanceRun, EngineOptions, EvaluationStatus, EvidenceRun, PreparedEvidenceValidator,
+    SelectedPair, ValidationGraphMode, ValidationOptions as EngineValidationOptions,
+    ValidationOutcome, ValidationReport, Violation, compact_value, expand_value, infer_graphs,
     property_witnesses_graphs_with_mode, report_to_graph,
     validate_plan_graphs_with_mode_and_options, validate_report_graphs_with_mode_and_options,
 };
@@ -88,6 +89,10 @@ pub struct ShiftyDataset {
 
 pub struct ShiftyPreparedValidator {
     shapes: shifty_parse::Loaded,
+    /// The schema as authored, before normalization. Evidence is reported
+    /// against authored statements, so the evidence path needs the raw form;
+    /// the W3C-report and algebra paths only ever use `schema`.
+    raw_schema: Schema,
     schema: Schema,
     plan: shifty_opt::PhysicalPlan,
     diagnostics_json: String,
@@ -144,6 +149,87 @@ pub struct ShiftyAlgebraResult {
     conforms: bool,
     violations: Vec<AlgebraViolationItem>,
     results_text: String,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ShiftyEvaluationStatus {
+    Pass = 0,
+    Fail = 1,
+}
+
+/// Conformance-only totals over *normalized* `(statement, focus)` pairs — the
+/// pairs evidence is materialized against, before authored fan-out. Returned by
+/// value; there is nothing to own.
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct ShiftyConformanceRun {
+    pub conforms: u8,
+    pub selected_pairs: usize,
+    pub passed: usize,
+    pub failed: usize,
+}
+
+impl From<ConformanceRun> for ShiftyConformanceRun {
+    fn from(run: ConformanceRun) -> Self {
+        Self {
+            conforms: u8::from(run.conforms),
+            selected_pairs: run.selected_pairs,
+            passed: run.passed,
+            failed: run.failed,
+        }
+    }
+}
+
+/// A prepared evidence snapshot: normalization, stratification, indexing, and
+/// SPARQL preparation done once and reused across every call.
+pub struct ShiftyEvidenceSession {
+    prepared: PreparedEvidenceValidator,
+    /// Retained so authored selectors can be rendered without depending on the
+    /// `ShiftyPreparedValidator` outliving this session.
+    raw_schema: Schema,
+    constraints_json: String,
+}
+
+/// One selected focus under one authored statement, pre-stringified for the ABI.
+struct EvidenceFocusItem {
+    focus: String,
+    status: ShiftyEvaluationStatus,
+    evidence_json: String,
+    explanation: String,
+}
+
+/// One authored statement and every focus its selector chose — including none.
+/// Absent normalized identities are reported as `usize::MAX` / `u32::MAX`,
+/// matching the `SHIFTY_EVIDENCE_NO_*` sentinels in the C header.
+struct EvidenceStatementItem {
+    source_statement_id: usize,
+    normalized_statement_id: usize,
+    source_constraint_id: u32,
+    normalized_constraint_id: u32,
+    constraint_kind: String,
+    target: String,
+    foci: Vec<EvidenceFocusItem>,
+}
+
+pub struct ShiftyEvidenceRun {
+    conforms: bool,
+    json: String,
+    statements: Vec<EvidenceStatementItem>,
+}
+
+/// The failing pairs of one conformance scan, with the handles `explain` needs.
+/// The `SelectedPair`s are retained so explaining one costs no term re-parsing.
+pub struct ShiftyFailureList {
+    conformance: ShiftyConformanceRun,
+    pairs: Vec<SelectedPair>,
+    foci: Vec<String>,
+}
+
+/// An owned UTF-8 buffer produced by a call rather than cached in a handle
+/// (the compact encoding and its inverse), so its lifetime is the caller's.
+pub struct ShiftyString {
+    value: String,
 }
 
 #[derive(Debug)]
@@ -320,6 +406,7 @@ fn prepare(loaded: shifty_parse::Loaded) -> ShiftyPreparedValidator {
     let plan = shifty_opt::plan(&schema);
     ShiftyPreparedValidator {
         shapes: loaded,
+        raw_schema: parsed.schema,
         schema,
         plan,
         diagnostics_json: serde_json::to_string(&diagnostics)
@@ -525,6 +612,169 @@ fn validate_algebra_dataset(
     )
     .map_err(|error| ApiError::new(ShiftyStatus::ValidationError, error.to_string()))?;
     Ok(build_algebra_result(outcome, &validator.schema))
+}
+
+/// Prepare an evidence snapshot over `validator`'s shapes and `dataset`.
+///
+/// Inference (when requested and the schema has rules) runs first, exactly as
+/// on the report and algebra paths, so all three see the same evaluated graph.
+/// The snapshot is built from the *raw* schema: `PreparedEvidenceValidator`
+/// normalizes internally and keeps the authored form to fan evidence back out
+/// to authored statements, which pre-normalizing here would erase.
+fn prepare_evidence(
+    validator: &ShiftyPreparedValidator,
+    dataset: &ShiftyDataset,
+    mode: u32,
+    run_inference: bool,
+) -> Result<ShiftyEvidenceSession, ApiError> {
+    let mode = match graph_mode(mode)? {
+        ShiftyGraphMode::Data => ValidationGraphMode::Data,
+        ShiftyGraphMode::Union => ValidationGraphMode::Union,
+        ShiftyGraphMode::UnionAll => ValidationGraphMode::UnionAll,
+    };
+    let inferred = if run_inference && !validator.raw_schema.rules.is_empty() {
+        Some(
+            infer_graphs(
+                &dataset.graph,
+                &validator.shapes.graph,
+                &validator.raw_schema,
+            )
+            .map_err(|error| ApiError::new(ShiftyStatus::ValidationError, error.to_string()))?
+            .graph,
+        )
+    } else {
+        None
+    };
+    let data = inferred.as_ref().unwrap_or(&dataset.graph);
+    let prepared = PreparedEvidenceValidator::with_graphs(
+        data,
+        &validator.shapes.graph,
+        &validator.raw_schema,
+        mode,
+    )
+    .map_err(|error| {
+        ApiError::new(
+            ShiftyStatus::ValidationError,
+            format!("non-stratifiable schema: {error}"),
+        )
+    })?;
+    let constraints_json =
+        serde_json::to_string(&prepared.constraints()).map_err(internal_error)?;
+    Ok(ShiftyEvidenceSession {
+        prepared,
+        raw_schema: validator.raw_schema.clone(),
+        constraints_json,
+    })
+}
+
+/// The serde spelling of a constraint kind, so the string a caller reads here
+/// is the one that appears in the run's JSON.
+fn constraint_kind_string(kind: shifty_algebra::ConstraintKind) -> String {
+    match serde_json::to_value(kind) {
+        Ok(serde_json::Value::String(value)) => value,
+        _ => "Unknown".to_string(),
+    }
+}
+
+/// Flatten a typed run into the pre-stringified form the ABI hands out, keeping
+/// the run's own JSON alongside it for callers that want the whole tree.
+fn build_evidence_run(
+    run: EvidenceRun,
+    raw_schema: &Schema,
+) -> Result<ShiftyEvidenceRun, ApiError> {
+    let json = run.to_json().map_err(internal_error)?;
+    let conforms = run.conforms;
+    let statements = run
+        .statements
+        .into_iter()
+        .map(|statement| {
+            let target = raw_schema
+                .statements
+                .get(statement.source_statement_id)
+                .map(|raw| {
+                    shifty_algebra::render::selector_to_string_in(&raw.selector, &raw_schema.arena)
+                })
+                .unwrap_or_default();
+            let foci = statement
+                .selected_foci
+                .into_iter()
+                .map(|focus| {
+                    Ok(EvidenceFocusItem {
+                        focus: term_string(&focus.focus),
+                        status: match focus.status() {
+                            EvaluationStatus::Pass => ShiftyEvaluationStatus::Pass,
+                            EvaluationStatus::Fail => ShiftyEvaluationStatus::Fail,
+                        },
+                        explanation: focus.explain(),
+                        evidence_json: serde_json::to_string(&focus.evidence)
+                            .map_err(internal_error)?,
+                    })
+                })
+                .collect::<Result<Vec<_>, ApiError>>()?;
+            Ok(EvidenceStatementItem {
+                source_statement_id: statement.source_statement_id,
+                normalized_statement_id: statement.normalized_statement_id.unwrap_or(usize::MAX),
+                source_constraint_id: statement.source_constraint_id.0,
+                normalized_constraint_id: statement
+                    .normalized_constraint_id
+                    .map_or(u32::MAX, |id| id.0),
+                constraint_kind: constraint_kind_string(statement.constraint_kind),
+                target,
+                foci,
+            })
+        })
+        .collect::<Result<Vec<_>, ApiError>>()?;
+    Ok(ShiftyEvidenceRun {
+        conforms,
+        json,
+        statements,
+    })
+}
+
+/// `explain` returns statements only — the catalog is fixed per snapshot and is
+/// taken once from the session. Wrapping them in an otherwise-empty `EvidenceRun`
+/// keeps one JSON shape across both entry points, so the same compact encoder,
+/// decoder, and accessors work on either.
+fn explanation_run(
+    statements: Vec<shifty_engine::StatementEvaluation>,
+    raw_schema: &Schema,
+) -> Result<ShiftyEvidenceRun, ApiError> {
+    let conforms = statements.iter().all(|statement| {
+        statement
+            .selected_foci
+            .iter()
+            .all(|focus| focus.status() == EvaluationStatus::Pass)
+    });
+    build_evidence_run(
+        EvidenceRun {
+            conforms,
+            constraints: shifty_engine::ConstraintCatalog {
+                source: Vec::new(),
+                normalized: Vec::new(),
+            },
+            statements,
+        },
+        raw_schema,
+    )
+}
+
+/// Parse one RDF term from its N-Triples rendering by reading it back in object
+/// position, which is the only position that admits IRIs, blank nodes, *and*
+/// literals — so any focus a run reported round-trips through this.
+fn parse_term(text: &str) -> Result<Term, ApiError> {
+    let triple = format!("<urn:shifty:s> <urn:shifty:p> {text} .");
+    let mut parser = oxttl::NTriplesParser::new().for_slice(triple.as_bytes());
+    match parser.next() {
+        Some(Ok(triple)) => Ok(triple.object),
+        Some(Err(error)) => Err(ApiError::new(
+            ShiftyStatus::InvalidArgument,
+            format!("focus is not a valid N-Triples term: {error}"),
+        )),
+        None => Err(ApiError::new(
+            ShiftyStatus::InvalidArgument,
+            "focus is not a valid N-Triples term",
+        )),
+    }
 }
 
 fn graph_to_ntriples(graph: &Graph) -> Result<String, ApiError> {
@@ -777,7 +1027,7 @@ fn string_view(value: &str) -> ShiftyStringView {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn shifty_abi_version() -> u32 {
-    3
+    4
 }
 
 #[unsafe(no_mangle)]
@@ -1456,6 +1706,468 @@ pub unsafe extern "C" fn shifty_algebra_reason_severity(
         .map_or(empty_view(), |reason| string_view(&reason.severity))
 }
 
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_evidence_session_create(
+    validator: *const ShiftyPreparedValidator,
+    dataset: *const ShiftyDataset,
+    graph_mode: u32,
+    run_inference: u8,
+    out: *mut *mut ShiftyEvidenceSession,
+) -> u32 {
+    ffi_call(|| {
+        let validator = unsafe { validator.as_ref() }
+            .ok_or_else(|| ApiError::new(ShiftyStatus::InvalidArgument, "validator is null"))?;
+        let dataset = unsafe { dataset.as_ref() }
+            .ok_or_else(|| ApiError::new(ShiftyStatus::InvalidArgument, "dataset is null"))?;
+        if out.is_null() {
+            return Err(ApiError::new(
+                ShiftyStatus::InvalidArgument,
+                "out session pointer is null",
+            ));
+        }
+        unsafe { out.write(ptr::null_mut()) };
+        let session = prepare_evidence(validator, dataset, graph_mode, run_inference != 0)?;
+        unsafe { out.write(Box::into_raw(Box::new(session))) };
+        Ok(())
+    })
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_evidence_session_destroy(session: *mut ShiftyEvidenceSession) {
+    if !session.is_null() {
+        unsafe { drop(Box::from_raw(session)) };
+    }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_evidence_session_constraints_json(
+    session: *const ShiftyEvidenceSession,
+) -> ShiftyStringView {
+    unsafe { session.as_ref() }.map_or(empty_view(), |session| {
+        string_view(&session.constraints_json)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_evidence_session_validate(
+    session: *const ShiftyEvidenceSession,
+    minimum_severity: u32,
+    shape_names: *const ShiftyStringView,
+    shape_names_len: usize,
+    out: *mut *mut ShiftyEvidenceRun,
+) -> u32 {
+    ffi_call(|| {
+        let session = unsafe { session.as_ref() }
+            .ok_or_else(|| ApiError::new(ShiftyStatus::InvalidArgument, "session is null"))?;
+        if out.is_null() {
+            return Err(ApiError::new(
+                ShiftyStatus::InvalidArgument,
+                "out run pointer is null",
+            ));
+        }
+        unsafe { out.write(ptr::null_mut()) };
+        let minimum_severity = severity(minimum_severity)?;
+        let shape_names = unsafe { shape_names_from_raw(shape_names, shape_names_len) }?;
+        let options = engine_validation_options(minimum_severity, &shape_names);
+        let run = build_evidence_run(session.prepared.validate(&options), &session.raw_schema)?;
+        unsafe { out.write(Box::into_raw(Box::new(run))) };
+        Ok(())
+    })
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_evidence_session_validate_conformance(
+    session: *const ShiftyEvidenceSession,
+    shape_names: *const ShiftyStringView,
+    shape_names_len: usize,
+    out: *mut ShiftyConformanceRun,
+) -> u32 {
+    ffi_call(|| {
+        let session = unsafe { session.as_ref() }
+            .ok_or_else(|| ApiError::new(ShiftyStatus::InvalidArgument, "session is null"))?;
+        if out.is_null() {
+            return Err(ApiError::new(
+                ShiftyStatus::InvalidArgument,
+                "out conformance pointer is null",
+            ));
+        }
+        let shape_names = unsafe { shape_names_from_raw(shape_names, shape_names_len) }?;
+        let options = engine_validation_options(Severity::Info, &shape_names);
+        unsafe { out.write(session.prepared.validate_conformance(&options).into()) };
+        Ok(())
+    })
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_evidence_session_find_failures(
+    session: *const ShiftyEvidenceSession,
+    shape_names: *const ShiftyStringView,
+    shape_names_len: usize,
+    out: *mut *mut ShiftyFailureList,
+) -> u32 {
+    ffi_call(|| {
+        let session = unsafe { session.as_ref() }
+            .ok_or_else(|| ApiError::new(ShiftyStatus::InvalidArgument, "session is null"))?;
+        if out.is_null() {
+            return Err(ApiError::new(
+                ShiftyStatus::InvalidArgument,
+                "out failure list pointer is null",
+            ));
+        }
+        unsafe { out.write(ptr::null_mut()) };
+        let shape_names = unsafe { shape_names_from_raw(shape_names, shape_names_len) }?;
+        let options = engine_validation_options(Severity::Info, &shape_names);
+        let (conformance, pairs) = session.prepared.find_failures(&options);
+        let foci = pairs.iter().map(|pair| term_string(&pair.focus)).collect();
+        let list = ShiftyFailureList {
+            conformance: conformance.into(),
+            pairs,
+            foci,
+        };
+        unsafe { out.write(Box::into_raw(Box::new(list))) };
+        Ok(())
+    })
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_failure_list_destroy(list: *mut ShiftyFailureList) {
+    if !list.is_null() {
+        unsafe { drop(Box::from_raw(list)) };
+    }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_failure_list_len(list: *const ShiftyFailureList) -> usize {
+    unsafe { list.as_ref() }.map_or(0, |list| list.pairs.len())
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_failure_list_conformance(
+    list: *const ShiftyFailureList,
+) -> ShiftyConformanceRun {
+    unsafe { list.as_ref() }.map_or(
+        ShiftyConformanceRun {
+            conforms: 0,
+            selected_pairs: 0,
+            passed: 0,
+            failed: 0,
+        },
+        |list| list.conformance,
+    )
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_failure_statement(
+    list: *const ShiftyFailureList,
+    index: usize,
+) -> usize {
+    unsafe { list.as_ref() }
+        .and_then(|list| list.pairs.get(index))
+        .map_or(usize::MAX, |pair| pair.statement)
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_failure_focus(
+    list: *const ShiftyFailureList,
+    index: usize,
+) -> ShiftyStringView {
+    unsafe { list.as_ref() }
+        .and_then(|list| list.foci.get(index))
+        .map_or(empty_view(), |focus| string_view(focus))
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_evidence_session_explain_failure(
+    session: *const ShiftyEvidenceSession,
+    failures: *const ShiftyFailureList,
+    index: usize,
+    out: *mut *mut ShiftyEvidenceRun,
+) -> u32 {
+    ffi_call(|| {
+        let session = unsafe { session.as_ref() }
+            .ok_or_else(|| ApiError::new(ShiftyStatus::InvalidArgument, "session is null"))?;
+        let failures = unsafe { failures.as_ref() }
+            .ok_or_else(|| ApiError::new(ShiftyStatus::InvalidArgument, "failure list is null"))?;
+        if out.is_null() {
+            return Err(ApiError::new(
+                ShiftyStatus::InvalidArgument,
+                "out run pointer is null",
+            ));
+        }
+        unsafe { out.write(ptr::null_mut()) };
+        let pair = failures.pairs.get(index).ok_or_else(|| {
+            ApiError::new(
+                ShiftyStatus::InvalidArgument,
+                format!("failure index {index} is out of bounds"),
+            )
+        })?;
+        let run = explanation_run(session.prepared.explain(pair), &session.raw_schema)?;
+        unsafe { out.write(Box::into_raw(Box::new(run))) };
+        Ok(())
+    })
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_evidence_session_explain(
+    session: *const ShiftyEvidenceSession,
+    statement: usize,
+    focus: *const c_char,
+    focus_len: usize,
+    out: *mut *mut ShiftyEvidenceRun,
+) -> u32 {
+    ffi_call(|| {
+        let session = unsafe { session.as_ref() }
+            .ok_or_else(|| ApiError::new(ShiftyStatus::InvalidArgument, "session is null"))?;
+        if out.is_null() {
+            return Err(ApiError::new(
+                ShiftyStatus::InvalidArgument,
+                "out run pointer is null",
+            ));
+        }
+        unsafe { out.write(ptr::null_mut()) };
+        let focus = unsafe { str_from_raw(focus, focus_len, "focus") }?;
+        let pair = SelectedPair {
+            statement,
+            focus: parse_term(focus)?,
+        };
+        let run = explanation_run(session.prepared.explain(&pair), &session.raw_schema)?;
+        unsafe { out.write(Box::into_raw(Box::new(run))) };
+        Ok(())
+    })
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_evidence_run_destroy(run: *mut ShiftyEvidenceRun) {
+    if !run.is_null() {
+        unsafe { drop(Box::from_raw(run)) };
+    }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_evidence_run_conforms(run: *const ShiftyEvidenceRun) -> u8 {
+    u8::from(unsafe { run.as_ref() }.is_some_and(|run| run.conforms))
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_evidence_run_json(
+    run: *const ShiftyEvidenceRun,
+) -> ShiftyStringView {
+    unsafe { run.as_ref() }.map_or(empty_view(), |run| string_view(&run.json))
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_evidence_run_compact_json(
+    run: *const ShiftyEvidenceRun,
+    include_catalog: u8,
+    out: *mut *mut ShiftyString,
+) -> u32 {
+    ffi_call(|| {
+        let run = unsafe { run.as_ref() }
+            .ok_or_else(|| ApiError::new(ShiftyStatus::InvalidArgument, "run is null"))?;
+        if out.is_null() {
+            return Err(ApiError::new(
+                ShiftyStatus::InvalidArgument,
+                "out string pointer is null",
+            ));
+        }
+        unsafe { out.write(ptr::null_mut()) };
+        let value: serde_json::Value = serde_json::from_str(&run.json).map_err(internal_error)?;
+        let compact = compact_value(value, include_catalog != 0);
+        let value = serde_json::to_string(&compact).map_err(internal_error)?;
+        unsafe { out.write(Box::into_raw(Box::new(ShiftyString { value }))) };
+        Ok(())
+    })
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_evidence_expand_json(
+    compact: *const c_char,
+    compact_len: usize,
+    catalog: *const c_char,
+    catalog_len: usize,
+    out: *mut *mut ShiftyString,
+) -> u32 {
+    ffi_call(|| {
+        if out.is_null() {
+            return Err(ApiError::new(
+                ShiftyStatus::InvalidArgument,
+                "out string pointer is null",
+            ));
+        }
+        unsafe { out.write(ptr::null_mut()) };
+        let compact = unsafe { str_from_raw(compact, compact_len, "compact evidence") }?;
+        let catalog = unsafe { optional_str_from_raw(catalog, catalog_len, "catalog") }?;
+        let value: serde_json::Value = serde_json::from_str(compact).map_err(|error| {
+            ApiError::new(
+                ShiftyStatus::InvalidArgument,
+                format!("cannot read compact evidence: {error}"),
+            )
+        })?;
+        let catalog = match catalog {
+            Some(text) => serde_json::from_str(text).map_err(|error| {
+                ApiError::new(
+                    ShiftyStatus::InvalidArgument,
+                    format!("cannot read catalog: {error}"),
+                )
+            })?,
+            None => value.get("constraints").cloned().ok_or_else(|| {
+                ApiError::new(
+                    ShiftyStatus::InvalidArgument,
+                    "compact evidence omits its constraint catalog; pass one",
+                )
+            })?,
+        };
+        let expanded = expand_value(&value, catalog)
+            .map_err(|error| ApiError::new(ShiftyStatus::InvalidArgument, error.to_string()))?;
+        let value = serde_json::to_string(&expanded).map_err(internal_error)?;
+        unsafe { out.write(Box::into_raw(Box::new(ShiftyString { value }))) };
+        Ok(())
+    })
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_string_destroy(value: *mut ShiftyString) {
+    if !value.is_null() {
+        unsafe { drop(Box::from_raw(value)) };
+    }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_string_data(value: *const ShiftyString) -> ShiftyStringView {
+    unsafe { value.as_ref() }.map_or(empty_view(), |value| string_view(&value.value))
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_evidence_run_statement_count(
+    run: *const ShiftyEvidenceRun,
+) -> usize {
+    unsafe { run.as_ref() }.map_or(0, |run| run.statements.len())
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_evidence_statement_source_id(
+    run: *const ShiftyEvidenceRun,
+    index: usize,
+) -> usize {
+    unsafe { run.as_ref() }
+        .and_then(|run| run.statements.get(index))
+        .map_or(usize::MAX, |statement| statement.source_statement_id)
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_evidence_statement_normalized_id(
+    run: *const ShiftyEvidenceRun,
+    index: usize,
+) -> usize {
+    unsafe { run.as_ref() }
+        .and_then(|run| run.statements.get(index))
+        .map_or(usize::MAX, |statement| statement.normalized_statement_id)
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_evidence_statement_source_constraint(
+    run: *const ShiftyEvidenceRun,
+    index: usize,
+) -> u32 {
+    unsafe { run.as_ref() }
+        .and_then(|run| run.statements.get(index))
+        .map_or(u32::MAX, |statement| statement.source_constraint_id)
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_evidence_statement_normalized_constraint(
+    run: *const ShiftyEvidenceRun,
+    index: usize,
+) -> u32 {
+    unsafe { run.as_ref() }
+        .and_then(|run| run.statements.get(index))
+        .map_or(u32::MAX, |statement| statement.normalized_constraint_id)
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_evidence_statement_constraint_kind(
+    run: *const ShiftyEvidenceRun,
+    index: usize,
+) -> ShiftyStringView {
+    unsafe { run.as_ref() }
+        .and_then(|run| run.statements.get(index))
+        .map_or(empty_view(), |statement| {
+            string_view(&statement.constraint_kind)
+        })
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_evidence_statement_target(
+    run: *const ShiftyEvidenceRun,
+    index: usize,
+) -> ShiftyStringView {
+    unsafe { run.as_ref() }
+        .and_then(|run| run.statements.get(index))
+        .map_or(empty_view(), |statement| string_view(&statement.target))
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_evidence_statement_focus_count(
+    run: *const ShiftyEvidenceRun,
+    index: usize,
+) -> usize {
+    unsafe { run.as_ref() }
+        .and_then(|run| run.statements.get(index))
+        .map_or(0, |statement| statement.foci.len())
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_evidence_focus_node(
+    run: *const ShiftyEvidenceRun,
+    index: usize,
+    focus_index: usize,
+) -> ShiftyStringView {
+    unsafe { run.as_ref() }
+        .and_then(|run| run.statements.get(index))
+        .and_then(|statement| statement.foci.get(focus_index))
+        .map_or(empty_view(), |focus| string_view(&focus.focus))
+}
+
+/// Returns `SHIFTY_EVALUATION_FAIL` for an out-of-range index; check
+/// `shifty_evidence_statement_focus_count` first.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_evidence_focus_status(
+    run: *const ShiftyEvidenceRun,
+    index: usize,
+    focus_index: usize,
+) -> u32 {
+    unsafe { run.as_ref() }
+        .and_then(|run| run.statements.get(index))
+        .and_then(|statement| statement.foci.get(focus_index))
+        .map_or(ShiftyEvaluationStatus::Fail as u32, |focus| {
+            focus.status as u32
+        })
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_evidence_focus_evidence_json(
+    run: *const ShiftyEvidenceRun,
+    index: usize,
+    focus_index: usize,
+) -> ShiftyStringView {
+    unsafe { run.as_ref() }
+        .and_then(|run| run.statements.get(index))
+        .and_then(|statement| statement.foci.get(focus_index))
+        .map_or(empty_view(), |focus| string_view(&focus.evidence_json))
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_evidence_focus_explanation(
+    run: *const ShiftyEvidenceRun,
+    index: usize,
+    focus_index: usize,
+) -> ShiftyStringView {
+    unsafe { run.as_ref() }
+        .and_then(|run| run.statements.get(index))
+        .and_then(|statement| statement.foci.get(focus_index))
+        .map_or(empty_view(), |focus| string_view(&focus.explanation))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1483,5 +2195,112 @@ mod tests {
             .unwrap();
         assert_eq!(ask.kind, ShiftyQueryResultKind::Boolean);
         assert!(ask.boolean_value);
+    }
+
+    const EVIDENCE_SHAPES: &str = r#"
+        @prefix sh: <http://www.w3.org/ns/shacl#> .
+        @prefix ex: <http://example.com/> .
+        ex:PersonShape a sh:NodeShape ;
+            sh:targetClass ex:Person ;
+            sh:property [ sh:path ex:name ; sh:minCount 1 ] .
+    "#;
+
+    const EVIDENCE_DATA: &str = r#"
+        @prefix ex: <http://example.com/> .
+        ex:alice a ex:Person ; ex:name "Alice" .
+        ex:bob a ex:Person .
+    "#;
+
+    fn evidence_session() -> ShiftyEvidenceSession {
+        let validator = prepare(parse_bytes(EVIDENCE_SHAPES.as_bytes(), 0, None).unwrap());
+        let mut dataset = ShiftyDataset::new();
+        dataset.extend(parse_bytes(EVIDENCE_DATA.as_bytes(), 0, None).unwrap());
+        prepare_evidence(&validator, &dataset, ShiftyGraphMode::Union as u32, true).unwrap()
+    }
+
+    /// Both polarities are present: a report would carry only bob.
+    #[test]
+    fn evidence_run_covers_passes_and_failures() {
+        let session = evidence_session();
+        let options = engine_validation_options(Severity::Info, &[]);
+        let run =
+            build_evidence_run(session.prepared.validate(&options), &session.raw_schema).unwrap();
+
+        assert!(!run.conforms);
+        let foci: Vec<_> = run
+            .statements
+            .iter()
+            .flat_map(|statement| &statement.foci)
+            .map(|focus| (focus.focus.as_str(), focus.status))
+            .collect();
+        assert!(foci.contains(&("<http://example.com/alice>", ShiftyEvaluationStatus::Pass)));
+        assert!(foci.contains(&("<http://example.com/bob>", ShiftyEvaluationStatus::Fail)));
+    }
+
+    /// Compaction round-trips as JSON *values*: the encoding is lossless, but
+    /// object key order is not part of what it preserves, so comparing the
+    /// serialized text would test serde_json's map ordering instead.
+    #[test]
+    fn compaction_round_trips_with_and_without_the_catalog() {
+        let session = evidence_session();
+        let options = engine_validation_options(Severity::Info, &[]);
+        let run =
+            build_evidence_run(session.prepared.validate(&options), &session.raw_schema).unwrap();
+        let original: serde_json::Value = serde_json::from_str(&run.json).unwrap();
+        let catalog: serde_json::Value = serde_json::from_str(&session.constraints_json).unwrap();
+
+        let full = compact_value(original.clone(), true);
+        assert_eq!(
+            expand_value(&full, full.get("constraints").cloned().unwrap()).unwrap(),
+            original
+        );
+
+        let elided = compact_value(original.clone(), false);
+        assert!(elided.get("constraints").is_none());
+        assert_eq!(expand_value(&elided, catalog).unwrap(), original);
+    }
+
+    /// Explaining a pair reaches the same evidence the whole run carries, which
+    /// is what makes scan-then-explain a substitute for materializing everything.
+    #[test]
+    fn explaining_a_failure_matches_the_full_run() {
+        let session = evidence_session();
+        let options = engine_validation_options(Severity::Info, &[]);
+        let run =
+            build_evidence_run(session.prepared.validate(&options), &session.raw_schema).unwrap();
+        let (conformance, pairs) = session.prepared.find_failures(&options);
+
+        assert_eq!(conformance.failed, 1);
+        assert_eq!(pairs.len(), 1);
+        assert_eq!(term_string(&pairs[0].focus), "<http://example.com/bob>");
+
+        let explained =
+            explanation_run(session.prepared.explain(&pairs[0]), &session.raw_schema).unwrap();
+        assert!(!explained.conforms);
+        let explained_evidence = &explained.statements[0].foci[0].evidence_json;
+        let from_run = run
+            .statements
+            .iter()
+            .flat_map(|statement| &statement.foci)
+            .find(|focus| focus.focus == "<http://example.com/bob>")
+            .unwrap();
+        assert_eq!(&from_run.evidence_json, explained_evidence);
+    }
+
+    /// Every position a focus term can take must survive being named as a
+    /// string and read back — literals included, which is why the parser reads
+    /// the term in object position.
+    #[test]
+    fn focus_terms_round_trip_through_their_rendering() {
+        for text in [
+            "<http://example.com/bob>",
+            "_:b0",
+            "\"Alice\"",
+            "\"Alice\"@en",
+            "\"1\"^^<http://www.w3.org/2001/XMLSchema#integer>",
+        ] {
+            assert_eq!(term_string(&parse_term(text).unwrap()), text);
+        }
+        assert!(parse_term("not a term").is_err());
     }
 }

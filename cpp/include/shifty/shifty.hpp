@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <memory>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -268,6 +269,94 @@ private:
     std::string results_text_;
 };
 
+/// The evidence polarity produced for one selected `(statement, focus)` pair.
+enum class EvaluationStatus {
+    Pass,
+    Fail,
+};
+
+/// Conformance-only totals from one prepared snapshot. Counts are over
+/// *normalized* `(statement, focus)` pairs — the pairs evidence is materialized
+/// against, before authored statements that normalize together fan the same
+/// evidence back out, so they need not match the number of
+/// StatementEvidence::selected_foci entries an EvidenceRun reports.
+struct ConformanceRun {
+    /// True when no selected pair failed.
+    bool conforms = true;
+
+    /// Pairs target selection produced.
+    std::size_t selected_pairs = 0;
+
+    /// Pairs whose shape held.
+    std::size_t passed = 0;
+
+    /// Pairs whose shape did not hold.
+    std::size_t failed = 0;
+};
+
+/// One selected focus node under one authored statement, and the single
+/// evidence polarity that applies to it.
+struct FocusEvidence {
+    /// The focus node, rendered in full (`<iri>`, `_:label`, `"lit"@lang`,
+    /// `"lit"^^<datatype>`).
+    std::string focus_node;
+
+    /// Whether the shape held at this focus.
+    EvaluationStatus status = EvaluationStatus::Fail;
+
+    /// This focus's evidence tree as JSON: a `{"status": ..., "evidence": ...}`
+    /// object holding a satisfaction trace or a failure witness. Constraint ids
+    /// inside it resolve against EvidenceSession::constraints_json().
+    std::string evidence_json;
+
+    /// A human-readable rendering of the same evidence.
+    std::string explanation;
+
+    /// True when the shape held at this focus.
+    [[nodiscard]] bool passed() const noexcept {
+        return status == EvaluationStatus::Pass;
+    }
+};
+
+/// One authored statement and every focus its selector chose. A statement whose
+/// selector chose nothing is still reported, with an empty `selected_foci` —
+/// that is what makes a run a coverage horizon rather than a findings list.
+struct StatementEvidence {
+    /// Index of this statement in the authored (pre-normalization) schema.
+    std::size_t source_statement_id = 0;
+
+    /// Index in the normalized schema, absent when the authored statement has
+    /// no normalized counterpart.
+    std::optional<std::size_t> normalized_statement_id;
+
+    /// The authored constraint this statement carries.
+    std::uint32_t source_constraint_id = 0;
+
+    /// Its normalized counterpart, absent when there is none. This is the id to
+    /// look up in the `normalized` catalog of constraints_json().
+    std::optional<std::uint32_t> normalized_constraint_id;
+
+    /// Stable semantic kind of the constraint (e.g. `"ClassMembership"`),
+    /// spelled as it appears in the run's JSON.
+    std::string constraint_kind;
+
+    /// The authored selector, rendered (e.g. `"targetClass(ex:Person)"`).
+    std::string target;
+
+    /// Every focus this statement selected, each with one evidence polarity.
+    std::vector<FocusEvidence> selected_foci;
+};
+
+/// One `(normalized statement, focus)` pair, as target selection produced it —
+/// enough to name a pair, and nothing that costs anything to carry.
+struct SelectedPair {
+    /// Index into the *normalized* statements.
+    std::size_t statement = 0;
+
+    /// The focus node, rendered in full.
+    std::string focus_node;
+};
+
 namespace detail {
 
 inline void check_abi() {
@@ -402,7 +491,220 @@ struct AlgebraResultDeleter {
     }
 };
 
+struct EvidenceSessionDeleter {
+    void operator()(ShiftyEvidenceSession *value) const noexcept {
+        shifty_evidence_session_destroy(value);
+    }
+};
+
+struct EvidenceRunDeleter {
+    void operator()(ShiftyEvidenceRun *value) const noexcept {
+        shifty_evidence_run_destroy(value);
+    }
+};
+
+struct FailureListDeleter {
+    void operator()(ShiftyFailureList *value) const noexcept {
+        shifty_failure_list_destroy(value);
+    }
+};
+
+struct StringDeleter {
+    void operator()(ShiftyString *value) const noexcept {
+        shifty_string_destroy(value);
+    }
+};
+
+using OwnedString = std::unique_ptr<ShiftyString, StringDeleter>;
+
+/// Not an overload of from_c(): ShiftyEvaluationStatus and
+/// ShiftyQueryResultKind are both uint32_t typedefs, so they cannot be
+/// distinguished by overload resolution.
+inline EvaluationStatus evaluation_status_from_c(ShiftyEvaluationStatus status) {
+    switch (status) {
+    case SHIFTY_EVALUATION_PASS:
+        return EvaluationStatus::Pass;
+    case SHIFTY_EVALUATION_FAIL:
+        return EvaluationStatus::Fail;
+    }
+    throw std::runtime_error("unknown evaluation status returned by shifty");
+}
+
+inline ConformanceRun from_c(const ShiftyConformanceRun &run) {
+    ConformanceRun out;
+    out.conforms = run.conforms != 0;
+    out.selected_pairs = run.selected_pairs;
+    out.passed = run.passed;
+    out.failed = run.failed;
+    return out;
+}
+
+inline std::optional<std::size_t> optional_index(std::size_t value) {
+    if (value == SHIFTY_EVIDENCE_NO_INDEX) {
+        return std::nullopt;
+    }
+    return value;
+}
+
+inline std::optional<std::uint32_t> optional_constraint(std::uint32_t value) {
+    if (value == SHIFTY_EVIDENCE_NO_CONSTRAINT) {
+        return std::nullopt;
+    }
+    return value;
+}
+
 } // namespace detail
+
+/// The statement-oriented coverage horizon of one evidence-carrying validation
+/// run: every authored statement, every focus its selector chose, and exactly
+/// one evidence polarity per pair — a satisfaction trace where the shape held, a
+/// failure witness where it did not. Unlike a validation report, passing pairs
+/// are present too, which is what makes the run usable as provenance rather
+/// than only as a findings list.
+///
+/// Move-only: the structured view is materialized eagerly, while json() and
+/// compact_json() are served from the retained engine handle.
+class EvidenceRun {
+public:
+    EvidenceRun(const EvidenceRun &) = delete;
+    EvidenceRun &operator=(const EvidenceRun &) = delete;
+    EvidenceRun(EvidenceRun &&) noexcept = default;
+    EvidenceRun &operator=(EvidenceRun &&) noexcept = default;
+    ~EvidenceRun() = default;
+
+    /// Returns true when no selected pair failed at or above the run's
+    /// minimum severity.
+    [[nodiscard]] bool conforms() const noexcept { return conforms_; }
+
+    /// Returns every authored statement, including those that selected nothing.
+    [[nodiscard]] const std::vector<StatementEvidence> &statements() const noexcept {
+        return statements_;
+    }
+
+    /// Returns the whole run as JSON, evidence trees included.
+    [[nodiscard]] std::string json() const {
+        return detail::copy(shifty_evidence_run_json(handle_.get()));
+    }
+
+    /// Returns the run with evidence nodes and RDF terms hash-consed into
+    /// shared tables and referenced by index. Lossless: expand_evidence()
+    /// restores exactly what json() returns.
+    ///
+    /// \param include_catalog Keep the constraint catalog in the encoding. Pass
+    /// false for a consumer that already holds the schema — on a small graph the
+    /// catalog is most of the payload — and supply it to expand_evidence()
+    /// separately, from EvidenceSession::constraints_json().
+    /// \throws Error if the run cannot be encoded.
+    [[nodiscard]] std::string compact_json(bool include_catalog = true) const {
+        ShiftyString *raw = nullptr;
+        detail::check(shifty_evidence_run_compact_json(
+            handle_.get(),
+            static_cast<std::uint8_t>(include_catalog),
+            &raw));
+        detail::OwnedString owned(raw);
+        return detail::copy(shifty_string_data(owned.get()));
+    }
+
+    /// Returns true when the run conforms, so a run can be tested directly.
+    explicit operator bool() const noexcept { return conforms_; }
+
+private:
+    friend class EvidenceSession;
+    using Handle = std::unique_ptr<ShiftyEvidenceRun, detail::EvidenceRunDeleter>;
+
+    explicit EvidenceRun(ShiftyEvidenceRun *raw) : handle_(raw) {
+        conforms_ = shifty_evidence_run_conforms(handle_.get()) != 0;
+        const std::size_t count =
+            shifty_evidence_run_statement_count(handle_.get());
+        statements_.reserve(count);
+        for (std::size_t i = 0; i < count; ++i) {
+            StatementEvidence statement;
+            statement.source_statement_id =
+                shifty_evidence_statement_source_id(handle_.get(), i);
+            statement.normalized_statement_id = detail::optional_index(
+                shifty_evidence_statement_normalized_id(handle_.get(), i));
+            statement.source_constraint_id =
+                shifty_evidence_statement_source_constraint(handle_.get(), i);
+            statement.normalized_constraint_id = detail::optional_constraint(
+                shifty_evidence_statement_normalized_constraint(handle_.get(), i));
+            statement.constraint_kind = detail::copy(
+                shifty_evidence_statement_constraint_kind(handle_.get(), i));
+            statement.target =
+                detail::copy(shifty_evidence_statement_target(handle_.get(), i));
+
+            const std::size_t focus_count =
+                shifty_evidence_statement_focus_count(handle_.get(), i);
+            statement.selected_foci.reserve(focus_count);
+            for (std::size_t f = 0; f < focus_count; ++f) {
+                FocusEvidence focus;
+                focus.focus_node =
+                    detail::copy(shifty_evidence_focus_node(handle_.get(), i, f));
+                focus.status = detail::evaluation_status_from_c(
+                    shifty_evidence_focus_status(handle_.get(), i, f));
+                focus.evidence_json = detail::copy(
+                    shifty_evidence_focus_evidence_json(handle_.get(), i, f));
+                focus.explanation = detail::copy(
+                    shifty_evidence_focus_explanation(handle_.get(), i, f));
+                statement.selected_foci.push_back(std::move(focus));
+            }
+            statements_.push_back(std::move(statement));
+        }
+    }
+
+    Handle handle_;
+    bool conforms_ = false;
+    std::vector<StatementEvidence> statements_;
+};
+
+/// The failing pairs of one conformance scan, with the totals that scan
+/// produced. Move-only: the engine-side pairs are retained so explaining one
+/// costs no re-selection and no term re-parsing.
+class Failures {
+public:
+    Failures(const Failures &) = delete;
+    Failures &operator=(const Failures &) = delete;
+    Failures(Failures &&) noexcept = default;
+    Failures &operator=(Failures &&) noexcept = default;
+    ~Failures() = default;
+
+    /// Returns the conformance totals of the scan that produced these pairs.
+    [[nodiscard]] const ConformanceRun &conformance() const noexcept {
+        return conformance_;
+    }
+
+    /// Returns the pairs that failed, in selection order.
+    [[nodiscard]] const std::vector<SelectedPair> &pairs() const noexcept {
+        return pairs_;
+    }
+
+    /// Returns the number of failing pairs.
+    [[nodiscard]] std::size_t size() const noexcept { return pairs_.size(); }
+
+    /// Returns true when nothing failed.
+    [[nodiscard]] bool empty() const noexcept { return pairs_.empty(); }
+
+private:
+    friend class EvidenceSession;
+    using Handle = std::unique_ptr<ShiftyFailureList, detail::FailureListDeleter>;
+
+    explicit Failures(ShiftyFailureList *raw) : handle_(raw) {
+        conformance_ =
+            detail::from_c(shifty_failure_list_conformance(handle_.get()));
+        const std::size_t count = shifty_failure_list_len(handle_.get());
+        pairs_.reserve(count);
+        for (std::size_t i = 0; i < count; ++i) {
+            SelectedPair pair;
+            pair.statement = shifty_failure_statement(handle_.get(), i);
+            pair.focus_node =
+                detail::copy(shifty_failure_focus(handle_.get(), i));
+            pairs_.push_back(std::move(pair));
+        }
+    }
+
+    Handle handle_;
+    ConformanceRun conformance_;
+    std::vector<SelectedPair> pairs_;
+};
 
 /// An in-memory RDF graph owned by the Rust engine.
 ///
@@ -490,6 +792,7 @@ public:
 
 private:
     friend class PreparedValidator;
+    friend class EvidenceSession;
     using Handle = std::unique_ptr<ShiftyDataset, detail::DatasetDeleter>;
 
     using DatasetResultFunction =
@@ -764,6 +1067,8 @@ public:
     }
 
 private:
+    friend class EvidenceSession;
+
     explicit PreparedValidator(ShiftyPreparedValidator *raw) : handle_(raw) {}
 
     /// Union several shape sources into one N-Triples buffer by loading them
@@ -789,6 +1094,186 @@ private:
         std::unique_ptr<ShiftyPreparedValidator, detail::ValidatorDeleter>;
     Handle handle_;
 };
+
+/// Evidence-carrying validation over one immutable shapes/data snapshot.
+///
+/// Where validate() reports what failed, an evidence run reports what was
+/// *decided*: every authored statement, every focus it selected, and one
+/// evidence polarity each — a satisfaction trace where the shape held, a failure
+/// witness where it did not. Statements that selected no focus nodes are
+/// reported too, so a run is a coverage horizon over the schema rather than a
+/// list of findings.
+///
+/// Inference, normalization, stratification, indexing, and SPARQL preparation
+/// happen once in the constructor and are reused by every call. `graph_mode` and
+/// `run_inference` define the snapshot, so they are read from the options here
+/// and ignored afterwards; `minimum_severity` and `shape_names` are per-call.
+///
+/// On a corpus where failures are a small fraction of selected pairs, prefer
+/// find_failures() plus explain() to validate(): the scan decides each pair
+/// with one short-circuiting test, and evidence is materialized only for the
+/// pairs you ask about.
+///
+/// EvidenceSession is move-only and independent of the PreparedValidator and
+/// Dataset it was built from — neither needs to outlive it.
+class EvidenceSession {
+public:
+    /// Prepares an evidence snapshot over a validator's shapes and a dataset.
+    ///
+    /// Only `options.graph_mode` and `options.run_inference` are read; the rest
+    /// apply per call. As with validate(), a dataset holding only data uses the
+    /// shapes graph for evaluation under the default GraphMode::Union — load the
+    /// shapes into the dataset as well for the embedded-data pattern, where
+    /// focus nodes are discovered from the shapes document too.
+    ///
+    /// \throws Error for non-stratifiable shapes or inference failures.
+    EvidenceSession(
+        const PreparedValidator &validator,
+        const Dataset &dataset,
+        ValidationOptions options = {}) {
+        detail::check_abi();
+        ShiftyEvidenceSession *raw = nullptr;
+        detail::check(shifty_evidence_session_create(
+            validator.handle_.get(),
+            dataset.handle_.get(),
+            detail::to_c(options.graph_mode),
+            static_cast<std::uint8_t>(options.run_inference),
+            &raw));
+        handle_.reset(raw);
+    }
+
+    EvidenceSession(const EvidenceSession &) = delete;
+    EvidenceSession &operator=(const EvidenceSession &) = delete;
+    EvidenceSession(EvidenceSession &&) noexcept = default;
+    EvidenceSession &operator=(EvidenceSession &&) noexcept = default;
+    ~EvidenceSession() = default;
+
+    /// Returns the source/normalized constraint catalogs this snapshot's
+    /// evidence refers to by id, as JSON. Fixed per snapshot, so take it once
+    /// rather than per run — on a small model the catalog is the majority of a
+    /// run's serialized bytes.
+    [[nodiscard]] std::string constraints_json() const {
+        return detail::copy(
+            shifty_evidence_session_constraints_json(handle_.get()));
+    }
+
+    /// Returns the complete coverage horizon for this snapshot.
+    ///
+    /// `options.shape_names`, when non-empty, limits validation to those named
+    /// shapes as top-level entry points; referenced helper shapes are still
+    /// evaluated normally.
+    ///
+    /// \throws Error on validation failure.
+    [[nodiscard]] EvidenceRun validate(ValidationOptions options = {}) const {
+        ShiftyEvidenceRun *raw = nullptr;
+        const auto shape_names = detail::string_views(options.shape_names);
+        detail::check(shifty_evidence_session_validate(
+            handle_.get(),
+            detail::to_c(options.minimum_severity),
+            shape_names.data(),
+            shape_names.size(),
+            &raw));
+        return EvidenceRun(raw);
+    }
+
+    /// Decides the same pairs with one short-circuiting satisfaction test
+    /// instead of materializing evidence — a verdict with counts, and the
+    /// baseline that isolates what evidence tracing costs.
+    ///
+    /// `options.minimum_severity` is not honored: with no failure evidence
+    /// there is no per-constraint severity to weigh, so any failing pair makes
+    /// the run non-conforming. Only `options.shape_names` applies.
+    ///
+    /// \throws Error on validation failure.
+    [[nodiscard]] ConformanceRun validate_conformance(
+        ValidationOptions options = {}) const {
+        ShiftyConformanceRun run{};
+        const auto shape_names = detail::string_views(options.shape_names);
+        detail::check(shifty_evidence_session_validate_conformance(
+            handle_.get(), shape_names.data(), shape_names.size(), &run));
+        return detail::from_c(run);
+    }
+
+    /// Runs the same single pass and additionally retains the pairs that
+    /// failed, ready for explain(). Same severity caveat as
+    /// validate_conformance().
+    ///
+    /// \throws Error on validation failure.
+    [[nodiscard]] Failures find_failures(ValidationOptions options = {}) const {
+        ShiftyFailureList *raw = nullptr;
+        const auto shape_names = detail::string_views(options.shape_names);
+        detail::check(shifty_evidence_session_find_failures(
+            handle_.get(), shape_names.data(), shape_names.size(), &raw));
+        return Failures(raw);
+    }
+
+    /// Materializes evidence for one pair of a failure list. Target selection
+    /// is not re-run — the pair is taken as already selected, which is the
+    /// point: re-deriving the selection would cost what the whole pass costs.
+    ///
+    /// The returned run carries an empty constraint catalog; take the catalog
+    /// once from constraints_json().
+    ///
+    /// \throws Error if `index` is out of bounds, or on evaluation failure.
+    [[nodiscard]] EvidenceRun explain(
+        const Failures &failures,
+        std::size_t index) const {
+        ShiftyEvidenceRun *raw = nullptr;
+        detail::check(shifty_evidence_session_explain_failure(
+            handle_.get(), failures.handle_.get(), index, &raw));
+        return EvidenceRun(raw);
+    }
+
+    /// Explains an arbitrary pair, naming the focus by its full rendering
+    /// (`<iri>`, `_:label`, `"lit"@lang`, `"lit"^^<datatype>`) — the spelling
+    /// SelectedPair::focus_node and FocusEvidence::focus_node carry.
+    /// `statement` indexes the *normalized* statements. A focus the statement
+    /// never selected still yields well-defined evidence; it just describes a
+    /// pair no run contained.
+    ///
+    /// \throws Error for a malformed focus term, or on evaluation failure.
+    [[nodiscard]] EvidenceRun explain(
+        std::size_t statement,
+        std::string_view focus_node) const {
+        ShiftyEvidenceRun *raw = nullptr;
+        detail::check(shifty_evidence_session_explain(
+            handle_.get(),
+            statement,
+            focus_node.data(),
+            focus_node.size(),
+            &raw));
+        return EvidenceRun(raw);
+    }
+
+private:
+    using Handle =
+        std::unique_ptr<ShiftyEvidenceSession, detail::EvidenceSessionDeleter>;
+    Handle handle_;
+};
+
+/// Restores a run compacted by EvidenceRun::compact_json(), returning the same
+/// JSON EvidenceRun::json() produced.
+///
+/// \param compact The compact encoding.
+/// \param catalog The constraint catalog for an encoding written with
+/// `include_catalog = false` — the `"constraints"` value of the original run,
+/// which EvidenceSession::constraints_json() returns. Leave empty when the
+/// encoding carries its own.
+/// \throws Error if the encoding is malformed, was written by another version
+/// of the format, or omits a catalog without one being supplied.
+[[nodiscard]] inline std::string expand_evidence(
+    std::string_view compact,
+    std::string_view catalog = {}) {
+    ShiftyString *raw = nullptr;
+    detail::check(shifty_evidence_expand_json(
+        compact.data(),
+        compact.size(),
+        detail::optional_data(catalog),
+        catalog.size(),
+        &raw));
+    detail::OwnedString owned(raw);
+    return detail::copy(shifty_string_data(owned.get()));
+}
 
 /// Returns the ABI version implemented by the linked static library.
 [[nodiscard]] inline std::uint32_t abi_version() noexcept {

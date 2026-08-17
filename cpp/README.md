@@ -177,6 +177,86 @@ as the key. `value_nodes` entries are rendered in full (`<iri>`, `_:label`,
 `"lit"`, `"lit"@lang`, `"lit"^^<datatype>`) so IRI and literal bindings stay
 distinguishable.
 
+### Evidence-carrying validation
+
+`validate()` reports what failed. `EvidenceSession` reports what was *decided*:
+every authored statement, every focus node its selector chose, and exactly one
+evidence polarity per pair — a satisfaction trace where the shape held, a
+failure witness where it did not. Statements that selected nothing are reported
+with an empty focus list, so a run is a coverage horizon over the schema rather
+than a list of findings.
+
+A session prepares one immutable snapshot. Inference, normalization,
+stratification, indexing, and SPARQL preparation happen once in the constructor
+and are reused by every call, so `graph_mode` and `run_inference` are read there
+and ignored afterwards; `minimum_severity` and `shape_names` stay per-call.
+
+```cpp
+shifty::EvidenceSession evidence(validator, dataset);
+
+for (const auto &statement : evidence.validate().statements()) {
+    for (const auto &focus : statement.selected_foci) {
+        std::cout << (focus.passed() ? "pass " : "fail ")
+                  << focus.focus_node << " " << statement.target << "\n"
+                  << focus.explanation << "\n";
+    }
+}
+```
+
+Each `FocusEvidence` carries the evidence tree as JSON (`evidence_json`) and a
+human-readable rendering of the same (`explanation`). Constraint ids inside the
+JSON resolve against `EvidenceSession::constraints_json()`, which holds the
+source and normalized catalogs. That catalog is fixed per snapshot — on a small
+model it is the majority of a run's serialized bytes — so take it once rather
+than per run.
+
+#### Scan, then explain
+
+Materializing evidence for every pair is the expensive path. When failures are a
+small fraction of selected pairs, scan for them and explain only those:
+`find_failures()` decides each pair with one short-circuiting satisfaction test,
+paying only a term clone per *failing* pair, and `explain()` materializes
+evidence for one pair without re-running target selection.
+
+```cpp
+const auto failures = evidence.find_failures();
+std::cout << failures.conformance().failed << " of "
+          << failures.conformance().selected_pairs << " pairs failed\n";
+
+for (std::size_t i = 0; i < failures.size(); ++i) {
+    const auto run = evidence.explain(failures, i);
+    std::cout << run.statements().front().selected_foci.front().explanation;
+}
+```
+
+`validate_conformance()` is the same scan without retaining the pairs: a verdict
+with counts, and the baseline that isolates what evidence tracing costs. Neither
+honors `minimum_severity` — with no failure evidence there is no per-constraint
+severity to weigh, so any failing pair makes the run non-conforming. Their
+counts are over *normalized* pairs, before authored statements that normalize
+together fan the same evidence back out.
+
+A run from `explain()` carries an empty constraint catalog, since the catalog
+belongs to the snapshot rather than the pair. It is otherwise shaped exactly
+like one from `validate()`.
+
+#### Compact encoding
+
+`EvidenceRun::compact_json()` writes the run with its evidence nodes and RDF
+terms hash-consed into shared tables and referenced by index; `expand_evidence()`
+restores exactly what `json()` returned. Passing `include_catalog = false`
+elides the constraint catalog for a consumer that already holds the schema,
+which then supplies it when expanding:
+
+```cpp
+const auto wire = run.compact_json(/*include_catalog=*/false);
+const auto restored =
+    shifty::expand_evidence(wire, evidence.constraints_json());
+```
+
+Expanding a catalog-less encoding without supplying one throws, rather than
+yielding a silently truncated run.
+
 ## Install
 
 ```sh

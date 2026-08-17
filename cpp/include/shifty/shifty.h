@@ -8,7 +8,7 @@
 extern "C" {
 #endif
 
-#define SHIFTY_ABI_VERSION 3u
+#define SHIFTY_ABI_VERSION 4u
 
 typedef uint32_t ShiftyStatus;
 enum {
@@ -58,12 +58,37 @@ typedef struct ShiftyStringView {
     size_t len;
 } ShiftyStringView;
 
+/* The polarity of the evidence produced for one (statement, focus) pair. */
+typedef uint32_t ShiftyEvaluationStatus;
+enum {
+    SHIFTY_EVALUATION_PASS = 0,
+    SHIFTY_EVALUATION_FAIL = 1
+};
+
+/* Reported for an absent normalized identity or an out-of-range index. */
+#define SHIFTY_EVIDENCE_NO_INDEX ((size_t)-1)
+#define SHIFTY_EVIDENCE_NO_CONSTRAINT ((uint32_t)-1)
+
 typedef struct ShiftyDataset ShiftyDataset;
 typedef struct ShiftyPreparedValidator ShiftyPreparedValidator;
 typedef struct ShiftyQueryResult ShiftyQueryResult;
 typedef struct ShiftyValidationResult ShiftyValidationResult;
 typedef struct ShiftyPropertyWitnessList ShiftyPropertyWitnessList;
 typedef struct ShiftyAlgebraResult ShiftyAlgebraResult;
+typedef struct ShiftyEvidenceSession ShiftyEvidenceSession;
+typedef struct ShiftyEvidenceRun ShiftyEvidenceRun;
+typedef struct ShiftyFailureList ShiftyFailureList;
+typedef struct ShiftyString ShiftyString;
+
+/* Conformance-only totals over *normalized* (statement, focus) pairs — the
+ * pairs evidence is materialized against, before authored statements that
+ * normalize together fan the same evidence back out. Returned by value. */
+typedef struct ShiftyConformanceRun {
+    uint8_t conforms;
+    size_t selected_pairs;
+    size_t passed;
+    size_t failed;
+} ShiftyConformanceRun;
 
 /*
  * Pointer contract:
@@ -245,6 +270,165 @@ ShiftyStringView shifty_algebra_reason_author_message(
     const ShiftyAlgebraResult *result, size_t index, size_t reason_index);
 ShiftyStringView shifty_algebra_reason_severity(
     const ShiftyAlgebraResult *result, size_t index, size_t reason_index);
+
+/*
+ * Evidence-carrying validation: every selected (authored statement, focus)
+ * pair carries exactly one evidence polarity — a satisfaction trace when it
+ * passes, a failure witness when it does not — rather than only the failures a
+ * validation report contains. Statements whose selector chose no focus nodes
+ * are reported with an empty focus list, so the run covers the whole schema.
+ *
+ * A session prepares one immutable snapshot: inference (when requested),
+ * normalization, stratification, indexing, and SPARQL preparation happen once
+ * here and are reused by every call below. graph_mode and run_inference define
+ * the snapshot and so are fixed at creation; minimum_severity and shape_names
+ * are per-call.
+ */
+ShiftyStatus shifty_evidence_session_create(
+    const ShiftyPreparedValidator *validator,
+    const ShiftyDataset *dataset,
+    ShiftyGraphMode graph_mode,
+    uint8_t run_inference,
+    ShiftyEvidenceSession **out);
+void shifty_evidence_session_destroy(ShiftyEvidenceSession *session);
+
+/* The source/normalized constraint catalogs this snapshot's evidence refers to
+ * by id, as JSON. Fixed per snapshot: take it once rather than per run. */
+ShiftyStringView shifty_evidence_session_constraints_json(
+    const ShiftyEvidenceSession *session);
+
+/* The complete coverage horizon: every authored statement, every selected
+ * focus, one evidence polarity each. */
+ShiftyStatus shifty_evidence_session_validate(
+    const ShiftyEvidenceSession *session,
+    ShiftySeverity minimum_severity,
+    const ShiftyStringView *shape_names,
+    size_t shape_names_len,
+    ShiftyEvidenceRun **out);
+
+/*
+ * The same snapshot, target selection, and evaluator, deciding each pair with
+ * one short-circuiting satisfaction test instead of materializing evidence.
+ * Use it for a verdict with counts, or as the baseline that isolates what
+ * evidence tracing costs. It does not honor a minimum severity: with no failure
+ * evidence there is no per-constraint severity to weigh, so any failing pair
+ * makes the run non-conforming.
+ */
+ShiftyStatus shifty_evidence_session_validate_conformance(
+    const ShiftyEvidenceSession *session,
+    const ShiftyStringView *shape_names,
+    size_t shape_names_len,
+    ShiftyConformanceRun *out);
+
+/*
+ * The same single pass, additionally retaining the pairs that failed. On
+ * corpora where failures are a small fraction of selected pairs, this plus
+ * explaining each failing pair costs far less than materializing evidence for
+ * everything and discarding the passes.
+ */
+ShiftyStatus shifty_evidence_session_find_failures(
+    const ShiftyEvidenceSession *session,
+    const ShiftyStringView *shape_names,
+    size_t shape_names_len,
+    ShiftyFailureList **out);
+
+void shifty_failure_list_destroy(ShiftyFailureList *list);
+size_t shifty_failure_list_len(const ShiftyFailureList *list);
+ShiftyConformanceRun shifty_failure_list_conformance(const ShiftyFailureList *list);
+/* Index of the *normalized* statement of failure `index`, or
+ * SHIFTY_EVIDENCE_NO_INDEX when out of range. */
+size_t shifty_failure_statement(const ShiftyFailureList *list, size_t index);
+ShiftyStringView shifty_failure_focus(const ShiftyFailureList *list, size_t index);
+
+/*
+ * Materialize evidence for one pair from a failure list. Target selection is
+ * not re-run — the pair is taken as already selected, which is the point.
+ * The returned run carries an empty constraint catalog; take the catalog once
+ * from shifty_evidence_session_constraints_json.
+ */
+ShiftyStatus shifty_evidence_session_explain_failure(
+    const ShiftyEvidenceSession *session,
+    const ShiftyFailureList *failures,
+    size_t index,
+    ShiftyEvidenceRun **out);
+
+/*
+ * Explain an arbitrary pair, naming the focus by its N-Triples rendering
+ * (`<iri>`, `_:label`, `"lit"@lang`, `"lit"^^<datatype>`) — the same spelling
+ * shifty_failure_focus and shifty_evidence_focus_node produce. `statement`
+ * indexes the *normalized* statements. A focus the statement never selected
+ * still yields well-defined evidence; it just describes a pair no run contained.
+ */
+ShiftyStatus shifty_evidence_session_explain(
+    const ShiftyEvidenceSession *session,
+    size_t statement,
+    const char *focus,
+    size_t focus_len,
+    ShiftyEvidenceRun **out);
+
+void shifty_evidence_run_destroy(ShiftyEvidenceRun *run);
+uint8_t shifty_evidence_run_conforms(const ShiftyEvidenceRun *run);
+/* The whole run as JSON, evidence trees included. */
+ShiftyStringView shifty_evidence_run_json(const ShiftyEvidenceRun *run);
+
+/*
+ * The same run with evidence nodes and RDF terms hash-consed into shared
+ * tables and referenced by index. Lossless: shifty_evidence_expand_json
+ * restores exactly what shifty_evidence_run_json returned. Pass
+ * include_catalog = 0 to elide the constraint catalog for a consumer that
+ * already holds the schema; expanding such an encoding then requires the
+ * catalog. The result is caller-owned — release it with shifty_string_destroy.
+ */
+ShiftyStatus shifty_evidence_run_compact_json(
+    const ShiftyEvidenceRun *run,
+    uint8_t include_catalog,
+    ShiftyString **out);
+
+/* Restore a compacted run. `catalog` (NULL with length 0 to omit) supplies the
+ * catalog for an encoding written without one; it is the "constraints" value of
+ * the original run, which shifty_evidence_session_constraints_json returns. */
+ShiftyStatus shifty_evidence_expand_json(
+    const char *compact,
+    size_t compact_len,
+    const char *catalog,
+    size_t catalog_len,
+    ShiftyString **out);
+
+void shifty_string_destroy(ShiftyString *value);
+ShiftyStringView shifty_string_data(const ShiftyString *value);
+
+size_t shifty_evidence_run_statement_count(const ShiftyEvidenceRun *run);
+size_t shifty_evidence_statement_source_id(
+    const ShiftyEvidenceRun *run, size_t index);
+/* SHIFTY_EVIDENCE_NO_INDEX when the authored statement has no normalized
+ * counterpart (and for an out-of-range index). */
+size_t shifty_evidence_statement_normalized_id(
+    const ShiftyEvidenceRun *run, size_t index);
+uint32_t shifty_evidence_statement_source_constraint(
+    const ShiftyEvidenceRun *run, size_t index);
+/* SHIFTY_EVIDENCE_NO_CONSTRAINT when there is no normalized counterpart. */
+uint32_t shifty_evidence_statement_normalized_constraint(
+    const ShiftyEvidenceRun *run, size_t index);
+ShiftyStringView shifty_evidence_statement_constraint_kind(
+    const ShiftyEvidenceRun *run, size_t index);
+/* The authored selector, rendered (e.g. "targetClass(ex:Person)"). */
+ShiftyStringView shifty_evidence_statement_target(
+    const ShiftyEvidenceRun *run, size_t index);
+size_t shifty_evidence_statement_focus_count(
+    const ShiftyEvidenceRun *run, size_t index);
+
+ShiftyStringView shifty_evidence_focus_node(
+    const ShiftyEvidenceRun *run, size_t index, size_t focus_index);
+/* SHIFTY_EVALUATION_FAIL for an out-of-range index; check the focus count. */
+ShiftyEvaluationStatus shifty_evidence_focus_status(
+    const ShiftyEvidenceRun *run, size_t index, size_t focus_index);
+/* This focus's evidence subtree alone, as JSON: a `{"status": "pass"|"fail",
+ * "evidence": ...}` object. */
+ShiftyStringView shifty_evidence_focus_evidence_json(
+    const ShiftyEvidenceRun *run, size_t index, size_t focus_index);
+/* A human-readable rendering of the same evidence. */
+ShiftyStringView shifty_evidence_focus_explanation(
+    const ShiftyEvidenceRun *run, size_t index, size_t focus_index);
 
 #ifdef __cplusplus
 }

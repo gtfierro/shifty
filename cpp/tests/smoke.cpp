@@ -308,5 +308,99 @@ int main() {
     std::filesystem::remove(shapes_a_path);
     std::filesystem::remove(shapes_b_path);
 
+    // Evidence-carrying validation: unlike validate(), which reports only what
+    // failed, a run carries one evidence polarity for every selected pair —
+    // alice's satisfaction as well as bob's failure.
+    const shifty::EvidenceSession evidence(validator, dataset);
+    assert(!evidence.constraints_json().empty());
+
+    const auto run = evidence.validate();
+    assert(!run.conforms());
+    assert(!static_cast<bool>(run));
+    assert(!run.statements().empty());
+
+    const shifty::FocusEvidence *alice = nullptr;
+    const shifty::FocusEvidence *bob = nullptr;
+    std::size_t person_statement = 0;
+    for (const auto &statement : run.statements()) {
+        for (const auto &focus : statement.selected_foci) {
+            if (focus.focus_node == "<http://example.com/alice>") {
+                alice = &focus;
+                person_statement =
+                    statement.normalized_statement_id.value();
+            } else if (focus.focus_node == "<http://example.com/bob>") {
+                bob = &focus;
+            }
+        }
+        if (alice != nullptr) {
+            assert(statement.target.find("Person") != std::string::npos);
+            assert(!statement.constraint_kind.empty());
+        }
+    }
+    assert(alice != nullptr && alice->passed());
+    assert(bob != nullptr && !bob->passed());
+    assert(bob->status == shifty::EvaluationStatus::Fail);
+    assert(bob->evidence_json.find("\"fail\"") != std::string::npos);
+    assert(!bob->explanation.empty());
+    // The passing focus is present with a satisfaction trace — the property a
+    // validation report cannot express.
+    assert(alice->evidence_json.find("\"pass\"") != std::string::npos);
+
+    // Conformance-only baseline over the same snapshot: a verdict and counts,
+    // with no evidence materialized.
+    const auto conformance = evidence.validate_conformance();
+    assert(!conformance.conforms);
+    assert(conformance.failed == 1);
+    assert(conformance.passed + conformance.failed == conformance.selected_pairs);
+
+    // The scalable path: scan for failures, then explain only those.
+    const auto failures = evidence.find_failures();
+    assert(!failures.empty());
+    assert(failures.size() == 1);
+    assert(failures.conformance().failed == 1);
+    assert(failures.pairs().front().focus_node == "<http://example.com/bob>");
+
+    const auto explained = evidence.explain(failures, 0);
+    assert(!explained.conforms());
+    assert(explained.statements().size() == 1);
+    const auto &explained_focus = explained.statements().front().selected_foci.front();
+    assert(explained_focus.focus_node == "<http://example.com/bob>");
+    assert(!explained_focus.passed());
+    assert(explained_focus.evidence_json == bob->evidence_json);
+
+    // Explaining an arbitrary pair by naming its focus reaches the same
+    // evidence as explaining it from the failure list.
+    const auto explained_by_term = evidence.explain(
+        failures.pairs().front().statement, "<http://example.com/bob>");
+    assert(
+        explained_by_term.statements().front().selected_foci.front().evidence_json ==
+        explained_focus.evidence_json);
+
+    // A pair that passed explains too — target selection is not re-run, so the
+    // statement index and focus are taken as given.
+    const auto explained_pass =
+        evidence.explain(person_statement, "<http://example.com/alice>");
+    assert(explained_pass.conforms());
+
+    // Compaction is lossless, and eliding the catalog only moves it: expanding
+    // with the session's catalog reproduces the self-contained expansion.
+    const auto compact = run.compact_json();
+    const auto compact_without_catalog = run.compact_json(false);
+    assert(compact_without_catalog.size() < compact.size());
+    assert(
+        shifty::expand_evidence(compact) ==
+        shifty::expand_evidence(compact_without_catalog, evidence.constraints_json()));
+    assert(shifty::expand_evidence(compact).find("alice") != std::string::npos);
+
+    // Expanding a catalog-less encoding without supplying one is an error, not
+    // a silently truncated run.
+    bool rejected = false;
+    try {
+        (void)shifty::expand_evidence(compact_without_catalog);
+    } catch (const shifty::Error &) {
+        rejected = true;
+    }
+    assert(rejected);
+
     return 0;
 }

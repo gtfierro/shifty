@@ -19,6 +19,13 @@
 - Added `benchmark/bench_evidence.sh`, `benchmark/summarize_evidence.py`, and
   `benchmark/analyze_evidence_size.py` covering evidence latency and size across
   the Brick and 223P corpora.
+- Added evidence-carrying validation to the C++ SDK as `shifty::EvidenceSession`,
+  reaching parity with the Python bindings: `validate()` for the whole coverage
+  horizon, `validate_conformance()` and `find_failures()` + `explain()` for the
+  scan-then-explain path, `constraints_json()` for the per-snapshot catalog, and
+  `EvidenceRun::compact_json()` / `shifty::expand_evidence()` for the compact
+  encoding. Evidence trees cross the ABI as JSON; the statement/focus structure
+  around them is typed.
 
 ### Fixed
 
@@ -32,6 +39,9 @@
 - Which route a multi-route value cites in `PathSupport` now follows traversal
   order. Every cited triple still exists in the evaluation graph; validation
   verdicts, evidence structure, and failure content are unchanged.
+- The C ABI version is now 4. Its surface only grew, but a `SHIFTY_ABI_VERSION`
+  of 3 no longer matches: the C++ header checks for equality, so headers and the
+  static library must be updated together.
 
 ## 0.3.0
 

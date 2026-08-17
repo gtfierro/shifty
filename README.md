@@ -110,7 +110,8 @@ maturin develop
 ### C++
 
 The C++17 SDK embeds Shifty as a Rust static library and provides RAII wrappers
-for RDF loading, SPARQL queries, and reusable SHACL validators:
+for RDF loading, SPARQL queries, reusable SHACL validators, and evidence-carrying
+validation:
 
 ```sh
 cmake -S cpp -B build/cpp
@@ -127,9 +128,18 @@ dataset.load_file("data.ttl");
 auto rows = dataset.query("SELECT ?s WHERE { ?s ?p ?o }");
 auto validator = shifty::PreparedValidator::from_file("shapes.ttl");
 auto report = validator.validate(dataset);
+
+shifty::EvidenceSession evidence(validator, dataset);
+for (const auto &statement : evidence.validate().statements()) {
+    for (const auto &focus : statement.selected_foci) {
+        std::cout << focus.focus_node << " " << focus.explanation << "\n";
+    }
+}
 ```
 
-See [`cpp/README.md`](cpp/README.md) for installation and CMake package usage.
+See [`cpp/README.md`](cpp/README.md) for installation, CMake package usage, and
+the scan-then-explain path for corpora where materializing all evidence is too
+expensive.
 
 ### Browser / WebAssembly
 
@@ -417,6 +427,10 @@ values or triples. A `PathSupport` is one concrete positive reachability
 certificate only: predicate, inverse, sequence, and closure paths are retained;
 an alternative path uses the first successful syntactic route. It is not an
 all-route enumeration or a deletion cut.
+
+The same interface is available in C++ as `shifty::EvidenceSession` — including
+the compact encoding and `expand_evidence()` — where evidence trees cross the
+ABI as JSON. See [`cpp/README.md`](cpp/README.md#evidence-carrying-validation).
 
 Positive recursive back-edges follow Shifty's existing greatest-fixed-point
 semantics and appear as `coinductive` satisfaction nodes. Negation crosses the
