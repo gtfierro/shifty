@@ -105,6 +105,38 @@ mod tests {
     }
 
     #[test]
+    fn sources_provenance_named_and_blank_shapes() {
+        let out = parse_turtle(SHAPES.as_bytes(), None).unwrap();
+        let named_id = out
+            .schema
+            .names
+            .iter()
+            .find(|(_, name)| name.as_str() == "http://ex/PersonShape")
+            .map(|(id, _)| *id)
+            .expect("PersonShape should be named");
+        assert_eq!(
+            out.schema.sources.get(&named_id),
+            Some(&shifty_algebra::Term::NamedNode(
+                shifty_algebra::NamedNode::new("http://ex/PersonShape").unwrap()
+            ))
+        );
+
+        // The two blank `sh:property` shapes also get source entries, not just
+        // the named node shape.
+        let blank_sources = out
+            .schema
+            .sources
+            .values()
+            .filter(|t| matches!(t, shifty_algebra::Term::BlankNode(_)))
+            .count();
+        assert_eq!(blank_sources, 2, "sources: {:?}", out.schema.sources);
+
+        // Deterministic across two parses of the same document.
+        let out2 = parse_turtle(SHAPES.as_bytes(), None).unwrap();
+        assert_eq!(out.schema.sources.len(), out2.schema.sources.len());
+    }
+
+    #[test]
     fn auto_loads_rdf_xml_shapes() {
         let rdfxml = br#"<?xml version="1.0"?>
             <rdf:RDF

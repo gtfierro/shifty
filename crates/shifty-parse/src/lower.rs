@@ -60,11 +60,21 @@ pub fn lower(g: &Loaded) -> Lowered {
             NamedOrBlankNode::BlankNode(_) => None,
         })
         .collect();
+    // Every shape lowered from an RDF node (named or blank) is keyed by that
+    // node in `cache`; `id` is the node's outermost slot (the `Annotated`
+    // wrapper `lower_shape` sets last), which is what progress children and
+    // catalog entries reference.
+    let sources = l
+        .cache
+        .iter()
+        .map(|(node, id)| (*id, Term::from(node.clone())))
+        .collect();
     let schema = Schema {
         arena: l.arena,
         statements: l.statements,
         rules: l.rules,
         names,
+        sources,
     };
     schema.arena.debug_assert_finalized();
     Lowered {

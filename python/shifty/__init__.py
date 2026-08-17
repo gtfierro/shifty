@@ -19,11 +19,14 @@ Two validation interfaces:
 
 ``shape_map(shacl_graph, data_graph, ...)``
     One level above the evidence trees: a ShEx-shapemap-style view with one
-    :class:`Mapping` per selected ``(shape, focus)`` pair, each a key→value
-    record of the shape's property obligations — bound keys carry the matched
-    values (including on partially-conforming foci), unbound keys carry the
-    witness subtree, shortfall count, and near-misses. See
-    :mod:`shifty.shapemap`.
+    :class:`Mapping` per selected ``(shape, focus)`` pair, each a typed
+    :class:`Key` -> :class:`Binding` record of the shape's property
+    obligations — bound keys carry the matched values as typed :class:`Term`\\
+    s (including on partially-conforming foci), unbound keys carry the
+    witness subtree, shortfall count, and near-misses. Pass ``name_path`` to
+    carry the author's name for each slot, and ``value_paths`` to annotate
+    each bound value from the data graph. See :mod:`shifty.shapemap` and
+    :mod:`shifty.terms`.
 
 ``infer(data_graph, shapes_graph=None, ...)``
     Run SHACL-AF forward-chaining rules to a fixed point.
@@ -118,7 +121,25 @@ from ._shifty import (
     version,
 )
 
-from .shapemap import Binding, BindingKey, Mapping, ShapeMap, shape_map
+from .shapemap import (
+    Alt,
+    Binding,
+    BoundValue,
+    Cls,
+    Const,
+    Datatype,
+    Id,
+    Inv,
+    Key,
+    Mapping,
+    Pred,
+    Seq,
+    ShapeMap,
+    ShapeRef,
+    Star,
+    shape_map,
+)
+from .terms import BNode, Iri, Literal, Term
 
 if TYPE_CHECKING:
     import rdflib
@@ -132,7 +153,22 @@ __all__ = [
     "ShapeMap",
     "Mapping",
     "Binding",
-    "BindingKey",
+    "BoundValue",
+    "Key",
+    "Id",
+    "Pred",
+    "Inv",
+    "Seq",
+    "Alt",
+    "Star",
+    "Cls",
+    "Const",
+    "Datatype",
+    "ShapeRef",
+    "Term",
+    "Iri",
+    "Literal",
+    "BNode",
     "version",
     "__version__",
     "AlgebraResult",
@@ -643,6 +679,29 @@ class EvidenceSession:
         evidence.
         """
         return self._inner.evidence_for(focus, constraint_id)
+
+    def binding_names(self, name_path: Optional[str] = None) -> dict[int, list[str]]:
+        """Map raw (source) constraint id to the values ``name_path`` reaches
+        from that constraint's originating shapes-graph node, evaluated over
+        the shapes graph. ``name_path=None`` means ``sh:name``. Constraints
+        with no source-node provenance, or where ``name_path`` resolves to
+        nothing, are omitted.
+        """
+        return self._inner.binding_names(name_path)
+
+    def shape_name_of(self, constraint_id: int) -> Optional[str]:
+        """The raw schema's shape name for *constraint_id* — the IRI of the
+        named (non-blank) RDF node it was lowered from, when it has one."""
+        return self._inner.shape_name_of(constraint_id)
+
+    def resolve_path(self, nodes: Sequence[str], path: str) -> dict[str, list[str]]:
+        """Batch-evaluate *path* (a SPARQL 1.1 property path) from each of
+        *nodes* (N-Triples spellings) over this session's evaluation graph —
+        the data graph, unioned with the shapes graph to match this
+        session's own ``graph_mode``. Returns each input node's N-Triples
+        spelling mapped to the N-Triples spellings it reaches.
+        """
+        return self._inner.resolve_path(list(nodes), path)
 
 
 class RepairSession:

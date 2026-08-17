@@ -6,11 +6,24 @@
 
 - Added `shifty.shape_map()` / `shifty.ShapeMap` to the Python bindings: a
   ShEx-shapemap-style view one level above the evidence trees. Each selected
-  `(shape, focus)` pair becomes a `Mapping` whose keys are the shape's property
-  obligations — bound keys carry the values the data supplied (exact even on
-  partially-conforming foci), unbound keys carry the witness subtree, the
-  shortfall count, and near-miss candidates. Keys default to
-  `path→QualifierClass` renderings and are customizable via `key=`.
+  `(shape, focus)` pair becomes a `Mapping` — a `collections.abc.Mapping` from
+  a typed, hashable, pattern-matchable `Key` (`path` + `Qualifier` — `Cls`,
+  `Const`, `Datatype`, or `ShapeRef`) to a `Binding`. Bound keys carry the
+  values the data supplied as typed `Term`s (`Iri`/`Literal`/`BNode`, exact
+  even on partially-conforming foci); unbound keys carry the witness subtree,
+  the shortfall count, and near-miss candidates. `Binding` also exposes
+  cardinality (`min`/`max`/`observed`/`expects_single`) and `severity`. Pass
+  `name_path` (default `sh:name`) to carry the author's name for each slot,
+  evaluated from the property shape's own node over the shapes graph, and
+  `value_paths` to annotate each bound *value* from the data graph
+  (`Binding.annotations`/`.annotated_values`, resolved lazily and batched).
+  `ShapeMap.for_focus()` looks up every mapping for a focus node across
+  shapes; `Mapping.value_map()` projects bound keys for application
+  configuration. Added `Schema::sources` (`shifty-algebra`) to record the
+  originating shapes-graph node for arena slots lowered from an RDF node, and
+  `EvidenceSession.binding_names()` / `.shape_name_of()` / `.resolve_path()`
+  (Python and the underlying Rust primitives) to support `name_path` and
+  `value_paths`.
 - Added `PreparedEvidenceValidator::explain_constraint()`: evidence for one
   focus against any *normalized* constraint id, not just a statement's top
   shape. Exposed in Python as `EvidenceSession.evidence_for()`. This is the

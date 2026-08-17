@@ -313,6 +313,7 @@ mod tests {
             statements: vec![Statement { selector, shape }],
             rules: Vec::new(),
             names: Default::default(),
+            sources: Default::default(),
         }
     }
 
