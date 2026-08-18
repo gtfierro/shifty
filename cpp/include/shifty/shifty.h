@@ -8,7 +8,7 @@
 extern "C" {
 #endif
 
-#define SHIFTY_ABI_VERSION 4u
+#define SHIFTY_ABI_VERSION 5u
 
 typedef uint32_t ShiftyStatus;
 enum {
@@ -58,6 +58,39 @@ typedef struct ShiftyStringView {
     size_t len;
 } ShiftyStringView;
 
+/* A (label, value) string pair, used for `value_paths`. */
+typedef struct ShiftyStringPair {
+    ShiftyStringView first;
+    ShiftyStringView second;
+} ShiftyStringPair;
+
+/* The three RDF term kinds the shape-map ABI reports. */
+typedef uint32_t ShiftyTermKind;
+enum {
+    SHIFTY_TERM_IRI = 0,
+    SHIFTY_TERM_LITERAL = 1,
+    SHIFTY_TERM_BNODE = 2
+};
+
+/* One RDF term, returned by value with the string components pointing into
+ * the owning handle. `datatype` and `language` are set only for literals and
+ * are empty otherwise. */
+typedef struct ShiftyTerm {
+    ShiftyTermKind kind;
+    ShiftyStringView value;
+    ShiftyStringView datatype;
+    ShiftyStringView language;
+} ShiftyTerm;
+
+/* The four qualifier kinds a shape-map key can carry. */
+typedef uint32_t ShiftyQualifierKind;
+enum {
+    SHIFTY_QUALIFIER_CLS = 0,
+    SHIFTY_QUALIFIER_CONST = 1,
+    SHIFTY_QUALIFIER_DATATYPE = 2,
+    SHIFTY_QUALIFIER_SHAPE_REF = 3
+};
+
 /* The polarity of the evidence produced for one (statement, focus) pair. */
 typedef uint32_t ShiftyEvaluationStatus;
 enum {
@@ -79,6 +112,9 @@ typedef struct ShiftyEvidenceSession ShiftyEvidenceSession;
 typedef struct ShiftyEvidenceRun ShiftyEvidenceRun;
 typedef struct ShiftyFailureList ShiftyFailureList;
 typedef struct ShiftyString ShiftyString;
+typedef struct ShiftyBindingNameList ShiftyBindingNameList;
+typedef struct ShiftyPathResolutionList ShiftyPathResolutionList;
+typedef struct ShiftyShapeMap ShiftyShapeMap;
 
 /* Conformance-only totals over *normalized* (statement, focus) pairs — the
  * pairs evidence is materialized against, before authored statements that
@@ -297,6 +333,63 @@ void shifty_evidence_session_destroy(ShiftyEvidenceSession *session);
 ShiftyStringView shifty_evidence_session_constraints_json(
     const ShiftyEvidenceSession *session);
 
+/*
+ * Shape-map v2 session helpers. In `binding_names`, a NULL/empty `name_path`
+ * means `sh:name` (matching the Python `binding_names(None)`). In the
+ * `shape_map` call, a NULL `name_path` pointer with length 0 means *skip* name
+ * resolution; a non-NULL path is used verbatim, and an empty path falls back
+ * to `sh:name`.
+ */
+
+/* For every source constraint with shapes-graph provenance, the values
+ * `name_path` reaches from its originating shapes-graph node (evaluated over
+ * the shapes graph). The result is an opaque list of (constraint id, names)
+ * entries, sorted by constraint id. */
+ShiftyStatus shifty_evidence_session_binding_names(
+    const ShiftyEvidenceSession *session,
+    const char *name_path,
+    size_t name_path_len,
+    ShiftyBindingNameList **out);
+
+void shifty_binding_name_list_destroy(ShiftyBindingNameList *list);
+size_t shifty_binding_name_list_len(const ShiftyBindingNameList *list);
+uint32_t shifty_binding_name_constraint(
+    const ShiftyBindingNameList *list, size_t index);
+size_t shifty_binding_name_value_count(
+    const ShiftyBindingNameList *list, size_t index);
+ShiftyStringView shifty_binding_name_value(
+    const ShiftyBindingNameList *list, size_t index, size_t value_index);
+
+/* The raw schema's shape name for `constraint_id` — the IRI of the named
+ * (non-blank) RDF node it was lowered from. *out is NULL when there is none. */
+ShiftyStatus shifty_evidence_session_shape_name_of(
+    const ShiftyEvidenceSession *session,
+    uint32_t constraint_id,
+    ShiftyString **out);
+
+/* Batch-evaluate `path` (a SPARQL 1.1 property path, same grammar as
+ * name_path) from each of `nodes` (N-Triples spellings) over the session's
+ * evaluation graph: the data graph for `data` mode, unioned with the shapes
+ * graph for `union`/`union_all`. The result is an opaque list of
+ * (node, reached) entries in input order, the reached values sorted in each
+ * entry. */
+ShiftyStatus shifty_evidence_session_resolve_path(
+    const ShiftyEvidenceSession *session,
+    const ShiftyStringView *nodes,
+    size_t nodes_len,
+    const char *path,
+    size_t path_len,
+    ShiftyPathResolutionList **out);
+
+void shifty_path_resolution_list_destroy(ShiftyPathResolutionList *list);
+size_t shifty_path_resolution_list_len(const ShiftyPathResolutionList *list);
+ShiftyStringView shifty_path_resolution_node(
+    const ShiftyPathResolutionList *list, size_t index);
+size_t shifty_path_resolution_value_count(
+    const ShiftyPathResolutionList *list, size_t index);
+ShiftyStringView shifty_path_resolution_value(
+    const ShiftyPathResolutionList *list, size_t index, size_t value_index);
+
 /* The complete coverage horizon: every authored statement, every selected
  * focus, one evidence polarity each. */
 ShiftyStatus shifty_evidence_session_validate(
@@ -429,6 +522,165 @@ ShiftyStringView shifty_evidence_focus_evidence_json(
 /* A human-readable rendering of the same evidence. */
 ShiftyStringView shifty_evidence_focus_explanation(
     const ShiftyEvidenceRun *run, size_t index, size_t focus_index);
+
+/*
+ * Shape map: typed key -> value bindings for every selected (shape, focus)
+ * pair of a run — the flat view one level above the evidence trees.
+ *
+ * `name_path` is a SPARQL 1.1 property path (non-NULL) evaluated from each
+ * property shape's own node over the shapes graph to carry the author's name
+ * for a slot; an empty path falls back to `sh:name`. Pass a NULL pointer with
+ * length 0 to *skip* name resolution entirely.
+ *
+ * `value_paths` is an array of (label, path) pairs; each path is evaluated
+ * from each bound value over the session's data graph to annotate it. Pass
+ * NULL with length 0 for none.
+ *
+ * All ShiftyStringView / ShiftyTerm values handed out by the accessors below
+ * point into the returned handle and stay valid until shifty_shape_map_destroy.
+ * Absent min/max/observed are reported as SHIFTY_EVIDENCE_NO_INDEX; an absent
+ * normalized constraint as SHIFTY_EVIDENCE_NO_CONSTRAINT.
+ */
+ShiftyStatus shifty_evidence_session_shape_map(
+    const ShiftyEvidenceSession *session,
+    const ShiftyEvidenceRun *run,
+    const char *name_path,
+    size_t name_path_len,
+    const ShiftyStringPair *value_paths,
+    size_t value_paths_len,
+    ShiftyShapeMap **out);
+
+void shifty_shape_map_destroy(ShiftyShapeMap *map);
+uint8_t shifty_shape_map_conforms(const ShiftyShapeMap *map);
+/* The plain-JSON summary ShapeMap.to_dict() would produce. */
+ShiftyStringView shifty_shape_map_to_json(const ShiftyShapeMap *map);
+
+size_t shifty_shape_map_shape_count(const ShiftyShapeMap *map);
+ShiftyStringView shifty_shape_map_shape_name(
+    const ShiftyShapeMap *map, size_t shape_index);
+size_t shifty_shape_map_mapping_count(
+    const ShiftyShapeMap *map, size_t shape_index);
+
+ShiftyStringView shifty_shape_map_mapping_focus(
+    const ShiftyShapeMap *map, size_t shape_index, size_t mapping_index);
+ShiftyStringView shifty_shape_map_mapping_shape_name(
+    const ShiftyShapeMap *map, size_t shape_index, size_t mapping_index);
+ShiftyStringView shifty_shape_map_mapping_target(
+    const ShiftyShapeMap *map, size_t shape_index, size_t mapping_index);
+uint8_t shifty_shape_map_mapping_conforms(
+    const ShiftyShapeMap *map, size_t shape_index, size_t mapping_index);
+ShiftyStringView shifty_shape_map_mapping_evidence_json(
+    const ShiftyShapeMap *map, size_t shape_index, size_t mapping_index);
+ShiftyStringView shifty_shape_map_mapping_explanation(
+    const ShiftyShapeMap *map, size_t shape_index, size_t mapping_index);
+size_t shifty_shape_map_mapping_binding_count(
+    const ShiftyShapeMap *map, size_t shape_index, size_t mapping_index);
+
+ShiftyStringView shifty_shape_map_binding_key(
+    const ShiftyShapeMap *map, size_t shape_index, size_t mapping_index,
+    size_t binding_index);
+/* The key's path as the externally-tagged serde encoding of the algebra Path
+ * ("Id" or {"Pred": {"value": ...}} / {"Inverse": ...} / {"Seq": [...]} /
+ * {"Alt": [...]} / {"Star": ...}), or the empty string for a pathless key. */
+ShiftyStringView shifty_shape_map_binding_key_path_json(
+    const ShiftyShapeMap *map, size_t shape_index, size_t mapping_index,
+    size_t binding_index);
+ShiftyStringView shifty_shape_map_binding_key_kind(
+    const ShiftyShapeMap *map, size_t shape_index, size_t mapping_index,
+    size_t binding_index);
+size_t shifty_shape_map_binding_key_ordinal(
+    const ShiftyShapeMap *map, size_t shape_index, size_t mapping_index,
+    size_t binding_index);
+ShiftyEvaluationStatus shifty_shape_map_binding_status(
+    const ShiftyShapeMap *map, size_t shape_index, size_t mapping_index,
+    size_t binding_index);
+uint32_t shifty_shape_map_binding_source_constraint(
+    const ShiftyShapeMap *map, size_t shape_index, size_t mapping_index,
+    size_t binding_index);
+uint32_t shifty_shape_map_binding_normalized_constraint(
+    const ShiftyShapeMap *map, size_t shape_index, size_t mapping_index,
+    size_t binding_index);
+ShiftyStringView shifty_shape_map_binding_severity(
+    const ShiftyShapeMap *map, size_t shape_index, size_t mapping_index,
+    size_t binding_index);
+
+size_t shifty_shape_map_binding_name_count(
+    const ShiftyShapeMap *map, size_t shape_index, size_t mapping_index,
+    size_t binding_index);
+ShiftyStringView shifty_shape_map_binding_name(
+    const ShiftyShapeMap *map, size_t shape_index, size_t mapping_index,
+    size_t binding_index, size_t name_index);
+
+size_t shifty_shape_map_binding_min(
+    const ShiftyShapeMap *map, size_t shape_index, size_t mapping_index,
+    size_t binding_index);
+size_t shifty_shape_map_binding_max(
+    const ShiftyShapeMap *map, size_t shape_index, size_t mapping_index,
+    size_t binding_index);
+size_t shifty_shape_map_binding_observed(
+    const ShiftyShapeMap *map, size_t shape_index, size_t mapping_index,
+    size_t binding_index);
+size_t shifty_shape_map_binding_missing(
+    const ShiftyShapeMap *map, size_t shape_index, size_t mapping_index,
+    size_t binding_index);
+
+uint8_t shifty_shape_map_binding_has_qualifier(
+    const ShiftyShapeMap *map, size_t shape_index, size_t mapping_index,
+    size_t binding_index);
+ShiftyQualifierKind shifty_shape_map_binding_qualifier_kind(
+    const ShiftyShapeMap *map, size_t shape_index, size_t mapping_index,
+    size_t binding_index);
+/* The qualifier IRI for Cls/Datatype/ShapeRef; empty for Const. */
+ShiftyStringView shifty_shape_map_binding_qualifier_iri(
+    const ShiftyShapeMap *map, size_t shape_index, size_t mapping_index,
+    size_t binding_index);
+/* The qualifier term for Const; an empty literal otherwise. */
+ShiftyTerm shifty_shape_map_binding_qualifier_term(
+    const ShiftyShapeMap *map, size_t shape_index, size_t mapping_index,
+    size_t binding_index);
+
+size_t shifty_shape_map_binding_value_count(
+    const ShiftyShapeMap *map, size_t shape_index, size_t mapping_index,
+    size_t binding_index);
+ShiftyTerm shifty_shape_map_binding_value(
+    const ShiftyShapeMap *map, size_t shape_index, size_t mapping_index,
+    size_t binding_index, size_t value_index);
+size_t shifty_shape_map_binding_rejected_value_count(
+    const ShiftyShapeMap *map, size_t shape_index, size_t mapping_index,
+    size_t binding_index);
+ShiftyTerm shifty_shape_map_binding_rejected_value(
+    const ShiftyShapeMap *map, size_t shape_index, size_t mapping_index,
+    size_t binding_index, size_t value_index);
+
+/* Empty when the binding's evidence was not materialized. */
+ShiftyStringView shifty_shape_map_binding_evidence_json(
+    const ShiftyShapeMap *map, size_t shape_index, size_t mapping_index,
+    size_t binding_index);
+/* The same evidence rendered as indented text. */
+ShiftyStringView shifty_shape_map_binding_explain(
+    const ShiftyShapeMap *map, size_t shape_index, size_t mapping_index,
+    size_t binding_index);
+
+/* value_paths annotations, one label per confirmed group. */
+size_t shifty_shape_map_binding_annotation_label_count(
+    const ShiftyShapeMap *map, size_t shape_index, size_t mapping_index,
+    size_t binding_index);
+ShiftyStringView shifty_shape_map_binding_annotation_label(
+    const ShiftyShapeMap *map, size_t shape_index, size_t mapping_index,
+    size_t binding_index, size_t label_index);
+size_t shifty_shape_map_binding_annotation_term_count(
+    const ShiftyShapeMap *map, size_t shape_index, size_t mapping_index,
+    size_t binding_index, size_t label_index);
+ShiftyTerm shifty_shape_map_binding_annotation_term(
+    const ShiftyShapeMap *map, size_t shape_index, size_t mapping_index,
+    size_t binding_index, size_t label_index, size_t term_index);
+size_t shifty_shape_map_binding_annotation_reached_count(
+    const ShiftyShapeMap *map, size_t shape_index, size_t mapping_index,
+    size_t binding_index, size_t label_index, size_t term_index);
+ShiftyTerm shifty_shape_map_binding_annotation_reached(
+    const ShiftyShapeMap *map, size_t shape_index, size_t mapping_index,
+    size_t binding_index, size_t label_index, size_t term_index,
+    size_t reached_index);
 
 #ifdef __cplusplus
 }

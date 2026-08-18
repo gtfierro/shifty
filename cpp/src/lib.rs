@@ -4,20 +4,24 @@
 //! strings. Rust-owned RDF and query types never cross the ABI boundary.
 #![allow(clippy::missing_safety_doc)]
 
+mod shapemap;
+
 use oxrdf::{Dataset as OxDataset, Graph, GraphName, Quad, Term};
 use oxttl::{NTriplesSerializer, TurtleSerializer};
-use shifty_algebra::{Schema, Severity};
+use shifty_algebra::{Schema, Severity, ShapeId};
 use shifty_engine::{
     ConformanceRun, EngineOptions, EvaluationStatus, EvidenceRun, PreparedEvidenceValidator,
     SelectedPair, ValidationGraphMode, ValidationOptions as EngineValidationOptions,
-    ValidationOutcome, ValidationReport, Violation, compact_value, expand_value, infer_graphs,
-    property_witnesses_graphs_with_mode, report_to_graph,
+    ValidationOutcome, ValidationReport, Violation, compact_value, expand_value, graph_union,
+    infer_graphs, property_witnesses_graphs_with_mode, report_to_graph,
     validate_plan_graphs_with_mode_and_options, validate_report_graphs_with_mode_and_options,
 };
+use shifty_parse::{Loaded as LoadedShapes, parse_property_path};
 use sparesults::{QueryResultsFormat, QueryResultsSerializer};
 use spareval::{QueryEvaluator, QueryResults};
 use spargebra::SparqlParser;
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::ffi::{CString, c_char};
 use std::fmt::Write as _;
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -181,6 +185,36 @@ impl From<ConformanceRun> for ShiftyConformanceRun {
     }
 }
 
+/// The three RDF term kinds the shape-map ABI reports (IRI / literal /
+/// blank node).
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ShiftyTermKind {
+    Iri = 0,
+    Literal = 1,
+    BNode = 2,
+}
+
+/// One RDF term, returned by value with the string components pointing into
+/// the handle that owns them. `datatype` and `language` are set only for
+/// literals and are empty otherwise.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct ShiftyTerm {
+    pub kind: ShiftyTermKind,
+    pub value: ShiftyStringView,
+    pub datatype: ShiftyStringView,
+    pub language: ShiftyStringView,
+}
+
+/// A (label, value) string pair, used for `value_paths`.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct ShiftyStringPair {
+    pub first: ShiftyStringView,
+    pub second: ShiftyStringView,
+}
+
 /// A prepared evidence snapshot: normalization, stratification, indexing, and
 /// SPARQL preparation done once and reused across every call.
 pub struct ShiftyEvidenceSession {
@@ -189,6 +223,12 @@ pub struct ShiftyEvidenceSession {
     /// `ShiftyPreparedValidator` outliving this session.
     raw_schema: Schema,
     constraints_json: String,
+    /// Retained so `name_path`/`value_paths` resolve against the same shapes
+    /// graph the snapshot was prepared over (the shape-map v2 features).
+    shapes: LoadedShapes,
+    /// Retained for the same reason: `resolve_path` evaluates over the data
+    /// graph alone in `Data` mode and over the union otherwise.
+    graph_mode: ValidationGraphMode,
 }
 
 /// One selected focus under one authored statement, pre-stringified for the ABI.
@@ -230,6 +270,258 @@ pub struct ShiftyFailureList {
 /// (the compact encoding and its inverse), so its lifetime is the caller's.
 pub struct ShiftyString {
     value: String,
+}
+
+/// The four qualifier kinds a shape-map key can carry.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ShiftyQualifierKind {
+    Cls = 0,
+    Const = 1,
+    Datatype = 2,
+    ShapeRef = 3,
+}
+
+/// One `name_path` result: a source constraint id and the names its
+/// originating shapes-graph node resolves to.
+struct ShapeMapNameItem {
+    constraint_id: u32,
+    names: Vec<String>,
+}
+
+/// The binding_names result of one call, retained by the handle.
+pub struct ShiftyBindingNameList {
+    items: Vec<ShapeMapNameItem>,
+}
+
+/// One `resolve_path` result: an input node and every node it reaches.
+pub struct ShiftyPathResolutionList {
+    entries: Vec<(String, Vec<String>)>,
+}
+
+/// A term pre-stringified for the ABI, with the components the C++ side
+/// reassembles into its own `Term`.
+struct ShapeMapTermItem {
+    kind: ShiftyTermKind,
+    value: String,
+    datatype: String,
+    language: String,
+}
+
+impl ShapeMapTermItem {
+    fn from_info(info: &shapemap::TermInfo) -> Self {
+        Self {
+            kind: match info.kind {
+                shapemap::TermKind::Iri => ShiftyTermKind::Iri,
+                shapemap::TermKind::Literal => ShiftyTermKind::Literal,
+                shapemap::TermKind::BNode => ShiftyTermKind::BNode,
+            },
+            value: info.value.clone(),
+            datatype: info.datatype.clone().unwrap_or_default(),
+            language: info.language.clone().unwrap_or_default(),
+        }
+    }
+
+    fn c(&self) -> ShiftyTerm {
+        ShiftyTerm {
+            kind: self.kind,
+            value: string_view(&self.value),
+            datatype: string_view(&self.datatype),
+            language: string_view(&self.language),
+        }
+    }
+}
+
+/// A qualifier pre-stringified for the ABI: an IRI for `Cls`/`Datatype`/
+/// `ShapeRef`, a term for `Const`.
+struct ShapeMapQualifierItem {
+    kind: ShiftyQualifierKind,
+    iri: String,
+    term: ShapeMapTermItem,
+}
+
+impl ShapeMapQualifierItem {
+    fn from_info(info: &shapemap::QualifierInfo) -> Self {
+        let empty = ShapeMapTermItem {
+            kind: ShiftyTermKind::Literal,
+            value: String::new(),
+            datatype: String::new(),
+            language: String::new(),
+        };
+        match info {
+            shapemap::QualifierInfo::Cls(iri) => Self {
+                kind: ShiftyQualifierKind::Cls,
+                iri: iri.clone(),
+                term: empty,
+            },
+            shapemap::QualifierInfo::Const(term) => Self {
+                kind: ShiftyQualifierKind::Const,
+                iri: String::new(),
+                term: ShapeMapTermItem::from_info(term),
+            },
+            shapemap::QualifierInfo::Datatype(iri) => Self {
+                kind: ShiftyQualifierKind::Datatype,
+                iri: iri.clone(),
+                term: empty,
+            },
+            shapemap::QualifierInfo::ShapeRef(iri) => Self {
+                kind: ShiftyQualifierKind::ShapeRef,
+                iri: iri.clone(),
+                term: empty,
+            },
+        }
+    }
+}
+
+/// One `value_paths` label and every `(bound value, reached)` pair.
+struct ShapeMapAnnotationItem {
+    label: String,
+    entries: Vec<(ShapeMapTermItem, Vec<ShapeMapTermItem>)>,
+}
+
+/// One key of a mapping, pre-stringified for the ABI.
+struct ShapeMapBindingItem {
+    key: String,
+    key_path_json: String,
+    qualifier: Option<ShapeMapQualifierItem>,
+    ordinal: usize,
+    kind: String,
+    status: ShiftyEvaluationStatus,
+    source_constraint_id: u32,
+    /// `u32::MAX` when absent (matches `SHIFTY_EVIDENCE_NO_CONSTRAINT`).
+    normalized_constraint_id: u32,
+    severity: String,
+    names: Vec<String>,
+    /// `usize::MAX` when absent (matches `SHIFTY_EVIDENCE_NO_INDEX`).
+    min: usize,
+    max: usize,
+    observed: usize,
+    missing: usize,
+    values: Vec<ShapeMapTermItem>,
+    rejected_values: Vec<ShapeMapTermItem>,
+    evidence_json: String,
+    explain: String,
+    annotations: Vec<ShapeMapAnnotationItem>,
+}
+
+/// One mapping, pre-stringified for the ABI.
+struct ShapeMapMappingItem {
+    focus: String,
+    shape_name: String,
+    target: String,
+    conforms: bool,
+    bindings: Vec<ShapeMapBindingItem>,
+    evidence_json: String,
+    explanation: String,
+}
+
+/// All mappings of one shape identity.
+struct ShapeMapShapeItem {
+    name: String,
+    mappings: Vec<ShapeMapMappingItem>,
+}
+
+/// The shape map itself: conforms, per-shape mappings, and the plain-JSON
+/// summary. Every `ShiftyStringView`/`ShiftyTerm` handed out points into
+/// this handle and stays valid until destroy.
+pub struct ShiftyShapeMap {
+    conforms: bool,
+    json: String,
+    shapes: Vec<ShapeMapShapeItem>,
+}
+
+impl ShiftyShapeMap {
+    fn from_data(data: shapemap::ShapeMapData) -> Self {
+        Self {
+            conforms: data.conforms,
+            json: data.json,
+            shapes: data
+                .shapes
+                .into_iter()
+                .map(|shape| ShapeMapShapeItem {
+                    name: shape.name,
+                    mappings: shape
+                        .mappings
+                        .into_iter()
+                        .map(|mapping| ShapeMapMappingItem {
+                            focus: mapping.focus,
+                            shape_name: mapping.shape_name,
+                            target: mapping.target,
+                            conforms: mapping.conforms,
+                            bindings: mapping
+                                .bindings
+                                .into_iter()
+                                .map(|binding| {
+                                    let status = if binding.ok() {
+                                        ShiftyEvaluationStatus::Pass
+                                    } else {
+                                        ShiftyEvaluationStatus::Fail
+                                    };
+                                    ShapeMapBindingItem {
+                                        key: binding.key,
+                                        key_path_json: binding.key_path_json,
+                                        qualifier: binding
+                                            .qualifier
+                                            .as_ref()
+                                            .map(ShapeMapQualifierItem::from_info),
+                                        ordinal: binding.ordinal as usize,
+                                        kind: binding.kind,
+                                        status,
+                                    source_constraint_id: binding.source_constraint_id,
+                                    normalized_constraint_id: binding
+                                        .normalized_constraint_id
+                                        .unwrap_or(u32::MAX),
+                                    severity: binding.severity,
+                                    names: binding.names,
+                                    min: binding.min.map(|value| value as usize).unwrap_or(usize::MAX),
+                                    max: binding.max.map(|value| value as usize).unwrap_or(usize::MAX),
+                                    observed: binding
+                                        .observed
+                                        .map(|value| value as usize)
+                                        .unwrap_or(usize::MAX),
+                                    missing: binding.missing as usize,
+                                    values: binding
+                                        .values
+                                        .iter()
+                                        .map(ShapeMapTermItem::from_info)
+                                        .collect(),
+                                    rejected_values: binding
+                                        .rejected_values
+                                        .iter()
+                                        .map(ShapeMapTermItem::from_info)
+                                        .collect(),
+                                    evidence_json: binding.evidence_json.unwrap_or_default(),
+                                    explain: binding.explain,
+                                    annotations: binding
+                                        .annotations
+                                        .into_iter()
+                                        .map(|group| ShapeMapAnnotationItem {
+                                            label: group.label,
+                                            entries: group
+                                                .entries
+                                                .into_iter()
+                                                .map(|(term, reached)| {
+                                                    (
+                                                        ShapeMapTermItem::from_info(&term),
+                                                        reached
+                                                            .iter()
+                                                            .map(ShapeMapTermItem::from_info)
+                                                            .collect(),
+                                                    )
+                                                })
+                                                .collect(),
+                                        })
+                                        .collect(),
+                                }})
+                                .collect(),
+                            evidence_json: mapping.evidence_json,
+                            explanation: mapping.explanation,
+                        })
+                        .collect(),
+                })
+                .collect(),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -454,6 +746,16 @@ fn term_string(term: &Term) -> String {
     term.to_string()
 }
 
+/// A term rendered for a `name_path` value: literals as their bare lexical
+/// form (so `sh:name "zone temperature point"` joins cleanly), IRIs and
+/// blank nodes in full.
+fn term_text(term: &Term) -> String {
+    match term {
+        Term::Literal(literal) => literal.value().to_string(),
+        other => other.to_string(),
+    }
+}
+
 /// A witness `key` renders as its bare lexical value when it is a literal
 /// (the common case: a `zea:roleName "outsideAirTemp"`-style annotation), so
 /// callers can use it directly as a join key without stripping quotes. Falls
@@ -664,7 +966,140 @@ fn prepare_evidence(
         prepared,
         raw_schema: validator.raw_schema.clone(),
         constraints_json,
+        // `Loaded` is not `Clone`; rebuild it from the validator's parts so the
+        // session owns its own copy of the shapes graph and prefixes.
+        shapes: LoadedShapes {
+            graph: validator.shapes.graph.clone(),
+            prefixes: validator.shapes.prefixes.clone(),
+            base: validator.shapes.base.clone(),
+        },
+        graph_mode: mode,
     })
+}
+
+impl ShiftyEvidenceSession {
+    /// For every *raw* (source) constraint with shapes-graph provenance
+    /// (`Schema::sources`), the values `name_path` reaches from that
+    /// constraint's originating node, evaluated over the shapes graph.
+    /// `name_path = None` means `sh:name`. Constraints with no source-node
+    /// provenance, or where `name_path` resolves to nothing, are omitted.
+    fn binding_names(&self, name_path: Option<&str>) -> Result<HashMap<u32, Vec<String>>, ApiError> {
+        let expr = name_path.unwrap_or("sh:name");
+        let path = parse_property_path(expr, &self.shapes)
+            .map_err(|error| ApiError::new(ShiftyStatus::InvalidArgument, format!("invalid name_path: {error}")))?;
+        let mut out = HashMap::new();
+        for (id, source) in &self.raw_schema.sources {
+            let mut matches: Vec<String> = shifty_engine::path::succ(&self.shapes.graph, source, &path)
+                .into_iter()
+                .map(|term| term_text(&term))
+                .collect();
+            if matches.is_empty() {
+                continue;
+            }
+            matches.sort();
+            out.insert(id.0, matches);
+        }
+        Ok(out)
+    }
+
+    /// The raw schema's shape name for `constraint_id` — the IRI of the named
+    /// (non-blank) RDF node it was lowered from, when it has one.
+    fn shape_name_of(&self, constraint_id: u32) -> Option<String> {
+        self.raw_schema.names.get(&ShapeId(constraint_id)).cloned()
+    }
+
+    /// Batch-evaluate `path` (a SPARQL 1.1 property path, same grammar as
+    /// `name_path`) from each of `nodes` (N-Triples spellings) over the
+    /// session's evaluation graph — the data graph, unioned with the shapes
+    /// graph to match this session's own `graph_mode` (`union`/`union_all`;
+    /// `data` mode reads the data graph alone). Returns each input node's
+    /// N-Triples spelling mapped to the N-Triples spellings it reaches.
+    fn resolve_path(&self, nodes: &[String], path: &str) -> Result<HashMap<String, Vec<String>>, ApiError> {
+        let parsed = parse_property_path(path, &self.shapes)
+            .map_err(|error| ApiError::new(ShiftyStatus::InvalidArgument, format!("invalid path: {error}")))?;
+        let union_graph;
+        let graph: &Graph = match self.graph_mode {
+            ValidationGraphMode::Data => self.prepared.data(),
+            ValidationGraphMode::Union | ValidationGraphMode::UnionAll => {
+                union_graph = graph_union(self.prepared.data(), &self.shapes.graph);
+                &union_graph
+            }
+        };
+        let mut out = HashMap::with_capacity(nodes.len());
+        for node in nodes {
+            let term = parse_term(node)?;
+            let mut matches: Vec<String> = shifty_engine::path::succ(graph, &term, &parsed)
+                .into_iter()
+                .map(|term| term.to_string())
+                .collect();
+            matches.sort();
+            out.insert(node.clone(), matches);
+        }
+        Ok(out)
+    }
+
+    /// Build the shape map for `run` (Python's `ShapeMap.from_run`).
+    fn shape_map(
+        &self,
+        run: &ShiftyEvidenceRun,
+        name_path: Option<&str>,
+        value_paths: &[(String, String)],
+    ) -> Result<ShiftyShapeMap, ApiError> {
+        let parsed: serde_json::Value = serde_json::from_str(&run.json).map_err(internal_error)?;
+        let statements: Vec<shapemap::StatementMeta> = run
+            .statements
+            .iter()
+            .map(|statement| shapemap::StatementMeta {
+                source_statement_id: statement.source_statement_id,
+                source_constraint_id: statement.source_constraint_id,
+                normalized_constraint_id: if statement.normalized_constraint_id == u32::MAX {
+                    None
+                } else {
+                    Some(statement.normalized_constraint_id)
+                },
+                target: statement.target.clone(),
+                foci: statement
+                    .foci
+                    .iter()
+                    .map(|focus| shapemap::FocusMeta {
+                        focus: focus.focus.clone(),
+                        evidence_json: focus.evidence_json.clone(),
+                        explanation: focus.explanation.clone(),
+                    })
+                    .collect(),
+            })
+            .collect();
+        let inputs = shapemap::ShapeMapBuildInputs {
+            shape_name_of: &|id| self.shape_name_of(id),
+            binding_names: &|name_path| {
+                self.binding_names(name_path)
+                    .map_err(|error| error.message)
+            },
+            explain_constraint: &|focus, ref_id| {
+                let term = parse_term(focus).map_err(|error| error.message)?;
+                let evidence = self
+                    .prepared
+                    .explain_constraint(&term, ShapeId(ref_id))
+                    .map(|evidence| match evidence {
+                        shifty_engine::Evidence::Satisfaction(trace) => {
+                            serde_json::to_value(trace).ok()
+                        }
+                        shifty_engine::Evidence::Failure(witness) => {
+                            serde_json::to_value(witness).ok()
+                        }
+                    })
+                    .unwrap_or(None);
+                Ok(evidence)
+            },
+            resolve_path: &|nodes, path| {
+                self.resolve_path(nodes, path)
+                    .map_err(|error| error.message)
+            },
+        };
+        let data = shapemap::build(&parsed, name_path, value_paths, &statements, &inputs)
+            .map_err(|error| ApiError::new(ShiftyStatus::InternalError, error))?;
+        Ok(ShiftyShapeMap::from_data(data))
+    }
 }
 
 /// The serde spelling of a constraint kind, so the string a caller reads here
@@ -1027,7 +1462,7 @@ fn string_view(value: &str) -> ShiftyStringView {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn shifty_abi_version() -> u32 {
-    4
+    5
 }
 
 #[unsafe(no_mangle)]
@@ -1747,6 +2182,856 @@ pub unsafe extern "C" fn shifty_evidence_session_constraints_json(
         string_view(&session.constraints_json)
     })
 }
+
+/// For every source constraint with shapes-graph provenance, the values
+/// `name_path` reaches from its originating shapes-graph node. `name_path`
+/// may be NULL/empty for `sh:name`. The result is an opaque list of
+/// (constraint id, names) entries.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_evidence_session_binding_names(
+    session: *const ShiftyEvidenceSession,
+    name_path: *const c_char,
+    name_path_len: usize,
+    out: *mut *mut ShiftyBindingNameList,
+) -> u32 {
+    ffi_call(|| {
+        let session = unsafe { session.as_ref() }
+            .ok_or_else(|| ApiError::new(ShiftyStatus::InvalidArgument, "session is null"))?;
+        if out.is_null() {
+            return Err(ApiError::new(
+                ShiftyStatus::InvalidArgument,
+                "out list pointer is null",
+            ));
+        }
+        unsafe { out.write(ptr::null_mut()) };
+        let name_path = unsafe { optional_str_from_raw(name_path, name_path_len, "name path") }?;
+        let table = session.binding_names(name_path)?;
+        let mut items: Vec<ShapeMapNameItem> = table
+            .into_iter()
+            .map(|(constraint_id, mut names)| {
+                names.sort();
+                ShapeMapNameItem { constraint_id, names }
+            })
+            .collect();
+        items.sort_by_key(|item| item.constraint_id);
+        unsafe { out.write(Box::into_raw(Box::new(ShiftyBindingNameList { items }))) };
+        Ok(())
+    })
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_binding_name_list_destroy(list: *mut ShiftyBindingNameList) {
+    if !list.is_null() {
+        unsafe { drop(Box::from_raw(list)) };
+    }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_binding_name_list_len(list: *const ShiftyBindingNameList) -> usize {
+    unsafe { list.as_ref() }.map_or(0, |list| list.items.len())
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_binding_name_constraint(
+    list: *const ShiftyBindingNameList,
+    index: usize,
+) -> u32 {
+    unsafe { list.as_ref() }
+        .and_then(|list| list.items.get(index))
+        .map_or(0, |item| item.constraint_id)
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_binding_name_value_count(
+    list: *const ShiftyBindingNameList,
+    index: usize,
+) -> usize {
+    unsafe { list.as_ref() }
+        .and_then(|list| list.items.get(index))
+        .map_or(0, |item| item.names.len())
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_binding_name_value(
+    list: *const ShiftyBindingNameList,
+    index: usize,
+    value_index: usize,
+) -> ShiftyStringView {
+    unsafe { list.as_ref() }
+        .and_then(|list| list.items.get(index))
+        .and_then(|item| item.names.get(value_index))
+        .map_or(empty_view(), |name| string_view(name))
+}
+
+/// The raw schema's shape name for `constraint_id` — the IRI of the named
+/// (non-blank) RDF node it was lowered from. `*out` is NULL when the
+/// constraint has no name (anonymous shape or no such id).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_evidence_session_shape_name_of(
+    session: *const ShiftyEvidenceSession,
+    constraint_id: u32,
+    out: *mut *mut ShiftyString,
+) -> u32 {
+    ffi_call(|| {
+        let session = unsafe { session.as_ref() }
+            .ok_or_else(|| ApiError::new(ShiftyStatus::InvalidArgument, "session is null"))?;
+        if out.is_null() {
+            return Err(ApiError::new(
+                ShiftyStatus::InvalidArgument,
+                "out string pointer is null",
+            ));
+        }
+        unsafe { out.write(ptr::null_mut()) };
+        if let Some(name) = session.shape_name_of(constraint_id) {
+            unsafe { out.write(Box::into_raw(Box::new(ShiftyString { value: name }))) };
+        }
+        Ok(())
+    })
+}
+
+/// Batch-evaluate `path` (a SPARQL 1.1 property path) from each of `nodes`
+/// (N-Triples spellings) over the session's evaluation graph. The result is
+/// an opaque list of (node, reached) entries in input order.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_evidence_session_resolve_path(
+    session: *const ShiftyEvidenceSession,
+    nodes: *const ShiftyStringView,
+    nodes_len: usize,
+    path: *const c_char,
+    path_len: usize,
+    out: *mut *mut ShiftyPathResolutionList,
+) -> u32 {
+    ffi_call(|| {
+        let session = unsafe { session.as_ref() }
+            .ok_or_else(|| ApiError::new(ShiftyStatus::InvalidArgument, "session is null"))?;
+        if out.is_null() {
+            return Err(ApiError::new(
+                ShiftyStatus::InvalidArgument,
+                "out list pointer is null",
+            ));
+        }
+        unsafe { out.write(ptr::null_mut()) };
+        let nodes = unsafe { shape_names_from_raw(nodes, nodes_len) }?;
+        let path = unsafe { str_from_raw(path, path_len, "path") }?;
+        let table = session.resolve_path(&nodes, path)?;
+        // Preserve input order, as Python's resolve_path does (dict
+        // insertion order over the input list).
+        let entries = nodes
+            .into_iter()
+            .map(|node| {
+                let mut reached = table.get(&node).cloned().unwrap_or_default();
+                reached.sort();
+                (node, reached)
+            })
+            .collect();
+        unsafe { out.write(Box::into_raw(Box::new(ShiftyPathResolutionList { entries }))) };
+        Ok(())
+    })
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_path_resolution_list_destroy(
+    list: *mut ShiftyPathResolutionList,
+) {
+    if !list.is_null() {
+        unsafe { drop(Box::from_raw(list)) };
+    }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_path_resolution_list_len(
+    list: *const ShiftyPathResolutionList,
+) -> usize {
+    unsafe { list.as_ref() }.map_or(0, |list| list.entries.len())
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_path_resolution_node(
+    list: *const ShiftyPathResolutionList,
+    index: usize,
+) -> ShiftyStringView {
+    unsafe { list.as_ref() }
+        .and_then(|list| list.entries.get(index))
+        .map_or(empty_view(), |entry| string_view(&entry.0))
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_path_resolution_value_count(
+    list: *const ShiftyPathResolutionList,
+    index: usize,
+) -> usize {
+    unsafe { list.as_ref() }
+        .and_then(|list| list.entries.get(index))
+        .map_or(0, |entry| entry.1.len())
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_path_resolution_value(
+    list: *const ShiftyPathResolutionList,
+    index: usize,
+    value_index: usize,
+) -> ShiftyStringView {
+    unsafe { list.as_ref() }
+        .and_then(|list| list.entries.get(index))
+        .and_then(|entry| entry.1.get(value_index))
+        .map_or(empty_view(), |value| string_view(value))
+}
+
+/// Build the shape map for a run of this session: typed key -> value
+/// bindings for every selected (shape, focus) pair. `name_path` may be
+/// NULL/empty for `sh:name`; pass a NULL `name_path` pointer with len 0 to
+/// skip name resolution entirely.
+///
+/// `value_paths` is an array of (label, path) pairs evaluated from each
+/// bound value over the data graph; NULL with length 0 to skip.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_evidence_session_shape_map(
+    session: *const ShiftyEvidenceSession,
+    run: *const ShiftyEvidenceRun,
+    name_path: *const c_char,
+    name_path_len: usize,
+    value_paths: *const ShiftyStringPair,
+    value_paths_len: usize,
+    out: *mut *mut ShiftyShapeMap,
+) -> u32 {
+    ffi_call(|| {
+        let session = unsafe { session.as_ref() }
+            .ok_or_else(|| ApiError::new(ShiftyStatus::InvalidArgument, "session is null"))?;
+        let run = unsafe { run.as_ref() }
+            .ok_or_else(|| ApiError::new(ShiftyStatus::InvalidArgument, "run is null"))?;
+        if out.is_null() {
+            return Err(ApiError::new(
+                ShiftyStatus::InvalidArgument,
+                "out shape map pointer is null",
+            ));
+        }
+        unsafe { out.write(ptr::null_mut()) };
+        // A NULL `name_path` pointer with length 0 means *skip* name
+        // resolution; a non-NULL path is used verbatim, and an empty path
+        // falls back to `sh:name` (the Python default). A NULL pointer with a
+        // non-zero length is rejected below.
+        let name_path: Option<&str> = if name_path.is_null() {
+            if name_path_len != 0 {
+                return Err(ApiError::new(
+                    ShiftyStatus::InvalidArgument,
+                    "name path pointer is null but length is non-zero",
+                ));
+            }
+            None
+        } else {
+            let path = unsafe { str_from_raw(name_path, name_path_len, "name path") }?;
+            Some(if path.is_empty() { "sh:name" } else { path })
+        };
+        let mut value_paths_vec = Vec::with_capacity(value_paths_len);
+        if value_paths_len > 0 {
+            if value_paths.is_null() {
+                return Err(ApiError::new(
+                    ShiftyStatus::InvalidArgument,
+                    "value paths pointer is null",
+                ));
+            }
+            let pairs = unsafe { slice::from_raw_parts(value_paths, value_paths_len) };
+            for pair in pairs.iter() {
+                let label = unsafe { str_from_raw(pair.first.data.cast(), pair.first.len, "value path label") }?;
+                let path = unsafe { str_from_raw(pair.second.data.cast(), pair.second.len, "value path") }?;
+                value_paths_vec.push((label.to_string(), path.to_string()));
+            }
+        }
+        let map = session.shape_map(run, name_path, &value_paths_vec)?;
+        unsafe { out.write(Box::into_raw(Box::new(map))) };
+        Ok(())
+    })
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_shape_map_destroy(map: *mut ShiftyShapeMap) {
+    if !map.is_null() {
+        unsafe { drop(Box::from_raw(map)) };
+    }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_shape_map_conforms(map: *const ShiftyShapeMap) -> u8 {
+    u8::from(unsafe { map.as_ref() }.is_some_and(|map| map.conforms))
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_shape_map_to_json(map: *const ShiftyShapeMap) -> ShiftyStringView {
+    unsafe { map.as_ref() }.map_or(empty_view(), |map| string_view(&map.json))
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_shape_map_shape_count(map: *const ShiftyShapeMap) -> usize {
+    unsafe { map.as_ref() }.map_or(0, |map| map.shapes.len())
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_shape_map_shape_name(
+    map: *const ShiftyShapeMap,
+    shape_index: usize,
+) -> ShiftyStringView {
+    unsafe { map.as_ref() }
+        .and_then(|map| map.shapes.get(shape_index))
+        .map_or(empty_view(), |shape| string_view(&shape.name))
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_shape_map_mapping_count(
+    map: *const ShiftyShapeMap,
+    shape_index: usize,
+) -> usize {
+    unsafe { map.as_ref() }
+        .and_then(|map| map.shapes.get(shape_index))
+        .map_or(0, |shape| shape.mappings.len())
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_shape_map_mapping_focus(
+    map: *const ShiftyShapeMap,
+    shape_index: usize,
+    mapping_index: usize,
+) -> ShiftyStringView {
+    unsafe { map.as_ref() }
+        .and_then(|map| map.shapes.get(shape_index))
+        .and_then(|shape| shape.mappings.get(mapping_index))
+        .map_or(empty_view(), |mapping| string_view(&mapping.focus))
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_shape_map_mapping_shape_name(
+    map: *const ShiftyShapeMap,
+    shape_index: usize,
+    mapping_index: usize,
+) -> ShiftyStringView {
+    unsafe { map.as_ref() }
+        .and_then(|map| map.shapes.get(shape_index))
+        .and_then(|shape| shape.mappings.get(mapping_index))
+        .map_or(empty_view(), |mapping| string_view(&mapping.shape_name))
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_shape_map_mapping_target(
+    map: *const ShiftyShapeMap,
+    shape_index: usize,
+    mapping_index: usize,
+) -> ShiftyStringView {
+    unsafe { map.as_ref() }
+        .and_then(|map| map.shapes.get(shape_index))
+        .and_then(|shape| shape.mappings.get(mapping_index))
+        .map_or(empty_view(), |mapping| string_view(&mapping.target))
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_shape_map_mapping_conforms(
+    map: *const ShiftyShapeMap,
+    shape_index: usize,
+    mapping_index: usize,
+) -> u8 {
+    unsafe { map.as_ref() }
+        .and_then(|map| map.shapes.get(shape_index))
+        .and_then(|shape| shape.mappings.get(mapping_index))
+        .map_or(0, |mapping| u8::from(mapping.conforms))
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_shape_map_mapping_evidence_json(
+    map: *const ShiftyShapeMap,
+    shape_index: usize,
+    mapping_index: usize,
+) -> ShiftyStringView {
+    unsafe { map.as_ref() }
+        .and_then(|map| map.shapes.get(shape_index))
+        .and_then(|shape| shape.mappings.get(mapping_index))
+        .map_or(empty_view(), |mapping| string_view(&mapping.evidence_json))
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_shape_map_mapping_explanation(
+    map: *const ShiftyShapeMap,
+    shape_index: usize,
+    mapping_index: usize,
+) -> ShiftyStringView {
+    unsafe { map.as_ref() }
+        .and_then(|map| map.shapes.get(shape_index))
+        .and_then(|shape| shape.mappings.get(mapping_index))
+        .map_or(empty_view(), |mapping| string_view(&mapping.explanation))
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_shape_map_mapping_binding_count(
+    map: *const ShiftyShapeMap,
+    shape_index: usize,
+    mapping_index: usize,
+) -> usize {
+    unsafe { map.as_ref() }
+        .and_then(|map| map.shapes.get(shape_index))
+        .and_then(|shape| shape.mappings.get(mapping_index))
+        .map_or(0, |mapping| mapping.bindings.len())
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_shape_map_binding_key(
+    map: *const ShiftyShapeMap,
+    shape_index: usize,
+    mapping_index: usize,
+    binding_index: usize,
+) -> ShiftyStringView {
+    unsafe { map.as_ref() }
+        .and_then(|map| map.shapes.get(shape_index))
+        .and_then(|shape| shape.mappings.get(mapping_index))
+        .and_then(|mapping| mapping.bindings.get(binding_index))
+        .map_or(empty_view(), |binding| string_view(&binding.key))
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_shape_map_binding_key_path_json(
+    map: *const ShiftyShapeMap,
+    shape_index: usize,
+    mapping_index: usize,
+    binding_index: usize,
+) -> ShiftyStringView {
+    unsafe { map.as_ref() }
+        .and_then(|map| map.shapes.get(shape_index))
+        .and_then(|shape| shape.mappings.get(mapping_index))
+        .and_then(|mapping| mapping.bindings.get(binding_index))
+        .map_or(empty_view(), |binding| string_view(&binding.key_path_json))
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_shape_map_binding_key_kind(
+    map: *const ShiftyShapeMap,
+    shape_index: usize,
+    mapping_index: usize,
+    binding_index: usize,
+) -> ShiftyStringView {
+    unsafe { map.as_ref() }
+        .and_then(|map| map.shapes.get(shape_index))
+        .and_then(|shape| shape.mappings.get(mapping_index))
+        .and_then(|mapping| mapping.bindings.get(binding_index))
+        .map_or(empty_view(), |binding| string_view(&binding.kind))
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_shape_map_binding_key_ordinal(
+    map: *const ShiftyShapeMap,
+    shape_index: usize,
+    mapping_index: usize,
+    binding_index: usize,
+) -> usize {
+    unsafe { map.as_ref() }
+        .and_then(|map| map.shapes.get(shape_index))
+        .and_then(|shape| shape.mappings.get(mapping_index))
+        .and_then(|mapping| mapping.bindings.get(binding_index))
+        .map_or(0, |binding| binding.ordinal)
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_shape_map_binding_status(
+    map: *const ShiftyShapeMap,
+    shape_index: usize,
+    mapping_index: usize,
+    binding_index: usize,
+) -> ShiftyEvaluationStatus {
+    unsafe { map.as_ref() }
+        .and_then(|map| map.shapes.get(shape_index))
+        .and_then(|shape| shape.mappings.get(mapping_index))
+        .and_then(|mapping| mapping.bindings.get(binding_index))
+        .map_or(ShiftyEvaluationStatus::Fail, |binding| binding.status)
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_shape_map_binding_source_constraint(
+    map: *const ShiftyShapeMap,
+    shape_index: usize,
+    mapping_index: usize,
+    binding_index: usize,
+) -> u32 {
+    unsafe { map.as_ref() }
+        .and_then(|map| map.shapes.get(shape_index))
+        .and_then(|shape| shape.mappings.get(mapping_index))
+        .and_then(|mapping| mapping.bindings.get(binding_index))
+        .map_or(0, |binding| binding.source_constraint_id)
+}
+
+/// `SHIFTY_EVIDENCE_NO_CONSTRAINT` when the binding has no normalized
+/// counterpart.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_shape_map_binding_normalized_constraint(
+    map: *const ShiftyShapeMap,
+    shape_index: usize,
+    mapping_index: usize,
+    binding_index: usize,
+) -> u32 {
+    unsafe { map.as_ref() }
+        .and_then(|map| map.shapes.get(shape_index))
+        .and_then(|shape| shape.mappings.get(mapping_index))
+        .and_then(|mapping| mapping.bindings.get(binding_index))
+        .map_or(u32::MAX, |binding| binding.normalized_constraint_id)
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_shape_map_binding_severity(
+    map: *const ShiftyShapeMap,
+    shape_index: usize,
+    mapping_index: usize,
+    binding_index: usize,
+) -> ShiftyStringView {
+    unsafe { map.as_ref() }
+        .and_then(|map| map.shapes.get(shape_index))
+        .and_then(|shape| shape.mappings.get(mapping_index))
+        .and_then(|mapping| mapping.bindings.get(binding_index))
+        .map_or(empty_view(), |binding| string_view(&binding.severity))
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_shape_map_binding_name_count(
+    map: *const ShiftyShapeMap,
+    shape_index: usize,
+    mapping_index: usize,
+    binding_index: usize,
+) -> usize {
+    unsafe { map.as_ref() }
+        .and_then(|map| map.shapes.get(shape_index))
+        .and_then(|shape| shape.mappings.get(mapping_index))
+        .and_then(|mapping| mapping.bindings.get(binding_index))
+        .map_or(0, |binding| binding.names.len())
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_shape_map_binding_name(
+    map: *const ShiftyShapeMap,
+    shape_index: usize,
+    mapping_index: usize,
+    binding_index: usize,
+    name_index: usize,
+) -> ShiftyStringView {
+    unsafe { map.as_ref() }
+        .and_then(|map| map.shapes.get(shape_index))
+        .and_then(|shape| shape.mappings.get(mapping_index))
+        .and_then(|mapping| mapping.bindings.get(binding_index))
+        .and_then(|binding| binding.names.get(name_index))
+        .map_or(empty_view(), |name| string_view(name))
+}
+
+/// `SHIFTY_EVIDENCE_NO_INDEX` when the source constraint declares no lower
+/// bound.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_shape_map_binding_min(
+    map: *const ShiftyShapeMap,
+    shape_index: usize,
+    mapping_index: usize,
+    binding_index: usize,
+) -> usize {
+    unsafe { map.as_ref() }
+        .and_then(|map| map.shapes.get(shape_index))
+        .and_then(|shape| shape.mappings.get(mapping_index))
+        .and_then(|mapping| mapping.bindings.get(binding_index))
+        .map_or(usize::MAX, |binding| binding.min)
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_shape_map_binding_max(
+    map: *const ShiftyShapeMap,
+    shape_index: usize,
+    mapping_index: usize,
+    binding_index: usize,
+) -> usize {
+    unsafe { map.as_ref() }
+        .and_then(|map| map.shapes.get(shape_index))
+        .and_then(|shape| shape.mappings.get(mapping_index))
+        .and_then(|mapping| mapping.bindings.get(binding_index))
+        .map_or(usize::MAX, |binding| binding.max)
+}
+
+/// `SHIFTY_EVIDENCE_NO_INDEX` when the count evidence was not materialized.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_shape_map_binding_observed(
+    map: *const ShiftyShapeMap,
+    shape_index: usize,
+    mapping_index: usize,
+    binding_index: usize,
+) -> usize {
+    unsafe { map.as_ref() }
+        .and_then(|map| map.shapes.get(shape_index))
+        .and_then(|shape| shape.mappings.get(mapping_index))
+        .and_then(|mapping| mapping.bindings.get(binding_index))
+        .map_or(usize::MAX, |binding| binding.observed)
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_shape_map_binding_missing(
+    map: *const ShiftyShapeMap,
+    shape_index: usize,
+    mapping_index: usize,
+    binding_index: usize,
+) -> usize {
+    unsafe { map.as_ref() }
+        .and_then(|map| map.shapes.get(shape_index))
+        .and_then(|shape| shape.mappings.get(mapping_index))
+        .and_then(|mapping| mapping.bindings.get(binding_index))
+        .map_or(0, |binding| binding.missing)
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_shape_map_binding_value_count(
+    map: *const ShiftyShapeMap,
+    shape_index: usize,
+    mapping_index: usize,
+    binding_index: usize,
+) -> usize {
+    unsafe { map.as_ref() }
+        .and_then(|map| map.shapes.get(shape_index))
+        .and_then(|shape| shape.mappings.get(mapping_index))
+        .and_then(|mapping| mapping.bindings.get(binding_index))
+        .map_or(0, |binding| binding.values.len())
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_shape_map_binding_value(
+    map: *const ShiftyShapeMap,
+    shape_index: usize,
+    mapping_index: usize,
+    binding_index: usize,
+    value_index: usize,
+) -> ShiftyTerm {
+    unsafe { map.as_ref() }
+        .and_then(|map| map.shapes.get(shape_index))
+        .and_then(|shape| shape.mappings.get(mapping_index))
+        .and_then(|mapping| mapping.bindings.get(binding_index))
+        .and_then(|binding| binding.values.get(value_index))
+        .map_or(empty_term(), ShapeMapTermItem::c)
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_shape_map_binding_rejected_value_count(
+    map: *const ShiftyShapeMap,
+    shape_index: usize,
+    mapping_index: usize,
+    binding_index: usize,
+) -> usize {
+    unsafe { map.as_ref() }
+        .and_then(|map| map.shapes.get(shape_index))
+        .and_then(|shape| shape.mappings.get(mapping_index))
+        .and_then(|mapping| mapping.bindings.get(binding_index))
+        .map_or(0, |binding| binding.rejected_values.len())
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_shape_map_binding_rejected_value(
+    map: *const ShiftyShapeMap,
+    shape_index: usize,
+    mapping_index: usize,
+    binding_index: usize,
+    value_index: usize,
+) -> ShiftyTerm {
+    unsafe { map.as_ref() }
+        .and_then(|map| map.shapes.get(shape_index))
+        .and_then(|shape| shape.mappings.get(mapping_index))
+        .and_then(|mapping| mapping.bindings.get(binding_index))
+        .and_then(|binding| binding.rejected_values.get(value_index))
+        .map_or(empty_term(), ShapeMapTermItem::c)
+}
+
+/// Empty when the evidence was not materialized.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_shape_map_binding_evidence_json(
+    map: *const ShiftyShapeMap,
+    shape_index: usize,
+    mapping_index: usize,
+    binding_index: usize,
+) -> ShiftyStringView {
+    unsafe { map.as_ref() }
+        .and_then(|map| map.shapes.get(shape_index))
+        .and_then(|shape| shape.mappings.get(mapping_index))
+        .and_then(|mapping| mapping.bindings.get(binding_index))
+        .map_or(empty_view(), |binding| string_view(&binding.evidence_json))
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_shape_map_binding_explain(
+    map: *const ShiftyShapeMap,
+    shape_index: usize,
+    mapping_index: usize,
+    binding_index: usize,
+) -> ShiftyStringView {
+    unsafe { map.as_ref() }
+        .and_then(|map| map.shapes.get(shape_index))
+        .and_then(|shape| shape.mappings.get(mapping_index))
+        .and_then(|mapping| mapping.bindings.get(binding_index))
+        .map_or(empty_view(), |binding| string_view(&binding.explain))
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_shape_map_binding_has_qualifier(
+    map: *const ShiftyShapeMap,
+    shape_index: usize,
+    mapping_index: usize,
+    binding_index: usize,
+) -> u8 {
+    unsafe { map.as_ref() }
+        .and_then(|map| map.shapes.get(shape_index))
+        .and_then(|shape| shape.mappings.get(mapping_index))
+        .and_then(|mapping| mapping.bindings.get(binding_index))
+        .map_or(false, |binding| binding.qualifier.is_some())
+        .into()
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_shape_map_binding_qualifier_kind(
+    map: *const ShiftyShapeMap,
+    shape_index: usize,
+    mapping_index: usize,
+    binding_index: usize,
+) -> ShiftyQualifierKind {
+    unsafe { map.as_ref() }
+        .and_then(|map| map.shapes.get(shape_index))
+        .and_then(|shape| shape.mappings.get(mapping_index))
+        .and_then(|mapping| mapping.bindings.get(binding_index))
+        .and_then(|binding| binding.qualifier.as_ref())
+        .map_or(ShiftyQualifierKind::Cls, |qualifier| qualifier.kind)
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_shape_map_binding_qualifier_iri(
+    map: *const ShiftyShapeMap,
+    shape_index: usize,
+    mapping_index: usize,
+    binding_index: usize,
+) -> ShiftyStringView {
+    unsafe { map.as_ref() }
+        .and_then(|map| map.shapes.get(shape_index))
+        .and_then(|shape| shape.mappings.get(mapping_index))
+        .and_then(|mapping| mapping.bindings.get(binding_index))
+        .and_then(|binding| binding.qualifier.as_ref())
+        .map_or(empty_view(), |qualifier| string_view(&qualifier.iri))
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_shape_map_binding_qualifier_term(
+    map: *const ShiftyShapeMap,
+    shape_index: usize,
+    mapping_index: usize,
+    binding_index: usize,
+) -> ShiftyTerm {
+    unsafe { map.as_ref() }
+        .and_then(|map| map.shapes.get(shape_index))
+        .and_then(|shape| shape.mappings.get(mapping_index))
+        .and_then(|mapping| mapping.bindings.get(binding_index))
+        .and_then(|binding| binding.qualifier.as_ref())
+        .map_or(empty_term(), |qualifier| qualifier.term.c())
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_shape_map_binding_annotation_label_count(
+    map: *const ShiftyShapeMap,
+    shape_index: usize,
+    mapping_index: usize,
+    binding_index: usize,
+) -> usize {
+    unsafe { map.as_ref() }
+        .and_then(|map| map.shapes.get(shape_index))
+        .and_then(|shape| shape.mappings.get(mapping_index))
+        .and_then(|mapping| mapping.bindings.get(binding_index))
+        .map_or(0, |binding| binding.annotations.len())
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_shape_map_binding_annotation_label(
+    map: *const ShiftyShapeMap,
+    shape_index: usize,
+    mapping_index: usize,
+    binding_index: usize,
+    label_index: usize,
+) -> ShiftyStringView {
+    unsafe { map.as_ref() }
+        .and_then(|map| map.shapes.get(shape_index))
+        .and_then(|shape| shape.mappings.get(mapping_index))
+        .and_then(|mapping| mapping.bindings.get(binding_index))
+        .and_then(|binding| binding.annotations.get(label_index))
+        .map_or(empty_view(), |group| string_view(&group.label))
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_shape_map_binding_annotation_term_count(
+    map: *const ShiftyShapeMap,
+    shape_index: usize,
+    mapping_index: usize,
+    binding_index: usize,
+    label_index: usize,
+) -> usize {
+    unsafe { map.as_ref() }
+        .and_then(|map| map.shapes.get(shape_index))
+        .and_then(|shape| shape.mappings.get(mapping_index))
+        .and_then(|mapping| mapping.bindings.get(binding_index))
+        .and_then(|binding| binding.annotations.get(label_index))
+        .map_or(0, |group| group.entries.len())
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_shape_map_binding_annotation_term(
+    map: *const ShiftyShapeMap,
+    shape_index: usize,
+    mapping_index: usize,
+    binding_index: usize,
+    label_index: usize,
+    term_index: usize,
+) -> ShiftyTerm {
+    unsafe { map.as_ref() }
+        .and_then(|map| map.shapes.get(shape_index))
+        .and_then(|shape| shape.mappings.get(mapping_index))
+        .and_then(|mapping| mapping.bindings.get(binding_index))
+        .and_then(|binding| binding.annotations.get(label_index))
+        .and_then(|group| group.entries.get(term_index))
+        .map_or(empty_term(), |entry| entry.0.c())
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_shape_map_binding_annotation_reached_count(
+    map: *const ShiftyShapeMap,
+    shape_index: usize,
+    mapping_index: usize,
+    binding_index: usize,
+    label_index: usize,
+    term_index: usize,
+) -> usize {
+    unsafe { map.as_ref() }
+        .and_then(|map| map.shapes.get(shape_index))
+        .and_then(|shape| shape.mappings.get(mapping_index))
+        .and_then(|mapping| mapping.bindings.get(binding_index))
+        .and_then(|binding| binding.annotations.get(label_index))
+        .and_then(|group| group.entries.get(term_index))
+        .map_or(0, |entry| entry.1.len())
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_shape_map_binding_annotation_reached(
+    map: *const ShiftyShapeMap,
+    shape_index: usize,
+    mapping_index: usize,
+    binding_index: usize,
+    label_index: usize,
+    term_index: usize,
+    reached_index: usize,
+) -> ShiftyTerm {
+    unsafe { map.as_ref() }
+        .and_then(|map| map.shapes.get(shape_index))
+        .and_then(|shape| shape.mappings.get(mapping_index))
+        .and_then(|mapping| mapping.bindings.get(binding_index))
+        .and_then(|binding| binding.annotations.get(label_index))
+        .and_then(|group| group.entries.get(term_index))
+        .and_then(|entry| entry.1.get(reached_index))
+        .map_or(empty_term(), ShapeMapTermItem::c)
+}
+
+fn empty_term() -> ShiftyTerm {
+    ShiftyTerm {
+        kind: ShiftyTermKind::Literal,
+        value: empty_view(),
+        datatype: empty_view(),
+        language: empty_view(),
+    }
+}
+
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn shifty_evidence_session_validate(

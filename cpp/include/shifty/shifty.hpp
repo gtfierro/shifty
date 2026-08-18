@@ -3,9 +3,12 @@
 
 #include "shifty/shifty.h"
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
+#include <functional>
+#include <map>
 #include <memory>
 #include <optional>
 #include <stdexcept>
@@ -515,7 +518,45 @@ struct StringDeleter {
     }
 };
 
+struct BindingNameListDeleter {
+    void operator()(ShiftyBindingNameList *value) const noexcept {
+        shifty_binding_name_list_destroy(value);
+    }
+};
+
+struct PathResolutionListDeleter {
+    void operator()(ShiftyPathResolutionList *value) const noexcept {
+        shifty_path_resolution_list_destroy(value);
+    }
+};
+
+struct ShapeMapDeleter {
+    void operator()(ShiftyShapeMap *value) const noexcept {
+        shifty_shape_map_destroy(value);
+    }
+};
+
 using OwnedString = std::unique_ptr<ShiftyString, StringDeleter>;
+
+using OwnedBindingNames =
+    std::unique_ptr<ShiftyBindingNameList, BindingNameListDeleter>;
+using OwnedPathResolutions =
+    std::unique_ptr<ShiftyPathResolutionList, PathResolutionListDeleter>;
+
+/// Convert the C++ `value_paths` (label -> path) list into the ABI's
+/// parallel string-pair array, valid for the duration of the call.
+inline std::vector<ShiftyStringPair> build_value_path_pairs(
+    const std::vector<std::pair<std::string, std::string>> &value_paths) {
+    std::vector<ShiftyStringPair> out;
+    out.reserve(value_paths.size());
+    for (const auto &[label, path] : value_paths) {
+        out.push_back(ShiftyStringPair{
+            ShiftyStringView{label.data(), label.size()},
+            ShiftyStringView{path.data(), path.size()},
+        });
+    }
+    return out;
+}
 
 /// Not an overload of from_c(): ShiftyEvaluationStatus and
 /// ShiftyQueryResultKind are both uint32_t typedefs, so they cannot be
@@ -655,6 +696,1006 @@ private:
     bool conforms_ = false;
     std::vector<StatementEvidence> statements_;
 };
+
+// ── shape-map v2: typed key -> value bindings ────────────────────────────────
+// The flat view one level above the evidence trees: for each selected
+// (shape, focus) pair, which property obligations bound to which values and
+// which are still unbound, with a typed Key -> Binding vocabulary. This is the
+// C++ port of the Python `shifty.ShapeMap` / `shifty.shape_map()`.
+
+/// The three RDF term kinds a shape-map value can carry.
+enum class TermKind {
+    Iri,
+    Literal,
+    BNode,
+};
+
+/// A typed RDF term: IRI, literal, or blank node, with an N-Triples
+/// rendering (`n3()`) that matches `terms.py` — `xsd:string` datatypes are
+/// omitted and lexical escapes applied, so `"lit"^^<..string>` reads `"lit"`.
+class Term {
+public:
+    Term() = default;
+    Term(TermKind kind, std::string value, std::string datatype = {},
+         std::string language = {})
+        : kind_(kind),
+          value_(std::move(value)),
+          datatype_(std::move(datatype)),
+          language_(std::move(language)) {}
+
+    /// The term kind.
+    [[nodiscard]] TermKind kind() const noexcept { return kind_; }
+    /// The IRI text (no brackets), literal lexical form, or blank-node label.
+    [[nodiscard]] const std::string &value() const noexcept { return value_; }
+    /// The datatype IRI for a literal; empty otherwise. `xsd:string` is
+    /// preserved here but omitted from `n3()`.
+    [[nodiscard]] const std::string &datatype() const noexcept { return datatype_; }
+    /// The language tag for a literal; empty otherwise.
+    [[nodiscard]] const std::string &language() const noexcept { return language_; }
+
+    [[nodiscard]] bool is_iri() const noexcept { return kind_ == TermKind::Iri; }
+    [[nodiscard]] bool is_literal() const noexcept { return kind_ == TermKind::Literal; }
+    [[nodiscard]] bool is_bnode() const noexcept { return kind_ == TermKind::BNode; }
+
+    /// The full N-Triples rendering (`<iri>`, `"lit"@lang`, `"lit"^^<dt>`,
+    /// `_:label`).
+    [[nodiscard]] std::string n3() const {
+        switch (kind_) {
+        case TermKind::Iri:
+            return "<" + value_ + ">";
+        case TermKind::BNode:
+            return "_:" + value_;
+        case TermKind::Literal:
+            break;
+        }
+        std::string escaped = value_;
+        std::size_t pos = 0;
+        while ((pos = escaped.find_first_of("\\\"\n", pos)) != std::string::npos) {
+            const char replacement = escaped[pos] == '\n' ? 'n' : escaped[pos];
+            escaped.replace(pos, 1, "\\");
+            escaped.insert(pos + 1, 1, replacement);
+            pos += 2;
+        }
+        constexpr const char *XSD_STRING_IRI =
+            "http://www.w3.org/2001/XMLSchema#string";
+        if (!language_.empty()) {
+            return "\"" + escaped + "\"@" + language_;
+        }
+        if (!datatype_.empty() && datatype_ != XSD_STRING_IRI) {
+            return "\"" + escaped + "\"^^<" + datatype_ + ">";
+        }
+        return "\"" + escaped + "\"";
+    }
+
+    bool operator==(const Term &other) const noexcept {
+        return kind_ == other.kind_ && value_ == other.value_ &&
+               datatype_ == other.datatype_ && language_ == other.language_;
+    }
+    bool operator!=(const Term &other) const noexcept { return !(*this == other); }
+    bool operator<(const Term &other) const noexcept {
+        if (kind_ != other.kind_) return kind_ < other.kind_;
+        if (value_ != other.value_) return value_ < other.value_;
+        if (datatype_ != other.datatype_) return datatype_ < other.datatype_;
+        return language_ < other.language_;
+    }
+
+private:
+    friend class Binding;
+    static Term from_c(const ShiftyTerm &value) {
+        Term out;
+        out.kind_ = static_cast<TermKind>(value.kind);
+        out.value_ = detail::copy(value.value);
+        out.datatype_ = detail::copy(value.datatype);
+        out.language_ = detail::copy(value.language);
+        return out;
+    }
+
+    TermKind kind_ = TermKind::Literal;
+    std::string value_;
+    std::string datatype_;
+    std::string language_;
+};
+
+/// The five forms of a SPARQL property path (mirrors the algebra `Path`).
+enum class PathKind {
+    Id,
+    Pred,
+    Inverse,
+    Seq,
+    Alt,
+    Star,
+};
+
+/// A typed property path: a single predicate step, or a composition.
+/// `Seq`/`Alt` hold ordered children; `Inverse`/`Star` hold exactly one.
+/// `Id` and `Pred` hold none.
+class Path {
+public:
+    Path() = default;
+
+    [[nodiscard]] PathKind kind() const noexcept { return kind_; }
+    /// The predicate IRI for a `Pred`; empty otherwise.
+    [[nodiscard]] const std::string &iri() const noexcept { return iri_; }
+    /// The children (`Seq`/`Alt`: all; `Inverse`/`Star`: the single inner).
+    [[nodiscard]] const std::vector<Path> &children() const noexcept {
+        return children_;
+    }
+
+    /// True for the `rdf:type/rdfs:subClassOf*` class-membership path (renders
+    /// as `a`).
+    [[nodiscard]] bool is_class_path() const noexcept;
+
+    /// The rendered path: compact local names by default (e.g.
+    /// `hasPoint->Supply_Air_Flow_Sensor`), full IRIs otherwise.
+    [[nodiscard]] std::string str(bool compact = true) const;
+
+    bool operator==(const Path &other) const noexcept {
+        return kind_ == other.kind_ && iri_ == other.iri_ &&
+               children_ == other.children_;
+    }
+    bool operator!=(const Path &other) const noexcept { return !(*this == other); }
+
+    /// Parse the externally-tagged serde encoding of the algebra `Path` that
+    /// `Binding::key()` carries (`"Id"`, `{"Pred": {"value": "…"}}`,
+    /// `{"Inverse": …}`, `{"Seq": […]}`, `{"Alt": […]}`, `{"Star": …}`).
+    /// Returns std::nullopt for malformed input.
+    [[nodiscard]] static std::optional<Path> parse_json(std::string_view json);
+
+private:
+    friend class Binding;
+    Path(PathKind kind, std::string iri, std::vector<Path> children)
+        : kind_(kind), iri_(std::move(iri)), children_(std::move(children)) {}
+
+    PathKind kind_ = PathKind::Id;
+    std::string iri_;
+    std::vector<Path> children_;
+};
+
+/// The four qualifier kinds a key can carry.
+enum class QualifierKind {
+    Cls,
+    Const,
+    Datatype,
+    ShapeRef,
+};
+
+/// The optional qualifier of a shape-map key: a class, a constant value, a
+/// datatype, or a named-shape reference.
+class Qualifier {
+public:
+    Qualifier(QualifierKind kind, std::string iri, Term term)
+        : kind_(kind), iri_(std::move(iri)), term_(std::move(term)) {}
+
+    [[nodiscard]] QualifierKind kind() const noexcept { return kind_; }
+    /// The IRI for `Cls`/`Datatype`/`ShapeRef`; empty for `Const`.
+    [[nodiscard]] const std::string &iri() const noexcept { return iri_; }
+    /// The constant term for `Const`; an empty literal otherwise.
+    [[nodiscard]] const Term &term() const noexcept { return term_; }
+
+    /// The compact rendering (e.g. `Supply_Air_Flow_Sensor`).
+    [[nodiscard]] std::string str() const;
+
+    bool operator==(const Qualifier &other) const noexcept {
+        return kind_ == other.kind_ && iri_ == other.iri_ && term_ == other.term_;
+    }
+    bool operator!=(const Qualifier &other) const noexcept { return !(*this == other); }
+
+private:
+    QualifierKind kind_;
+    std::string iri_;
+    Term term_;
+};
+
+/// A typed, hashable shape-map key: the property shape's path plus its
+/// qualifier class when one is declared, disambiguated by ordinal when several
+/// bindings share a `(path, qualifier)`. `str()` reads
+/// `hasPoint->Supply_Air_Flow_Sensor`, or the `kind` tag for a pathless key.
+class Key {
+public:
+    Key() = default;
+    Key(std::optional<Path> path, std::optional<Qualifier> qualifier,
+        std::size_t ordinal = 1, std::string kind = "count")
+        : path_(std::move(path)),
+          qualifier_(std::move(qualifier)),
+          ordinal_(ordinal),
+          kind_(std::move(kind)) {}
+
+    /// The path, or std::nullopt for a pathless key (nodeKind, …).
+    [[nodiscard]] const std::optional<Path> &path() const noexcept { return path_; }
+    /// The qualifier, if one is declared.
+    [[nodiscard]] const std::optional<Qualifier> &qualifier() const noexcept {
+        return qualifier_;
+    }
+    /// Disambiguates identical `(path, qualifier)` pairs; the n-th in
+    /// lowering order.
+    [[nodiscard]] std::size_t ordinal() const noexcept { return ordinal_; }
+    /// The constraint tag fallback for pathless keys (e.g. `count`).
+    [[nodiscard]] const std::string &kind() const noexcept { return kind_; }
+
+    /// The rendered key, reading e.g. `hasPoint->Supply_Air_Flow_Sensor`.
+    [[nodiscard]] std::string str() const;
+    explicit operator std::string() const { return str(); }
+
+    bool operator==(const Key &other) const noexcept {
+        return path_ == other.path_ && qualifier_ == other.qualifier_ &&
+               ordinal_ == other.ordinal_ && kind_ == other.kind_;
+    }
+    bool operator!=(const Key &other) const noexcept { return !(*this == other); }
+    bool operator<(const Key &other) const noexcept;  // for std::map<Key, …>
+
+private:
+    std::optional<Path> path_;
+    std::optional<Qualifier> qualifier_;
+    std::size_t ordinal_ = 1;
+    std::string kind_ = "count";
+};
+
+/// One bound value plus its `value_paths` annotations.
+struct BoundValue {
+    /// The bound value.
+    Term term;
+    /// `label -> reached` for each configured `value_paths` label, empty per
+    /// value when nothing is reached.
+    std::map<std::string, std::vector<Term>> annotations;
+};
+
+/// One key of a mapping: a property obligation and what it bound to. A passing
+/// (`ok()`) binding carries `values()`; a failing one carries
+/// `missing()`/`rejected_values()` and the `evidence_json()` witness subtree.
+class Binding {
+public:
+    Binding() = default;
+
+    [[nodiscard]] const Key &key() const noexcept { return key_; }
+    [[nodiscard]] const std::optional<Path> &path() const noexcept {
+        return key_.path();
+    }
+    [[nodiscard]] const std::optional<Qualifier> &qualifier() const noexcept {
+        return key_.qualifier();
+    }
+
+    /// True when bound (`status() == "pass"`).
+    [[nodiscard]] bool ok() const noexcept { return ok_; }
+    /// `"pass"` (bound) or `"fail"` (unbound).
+    [[nodiscard]] const std::string &status() const noexcept { return status_; }
+
+    /// The loaded source constraint id.
+    [[nodiscard]] std::uint32_t source_constraint_id() const noexcept {
+        return source_constraint_id_;
+    }
+    /// The normalized constraint id, absent when there is none.
+    [[nodiscard]] const std::optional<std::uint32_t> &constraint_id() const noexcept {
+        return constraint_id_;
+    }
+
+    /// SHACL severity (`"violation"`/`"warning"`/`"info"`, lowercased).
+    [[nodiscard]] const std::string &severity() const noexcept { return severity_; }
+    /// The author's names for the slot (`name_path`), if any.
+    [[nodiscard]] const std::vector<std::string> &names() const noexcept {
+        return names_;
+    }
+    /// The author's name for the slot — the first value of `names()`, or
+    /// nullptr when there is none.
+    [[nodiscard]] const std::string *name() const noexcept {
+        return names_.empty() ? nullptr : &names_.front();
+    }
+
+    /// The values the key's path bound. For a failing key these are the
+    /// qualifying near-matches (same as `partial_values()`). Empty only when
+    /// the evidence was unavailable.
+    [[nodiscard]] const std::vector<Term> &values() const noexcept {
+        return values_;
+    }
+    /// Whether the source constraint expects exactly one value.
+    [[nodiscard]] bool expects_single() const noexcept {
+        return min().has_value() && *min() == 1 && max().has_value() && *max() == 1;
+    }
+    /// The declared lower bound, present even when evidence was never
+    /// materialized.
+    [[nodiscard]] const std::optional<std::size_t> &min() const noexcept { return min_; }
+    /// The declared upper bound.
+    [[nodiscard]] const std::optional<std::size_t> &max() const noexcept { return max_; }
+    /// How many qualifying values are still owed (0 for a bound key).
+    [[nodiscard]] std::size_t missing() const noexcept { return missing_; }
+    /// The count observed, when evidence carried it.
+    [[nodiscard]] const std::optional<std::size_t> &observed() const noexcept {
+        return observed_;
+    }
+    /// Values that did qualify under a failing count (never enough) — the same
+    /// as `values()` for a failing key.
+    [[nodiscard]] std::vector<Term> partial_values() const {
+        return ok_ ? std::vector<Term>{} : values_;
+    }
+    /// Near-miss candidates the path reached but the qualifier rejected.
+    [[nodiscard]] const std::vector<Term> &rejected_values() const noexcept {
+        return rejected_values_;
+    }
+
+    /// Every bound value paired with its `value_paths` annotations (empty
+    /// per-value when `value_paths` was not configured).
+    [[nodiscard]] const std::vector<BoundValue> &annotated_values() const noexcept {
+        return annotated_values_;
+    }
+    /// `label -> value -> reached`, pivoted from `annotated_values()`.
+    [[nodiscard]] std::map<std::string, std::map<Term, std::vector<Term>>>
+    annotations() const {
+        std::map<std::string, std::map<Term, std::vector<Term>>> out;
+        for (const auto &bound : annotated_values_) {
+            for (const auto &entry : bound.annotations) {
+                out[entry.first][bound.term] = entry.second;
+            }
+        }
+        return out;
+    }
+
+    /// This key's evidence subtree as JSON. Empty when the evidence was not
+    /// materialized.
+    [[nodiscard]] const std::string &evidence_json() const noexcept {
+        return evidence_json_;
+    }
+    /// The same evidence as indented text.
+    [[nodiscard]] const std::string &explain() const noexcept { return explain_; }
+
+private:
+    friend class Mapping;
+    friend class ShapeMap;
+    static Binding from_c(const ShiftyShapeMap *map, std::size_t shape,
+                          std::size_t mapping, std::size_t index);
+
+    Key key_;
+    bool ok_ = false;
+    std::string status_;
+    std::uint32_t source_constraint_id_ = 0;
+    std::optional<std::uint32_t> constraint_id_;
+    std::string severity_;
+    std::vector<std::string> names_;
+    std::optional<std::size_t> min_;
+    std::optional<std::size_t> max_;
+    std::optional<std::size_t> observed_;
+    std::size_t missing_ = 0;
+    std::vector<Term> values_;
+    std::vector<Term> rejected_values_;
+    std::vector<BoundValue> annotated_values_;
+    std::string evidence_json_;
+    std::string explain_;
+};
+
+/// One `(focus node, shape statement)` association with its key bindings.
+class Mapping {
+public:
+    Mapping() = default;
+
+    /// The focus node, rendered in full (`<iri>`, `_:label`, `"lit"@lang`, …)
+    /// — the same spelling `FocusEvidence::focus_node` carries.
+    [[nodiscard]] const std::string &focus() const noexcept { return focus_; }
+    /// The named shape IRI, or empty for an anonymous shape.
+    [[nodiscard]] const std::string &shape_name() const noexcept { return shape_name_; }
+    /// The authored selector, rendered.
+    [[nodiscard]] const std::string &target() const noexcept { return target_; }
+    /// True when the focus conformed to the shape.
+    [[nodiscard]] bool conforms() const noexcept { return conforms_; }
+    /// Every key -> binding, in authored order.
+    [[nodiscard]] const std::vector<Binding> &bindings() const noexcept {
+        return bindings_;
+    }
+    /// The underlying focus evaluation: `evaluation().passed()`, its
+    /// `evidence_json` / `explanation`.
+    [[nodiscard]] const FocusEvidence &evaluation() const noexcept {
+        return evaluation_;
+    }
+
+    /// Every bound key, in authored order.
+    [[nodiscard]] std::vector<const Binding *> successful() const {
+        std::vector<const Binding *> out;
+        for (const auto &binding : bindings_) {
+            if (binding.ok()) out.push_back(&binding);
+        }
+        return out;
+    }
+    /// Every unbound key; the binding carries the witness subtree, shortfall
+    /// counts, and near-misses.
+    [[nodiscard]] std::vector<const Binding *> unsuccessful() const {
+        std::vector<const Binding *> out;
+        for (const auto &binding : bindings_) {
+            if (!binding.ok()) out.push_back(&binding);
+        }
+        return out;
+    }
+
+    /// Number of bindings.
+    [[nodiscard]] std::size_t size() const noexcept { return bindings_.size(); }
+    [[nodiscard]] bool empty() const noexcept { return bindings_.empty(); }
+
+    /// The first binding whose `name()` matches (names are not guaranteed
+    /// unique). Throws std::out_of_range when none matches.
+    [[nodiscard]] const Binding &by_name(const std::string &name) const {
+        for (const auto &binding : bindings_) {
+            if (const auto n = binding.name(); n != nullptr && *n == name) return binding;
+        }
+        throw std::out_of_range("Mapping::by_name: no binding named " + name);
+    }
+    /// The binding with the given typed `Key` (or its `str()`), or nullptr.
+    [[nodiscard]] const Binding *find(const Key &key) const {
+        for (const auto &binding : bindings_) {
+            if (binding.key() == key) return &binding;
+        }
+        return nullptr;
+    }
+    [[nodiscard]] const Binding *find(const std::string &key) const {
+        for (const auto &binding : bindings_) {
+            if (binding.key().str() == key) return &binding;
+        }
+        return nullptr;
+    }
+
+    /// Bound keys only, projected for application configuration. `by_name`
+    /// keys the result by `binding.name()`, falling back to `str(key)`.
+    [[nodiscard]] std::map<Key, std::vector<Term>> value_map() const {
+        std::map<Key, std::vector<Term>> out;
+        for (const auto &binding : bindings_) {
+            if (!binding.ok() || binding.values().empty()) continue;
+            out[binding.key()] = binding.values();
+        }
+        return out;
+    }
+    [[nodiscard]] std::map<std::string, std::vector<Term>> value_map_by_name() const {
+        std::map<std::string, std::vector<Term>> out;
+        for (const auto &binding : bindings_) {
+            if (!binding.ok() || binding.values().empty()) continue;
+            const auto n = binding.name();
+            out[n ? *n : binding.key().str()] = binding.values();
+        }
+        return out;
+    }
+
+private:
+    friend class ShapeMap;
+    static Mapping from_c(const ShiftyShapeMap *map, std::size_t shape,
+                          std::size_t index);
+
+    std::string focus_;
+    std::string shape_name_;
+    std::string target_;
+    bool conforms_ = false;
+    std::vector<Binding> bindings_;
+    FocusEvidence evaluation_;
+};
+
+/// Options applied to `EvidenceSession::shape_map()`.
+struct ShapeMapOptions {
+    /// A SPARQL 1.1 property path evaluated from each property shape's own
+    /// node over the shapes graph to carry the author's name for a slot.
+    /// Defaults to `sh:name`; set to empty to skip name resolution.
+    std::string name_path = "sh:name";
+
+    /// `label -> path` pairs evaluated from each bound value over the data
+    /// graph, annotating it (`Binding::annotated_values()`).
+    std::vector<std::pair<std::string, std::string>> value_paths;
+};
+
+/// Key -> value bindings for every selected (shape, focus) pair of a run,
+/// grouped by shape identity. Built from `EvidenceSession::shape_map()`.
+///
+/// Move-only: the structured view is materialized eagerly, while `to_json()`
+/// is served from the retained engine handle.
+class ShapeMap {
+public:
+    ShapeMap(const ShapeMap &) = delete;
+    ShapeMap &operator=(const ShapeMap &) = delete;
+    ShapeMap(ShapeMap &&) noexcept = default;
+    ShapeMap &operator=(ShapeMap &&) noexcept = default;
+    ~ShapeMap() = default;
+
+    /// True when no selected `(shape, focus)` pair failed.
+    [[nodiscard]] bool conforms() const noexcept { return conforms_; }
+
+    /// Every shape identity with at least one authored statement — named shape
+    /// IRIs, or `_:statement-N` placeholders for anonymous shapes.
+    [[nodiscard]] const std::vector<std::string> &shape_names() const noexcept {
+        return shape_names_;
+    }
+
+    /// The mappings of one shape, in selection order. Throws std::out_of_range
+    /// when `shape_name` is not a shape of this map.
+    [[nodiscard]] const std::vector<Mapping> &mappings(
+        const std::string &shape_name) const;
+
+    /// The mappings of the shape at `index`.
+    [[nodiscard]] const std::vector<Mapping> &mappings(std::size_t index) const {
+        return mappings_.at(index);
+    }
+
+    /// Every mapping across shapes.
+    [[nodiscard]] std::vector<const Mapping *> all() const {
+        std::vector<const Mapping *> out;
+        for (const auto &group : mappings_) {
+            for (const auto &mapping : group) out.push_back(&mapping);
+        }
+        return out;
+    }
+
+    /// Every mapping whose focus is `focus` (compared as N-Triples), across
+    /// shapes. A bare IRI string is wrapped in angle brackets first.
+    [[nodiscard]] std::vector<const Mapping *> for_focus(const Term &focus) const {
+        return for_focus(focus.n3());
+    }
+    [[nodiscard]] std::vector<const Mapping *> for_focus(std::string_view focus) const {
+        std::string key(focus);
+        if (!key.empty() && key[0] != '<' && key[0] != '_' && key[0] != '"') {
+            key = '<' + key + '>';
+        }
+        std::vector<const Mapping *> out;
+        for (const auto &mapping : all()) {
+            if (mapping->focus() == key) out.push_back(mapping);
+        }
+        return out;
+    }
+
+    /// The conforming mappings of one shape.
+    [[nodiscard]] std::vector<const Mapping *> conforming(
+        const std::string &shape_name) const {
+        std::vector<const Mapping *> out;
+        for (const auto &mapping : mappings(shape_name)) {
+            if (mapping.conforms()) out.push_back(&mapping);
+        }
+        return out;
+    }
+    /// The non-conforming mappings of one shape.
+    [[nodiscard]] std::vector<const Mapping *> nonconforming(
+        const std::string &shape_name) const {
+        std::vector<const Mapping *> out;
+        for (const auto &mapping : mappings(shape_name)) {
+            if (!mapping.conforms()) out.push_back(&mapping);
+        }
+        return out;
+    }
+
+    /// Size of the `i`-th shape's group.
+    [[nodiscard]] std::size_t mapping_count(std::size_t index) const {
+        return mappings_.at(index).size();
+    }
+    [[nodiscard]] std::size_t shape_count() const noexcept { return mappings_.size(); }
+    /// Total number of mappings across all shapes.
+    [[nodiscard]] std::size_t total_mappings() const noexcept { return total_mappings_; }
+
+    /// A plain-JSON summary: `conforms`, `shapes`, each mapping's focus,
+    /// target, conforms, and key -> `{status, values, missing, name}`.
+    [[nodiscard]] const std::string &to_json() const noexcept { return json_; }
+
+private:
+    friend class EvidenceSession;
+    using Handle = std::unique_ptr<ShiftyShapeMap, detail::ShapeMapDeleter>;
+
+    explicit ShapeMap(ShiftyShapeMap *raw);
+
+    Handle handle_;
+    bool conforms_ = false;
+    std::string json_;
+    std::vector<std::string> shape_names_;
+    std::vector<std::vector<Mapping>> mappings_;
+    std::size_t total_mappings_ = 0;
+};
+
+// ── shape-map class method definitions ───────────────────────────────────────
+
+/// The local name of an IRI: the segment after the last '#', '/', or ':'.
+inline std::string iri_local(const std::string &iri) {
+    const std::size_t pos = iri.find_last_of("#/:");
+    if (pos != std::string::npos && pos + 1 < iri.size()) {
+        return iri.substr(pos + 1);
+    }
+    return iri;
+}
+
+inline bool Path::is_class_path() const noexcept {
+    constexpr const char *RDF_TYPE =
+        "http://www.w3.org/1999/02/22-rdf-syntax-ns#type";
+    constexpr const char *RDFS_SUBCLASS =
+        "http://www.w3.org/2000/01/rdf-schema#subClassOf";
+    if (kind_ != PathKind::Seq || children_.size() != 2) return false;
+    const auto &first = children_[0];
+    const auto &second = children_[1];
+    return first.kind_ == PathKind::Pred && first.iri_ == RDF_TYPE &&
+           second.kind_ == PathKind::Star && second.children_.size() == 1 &&
+           second.children_[0].kind_ == PathKind::Pred &&
+           second.children_[0].iri_ == RDFS_SUBCLASS;
+}
+
+inline std::string Path::str(bool compact) const {
+    switch (kind_) {
+    case PathKind::Id:
+        return "id";
+    case PathKind::Pred:
+        return compact ? iri_local(iri_) : "<" + iri_ + ">";
+    case PathKind::Inverse:
+        return "^" + (children_.empty() ? Path{} : children_[0]).str(compact);
+    case PathKind::Star:
+        return (children_.empty() ? Path{} : children_[0]).str(compact) + "*";
+    case PathKind::Seq: {
+        // `rdf:type/rdfs:subClassOf*` is class membership; render it like
+        // Turtle.
+        if (is_class_path()) return "a";
+        std::string out;
+        for (std::size_t i = 0; i < children_.size(); ++i) {
+            if (i) out += "/";
+            out += children_[i].str(compact);
+        }
+        return out;
+    }
+    case PathKind::Alt: {
+        std::string out;
+        for (std::size_t i = 0; i < children_.size(); ++i) {
+            if (i) out += "|";
+            out += children_[i].str(compact);
+        }
+        return out;
+    }
+    }
+    return {};
+}
+
+namespace detail {
+
+/// A minimal parser for the externally-tagged serde encoding of the algebra
+/// `Path` that `key_path_json` returns. Only the structures the encoding uses
+/// (`"Id"`, `{"Pred": {"value": …}}`, `{"Inverse": …}`, `{"Seq": […]}`,
+/// `{"Alt": […]}`, `{"Star": …}`) are accepted, so the grammar is tiny.
+inline void json_skip_ws(std::string_view &s) {
+    while (!s.empty() &&
+           (s.front() == ' ' || s.front() == '\t' || s.front() == '\n' ||
+            s.front() == '\r')) {
+        s.remove_prefix(1);
+    }
+}
+
+inline bool json_take(std::string_view &s, char c) {
+    if (!s.empty() && s.front() == c) {
+        s.remove_prefix(1);
+        return true;
+    }
+    return false;
+}
+
+inline std::optional<std::string> json_parse_string(std::string_view &s) {
+    detail::json_skip_ws(s);
+    if (s.empty() || s.front() != '"') return std::nullopt;
+    s.remove_prefix(1);
+    std::string out;
+    while (!s.empty()) {
+        const char c = s.front();
+        s.remove_prefix(1);
+        if (c == '"') return out;
+        if (c == '\\') {
+            if (s.empty()) return std::nullopt;
+            const char e = s.front();
+            s.remove_prefix(1);
+            switch (e) {
+            case '"': out.push_back('"'); break;
+            case '\\': out.push_back('\\'); break;
+            case '/': out.push_back('/'); break;
+            case 'n': out.push_back('\n'); break;
+            case 't': out.push_back('\t'); break;
+            case 'r': out.push_back('\r'); break;
+            case 'b': out.push_back('\b'); break;
+            case 'f': out.push_back('\f'); break;
+            case 'u': {
+                if (s.size() < 4) return std::nullopt;
+                unsigned cp = 0;
+                for (int i = 0; i < 4; ++i) {
+                    const char h = s.front();
+                    s.remove_prefix(1);
+                    if (h >= '0' && h <= '9')
+                        cp = cp * 16 + (h - '0');
+                    else if (h >= 'a' && h <= 'f')
+                        cp = cp * 16 + (h - 'a' + 10);
+                    else if (h >= 'A' && h <= 'F')
+                        cp = cp * 16 + (h - 'A' + 10);
+                    else
+                        return std::nullopt;
+                }
+                if (cp < 0x80) {
+                    out.push_back(static_cast<char>(cp));
+                } else if (cp < 0x800) {
+                    out.push_back(static_cast<char>(0xC0 | (cp >> 6)));
+                    out.push_back(static_cast<char>(0x80 | (cp & 0x3F)));
+                } else {
+                    out.push_back(static_cast<char>(0xE0 | (cp >> 12)));
+                    out.push_back(
+                        static_cast<char>(0x80 | ((cp >> 6) & 0x3F)));
+                    out.push_back(static_cast<char>(0x80 | (cp & 0x3F)));
+                }
+                break;
+            }
+            default:
+                return std::nullopt;
+            }
+        } else {
+            out.push_back(c);
+        }
+    }
+    return std::nullopt;
+}
+
+}  // namespace detail
+
+inline std::optional<Path> Path::parse_json(std::string_view json) {
+    std::string_view s = json;
+    std::function<std::optional<Path>(std::string_view &)> parse_path;
+    parse_path = [&](std::string_view &s) -> std::optional<Path> {
+        detail::json_skip_ws(s);
+        if (s.empty()) return std::nullopt;
+        if (s.front() == '"') {
+            auto tag = detail::json_parse_string(s);
+            if (tag && *tag == "Id") return Path(PathKind::Id, {}, {});
+            return std::nullopt;
+        }
+        if (!detail::json_take(s, '{')) return std::nullopt;
+        auto tag = detail::json_parse_string(s);
+        if (!tag) return std::nullopt;
+        if (!detail::json_take(s, ':')) return std::nullopt;
+        std::optional<Path> result;
+        if (*tag == "Pred") {
+            if (!detail::json_take(s, '{')) return std::nullopt;
+            auto key = detail::json_parse_string(s);
+            if (!key || *key != "value") return std::nullopt;
+            if (!detail::json_take(s, ':')) return std::nullopt;
+            auto iri = detail::json_parse_string(s);
+            if (!iri || !detail::json_take(s, '}')) return std::nullopt;
+            result = Path(PathKind::Pred, *iri, {});
+        } else if (*tag == "Inverse" || *tag == "Star") {
+            auto inner = parse_path(s);
+            if (!inner) return std::nullopt;
+            std::vector<Path> one{std::move(*inner)};
+            result = Path(*tag == "Inverse" ? PathKind::Inverse : PathKind::Star,
+                          {}, std::move(one));
+        } else if (*tag == "Seq" || *tag == "Alt") {
+            if (!detail::json_take(s, '[')) return std::nullopt;
+            std::vector<Path> parts;
+            detail::json_skip_ws(s);
+            if (!detail::json_take(s, ']')) {
+                for (;;) {
+                    auto part = parse_path(s);
+                    if (!part) return std::nullopt;
+                    parts.push_back(std::move(*part));
+                    detail::json_skip_ws(s);
+                    if (detail::json_take(s, ']')) break;
+                    if (!detail::json_take(s, ',')) return std::nullopt;
+                    detail::json_skip_ws(s);
+                }
+            }
+            result = Path(*tag == "Seq" ? PathKind::Seq : PathKind::Alt, {},
+                          std::move(parts));
+        } else {
+            return std::nullopt;
+        }
+        detail::json_skip_ws(s);
+        if (!detail::json_take(s, '}')) return std::nullopt;
+        return result;
+    };
+    auto result = parse_path(s);
+    detail::json_skip_ws(s);
+    if (!result || !s.empty()) return std::nullopt;
+    return *result;
+}
+
+inline std::string Qualifier::str() const {
+    switch (kind_) {
+    case QualifierKind::Cls:
+    case QualifierKind::Datatype:
+    case QualifierKind::ShapeRef:
+        return iri_local(iri_);
+    case QualifierKind::Const:
+        if (term_.is_iri()) return iri_local(term_.value());
+        if (term_.is_literal()) return term_.value();
+        return term_.n3();  // blank node
+    }
+    return {};
+}
+
+inline bool operator<(const Path &a, const Path &b) {
+    if (a.kind() != b.kind()) return a.kind() < b.kind();
+    if (a.iri() != b.iri()) return a.iri() < b.iri();
+    return std::lexicographical_compare(a.children().begin(), a.children().end(),
+                                        b.children().begin(), b.children().end());
+}
+
+inline bool operator<(const Qualifier &a, const Qualifier &b) {
+    if (a.kind() != b.kind()) return a.kind() < b.kind();
+    if (a.iri() != b.iri()) return a.iri() < b.iri();
+    return a.term() < b.term();
+}
+
+inline std::string Key::str() const {
+    std::string base;
+    if (path_.has_value()) {
+        base = path_->str(true);
+        if (qualifier_.has_value()) {
+            base += "\u2192" + qualifier_->str();  // →
+        }
+    } else {
+        base = kind_;
+    }
+    if (ordinal_ > 1) {
+        base += "#" + std::to_string(ordinal_);
+    }
+    return base;
+}
+
+inline bool Key::operator<(const Key &other) const noexcept {
+    if (path_.has_value() != other.path_.has_value()) {
+        return path_.has_value() < other.path_.has_value();
+    }
+    if (path_.has_value() && *path_ != *other.path_) return *path_ < *other.path_;
+    if (qualifier_.has_value() != other.qualifier_.has_value()) {
+        return qualifier_.has_value() < other.qualifier_.has_value();
+    }
+    if (qualifier_.has_value() && *qualifier_ != *other.qualifier_) {
+        return *qualifier_ < *other.qualifier_;
+    }
+    if (ordinal_ != other.ordinal_) return ordinal_ < other.ordinal_;
+    return kind_ < other.kind_;
+}
+
+inline const std::vector<Mapping> &ShapeMap::mappings(
+    const std::string &shape_name) const {
+    for (std::size_t i = 0; i < shape_names_.size(); ++i) {
+        if (shape_names_[i] == shape_name) return mappings_[i];
+    }
+    throw std::out_of_range("ShapeMap::mappings: no shape named " + shape_name);
+}
+
+inline ShapeMap::ShapeMap(ShiftyShapeMap *raw) : handle_(raw) {
+    conforms_ = shifty_shape_map_conforms(handle_.get()) != 0;
+    json_ = detail::copy(shifty_shape_map_to_json(handle_.get()));
+    const std::size_t shape_count = shifty_shape_map_shape_count(handle_.get());
+    shape_names_.reserve(shape_count);
+    mappings_.reserve(shape_count);
+    for (std::size_t s = 0; s < shape_count; ++s) {
+        shape_names_.push_back(
+            detail::copy(shifty_shape_map_shape_name(handle_.get(), s)));
+        const std::size_t mapping_count =
+            shifty_shape_map_mapping_count(handle_.get(), s);
+        std::vector<Mapping> group;
+        group.reserve(mapping_count);
+        for (std::size_t m = 0; m < mapping_count; ++m) {
+            group.push_back(Mapping::from_c(handle_.get(), s, m));
+        }
+        total_mappings_ += group.size();
+        mappings_.push_back(std::move(group));
+    }
+}
+
+inline Binding Binding::from_c(const ShiftyShapeMap *map, std::size_t shape,
+                               std::size_t mapping, std::size_t index) {
+    Binding out;
+
+    const std::string path_json = detail::copy(
+        shifty_shape_map_binding_key_path_json(map, shape, mapping, index));
+    std::optional<Path> path;
+    if (!path_json.empty()) path = Path::parse_json(path_json);
+    std::optional<Qualifier> qualifier;
+    if (shifty_shape_map_binding_has_qualifier(map, shape, mapping, index)) {
+        qualifier = Qualifier(
+            static_cast<QualifierKind>(shifty_shape_map_binding_qualifier_kind(
+                map, shape, mapping, index)),
+            detail::copy(shifty_shape_map_binding_qualifier_iri(
+                map, shape, mapping, index)),
+            Term::from_c(shifty_shape_map_binding_qualifier_term(
+                map, shape, mapping, index)));
+    }
+    out.key_ = Key(std::move(path), std::move(qualifier),
+                   shifty_shape_map_binding_key_ordinal(map, shape, mapping,
+                                                        index),
+                   detail::copy(shifty_shape_map_binding_key_kind(
+                       map, shape, mapping, index)));
+
+    out.ok_ = shifty_shape_map_binding_status(map, shape, mapping, index) ==
+              SHIFTY_EVALUATION_PASS;
+    out.status_ = out.ok_ ? "pass" : "fail";
+    out.source_constraint_id_ =
+        shifty_shape_map_binding_source_constraint(map, shape, mapping, index);
+    out.constraint_id_ = detail::optional_constraint(
+        shifty_shape_map_binding_normalized_constraint(map, shape, mapping,
+                                                       index));
+    out.severity_ = detail::copy(
+        shifty_shape_map_binding_severity(map, shape, mapping, index));
+
+    const std::size_t name_count =
+        shifty_shape_map_binding_name_count(map, shape, mapping, index);
+    out.names_.reserve(name_count);
+    for (std::size_t n = 0; n < name_count; ++n) {
+        out.names_.push_back(detail::copy(
+            shifty_shape_map_binding_name(map, shape, mapping, index, n)));
+    }
+
+    out.min_ = detail::optional_index(
+        shifty_shape_map_binding_min(map, shape, mapping, index));
+    out.max_ = detail::optional_index(
+        shifty_shape_map_binding_max(map, shape, mapping, index));
+    out.observed_ = detail::optional_index(
+        shifty_shape_map_binding_observed(map, shape, mapping, index));
+    out.missing_ = shifty_shape_map_binding_missing(map, shape, mapping, index);
+
+    const std::size_t value_count =
+        shifty_shape_map_binding_value_count(map, shape, mapping, index);
+    out.values_.reserve(value_count);
+    for (std::size_t v = 0; v < value_count; ++v) {
+        out.values_.push_back(Term::from_c(
+            shifty_shape_map_binding_value(map, shape, mapping, index, v)));
+    }
+    const std::size_t rejected_count =
+        shifty_shape_map_binding_rejected_value_count(map, shape, mapping,
+                                                     index);
+    out.rejected_values_.reserve(rejected_count);
+    for (std::size_t v = 0; v < rejected_count; ++v) {
+        out.rejected_values_.push_back(Term::from_c(
+            shifty_shape_map_binding_rejected_value(map, shape, mapping, index,
+                                                    v)));
+    }
+
+    out.evidence_json_ = detail::copy(
+        shifty_shape_map_binding_evidence_json(map, shape, mapping, index));
+    out.explain_ = detail::copy(
+        shifty_shape_map_binding_explain(map, shape, mapping, index));
+
+    // value_paths annotations: one group per label, each holding an entry per
+    // bound value in `values()` order.
+    out.annotated_values_.reserve(out.values_.size());
+    for (const auto &value : out.values_) {
+        out.annotated_values_.push_back(BoundValue{value, {}});
+    }
+    const std::size_t label_count =
+        shifty_shape_map_binding_annotation_label_count(map, shape, mapping,
+                                                        index);
+    for (std::size_t l = 0; l < label_count; ++l) {
+        const std::string label = detail::copy(
+            shifty_shape_map_binding_annotation_label(map, shape, mapping,
+                                                      index, l));
+        const std::size_t entry_count =
+            shifty_shape_map_binding_annotation_term_count(map, shape, mapping,
+                                                           index, l);
+        for (std::size_t e = 0; e < entry_count && e < out.annotated_values_.size(); ++e) {
+            std::vector<Term> reached;
+            const std::size_t reached_count =
+                shifty_shape_map_binding_annotation_reached_count(
+                    map, shape, mapping, index, l, e);
+            reached.reserve(reached_count);
+            for (std::size_t r = 0; r < reached_count; ++r) {
+                reached.push_back(Term::from_c(
+                    shifty_shape_map_binding_annotation_reached(
+                        map, shape, mapping, index, l, e, r)));
+            }
+            out.annotated_values_[e].annotations[label] = std::move(reached);
+        }
+    }
+
+    return out;
+}
+
+inline Mapping Mapping::from_c(const ShiftyShapeMap *map, std::size_t shape,
+                               std::size_t index) {
+    Mapping out;
+    out.focus_ = detail::copy(shifty_shape_map_mapping_focus(map, shape, index));
+    out.shape_name_ =
+        detail::copy(shifty_shape_map_mapping_shape_name(map, shape, index));
+    out.target_ = detail::copy(shifty_shape_map_mapping_target(map, shape, index));
+    out.conforms_ = shifty_shape_map_mapping_conforms(map, shape, index) != 0;
+    out.evaluation_.focus_node = out.focus_;
+    out.evaluation_.status = out.conforms_ ? EvaluationStatus::Pass
+                                           : EvaluationStatus::Fail;
+    out.evaluation_.evidence_json = detail::copy(
+        shifty_shape_map_mapping_evidence_json(map, shape, index));
+    out.evaluation_.explanation = detail::copy(
+        shifty_shape_map_mapping_explanation(map, shape, index));
+    const std::size_t binding_count =
+        shifty_shape_map_mapping_binding_count(map, shape, index);
+    out.bindings_.reserve(binding_count);
+    for (std::size_t b = 0; b < binding_count; ++b) {
+        out.bindings_.push_back(Binding::from_c(map, shape, index, b));
+    }
+    return out;
+}
+
 
 /// The failing pairs of one conformance scan, with the totals that scan
 /// produced. Move-only: the engine-side pairs are retained so explaining one
@@ -1245,11 +2286,115 @@ public:
         return EvidenceRun(raw);
     }
 
+    /// Builds the shape map for `run` of the *same snapshot* (a run returned
+    /// by `validate()`). `options.name_path` (a SPARQL 1.1 property path,
+    /// default `sh:name`) carries the author's name for each slot, evaluated
+    /// from the property shape's own node over the shapes graph; set empty to
+    /// skip. `options.value_paths` (`label -> path`) annotates each bound
+    /// *value* from the data graph. Materialized eagerly, unlike Python's lazy
+    /// `ShapeMap`.
+    ///
+    /// \throws Error for a malformed `name_path`/`value_paths` path.
+    [[nodiscard]] ShapeMap shape_map(
+        const EvidenceRun &run, ShapeMapOptions options = {}) const {
+        ShiftyShapeMap *raw = nullptr;
+        const auto value_pairs =
+            detail::build_value_path_pairs(options.value_paths);
+        detail::check(shifty_evidence_session_shape_map(
+            handle_.get(),
+            run.handle_.get(),
+            detail::optional_data(options.name_path),
+            options.name_path.size(),
+            value_pairs.data(),
+            value_pairs.size(),
+            &raw));
+        return ShapeMap(raw);
+    }
+
+    /// Maps raw (source) constraint id to the values `name_path` reaches from
+    /// that constraint's originating shapes-graph node, evaluated over the
+    /// shapes graph. `name_path` defaults to `sh:name`. Constraints with no
+    /// source-node provenance, or where `name_path` resolves to nothing, are
+    /// omitted.
+    ///
+    /// \throws Error for a malformed `name_path`.
+    [[nodiscard]] std::map<std::uint32_t, std::vector<std::string>>
+    binding_names(std::string_view name_path = "sh:name") const {
+        ShiftyBindingNameList *raw = nullptr;
+        detail::check(shifty_evidence_session_binding_names(
+            handle_.get(), name_path.data(), name_path.size(), &raw));
+        detail::OwnedBindingNames owned(raw);
+        std::map<std::uint32_t, std::vector<std::string>> out;
+        const std::size_t count = shifty_binding_name_list_len(owned.get());
+        for (std::size_t i = 0; i < count; ++i) {
+            std::vector<std::string> names;
+            const std::size_t count_v =
+                shifty_binding_name_value_count(owned.get(), i);
+            names.reserve(count_v);
+            for (std::size_t v = 0; v < count_v; ++v) {
+                names.push_back(detail::copy(
+                    shifty_binding_name_value(owned.get(), i, v)));
+            }
+            out[shifty_binding_name_constraint(owned.get(), i)] = std::move(names);
+        }
+        return out;
+    }
+
+    /// The raw schema's shape name for `constraint_id` — the IRI of the named
+    /// (non-blank) RDF node it was lowered from. `std::nullopt` when the
+    /// constraint has no name.
+    [[nodiscard]] std::optional<std::string> shape_name_of(
+        std::uint32_t constraint_id) const {
+        ShiftyString *raw = nullptr;
+        detail::check(shifty_evidence_session_shape_name_of(
+            handle_.get(), constraint_id, &raw));
+        if (raw == nullptr) return std::nullopt;
+        detail::OwnedString owned(raw);
+        return detail::copy(shifty_string_data(owned.get()));
+    }
+
+    /// Batch-evaluates `path` (a SPARQL 1.1 property path, same grammar as
+    /// `name_path`) from each of `nodes` (N-Triples spellings) over this
+    /// session's evaluation graph — the data graph, unioned with the shapes
+    /// graph to match this session's own `graph_mode`. Returns each input
+    /// node's N-Triples spelling mapped to the N-Triples spellings it reaches,
+    /// in input order.
+    ///
+    /// \throws Error for a malformed node or `path`.
+    [[nodiscard]] std::vector<std::pair<std::string, std::vector<std::string>>>
+    resolve_path(
+        const std::vector<std::string> &nodes, std::string_view path) const {
+        const auto views = detail::string_views(nodes);
+        ShiftyPathResolutionList *raw = nullptr;
+        detail::check(shifty_evidence_session_resolve_path(
+            handle_.get(), views.data(), views.size(), path.data(), path.size(),
+            &raw));
+        detail::OwnedPathResolutions owned(raw);
+        std::vector<std::pair<std::string, std::vector<std::string>>> out;
+        const std::size_t count = shifty_path_resolution_list_len(owned.get());
+        out.reserve(count);
+        for (std::size_t i = 0; i < count; ++i) {
+            std::vector<std::string> reached;
+            const std::size_t count_v =
+                shifty_path_resolution_value_count(owned.get(), i);
+            reached.reserve(count_v);
+            for (std::size_t v = 0; v < count_v; ++v) {
+                reached.push_back(detail::copy(
+                    shifty_path_resolution_value(owned.get(), i, v)));
+            }
+            out.emplace_back(
+                detail::copy(shifty_path_resolution_node(owned.get(), i)),
+                std::move(reached));
+        }
+        return out;
+    }
+
 private:
     using Handle =
         std::unique_ptr<ShiftyEvidenceSession, detail::EvidenceSessionDeleter>;
     Handle handle_;
 };
+
 
 /// Restores a run compacted by EvidenceRun::compact_json(), returning the same
 /// JSON EvidenceRun::json() produced.

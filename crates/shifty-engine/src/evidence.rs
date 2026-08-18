@@ -159,6 +159,15 @@ impl PreparedEvidenceValidator {
         })
     }
 
+    /// The evaluation data graph this snapshot was prepared over: the dataset
+    /// after inference (when requested), exactly as target selection and the
+    /// evaluator see it. Borrowed so a caller resolving extra paths (e.g. the
+    /// shape-map `value_paths` feature) evaluates over the same graph the run
+    /// used without cloning it.
+    pub fn data(&self) -> &Graph {
+        &self.data
+    }
+
     /// Validate the prepared snapshot for conformance only.
     ///
     /// Preparation, target selection, and the evaluator are exactly those of

@@ -402,5 +402,154 @@ int main() {
     }
     assert(rejected);
 
+    // ── shape-map v2: typed key -> value bindings ────────────────────────
+    // The flat view one level above the evidence trees: typed Key -> Binding
+    // per (shape, focus) pair, with cardinality/severity read from the source
+    // constraint, sh:name via name_path, and value_paths annotations on the
+    // bound values. Mirrors python/examples/shape_map_point_list.py.
+    constexpr std::string_view smap_shapes = R"(
+        @prefix sh:  <http://www.w3.org/ns/shacl#> .
+        @prefix brick: <https://brickschema.org/schema/Brick#> .
+        @prefix demo: <urn:shifty-smoke/> .
+        @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+        demo:ZoneShape a sh:NodeShape ;
+            sh:targetClass brick:HVAC_Zone ;
+            sh:property [
+                sh:path brick:hasPoint ;
+                sh:name "zone temperature point" ;
+                sh:qualifiedValueShape [ sh:class brick:Zone_Air_Temperature_Sensor ] ;
+                sh:qualifiedMinCount 1
+            ] ;
+            sh:property [
+                sh:path brick:hasPart ;
+                sh:qualifiedValueShape [ sh:class brick:Space ] ;
+                sh:qualifiedMinCount 1
+            ] .
+        demo:VavShape a sh:NodeShape ;
+            sh:targetClass brick:Terminal_Unit ;
+            sh:property [
+                sh:path brick:hasPoint ;
+                sh:qualifiedValueShape [ sh:node demo:heating-coil ] ;
+                sh:qualifiedMinCount 1
+            ] .
+        demo:heating-coil a sh:NodeShape ;
+            sh:targetClass brick:Heating_Coil ;
+            sh:property [
+                sh:path brick:hasPoint ;
+                sh:qualifiedValueShape [ sh:class brick:Position_Command ] ;
+                sh:qualifiedMinCount 1
+            ] .
+    )";
+    constexpr std::string_view smap_data = R"(
+        @prefix brick: <https://brickschema.org/schema/Brick#> .
+        @prefix demo: <urn:shifty-smoke/> .
+
+        demo:zone1 a brick:HVAC_Zone ;
+            brick:hasPoint demo:temp_sensor ;
+            brick:hasPart demo:space1 .
+        demo:temp_sensor a brick:Zone_Air_Temperature_Sensor .
+        demo:space1 a brick:Space .
+        demo:vav1 a brick:Terminal_Unit ;
+            brick:hasPoint demo:coil .
+        demo:coil a brick:Heating_Coil ;
+            brick:hasPoint demo:cmd .
+        demo:cmd a brick:Position_Command .
+    )";
+
+    shifty::Dataset smap_dataset;
+    smap_dataset.load(smap_data);
+    shifty::PreparedValidator smap_validator(smap_shapes);
+    const shifty::EvidenceSession smap_session(smap_validator, smap_dataset);
+
+    // Session helpers: shape_name_of resolves the named shape for a source
+    // constraint; resolve_path batch-evaluates a path over the data graph.
+    // binding_names resolves sh:name per source constraint.
+    const auto names = smap_session.binding_names();
+    assert(!names.empty());
+    bool saw_zone_point_name = false;
+    for (const auto &[id, values] : names) {
+        for (const auto &value : values) {
+            if (value == "zone temperature point") saw_zone_point_name = true;
+        }
+    }
+    assert(saw_zone_point_name);
+
+    const auto resolved = smap_session.resolve_path(
+        {"<urn:shifty-smoke/temp_sensor>"}, "demo:hasTimeseriesId");
+    assert(resolved.size() == 1);
+    assert(resolved[0].first == "<urn:shifty-smoke/temp_sensor>");
+    assert(resolved[0].second.empty());  // no timeseries id in this graph
+
+    // The shape map itself: typed keys with qualifiers, cardinality/severity
+    // read from the source constraints, and sh:name via name_path.
+    shifty::ShapeMapOptions smap_options;
+    smap_options.name_path = "sh:name";
+    const auto smap = smap_session.shape_map(smap_session.validate(), smap_options);
+
+    assert(smap.conforms());
+    assert(smap.total_mappings() == 2);  // zone1 + vav1
+    assert(smap.shape_names().size() == 2);
+
+    const auto &zone_mappings =
+        smap.mappings("urn:shifty-smoke/ZoneShape");
+    assert(zone_mappings.size() == 1);
+    const auto &zone = zone_mappings.front();
+    assert(zone.conforms());
+    assert(zone.focus() == "<urn:shifty-smoke/zone1>");
+    assert(zone.size() == 2);
+
+    // The zone temperature point binding: qualified via Cls, sh:name carried,
+    // cardinality from the source constraint, and typed Term values.
+    const auto &temp = zone.by_name("zone temperature point");
+    assert(temp.ok());
+    assert(temp.status() == "pass");
+    assert(temp.qualifier().has_value());
+    assert(temp.qualifier()->kind() == shifty::QualifierKind::Cls);
+    assert(temp.qualifier()->iri() ==
+           "https://brickschema.org/schema/Brick#Zone_Air_Temperature_Sensor");
+    assert(temp.min().has_value() && *temp.min() == 1);
+    assert(temp.max().has_value() && *temp.max() == 1);
+    assert(temp.expects_single());
+    assert(temp.severity() == "violation");
+    assert(temp.values().size() == 1);
+    const auto &temp_value = temp.values().front();
+    assert(temp_value.is_iri());
+    assert(temp_value.value() == "urn:shifty-smoke/temp_sensor");
+    assert(temp_value.n3() == "<urn:shifty-smoke/temp_sensor>");
+    assert(temp.missing() == 0);
+
+    // The zone hasPart binding: not named, but bound with the Space class.
+    assert(zone.find("hasPart") != nullptr);
+    assert(zone.find("hasPart")->ok());
+    assert(zone.find("hasPart")->values().size() == 1);
+
+    // Key str() renders path->qualifier.
+    const auto &space_binding = *zone.find("hasPart");
+    assert(space_binding.key().str().find("hasPart") != std::string::npos);
+    assert(space_binding.key().path().has_value());
+    assert(space_binding.key().path()->str(false) ==
+           "<https://brickschema.org/schema/Brick#hasPart>");
+
+    // The vav mapping: a ShapeRef qualifier (sh:node demo:heating-coil).
+    const auto &vav_mappings =
+        smap.mappings("urn:shifty-smoke/VavShape");
+    assert(vav_mappings.size() == 1);
+    const auto &vav = vav_mappings.front();
+    assert(vav.conforms());
+    assert(vav.bindings().size() == 1);
+    const auto &coil = vav.bindings().front();
+    assert(coil.ok());
+    assert(coil.qualifier().has_value());
+    assert(coil.qualifier()->kind() == shifty::QualifierKind::ShapeRef);
+    assert(coil.qualifier()->iri() == "urn:shifty-smoke/heating-coil");
+    assert(coil.values().size() == 1);
+    assert(coil.values().front().value().find("coil") != std::string::npos);
+
+    // to_json gives the plain summary.
+    const auto &summary = smap.to_json();
+    assert(summary.find("conforms") != std::string::npos);
+    assert(summary.find("zone temperature point") != std::string::npos);
+
     return 0;
 }

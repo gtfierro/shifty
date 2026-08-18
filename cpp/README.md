@@ -257,6 +257,72 @@ const auto restored =
 Expanding a catalog-less encoding without supplying one throws, rather than
 yielding a silently truncated run.
 
+### Shape maps: typed key -> value bindings
+
+One level above the evidence trees is the shape-map view: for every selected
+`(shape, focus)` pair, a mapping of the shape's property obligations — bound
+keys carry the values the data supplied as typed `Term`s (exact even on
+partially-conforming foci), unbound keys carry the shortfall count and
+near-misses. This is the C++ port of the Python `shifty.shape_map()`.
+
+```cpp
+shifty::ShapeMapOptions opts;
+opts.name_path = "sh:name";            // author's name per slot, shapes graph
+opts.value_paths = {{"ts", "demo:hasTimeseriesId"}};  // annotate each value
+
+const shifty::EvidenceSession session(validator, dataset);
+const auto smap = session.shape_map(session.validate(), opts);
+
+for (const auto &name : smap.shape_names()) {
+    for (const auto &mapping : smap.mappings(name)) {
+        for (const auto &binding : mapping.successful()) {
+            std::cout << binding->key().str() << ":";
+            for (const auto &value : binding->values()) {
+                std::cout << " " << value.n3();
+            }
+            std::cout << "\n";
+        }
+        for (const auto &binding : mapping.unsuccessful()) {
+            std::cout << binding->key().str() << ": missing "
+                      << binding->missing() << "\n";
+        }
+    }
+}
+```
+
+Keys are typed (`Key` with a `Path` plus an optional `Qualifier` —
+`QualifierKind::Cls`/`Const`/`Datatype`/`ShapeRef`), values are typed
+`Term`s (`TermKind::Iri`/`Literal`/`BNode`), and bindings carry cardinality
+(`min`/`max`/`observed`/`expects_single`) and `severity` read from the source
+constraint so they are present even when evidence was not materialized.
+`name_path` (default `sh:name`; set `ShapeMapOptions::name_path` empty to
+skip) carries the author's name for each slot, evaluated from the property
+shape's own node over the shapes graph; `value_paths` annotates each bound
+*value* from the data graph, resolved in one batched call per label
+(`Binding::annotated_values()` / `annotations()`).
+
+A partially-conforming focus yields both sides: its failing keys report
+`missing()`/`rejected_values()` and the `evidence_json()` witness subtree,
+while its passing keys are materialized on demand (the raw failure witness
+elides them) so a repair driver sees every value the focus can already
+supply.
+
+`Mapping` also offers `for_focus()` (via `ShapeMap`), `by_name()`, `find()`,
+`value_map()` / `value_map_by_name()`, and `ShapeMap::to_json()` for a
+plain-JSON summary. `Path::parse_json()` round-trips the `key_path_json`
+encoding into a typed `Path` for pattern matching.
+
+Three session helpers back the features directly, mirroring the Python
+`EvidenceSession`:
+
+- `binding_names(name_path)` — raw source constraint id -> reached names over
+  the shapes graph (used for `name_path`);
+- `shape_name_of(constraint_id)` — the named shape IRI a source constraint
+  was lowered from;
+- `resolve_path(nodes, path)` — batch-evaluate a SPARQL property path from
+  N-Triples nodes over the session's evaluation graph (used for
+  `value_paths`).
+
 ## Install
 
 ```sh

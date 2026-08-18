@@ -4,6 +4,16 @@
 
 ### Added
 
+- Extended the shape-map v2 vocabulary to the C++ SDK: `EvidenceSession`
+  gains `shape_map()` (`ShapeMap` with typed `Key` -> `Binding` mappings,
+  `Term`/`Path`/`Qualifier` values, cardinality, severity, `name_path`, and
+  `value_paths` annotations), plus the `binding_names()`, `shape_name_of()`,
+  and `resolve_path()` helpers backing those features — the C++ analogue of
+  the Python `shifty.ShapeMap`. The C ABI grew `ShiftyTerm`, `ShiftyTermKind`,
+  `ShiftyQualifierKind`, and opaque `ShiftyBindingNameList` /
+  `ShiftyPathResolutionList` / `ShiftyShapeMap` handles (ABI version 4 -> 5);
+  `PreparedEvidenceValidator` exposes the evaluated data graph so
+  `resolve_path` reads the same graph the run used.
 - Added `shifty.shape_map()` / `shifty.ShapeMap` to the Python bindings: a
   ShEx-shapemap-style view one level above the evidence trees. Each selected
   `(shape, focus)` pair becomes a `Mapping` — a `collections.abc.Mapping` from
