@@ -83,77 +83,6 @@ int main() {
     assert(algebra_violation.reasons.front().severity == "Violation");
     assert(algebra.results_text().find("bob") != std::string::npos);
 
-    // Property witnesses: the observed sh:property bindings for conforming
-    // focus nodes, disambiguated via sh:qualifiedValueShape (the "four
-    // same-quantity-kind temperature sensors" scenario). The key isn't a
-    // direct annotation on the property shape — it's one hop further,
-    // through an intermediate "role descriptor" node — to exercise the
-    // multi-hop key_path (a plain single-predicate lookup couldn't reach it).
-    constexpr std::string_view witness_shapes = R"(
-        @prefix sh:  <http://www.w3.org/ns/shacl#> .
-        @prefix zea: <http://zea.example/ns#> .
-        @prefix ex:  <http://example.com/> .
-
-        ex:VavProfile a sh:NodeShape ;
-            sh:targetClass ex:Vav ;
-            sh:property [
-                zea:role ex:OutsideAirTempRole ;
-                sh:path ex:hasPoint ;
-                sh:qualifiedValueShape [ sh:hasValue ex:oat ] ;
-                sh:qualifiedMinCount 1 ;
-                sh:qualifiedMaxCount 1 ;
-            ] ;
-            sh:property [
-                zea:role ex:ReturnAirTempRole ;
-                sh:path ex:hasPoint ;
-                sh:qualifiedValueShape [ sh:hasValue ex:rat ] ;
-                sh:qualifiedMinCount 1 ;
-                sh:qualifiedMaxCount 1 ;
-            ] .
-        ex:OutsideAirTempRole zea:roleName "outsideAirTemp" .
-        ex:ReturnAirTempRole zea:roleName "returnAirTemp" .
-    )";
-
-    constexpr std::string_view witness_data = R"(
-        @prefix ex: <http://example.com/> .
-        ex:vav1 a ex:Vav ; ex:hasPoint ex:oat, ex:rat, ex:sat, ex:mat .
-        ex:vav2 a ex:Vav ; ex:hasPoint ex:sat .
-    )";
-
-    shifty::Dataset witness_dataset;
-    witness_dataset.load(witness_data);
-
-    shifty::PreparedValidator witness_validator(witness_shapes);
-
-    shifty::ValidationOptions witness_options;
-    witness_options.key_path = "zea:role/zea:roleName";
-    const auto witnesses = witness_validator.witnesses(witness_dataset, witness_options);
-
-    // Only ex:vav1 conforms (ex:vav2 is missing both qualified points), so
-    // only its two key bindings are reported.
-    assert(witnesses.size() == 2);
-    for (const auto &w : witnesses) {
-        assert(w.focus_node == "<http://example.com/vav1>");
-        assert(w.shape_id == "<http://example.com/VavProfile>");
-    }
-
-    const auto find_key = [&witnesses](const std::string &key) -> const shifty::PropertyWitness & {
-        for (const auto &w : witnesses) {
-            if (w.key == key) {
-                return w;
-            }
-        }
-        throw std::runtime_error("key not found: " + key);
-    };
-
-    const auto &outside_air = find_key("outsideAirTemp");
-    assert(outside_air.value_nodes.size() == 1);
-    assert(outside_air.value_nodes[0] == "<http://example.com/oat>");
-
-    const auto &return_air = find_key("returnAirTemp");
-    assert(return_air.value_nodes.size() == 1);
-    assert(return_air.value_nodes[0] == "<http://example.com/rat>");
-
     // Severity threshold (minimum_severity): the lowest result severity that
     // fails validation. Findings below the threshold stay in the report /
     // violation tree; they just don't make conforms() false. A focus node
@@ -308,105 +237,9 @@ int main() {
     std::filesystem::remove(shapes_a_path);
     std::filesystem::remove(shapes_b_path);
 
-    // Evidence-carrying validation: unlike validate(), which reports only what
-    // failed, a run carries one evidence polarity for every selected pair —
-    // alice's satisfaction as well as bob's failure.
-    const shifty::EvidenceSession evidence(validator, dataset);
-    assert(!evidence.constraints_json().empty());
-
-    const auto run = evidence.validate();
-    assert(!run.conforms());
-    assert(!static_cast<bool>(run));
-    assert(!run.statements().empty());
-
-    const shifty::FocusEvidence *alice = nullptr;
-    const shifty::FocusEvidence *bob = nullptr;
-    std::size_t person_statement = 0;
-    for (const auto &statement : run.statements()) {
-        for (const auto &focus : statement.selected_foci) {
-            if (focus.focus_node == "<http://example.com/alice>") {
-                alice = &focus;
-                person_statement =
-                    statement.normalized_statement_id.value();
-            } else if (focus.focus_node == "<http://example.com/bob>") {
-                bob = &focus;
-            }
-        }
-        if (alice != nullptr) {
-            assert(statement.target.find("Person") != std::string::npos);
-            assert(!statement.constraint_kind.empty());
-        }
-    }
-    assert(alice != nullptr && alice->passed());
-    assert(bob != nullptr && !bob->passed());
-    assert(bob->status == shifty::EvaluationStatus::Fail);
-    assert(bob->evidence_json.find("\"fail\"") != std::string::npos);
-    assert(!bob->explanation.empty());
-    // The passing focus is present with a satisfaction trace — the property a
-    // validation report cannot express.
-    assert(alice->evidence_json.find("\"pass\"") != std::string::npos);
-
-    // Conformance-only baseline over the same snapshot: a verdict and counts,
-    // with no evidence materialized.
-    const auto conformance = evidence.validate_conformance();
-    assert(!conformance.conforms);
-    assert(conformance.failed == 1);
-    assert(conformance.passed + conformance.failed == conformance.selected_pairs);
-
-    // The scalable path: scan for failures, then explain only those.
-    const auto failures = evidence.find_failures();
-    assert(!failures.empty());
-    assert(failures.size() == 1);
-    assert(failures.conformance().failed == 1);
-    assert(failures.pairs().front().focus_node == "<http://example.com/bob>");
-
-    const auto explained = evidence.explain(failures, 0);
-    assert(!explained.conforms());
-    assert(explained.statements().size() == 1);
-    const auto &explained_focus = explained.statements().front().selected_foci.front();
-    assert(explained_focus.focus_node == "<http://example.com/bob>");
-    assert(!explained_focus.passed());
-    assert(explained_focus.evidence_json == bob->evidence_json);
-
-    // Explaining an arbitrary pair by naming its focus reaches the same
-    // evidence as explaining it from the failure list.
-    const auto explained_by_term = evidence.explain(
-        failures.pairs().front().statement, "<http://example.com/bob>");
-    assert(
-        explained_by_term.statements().front().selected_foci.front().evidence_json ==
-        explained_focus.evidence_json);
-
-    // A pair that passed explains too — target selection is not re-run, so the
-    // statement index and focus are taken as given.
-    const auto explained_pass =
-        evidence.explain(person_statement, "<http://example.com/alice>");
-    assert(explained_pass.conforms());
-
-    // Compaction is lossless, and eliding the catalog only moves it: expanding
-    // with the session's catalog reproduces the self-contained expansion.
-    const auto compact = run.compact_json();
-    const auto compact_without_catalog = run.compact_json(false);
-    assert(compact_without_catalog.size() < compact.size());
-    assert(
-        shifty::expand_evidence(compact) ==
-        shifty::expand_evidence(compact_without_catalog, evidence.constraints_json()));
-    assert(shifty::expand_evidence(compact).find("alice") != std::string::npos);
-
-    // Expanding a catalog-less encoding without supplying one is an error, not
-    // a silently truncated run.
-    bool rejected = false;
-    try {
-        (void)shifty::expand_evidence(compact_without_catalog);
-    } catch (const shifty::Error &) {
-        rejected = true;
-    }
-    assert(rejected);
-
     // ── shape-map v2: typed key -> value bindings ────────────────────────
-    // The flat view one level above the evidence trees: typed Key -> Binding
-    // per (shape, focus) pair, with cardinality/severity read from the source
-    // constraint, sh:name via name_path, and value_paths annotations on the
-    // bound values. Mirrors python/examples/shape_map_point_list.py.
+    // Typed Key -> Binding pairs with cardinality, sh:name via name_path, and
+    // value_paths annotations on bound values.
     constexpr std::string_view smap_shapes = R"(
         @prefix sh:  <http://www.w3.org/ns/shacl#> .
         @prefix brick: <https://brickschema.org/schema/Brick#> .
@@ -419,7 +252,8 @@ int main() {
                 sh:path brick:hasPoint ;
                 sh:name "zone temperature point" ;
                 sh:qualifiedValueShape [ sh:class brick:Zone_Air_Temperature_Sensor ] ;
-                sh:qualifiedMinCount 1
+                sh:qualifiedMinCount 1 ;
+                sh:qualifiedMaxCount 1
             ] ;
             sh:property [
                 sh:path brick:hasPart ;
@@ -460,32 +294,15 @@ int main() {
     shifty::Dataset smap_dataset;
     smap_dataset.load(smap_data);
     shifty::PreparedValidator smap_validator(smap_shapes);
-    const shifty::EvidenceSession smap_session(smap_validator, smap_dataset);
-
-    // Session helpers: shape_name_of resolves the named shape for a source
-    // constraint; resolve_path batch-evaluates a path over the data graph.
-    // binding_names resolves sh:name per source constraint.
-    const auto names = smap_session.binding_names();
-    assert(!names.empty());
-    bool saw_zone_point_name = false;
-    for (const auto &[id, values] : names) {
-        for (const auto &value : values) {
-            if (value == "zone temperature point") saw_zone_point_name = true;
-        }
-    }
-    assert(saw_zone_point_name);
-
-    const auto resolved = smap_session.resolve_path(
-        {"<urn:shifty-smoke/temp_sensor>"}, "demo:hasTimeseriesId");
-    assert(resolved.size() == 1);
-    assert(resolved[0].first == "<urn:shifty-smoke/temp_sensor>");
-    assert(resolved[0].second.empty());  // no timeseries id in this graph
-
     // The shape map itself: typed keys with qualifiers, cardinality/severity
     // read from the source constraints, and sh:name via name_path.
     shifty::ShapeMapOptions smap_options;
     smap_options.name_path = "sh:name";
-    const auto smap = smap_session.shape_map(smap_session.validate(), smap_options);
+    smap_options.shape_names = {
+        "urn:shifty-smoke/ZoneShape",
+        "urn:shifty-smoke/VavShape",
+    };
+    const auto smap = smap_validator.shape_map(smap_dataset, smap_options);
 
     assert(smap.conforms());
     assert(smap.total_mappings() == 2);  // zone1 + vav1
@@ -503,7 +320,7 @@ int main() {
     // cardinality from the source constraint, and typed Term values.
     const auto &temp = zone.by_name("zone temperature point");
     assert(temp.ok());
-    assert(temp.status() == "pass");
+    assert(temp.status() == shifty::BindingStatus::Bound);
     assert(temp.qualifier().has_value());
     assert(temp.qualifier()->kind() == shifty::QualifierKind::Cls);
     assert(temp.qualifier()->iri() ==
@@ -511,7 +328,6 @@ int main() {
     assert(temp.min().has_value() && *temp.min() == 1);
     assert(temp.max().has_value() && *temp.max() == 1);
     assert(temp.expects_single());
-    assert(temp.severity() == "violation");
     assert(temp.values().size() == 1);
     const auto &temp_value = temp.values().front();
     assert(temp_value.is_iri());
@@ -520,12 +336,21 @@ int main() {
     assert(temp.missing() == 0);
 
     // The zone hasPart binding: not named, but bound with the Space class.
-    assert(zone.find("hasPart") != nullptr);
-    assert(zone.find("hasPart")->ok());
-    assert(zone.find("hasPart")->values().size() == 1);
+    const shifty::Binding *space = nullptr;
+    for (const auto &binding : zone.bindings()) {
+        if (binding.path().has_value() &&
+            binding.path()->kind() == shifty::PathKind::Pred &&
+            binding.path()->iri() ==
+                "https://brickschema.org/schema/Brick#hasPart") {
+            space = &binding;
+        }
+    }
+    assert(space != nullptr);
+    assert(space->ok());
+    assert(space->values().size() == 1);
 
     // Key str() renders path->qualifier.
-    const auto &space_binding = *zone.find("hasPart");
+    const auto &space_binding = *space;
     assert(space_binding.key().str().find("hasPart") != std::string::npos);
     assert(space_binding.key().path().has_value());
     assert(space_binding.key().path()->str(false) ==

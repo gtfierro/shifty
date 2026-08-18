@@ -6,7 +6,7 @@
 //! an `EvidenceRun` carries so the two bindings observe identical semantics:
 //! the run JSON is parsed into [`serde_json::Value`], the Python readers are
 //! ported onto it, and only the pieces Python reaches through its
-//! `EvidenceSession` (`binding_names`, `shape_name_of`, `explain_constraint`
+//! the prepared evaluator (`binding_names`, `shape_name_of`, `materialize_constraint`
 //! / `evidence_for`, `resolve_path`) are supplied by the caller as closures.
 //!
 //! One difference from Python is deliberate: Python materializes the passing
@@ -76,14 +76,31 @@ impl TermInfo {
 /// (`{"type": "uri"|"bnode"|"literal", "value": …, "datatype"?: …,
 /// "xml:lang"?: …}`).
 fn term_from_json(term: &Value) -> TermInfo {
-    let value = term.get("value").and_then(Value::as_str).unwrap_or("").to_string();
+    let value = term
+        .get("value")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
     match term.get("type").and_then(Value::as_str) {
-        Some("uri") => TermInfo { kind: TermKind::Iri, value, datatype: None, language: None },
-        Some("bnode") => TermInfo { kind: TermKind::BNode, value, datatype: None, language: None },
+        Some("uri") => TermInfo {
+            kind: TermKind::Iri,
+            value,
+            datatype: None,
+            language: None,
+        },
+        Some("bnode") => TermInfo {
+            kind: TermKind::BNode,
+            value,
+            datatype: None,
+            language: None,
+        },
         _ => TermInfo {
             kind: TermKind::Literal,
             value,
-            datatype: term.get("datatype").and_then(Value::as_str).map(str::to_string),
+            datatype: term
+                .get("datatype")
+                .and_then(Value::as_str)
+                .map(str::to_string),
             language: term
                 .get("xml:lang")
                 .or_else(|| term.get("lang"))
@@ -118,29 +135,41 @@ fn path_tag(path: &Value) -> Option<&str> {
     }
 }
 
+/// The predicate IRI of a `Pred` path node, if it is one.
+fn pred_iri(path: &Value) -> Option<&str> {
+    path.get("Pred")
+        .and_then(|pred| pred.get("value"))
+        .and_then(Value::as_str)
+}
+
 /// True for the `rdf:type/rdfs:subClassOf*` shape of a class-membership path.
 fn is_class_path(path: Option<&Value>) -> bool {
-    let Some(Value::Object(map)) = path else { return false };
-    let Some(Value::Array(parts)) = map.get("Seq") else { return false };
+    let Some(Value::Object(map)) = path else {
+        return false;
+    };
+    let Some(Value::Array(parts)) = map.get("Seq") else {
+        return false;
+    };
     parts.len() == 2
         && path_tag(&parts[0]) == Some("Pred")
-        && parts[0]
-            .get("Pred")
-            .and_then(|p| p.get("value"))
-            .and_then(Value::as_str)
-            == Some(RDF_TYPE)
+        && pred_iri(&parts[0]) == Some(RDF_TYPE)
         && path_tag(&parts[1]) == Some("Star")
-        && parts[1]
-            .get("Star")
-            .map(path_tag)
-            .flatten()
-            == Some("Pred")
-        && parts[1]
-            .get("Star")
-            .and_then(|s| s.get("Pred"))
-            .and_then(|p| p.get("value"))
-            .and_then(Value::as_str)
-            == Some(RDFS_SUBCLASS)
+        && path_tag(parts[1].get("Star").unwrap_or(&Value::Null)) == Some("Pred")
+        && pred_iri(parts[1].get("Star").unwrap_or(&Value::Null)) == Some(RDFS_SUBCLASS)
+}
+
+/// Join path children with a separator, or an empty string when the body is
+/// not an array.
+fn join_paths(body: &Value, sep: &str, compact: bool) -> String {
+    body.as_array()
+        .map(|parts| {
+            parts
+                .iter()
+                .map(|part| path_str(part, compact))
+                .collect::<Vec<_>>()
+                .join(sep)
+        })
+        .unwrap_or_default()
 }
 
 fn path_str(path: &Value, compact: bool) -> String {
@@ -164,27 +193,11 @@ fn path_str(path: &Value, compact: bool) -> String {
                     // it like Turtle.
                     if is_class_path(Some(path)) {
                         "a".to_string()
-                    } else if let Some(parts) = body.as_array() {
-                        parts
-                            .iter()
-                            .map(|part| path_str(part, compact))
-                            .collect::<Vec<_>>()
-                            .join("/")
                     } else {
-                        String::new()
+                        join_paths(body, "/", compact)
                     }
                 }
-                "Alt" => {
-                    if let Some(parts) = body.as_array() {
-                        parts
-                            .iter()
-                            .map(|part| path_str(part, compact))
-                            .collect::<Vec<_>>()
-                            .join("|")
-                    } else {
-                        String::new()
-                    }
-                }
+                "Alt" => join_paths(body, "|", compact),
                 _ => String::new(),
             }
         }
@@ -338,7 +351,9 @@ fn qualifier_from_json(
         return Some(QualifierInfo::ShapeRef(name));
     }
     let constraint = catalog.get(unwrapped)?;
-    let Value::Object(map) = constraint else { return None };
+    let Value::Object(map) = constraint else {
+        return None;
+    };
     if let Some(test_const) = map.get("TestConst") {
         return Some(QualifierInfo::Const(term_from_json(test_const)));
     }
@@ -356,7 +371,10 @@ fn qualifier_from_json(
             let inner = qualifier_from_json(
                 catalog,
                 shape_name_of,
-                count.get("qualifier").and_then(Value::as_u64).map(|v| v as u32),
+                count
+                    .get("qualifier")
+                    .and_then(Value::as_u64)
+                    .map(|v| v as u32),
             );
             if let Some(QualifierInfo::Const(term)) = &inner {
                 if term.kind == TermKind::Iri {
@@ -374,11 +392,9 @@ fn qualifier_from_json(
             .and_then(Value::as_array)
         {
             for child in children {
-                if let Some(found) = qualifier_from_json(
-                    catalog,
-                    shape_name_of,
-                    child.as_u64().map(|v| v as u32),
-                ) {
+                if let Some(found) =
+                    qualifier_from_json(catalog, shape_name_of, child.as_u64().map(|v| v as u32))
+                {
                     return Some(found);
                 }
             }
@@ -409,9 +425,16 @@ fn derive_key_info(
             let qualifier = qualifier_from_json(
                 catalog,
                 shape_name_of,
-                count.get("qualifier").and_then(Value::as_u64).map(|v| v as u32),
+                count
+                    .get("qualifier")
+                    .and_then(Value::as_u64)
+                    .map(|v| v as u32),
             );
-            return KeyInfo { path, qualifier, kind: "count".to_string() };
+            return KeyInfo {
+                path,
+                qualifier,
+                kind: "count".to_string(),
+            };
         }
         let is_and = map.contains_key("And");
         if is_and || map.contains_key("Or") {
@@ -432,7 +455,11 @@ fn derive_key_info(
             if paths.len() == 1 {
                 let path = paths.into_iter().next().cloned();
                 let qualifier = infos.iter().find_map(|info| info.qualifier.clone());
-                return KeyInfo { path, qualifier, kind: "count".to_string() };
+                return KeyInfo {
+                    path,
+                    qualifier,
+                    kind: "count".to_string(),
+                };
             }
             return KeyInfo {
                 path: None,
@@ -441,7 +468,11 @@ fn derive_key_info(
             };
         }
     }
-    KeyInfo { path: None, qualifier: None, kind: kind_tag(constraint) }
+    KeyInfo {
+        path: None,
+        qualifier: None,
+        kind: kind_tag(constraint),
+    }
 }
 
 /// The rendered key: `path→qualifier`, or the kind tag for a pathless key,
@@ -508,57 +539,6 @@ fn collect_bounds(catalog: &Catalog, constraint_id: Option<u32>) -> (Option<u64>
     (None, None)
 }
 
-fn severity_string(severity: &Value) -> String {
-    match severity {
-        Value::String(text) => text.clone(),
-        // A custom severity serializes as `{"Custom": {"value": …}}`.
-        Value::Object(map) => map
-            .get("Custom")
-            .and_then(|custom| custom.get("value"))
-            .and_then(Value::as_str)
-            .map(str::to_string)
-            .unwrap_or_else(|| "Custom".to_string()),
-        _ => "Violation".to_string(),
-    }
-}
-
-/// The innermost explicit severity on the `Annotated` chain of a normalized
-/// constraint, falling back to the statement's own. A collapsed
-/// single-property NodeShape normalizes to nested `Annotated{Annotated{…}}`;
-/// the innermost explicit severity is the one closest to the actual failing
-/// constraint and wins.
-fn severity_of(
-    normalized_catalog: &Catalog,
-    normalized_ref: Option<u32>,
-    statement_normalized_ref: Option<u32>,
-) -> String {
-    fn deepest_severity(catalog: &Catalog, ref_id: Option<u32>) -> Option<String> {
-        let mut found = None;
-        let mut seen = HashSet::new();
-        let mut current = ref_id;
-        while let Some(id) = current {
-            if !seen.insert(id) {
-                break;
-            }
-            match catalog.get(Some(id)) {
-                Some(Value::Object(map)) if map.contains_key("Annotated") => {
-                    if let Some(severity) = map["Annotated"].get("severity") {
-                        found = Some(severity_string(severity));
-                    }
-                    current = map["Annotated"]["shape"].as_u64().map(|v| v as u32);
-                }
-                _ => break,
-            }
-        }
-        found
-    }
-
-    let severity = deepest_severity(normalized_catalog, normalized_ref)
-        .or_else(|| deepest_severity(normalized_catalog, statement_normalized_ref))
-        .unwrap_or_else(|| "Violation".to_string());
-    severity.to_lowercase()
-}
-
 // ── evidence-tree readers (ported from shapemap.py onto the run JSON) ─────────
 
 fn details_map(node: &Value) -> Option<&JsonMap<String, Value>> {
@@ -570,7 +550,9 @@ fn node_type(node: &Value) -> Option<&str> {
 }
 
 fn direct_children(node: &Value) -> Vec<&Value> {
-    let Some(details) = details_map(node) else { return Vec::new() };
+    let Some(details) = details_map(node) else {
+        return Vec::new();
+    };
     for field in ["children", "failed", "branches", "satisfied"] {
         if let Some(children) = details.get(field).and_then(Value::as_array) {
             return children.iter().collect();
@@ -582,71 +564,53 @@ fn direct_children(node: &Value) -> Vec<&Value> {
 /// The values bound at the *top level* of an evidence subtree: what the
 /// property's own path matched, without descending into nested qualifier
 /// checks (whose matches are class/type terms, not bindings).
+/// The `term_from_json` of each entry in a JSON array, deduplicated in order.
+fn terms_from(items: &[Value], field: Option<&str>) -> Vec<TermInfo> {
+    let mut out: Vec<TermInfo> = Vec::new();
+    for item in items {
+        let entry = match field {
+            None => item.get(0),
+            Some(field) => item.get(field),
+        };
+        let term = entry.map(term_from_json);
+        if let Some(term) = term {
+            if !out.contains(&term) {
+                out.push(term);
+            }
+        }
+    }
+    out
+}
+
 fn top_values(node: Option<&Value>) -> Vec<TermInfo> {
     let Some(node) = node else { return Vec::new() };
     let kind = node_type(node).unwrap_or("");
     let details = details_map(node);
-    let mut found: Vec<TermInfo> = Vec::new();
-    match kind {
-        "count_held" => {
-            if let Some(matches) =
-                details.and_then(|d| d.get("matches")).and_then(Value::as_array)
-            {
-                found = matches
-                    .iter()
-                    .filter_map(|entry| entry.get(0))
-                    .map(term_from_json)
-                    .collect();
-            }
-        }
-        "for_all_held" => {
-            if let Some(values) =
-                details.and_then(|d| d.get("values")).and_then(Value::as_array)
-            {
-                found = values
-                    .iter()
-                    .filter_map(|entry| entry.get(0))
-                    .map(term_from_json)
-                    .collect();
-            }
-        }
-        "count_low" => {
-            if let Some(matches) = details
-                .and_then(|d| d.get("qualifying_matches"))
-                .and_then(Value::as_array)
-            {
-                found = matches
-                    .iter()
-                    .filter_map(|entry| entry.get("value"))
-                    .map(term_from_json)
-                    .collect();
-            }
-        }
-        "count_high" => {
-            if let Some(matches) =
-                details.and_then(|d| d.get("matched")).and_then(Value::as_array)
-            {
-                found = matches
-                    .iter()
-                    .filter_map(|entry| entry.get(0))
-                    .map(term_from_json)
-                    .collect();
-            }
-        }
-        _ if TRANSPARENT.contains(&kind) => {
-            for child in direct_children(node) {
-                found.extend(top_values(Some(child)));
-            }
-        }
-        _ => {}
-    }
-    let mut out: Vec<TermInfo> = Vec::new();
-    for value in found {
-        if !out.contains(&value) {
-            out.push(value);
-        }
-    }
-    out
+
+    let found: Vec<TermInfo> = match kind {
+        "count_held" => details
+            .and_then(|d| d.get("matches"))
+            .and_then(Value::as_array)
+            .map_or_else(Vec::new, |items| terms_from(items, None)),
+        "for_all_held" => details
+            .and_then(|d| d.get("values"))
+            .and_then(Value::as_array)
+            .map_or_else(Vec::new, |items| terms_from(items, None)),
+        "count_low" => details
+            .and_then(|d| d.get("qualifying_matches"))
+            .and_then(Value::as_array)
+            .map_or_else(Vec::new, |items| terms_from(items, Some("value"))),
+        "count_high" => details
+            .and_then(|d| d.get("matched"))
+            .and_then(Value::as_array)
+            .map_or_else(Vec::new, |items| terms_from(items, None)),
+        _ if TRANSPARENT.contains(&kind) => direct_children(node)
+            .into_iter()
+            .flat_map(|child| top_values(Some(child)))
+            .collect(),
+        _ => Vec::new(),
+    };
+    found
 }
 
 /// The subtree's own count nodes: reached through AND/OR containers only,
@@ -659,7 +623,10 @@ fn top_counts<'a>(node: Option<&'a Value>, out: &mut Vec<&'a Value>) {
         for child in direct_children(node) {
             top_counts(Some(child), out);
         }
-    } else if matches!(kind, "count_low" | "count_high" | "count_held" | "for_all_held") {
+    } else if matches!(
+        kind,
+        "count_low" | "count_high" | "count_held" | "for_all_held"
+    ) {
         out.push(node);
     }
 }
@@ -672,8 +639,14 @@ fn missing_count(node: Option<&Value>) -> u64 {
         .filter(|node| node_type(node).unwrap_or("") == "count_low")
         .map(|node| {
             let details = details_map(node);
-            let min = details.and_then(|d| d.get("min")).and_then(Value::as_u64).unwrap_or(0);
-            let have = details.and_then(|d| d.get("have")).and_then(Value::as_u64).unwrap_or(0);
+            let min = details
+                .and_then(|d| d.get("min"))
+                .and_then(Value::as_u64)
+                .unwrap_or(0);
+            let have = details
+                .and_then(|d| d.get("have"))
+                .and_then(Value::as_u64)
+                .unwrap_or(0);
             min.saturating_sub(have)
         })
         .sum()
@@ -686,15 +659,15 @@ fn observed_count(node: Option<&Value>) -> Option<u64> {
         let details = details_map(node);
         match node_type(node).unwrap_or("") {
             "count_held" => {
-                if let Some(observed) =
-                    details.and_then(|d| d.get("observed_count")).and_then(Value::as_u64)
+                if let Some(observed) = details
+                    .and_then(|d| d.get("observed_count"))
+                    .and_then(Value::as_u64)
                 {
                     return Some(observed);
                 }
             }
             "count_low" => {
-                if let Some(have) = details.and_then(|d| d.get("have")).and_then(Value::as_u64)
-                {
+                if let Some(have) = details.and_then(|d| d.get("have")).and_then(Value::as_u64) {
                     return Some(have);
                 }
             }
@@ -726,47 +699,6 @@ fn rejected_values(node: Option<&Value>) -> Vec<TermInfo> {
     out
 }
 
-/// One evidence node rendered as an indented line, with its children beneath.
-fn explain_lines(node: &Value, depth: usize) -> Vec<String> {
-    let kind = node_type(node).unwrap_or("?").to_string();
-    let details = details_map(node);
-    let mut line = format!("{}{}", "  ".repeat(depth), kind);
-    if let Some(path) = details.and_then(|d| d.get("path")) {
-        line.push(' ');
-        line.push_str(&path_str(path, true));
-    }
-    if kind == "count_low" {
-        let have = details.and_then(|d| d.get("have")).and_then(Value::as_u64).unwrap_or(0);
-        let min = details.and_then(|d| d.get("min")).and_then(Value::as_u64).unwrap_or(0);
-        let _ = std::fmt::Write::write_fmt(&mut line, format_args!(" (have {have}, need ≥{min})"));
-    }
-    if kind == "count_held" {
-        if let Some(observed) =
-            details.and_then(|d| d.get("observed_count")).and_then(Value::as_u64)
-        {
-            let _ = std::fmt::Write::write_fmt(&mut line, format_args!(" (observed {observed})"));
-        }
-    }
-    if !TRANSPARENT.contains(&kind.as_str()) {
-        let values = top_values(Some(node));
-        if !values.is_empty() {
-            line.push_str(": ");
-            line.push_str(
-                &values
-                    .iter()
-                    .map(|value| value.n3())
-                    .collect::<Vec<_>>()
-                    .join(", "),
-            );
-        }
-    }
-    let mut lines = vec![line];
-    for child in direct_children(node) {
-        lines.extend(explain_lines(child, depth + 1));
-    }
-    lines
-}
-
 // ── public objects ─────────────────────────────────────────────────────────────
 
 /// One bound value's `value_paths` annotations for one label: the bound term
@@ -785,9 +717,6 @@ pub struct ShapeMapBinding {
     pub kind: String,
     /// `"pass"` (bound) or `"fail"` (unbound).
     pub status: String,
-    pub source_constraint_id: u32,
-    pub normalized_constraint_id: Option<u32>,
-    pub severity: String,
     pub names: Vec<String>,
     pub min: Option<u64>,
     pub max: Option<u64>,
@@ -798,12 +727,6 @@ pub struct ShapeMapBinding {
     pub values: Vec<TermInfo>,
     /// Near-miss candidates the path reached but the qualifier rejected.
     pub rejected_values: Vec<TermInfo>,
-    /// The key's evidence subtree as JSON; `None` only when the evidence was
-    /// unavailable (a passing key of a failing focus whose constraint could
-    /// not be materialized).
-    pub evidence_json: Option<String>,
-    /// The same subtree rendered as indented text.
-    pub explain: String,
     /// `value_paths` annotations, one group per label.
     pub annotations: Vec<AnnotationGroup>,
 }
@@ -825,9 +748,6 @@ pub struct ShapeMapMapping {
     pub target: String,
     pub conforms: bool,
     pub bindings: Vec<ShapeMapBinding>,
-    /// The focus's own `{"status": …, "evidence": …}` object.
-    pub evidence_json: String,
-    pub explanation: String,
 }
 
 /// All mappings of one shape identity (a named shape, or a
@@ -860,18 +780,14 @@ pub struct ShapeMapBuildInputs<'a> {
     /// Materialize evidence for one `(focus, normalized constraint)` pair;
     /// returns the satisfaction trace as JSON (`None` when the constraint is
     /// not a normalized arena id).
-    pub explain_constraint: &'a dyn Fn(&str, u32) -> Result<Option<Value>, String>,
+    pub materialize_constraint: &'a dyn Fn(&str, u32) -> Result<Option<Value>, String>,
     /// Batch-evaluate a path from N-Triples nodes over the session's graph.
     pub resolve_path: &'a dyn Fn(&[String], &str) -> Result<HashMap<String, Vec<String>>, String>,
 }
 
-/// Per-focus rendering from the C++ side of the ABI, so `focus`, the focus
-/// evidence JSON, and the human-readable explanation match what
-/// `EvidenceRun`'s structured accessors report.
+/// Per-focus metadata parallel to the run JSON.
 pub struct FocusMeta {
     pub focus: String,
-    pub evidence_json: String,
-    pub explanation: String,
 }
 
 /// Per-statement rendering from the C++ side of the ABI, parallel to the
@@ -894,10 +810,15 @@ pub fn build(
     statements: &[StatementMeta],
     inputs: &ShapeMapBuildInputs,
 ) -> Result<ShapeMapData, String> {
-    let conforms = run.get("conforms").and_then(Value::as_bool).unwrap_or(false);
+    let conforms = run
+        .get("conforms")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
     let source_catalog = Catalog::new(run.pointer("/constraints/source").unwrap_or(&Value::Null));
-    let normalized_catalog =
-        Catalog::new(run.pointer("/constraints/normalized").unwrap_or(&Value::Null));
+    let normalized_catalog = Catalog::new(
+        run.pointer("/constraints/normalized")
+            .unwrap_or(&Value::Null),
+    );
 
     let names_table = if name_path.is_some() {
         (inputs.binding_names)(name_path)?
@@ -908,29 +829,42 @@ pub fn build(
     let mut shapes: Vec<ShapeMapShape> = Vec::new();
     let mut shape_index: HashMap<String, usize> = HashMap::new();
 
-    let json_statements = run.get("statements").and_then(Value::as_array).map(Vec::as_slice).unwrap_or(&[]);
+    let json_statements = run
+        .get("statements")
+        .and_then(Value::as_array)
+        .map(Vec::as_slice)
+        .unwrap_or(&[]);
     for (statement_index, statement) in json_statements.iter().enumerate() {
         let meta = statements
             .get(statement_index)
             .ok_or_else(|| format!("statement {statement_index} has no C++-side metadata"))?;
         let shape_name = (inputs.shape_name_of)(meta.source_constraint_id);
-        let group_key =
-            shape_name.clone().unwrap_or_else(|| format!("_:statement-{}", meta.source_statement_id));
+        let group_key = shape_name
+            .clone()
+            .unwrap_or_else(|| format!("_:statement-{}", meta.source_statement_id));
         let group_index = match shape_index.get(&group_key) {
             Some(&index) => index,
             None => {
                 shape_index.insert(group_key.clone(), shapes.len());
-                shapes.push(ShapeMapShape { name: group_key, mappings: Vec::new() });
+                shapes.push(ShapeMapShape {
+                    name: group_key,
+                    mappings: Vec::new(),
+                });
                 shapes.len() - 1
             }
         };
 
-        let json_foci = statement.get("selected_foci").and_then(Value::as_array).map(Vec::as_slice).unwrap_or(&[]);
+        let json_foci = statement
+            .get("selected_foci")
+            .and_then(Value::as_array)
+            .map(Vec::as_slice)
+            .unwrap_or(&[]);
         for (focus_index, focus) in json_foci.iter().enumerate() {
-            let focus_meta = meta
-                .foci
-                .get(focus_index)
-                .ok_or_else(|| format!("focus {focus_index} of statement {statement_index} has no C++-side metadata"))?;
+            let focus_meta = meta.foci.get(focus_index).ok_or_else(|| {
+                format!(
+                    "focus {focus_index} of statement {statement_index} has no C++-side metadata"
+                )
+            })?;
             let mapping = build_mapping(
                 shape_name.clone(),
                 focus,
@@ -950,7 +884,11 @@ pub fn build(
     }
 
     let json = to_dict_json(&shapes, conforms);
-    Ok(ShapeMapData { conforms, shapes, json })
+    Ok(ShapeMapData {
+        conforms,
+        shapes,
+        json,
+    })
 }
 
 /// The statement's direct children, keyed by their logical constraint id.
@@ -1008,10 +946,18 @@ fn build_mapping(
     let mut ordinals: HashMap<(Option<Value>, Option<QualifierInfo>, String), u32> = HashMap::new();
 
     for entry in entries {
-        let (info, status, source_id, normalized_ref, subtree): (KeyInfo, String, u32, Option<u32>, Option<&Value>) = match entry {
+        let (info, status, source_id, normalized_ref, subtree): (
+            KeyInfo,
+            String,
+            u32,
+            Option<u32>,
+            Option<&Value>,
+        ) = match entry {
             Entry::Progress { child } => {
-                let source_id =
-                    child.get("source_constraint_ref").and_then(Value::as_u64).unwrap_or(0) as u32;
+                let source_id = child
+                    .get("source_constraint_ref")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(0) as u32;
                 let info = derive_key_info(source_catalog, inputs.shape_name_of, source_id);
                 let normalized_ref = child
                     .get("normalized_constraint_ref")
@@ -1027,13 +973,23 @@ fn build_mapping(
                 (info, status, source_id, normalized_ref, subtree)
             }
             Entry::Statement => {
-                let info = derive_key_info(source_catalog, inputs.shape_name_of, meta.source_constraint_id);
+                let info = derive_key_info(
+                    source_catalog,
+                    inputs.shape_name_of,
+                    meta.source_constraint_id,
+                );
                 let status = focus
                     .pointer("/evidence/status")
                     .and_then(Value::as_str)
                     .unwrap_or("fail")
                     .to_string();
-                (info, status, meta.source_constraint_id, meta.normalized_constraint_id, Some(root))
+                (
+                    info,
+                    status,
+                    meta.source_constraint_id,
+                    meta.normalized_constraint_id,
+                    Some(root),
+                )
             }
         };
 
@@ -1052,26 +1008,24 @@ fn build_mapping(
             Some(node) => Some(node.clone()),
             None if status == "pass" => match normalized_ref {
                 None => Some(irrefutable_node()),
-                Some(ref_id) => (inputs.explain_constraint)(&focus_meta.focus, ref_id)?,
+                Some(ref_id) => (inputs.materialize_constraint)(&focus_meta.focus, ref_id)?,
             },
             None => None,
         };
 
         let (min, max) = collect_bounds(source_catalog, Some(source_id));
-        let severity = severity_of(normalized_catalog, normalized_ref, meta.normalized_constraint_id);
         let names = names_table.get(&source_id).cloned().unwrap_or_default();
         let values = top_values(owned_subtree.as_ref());
-        let missing = if status == "fail" { missing_count(owned_subtree.as_ref()) } else { 0 };
+        let missing = if status == "fail" {
+            missing_count(owned_subtree.as_ref())
+        } else {
+            0
+        };
         let observed = observed_count(owned_subtree.as_ref());
         let rejected = if status == "fail" {
             rejected_values(owned_subtree.as_ref())
         } else {
             Vec::new()
-        };
-        let evidence_json = owned_subtree.as_ref().map(Value::to_string);
-        let explain = match &owned_subtree {
-            Some(node) => explain_lines(node, 0).join("\n"),
-            None => format!("{key}: {status} (evidence not materialized)"),
         };
         let key_path_json = info.path.as_ref().map(Value::to_string).unwrap_or_default();
 
@@ -1082,9 +1036,6 @@ fn build_mapping(
             ordinal,
             kind: info.kind,
             status,
-            source_constraint_id: source_id,
-            normalized_constraint_id: normalized_ref,
-            severity,
             names,
             min,
             max,
@@ -1092,8 +1043,6 @@ fn build_mapping(
             missing,
             values,
             rejected_values: rejected,
-            evidence_json,
-            explain,
             annotations: Vec::new(),
         });
     }
@@ -1104,8 +1053,6 @@ fn build_mapping(
         target: meta.target.to_string(),
         conforms,
         bindings,
-        evidence_json: focus_meta.evidence_json.to_string(),
-        explanation: focus_meta.explanation.to_string(),
     })
 }
 
@@ -1140,7 +1087,10 @@ fn annotate_values(
         };
         let mut table = HashMap::new();
         for (node, values) in reached {
-            table.insert(node, values.iter().map(|value| parse_n3_term(value)).collect());
+            table.insert(
+                node,
+                values.iter().map(|value| parse_n3_term(value)).collect(),
+            );
         }
         cache.insert(label.clone(), table);
     }
@@ -1155,7 +1105,10 @@ fn annotate_values(
                         let reached = table.get(&value.n3()).cloned().unwrap_or_default();
                         entries.push((value.clone(), reached));
                     }
-                    groups.push(AnnotationGroup { label: label.clone(), entries });
+                    groups.push(AnnotationGroup {
+                        label: label.clone(),
+                        entries,
+                    });
                 }
                 binding.annotations = groups;
             }
@@ -1243,7 +1196,12 @@ mod tests {
     fn term_json_uri_decodes_as_iri() {
         let term = serde_json::json!({"type": "uri", "value": "urn:x"});
         let info = term_from_json(&term);
-        assert_eq!(info.kind, TermKind::Iri, "expected Iri, got {:?}", info.kind);
+        assert_eq!(
+            info.kind,
+            TermKind::Iri,
+            "expected Iri, got {:?}",
+            info.kind
+        );
         assert_eq!(info.n3(), "<urn:x>");
         assert_eq!(info.value, "urn:x");
     }

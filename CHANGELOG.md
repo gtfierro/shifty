@@ -4,16 +4,13 @@
 
 ### Added
 
-- Extended the shape-map v2 vocabulary to the C++ SDK: `EvidenceSession`
-  gains `shape_map()` (`ShapeMap` with typed `Key` -> `Binding` mappings,
-  `Term`/`Path`/`Qualifier` values, cardinality, severity, `name_path`, and
-  `value_paths` annotations), plus the `binding_names()`, `shape_name_of()`,
-  and `resolve_path()` helpers backing those features — the C++ analogue of
-  the Python `shifty.ShapeMap`. The C ABI grew `ShiftyTerm`, `ShiftyTermKind`,
-  `ShiftyQualifierKind`, and opaque `ShiftyBindingNameList` /
-  `ShiftyPathResolutionList` / `ShiftyShapeMap` handles (ABI version 4 -> 5);
-  `PreparedEvidenceValidator` exposes the evaluated data graph so
-  `resolve_path` reads the same graph the run used.
+- Added configuration-oriented shape maps to the C++ SDK through
+  `PreparedValidator::shape_map(dataset, options)`. It returns typed
+  `ShapeMap` / `Mapping` / `Binding` values with typed keys, RDF terms, paths,
+  qualifiers, binding status, cardinality, authored names, rejected values,
+  and per-value annotations. The backing C API exposes one direct shape-map
+  operation and an opaque `ShiftyShapeMap`; evidence and property-witness
+  handles are intentionally not part of the C or C++ surface.
 - Added `shifty.shape_map()` / `shifty.ShapeMap` to the Python bindings: a
   ShEx-shapemap-style view one level above the evidence trees. Each selected
   `(shape, focus)` pair becomes a `Mapping` — a `collections.abc.Mapping` from
@@ -57,14 +54,6 @@
 - Added `benchmark/bench_evidence.sh`, `benchmark/summarize_evidence.py`, and
   `benchmark/analyze_evidence_size.py` covering evidence latency and size across
   the Brick and 223P corpora.
-- Added evidence-carrying validation to the C++ SDK as `shifty::EvidenceSession`,
-  reaching parity with the Python bindings: `validate()` for the whole coverage
-  horizon, `validate_conformance()` and `find_failures()` + `explain()` for the
-  scan-then-explain path, `constraints_json()` for the per-snapshot catalog, and
-  `EvidenceRun::compact_json()` / `shifty::expand_evidence()` for the compact
-  encoding. Evidence trees cross the ABI as JSON; the statement/focus structure
-  around them is typed.
-
 ### Fixed
 
 - Fixed quadratic evidence materialization. Certificates are now derived during

@@ -3,8 +3,8 @@ C++ API reference
 
 The C++ SDK is a C++17 static library embedding the same Rust engine the CLI,
 Python, and WebAssembly frontends wrap. Parsing, SPARQL, SHACL-AF inference,
-validation, and evidence-carrying validation all run in Rust; the C++ side is a
-thin RAII layer over a stable C ABI. The public API is a single header,
+validation, and shape-map extraction all run in Rust; the C++ side is a thin
+RAII layer over a stable C ABI. The public API is a single header,
 ``shifty/shifty.hpp``.
 
 :doc:`../how-to/install` covers building with CMake and linking. This page
@@ -68,81 +68,19 @@ Parses and normalizes shapes once and validates any dataset against them.
    * - ``validate_algebra(dataset, options={})``
      - Structured path: returns an ``AlgebraResult`` with a typed
        ``violations()`` tree instead of an RDF report graph.
-   * - ``witnesses(dataset, options={})``
-     - The inverse of validation: observed ``sh:property`` bindings at
-       *conforming* focus nodes, as ``PropertyWitness`` rows. ``options
-       .key_path`` (a SPARQL property path over the shapes graph) produces a
-       stable key per property shape.
+   * - ``shape_map(dataset, options={})``
+     - Returns configuration-oriented typed key/value bindings.
 
 ``ValidationOptions`` carries ``graph_mode`` (``Data``/``Union``/``UnionAll``),
 ``run_inference``, ``minimum_severity`` (``Severity::Info``/``Warning``/
 ``Violation`` — findings below the threshold stay reported but stop failing
-``conforms()``), ``shape_names`` (limit validation to named entry shapes), and
-``key_path`` (for ``witnesses()``).
-
-``EvidenceSession``
--------------------
-
-Evidence-carrying validation over one immutable snapshot. Inference,
-normalization, stratification, indexing, and SPARQL preparation happen once in
-the constructor and are reused by every call; ``graph_mode`` and
-``run_inference`` are read there and fixed, while ``minimum_severity`` and
-``shape_names`` stay per call.
-
-.. list-table::
-   :widths: 34 66
-   :header-rows: 1
-
-   * - Member
-     - Meaning
-   * - ``EvidenceSession(validator, dataset, options={})``
-     - Prepare the snapshot. The validator and dataset need not outlive it.
-   * - ``constraints_json()``
-     - The source/normalized constraint catalogs this snapshot's evidence
-       refers to by id, as JSON. Fixed per snapshot.
-   * - ``validate(options={})``
-     - The complete coverage horizon as an ``EvidenceRun``: every authored
-       statement, every selected focus, one evidence polarity each.
-   * - ``validate_conformance(options={})``
-     - The same pairs decided with one short-circuiting test: a
-       ``ConformanceRun`` of counts, no evidence materialized. Does not honor
-       ``minimum_severity``.
-   * - ``find_failures(options={})``
-     - The conformance pass retaining the failing ``SelectedPair``s, for
-       scan-then-explain.
-   * - ``explain(failures, index)``
-     - Materialize evidence for one pair of a failure list without re-running
-       target selection.
-   * - ``explain(statement, focus_node)``
-     - Explain an arbitrary ``(normalized statement, focus)`` pair by naming
-       the focus's N-Triples spelling.
-   * - ``shape_map(run, options={})``
-     - The shape-map view of a run: typed ``Key`` -> ``Binding`` per selected
-       pair. See `Shape maps`_ below.
-   * - ``binding_names(name_path="sh:name")``
-     - Raw source constraint id -> the values ``name_path`` reaches from that
-       constraint's originating shapes-graph node (over the shapes graph).
-   * - ``shape_name_of(constraint_id)``
-     - The named shape IRI a source constraint was lowered from, when it has
-       one.
-   * - ``resolve_path(nodes, path)``
-     - Batch-evaluate a SPARQL 1.1 property path from each N-Triples node over
-       the session's evaluation graph (the data graph in ``Data`` mode, the
-       union otherwise), in input order.
-
-An ``EvidenceRun`` carries ``statements()``, each a ``StatementEvidence`` with
-``selected_foci`` of ``FocusEvidence`` — ``focus_node``, ``status`` /
-``passed()``, ``evidence_json``, and ``explanation``. ``EvidenceRun`` also
-offers ``json()`` and ``compact_json(include_catalog)`` with the free function
-``expand_evidence(compact, catalog={})`` round-tripping losslessly. A run from
-``explain()`` carries an empty constraint catalog; supply the snapshot's
-``constraints_json()`` when expanding a catalog-less encoding.
+``conforms()``), ``shape_names`` (limit validation to named entry shapes).
 
 Shape maps
 ----------
 
-One level above the evidence trees is the shape-map view — the C++ port of the
-Python ``shifty.shape_map()``. For every selected ``(shape, focus)`` pair it
+The shape-map view is the C++ port of Python ``shifty.shape_map()``. For every
+selected ``(shape, focus)`` pair it
 produces a ``Mapping`` of the shape's property obligations: bound keys carry the
 values the data supplied as typed ``Term``\ s (exact even on
 partially-conforming foci), unbound keys carry the shortfall count and
@@ -154,8 +92,7 @@ near-misses.
    opts.name_path = "sh:name";            // author's name per slot, shapes graph
    opts.value_paths = {{"ts", "demo:hasTimeseriesId"}};  // annotate each value
 
-   const shifty::EvidenceSession session(validator, dataset);
-   const auto smap = session.shape_map(session.validate(), opts);
+   const auto smap = validator.shape_map(dataset, opts);
 
    for (const auto &name : smap.shape_names()) {
        for (const auto &mapping : smap.mappings(name)) {
@@ -178,6 +115,10 @@ near-misses.
 
    * - Member
      - Meaning
+   * - ``graph_mode`` / ``run_inference`` / ``minimum_severity``
+     - Validation behavior used while extracting bindings.
+   * - ``shape_names``
+     - Optional named entry shapes; empty selects every target-bearing shape.
    * - ``name_path``
      - Property path naming the *slot*, evaluated from the authored
        property-shape node over the **shapes** graph. Constant per property
@@ -231,8 +172,7 @@ Unlike Python, the C++ shape map is materialized eagerly at build time, so a
    * - Member
      - Meaning
    * - ``focus()``
-     - The focus node, rendered in full — the same spelling
-       ``FocusEvidence::focus_node`` carries.
+     - The focus node, rendered in full N-Triples form.
    * - ``shape_name()``
      - The shape IRI, or empty for an anonymous shape.
    * - ``target()``
@@ -255,9 +195,6 @@ Unlike Python, the C++ shape map is materialized eagerly at build time, so a
      - Successful bindings only, as ``std::map<Key, std::vector<Term>>``
        (respectively keyed by ``binding.name()`` falling back to ``str(key)``)
        for application configuration.
-   * - ``evaluation()``
-     - The underlying ``FocusEvidence`` — the way back to the full evidence
-       tree.
 
 ``Binding``
 ~~~~~~~~~~~
@@ -271,7 +208,7 @@ Unlike Python, the C++ shape map is materialized eagerly at build time, so a
    * - ``key()``
      - The typed ``Key`` (``path()``/``qualifier()`` accessors).
    * - ``ok()`` / ``status()``
-     - Whether the obligation was satisfied; ``"pass"`` or ``"fail"``.
+     - Whether the key is usable; ``BindingStatus::Bound`` or ``Unbound``.
    * - ``name()`` / ``names()``
      - The resolved slot name (first value of ``names()``, or ``nullptr``), and
        every value ``name_path`` reached.
@@ -287,26 +224,17 @@ Unlike Python, the C++ shape map is materialized eagerly at build time, so a
    * - ``min()`` / ``max()``
      - Declared cardinality bounds (``std::optional<std::size_t>``).
    * - ``observed()``
-     - The count the evidence saw, where available.
+     - The observed qualifying-value count, where available.
    * - ``expects_single()``
      - True exactly for a ``1..1`` obligation.
-   * - ``severity()``
-     - Effective SHACL severity, lowercase.
    * - ``annotated_values()``
      - ``BoundValue`` objects pairing each term with its ``value_paths``
        annotations.
    * - ``annotations()``
      - ``label -> value -> reached``, pivoted from ``annotated_values()``.
-   * - ``evidence_json()``
-     - This key's evidence subtree as JSON. Empty when the evidence was not
-       materialized.
-   * - ``explain()``
-     - Human-readable rendering.
-
 A partially-conforming focus yields both sides: its failing keys report
-``missing()``/``rejected_values()`` and the witness subtree, while its passing
-keys are materialized eagerly (the raw failure witness elides them) so a repair
-driver sees every value the focus can already supply.
+``missing()``/``rejected_values()``, while its passing keys are materialized so
+a configuration consumer sees every value the focus can already supply.
 
 ``Key``
 ~~~~~~~
@@ -333,7 +261,7 @@ obligations share a path and qualifier.
      - Distinguishes two authored obligations sharing a path and qualifier.
        Part of equality and ordering.
    * - ``kind()``
-     - The constraint tag fallback for pathless keys (e.g. ``count``).
+     - Typed ``KeyKind`` fallback for pathless keys.
    * - ``str()``
      - Renders as e.g. ``hasPoint→SupplyAirTemperatureSensor``. Compacts IRIs
        to local names, so it is not globally unique — logs and headings, not
@@ -346,38 +274,10 @@ a typed ``Path`` for pattern matching; ``Term``\ s are ``TermKind::Iri`` /
 are omitted, lexical escapes applied). ``Term`` supports ``operator==`` and
 ``operator<`` so it works as a ``std::map``/``std::set`` member.
 
-Session helpers
-~~~~~~~~~~~~~~~
-
-The three helpers the features build on, mirroring the Python
-``EvidenceSession``:
-
-.. list-table::
-   :widths: 34 66
-   :header-rows: 1
-
-   * - Member
-     - Meaning
-   * - ``binding_names(name_path="sh:name")``
-     - ``std::map<uint32_t, std::vector<std::string>>``: raw (source)
-       constraint id -> the values ``name_path`` reaches from that constraint's
-       originating shapes-graph node, evaluated over the shapes graph.
-       ``name_path = None`` means ``sh:name``; constraints with no provenance
-       or no matches are omitted.
-   * - ``shape_name_of(constraint_id)``
-     - ``std::optional<std::string>`` — the raw schema's shape name (the IRI of
-       the named RDF node) for a constraint id, when it has one.
-   * - ``resolve_path(nodes, path)``
-     - ``std::vector<std::pair<std::string, std::vector<std::string>>>`` —
-       batch-evaluate ``path`` (a SPARQL 1.1 property path, same grammar as
-       ``name_path``) from each N-Triples node over the session's evaluation
-       graph, in input order.
-
 See also
 --------
 
 - :doc:`shape-maps` — the Python object model this page mirrors.
-- :doc:`evidence` — the evidence data model the shape map sits on.
 - :doc:`../how-to/shape-maps` — the shape map how-to (Python, but the
   semantics carry over).
 - ``cpp/README.md`` — build instructions and the same API in prose.

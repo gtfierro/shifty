@@ -141,148 +141,29 @@ one shape; `shape_name` is empty for anonymous (blank-node) shapes.
 `AlgebraResult::results_text()` gives a pre-formatted human-readable summary,
 same as `ValidationResult::results_text()`.
 
-### Property witnesses
-
-`validate()` reports violations. `PreparedValidator::witnesses()` is its
-inverse: for every focus node that *conforms* to a target/profile node shape,
-it returns the values each `sh:property` shape's `sh:path` resolved to. When a
-property shape uses `sh:qualifiedValueShape` (e.g. to disambiguate several
-same-typed sensors), the witness is narrowed to the value(s) satisfying the
-qualifier rather than every raw path value.
-
-```cpp
-shifty::ValidationOptions options;
-options.key_path = "zea:roleName";
-
-for (const auto &w : validator.witnesses(dataset, options)) {
-    std::cout << w.focus_node << " " << w.key << " =";
-    for (const auto &value : w.value_nodes) {
-        std::cout << " " << value;
-    }
-    std::cout << "\n";
-}
-```
-
-`key_path` is a SPARQL 1.1 property path expression (sequence `/`, alternation
-`|`, inverse `^`, and the Kleene forms `*`/`+`/`?` are all supported)
-evaluated from each `sh:property` shape's own node, over the shapes graph, to
-produce a stable key. `zea:roleName` above is the direct-annotation case; if
-the key instead lives one hop further away — say, through an intermediate
-role-descriptor node — the same mechanism reaches it with e.g.
-`"zea:role/zea:roleName"` or, if the descriptor points *at* the property shape
-rather than the other way around, `"^zea:describes/zea:roleName"`. Prefixes
-resolve against the shapes document's declared `@prefix`es. Property shapes
-where the path resolves to no value fall back to their own IRI/blank-node id
-as the key. `value_nodes` entries are rendered in full (`<iri>`, `_:label`,
-`"lit"`, `"lit"@lang`, `"lit"^^<datatype>`) so IRI and literal bindings stay
-distinguishable.
-
-### Evidence-carrying validation
-
-`validate()` reports what failed. `EvidenceSession` reports what was *decided*:
-every authored statement, every focus node its selector chose, and exactly one
-evidence polarity per pair — a satisfaction trace where the shape held, a
-failure witness where it did not. Statements that selected nothing are reported
-with an empty focus list, so a run is a coverage horizon over the schema rather
-than a list of findings.
-
-A session prepares one immutable snapshot. Inference, normalization,
-stratification, indexing, and SPARQL preparation happen once in the constructor
-and are reused by every call, so `graph_mode` and `run_inference` are read there
-and ignored afterwards; `minimum_severity` and `shape_names` stay per-call.
-
-```cpp
-shifty::EvidenceSession evidence(validator, dataset);
-
-for (const auto &statement : evidence.validate().statements()) {
-    for (const auto &focus : statement.selected_foci) {
-        std::cout << (focus.passed() ? "pass " : "fail ")
-                  << focus.focus_node << " " << statement.target << "\n"
-                  << focus.explanation << "\n";
-    }
-}
-```
-
-Each `FocusEvidence` carries the evidence tree as JSON (`evidence_json`) and a
-human-readable rendering of the same (`explanation`). Constraint ids inside the
-JSON resolve against `EvidenceSession::constraints_json()`, which holds the
-source and normalized catalogs. That catalog is fixed per snapshot — on a small
-model it is the majority of a run's serialized bytes — so take it once rather
-than per run.
-
-#### Scan, then explain
-
-Materializing evidence for every pair is the expensive path. When failures are a
-small fraction of selected pairs, scan for them and explain only those:
-`find_failures()` decides each pair with one short-circuiting satisfaction test,
-paying only a term clone per *failing* pair, and `explain()` materializes
-evidence for one pair without re-running target selection.
-
-```cpp
-const auto failures = evidence.find_failures();
-std::cout << failures.conformance().failed << " of "
-          << failures.conformance().selected_pairs << " pairs failed\n";
-
-for (std::size_t i = 0; i < failures.size(); ++i) {
-    const auto run = evidence.explain(failures, i);
-    std::cout << run.statements().front().selected_foci.front().explanation;
-}
-```
-
-`validate_conformance()` is the same scan without retaining the pairs: a verdict
-with counts, and the baseline that isolates what evidence tracing costs. Neither
-honors `minimum_severity` — with no failure evidence there is no per-constraint
-severity to weigh, so any failing pair makes the run non-conforming. Their
-counts are over *normalized* pairs, before authored statements that normalize
-together fan the same evidence back out.
-
-A run from `explain()` carries an empty constraint catalog, since the catalog
-belongs to the snapshot rather than the pair. It is otherwise shaped exactly
-like one from `validate()`.
-
-#### Compact encoding
-
-`EvidenceRun::compact_json()` writes the run with its evidence nodes and RDF
-terms hash-consed into shared tables and referenced by index; `expand_evidence()`
-restores exactly what `json()` returned. Passing `include_catalog = false`
-elides the constraint catalog for a consumer that already holds the schema,
-which then supplies it when expanding:
-
-```cpp
-const auto wire = run.compact_json(/*include_catalog=*/false);
-const auto restored =
-    shifty::expand_evidence(wire, evidence.constraints_json());
-```
-
-Expanding a catalog-less encoding without supplying one throws, rather than
-yielding a silently truncated run.
-
 ### Shape maps: typed key -> value bindings
 
-One level above the evidence trees is the shape-map view: for every selected
-`(shape, focus)` pair, a mapping of the shape's property obligations — bound
-keys carry the values the data supplied as typed `Term`s (exact even on
-partially-conforming foci), unbound keys carry the shortfall count and
-near-misses. This is the C++ port of the Python `shifty.shape_map()`.
+`PreparedValidator::shape_map()` extracts the configuration-oriented view of
+the shapes: for every selected `(shape, focus)` pair, bound keys carry typed
+RDF values and unbound keys carry the shortfall count and near-matches.
 
 ```cpp
 shifty::ShapeMapOptions opts;
 opts.name_path = "sh:name";            // author's name per slot, shapes graph
 opts.value_paths = {{"ts", "demo:hasTimeseriesId"}};  // annotate each value
 
-const shifty::EvidenceSession session(validator, dataset);
-const auto smap = session.shape_map(session.validate(), opts);
+const auto smap = validator.shape_map(dataset, opts);
 
 for (const auto &name : smap.shape_names()) {
     for (const auto &mapping : smap.mappings(name)) {
-        for (const auto &binding : mapping.successful()) {
+        for (const auto *binding : mapping.successful()) {
             std::cout << binding->key().str() << ":";
             for (const auto &value : binding->values()) {
                 std::cout << " " << value.n3();
             }
             std::cout << "\n";
         }
-        for (const auto &binding : mapping.unsuccessful()) {
+        for (const auto *binding : mapping.unsuccessful()) {
             std::cout << binding->key().str() << ": missing "
                       << binding->missing() << "\n";
         }
@@ -290,38 +171,25 @@ for (const auto &name : smap.shape_names()) {
 }
 ```
 
-Keys are typed (`Key` with a `Path` plus an optional `Qualifier` —
+Keys are typed (`KeyKind`, plus a `Path` and optional `Qualifier` —
 `QualifierKind::Cls`/`Const`/`Datatype`/`ShapeRef`), values are typed
 `Term`s (`TermKind::Iri`/`Literal`/`BNode`), and bindings carry cardinality
-(`min`/`max`/`observed`/`expects_single`) and `severity` read from the source
-constraint so they are present even when evidence was not materialized.
+(`min`/`max`/`observed`/`expects_single`).
 `name_path` (default `sh:name`; set `ShapeMapOptions::name_path` empty to
 skip) carries the author's name for each slot, evaluated from the property
 shape's own node over the shapes graph; `value_paths` annotates each bound
 *value* from the data graph, resolved in one batched call per label
 (`Binding::annotated_values()` / `annotations()`).
 
-A partially-conforming focus yields both sides: its failing keys report
-`missing()`/`rejected_values()` and the `evidence_json()` witness subtree,
-while its passing keys are materialized on demand (the raw failure witness
-elides them) so a repair driver sees every value the focus can already
-supply.
+A partially-conforming focus yields both sides: failing keys report
+`missing()`/`rejected_values()`, while passing keys retain every value already
+available to the configuration consumer. `Binding::status()` returns the typed
+`BindingStatus::Bound`/`Unbound` enum.
 
 `Mapping` also offers `for_focus()` (via `ShapeMap`), `by_name()`, `find()`,
 `value_map()` / `value_map_by_name()`, and `ShapeMap::to_json()` for a
 plain-JSON summary. `Path::parse_json()` round-trips the `key_path_json`
 encoding into a typed `Path` for pattern matching.
-
-Three session helpers back the features directly, mirroring the Python
-`EvidenceSession`:
-
-- `binding_names(name_path)` — raw source constraint id -> reached names over
-  the shapes graph (used for `name_path`);
-- `shape_name_of(constraint_id)` — the named shape IRI a source constraint
-  was lowered from;
-- `resolve_path(nodes, path)` — batch-evaluate a SPARQL property path from
-  N-Triples nodes over the session's evaluation graph (used for
-  `value_paths`).
 
 ## Install
 

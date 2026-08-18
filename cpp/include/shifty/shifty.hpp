@@ -72,14 +72,6 @@ struct ValidationOptions {
     /// are still evaluated normally from the selected entries.
     std::vector<std::string> shape_names;
 
-    /// A SPARQL 1.1 property path expression (e.g. "zea:roleName",
-    /// "zea:role/zea:roleName", "^zea:describes/zea:roleName") evaluated from
-    /// each `sh:property` shape's own node, over the shapes graph, to produce
-    /// a stable key — used only by PreparedValidator::witnesses(). Prefixes
-    /// resolve against the shapes document's declared `@prefix`es. When empty
-    /// (the default), a property shape's own IRI/blank-node id is used as its
-    /// key instead.
-    std::string key_path;
 };
 
 /// Exception raised when an SDK operation fails.
@@ -175,31 +167,6 @@ private:
     std::string results_text_;
 };
 
-/// The observed binding of one `sh:property` shape at one *conforming* focus
-/// node — the inverse of a violation: not what failed, but what a passing
-/// property shape's `sh:path` actually resolved to.
-struct PropertyWitness {
-    /// The focus node (e.g. an equipment IRI) that conformed.
-    std::string focus_node;
-
-    /// The node shape (application profile) `focus_node` conformed to.
-    std::string shape_id;
-
-    /// A stable id for the `sh:property` shape: the lexical value reached by
-    /// evaluating `ValidationOptions::key_path` from the property shape's own
-    /// node when it resolves to a value, otherwise the property shape's own
-    /// IRI/blank-node id.
-    std::string key;
-
-    /// The `sh:path` value nodes, deduped. Each entry is rendered in full
-    /// (`<iri>`, `_:label`, `"lit"`, `"lit"@lang`, or `"lit"^^<datatype>`) so
-    /// IRI and literal bindings (and a literal's datatype/language) stay
-    /// distinguishable. When the property shape declares a
-    /// `sh:qualifiedValueShape`, these are narrowed to the values satisfying
-    /// the qualifier rather than every raw path value.
-    std::vector<std::string> value_nodes;
-};
-
 /// One failed atomic constraint within an AlgebraViolation. An absent `path`
 /// or `author_message` is represented as an empty string.
 struct AlgebraReason {
@@ -270,94 +237,6 @@ private:
     bool conforms_;
     std::vector<AlgebraViolation> violations_;
     std::string results_text_;
-};
-
-/// The evidence polarity produced for one selected `(statement, focus)` pair.
-enum class EvaluationStatus {
-    Pass,
-    Fail,
-};
-
-/// Conformance-only totals from one prepared snapshot. Counts are over
-/// *normalized* `(statement, focus)` pairs — the pairs evidence is materialized
-/// against, before authored statements that normalize together fan the same
-/// evidence back out, so they need not match the number of
-/// StatementEvidence::selected_foci entries an EvidenceRun reports.
-struct ConformanceRun {
-    /// True when no selected pair failed.
-    bool conforms = true;
-
-    /// Pairs target selection produced.
-    std::size_t selected_pairs = 0;
-
-    /// Pairs whose shape held.
-    std::size_t passed = 0;
-
-    /// Pairs whose shape did not hold.
-    std::size_t failed = 0;
-};
-
-/// One selected focus node under one authored statement, and the single
-/// evidence polarity that applies to it.
-struct FocusEvidence {
-    /// The focus node, rendered in full (`<iri>`, `_:label`, `"lit"@lang`,
-    /// `"lit"^^<datatype>`).
-    std::string focus_node;
-
-    /// Whether the shape held at this focus.
-    EvaluationStatus status = EvaluationStatus::Fail;
-
-    /// This focus's evidence tree as JSON: a `{"status": ..., "evidence": ...}`
-    /// object holding a satisfaction trace or a failure witness. Constraint ids
-    /// inside it resolve against EvidenceSession::constraints_json().
-    std::string evidence_json;
-
-    /// A human-readable rendering of the same evidence.
-    std::string explanation;
-
-    /// True when the shape held at this focus.
-    [[nodiscard]] bool passed() const noexcept {
-        return status == EvaluationStatus::Pass;
-    }
-};
-
-/// One authored statement and every focus its selector chose. A statement whose
-/// selector chose nothing is still reported, with an empty `selected_foci` —
-/// that is what makes a run a coverage horizon rather than a findings list.
-struct StatementEvidence {
-    /// Index of this statement in the authored (pre-normalization) schema.
-    std::size_t source_statement_id = 0;
-
-    /// Index in the normalized schema, absent when the authored statement has
-    /// no normalized counterpart.
-    std::optional<std::size_t> normalized_statement_id;
-
-    /// The authored constraint this statement carries.
-    std::uint32_t source_constraint_id = 0;
-
-    /// Its normalized counterpart, absent when there is none. This is the id to
-    /// look up in the `normalized` catalog of constraints_json().
-    std::optional<std::uint32_t> normalized_constraint_id;
-
-    /// Stable semantic kind of the constraint (e.g. `"ClassMembership"`),
-    /// spelled as it appears in the run's JSON.
-    std::string constraint_kind;
-
-    /// The authored selector, rendered (e.g. `"targetClass(ex:Person)"`).
-    std::string target;
-
-    /// Every focus this statement selected, each with one evidence polarity.
-    std::vector<FocusEvidence> selected_foci;
-};
-
-/// One `(normalized statement, focus)` pair, as target selection produced it —
-/// enough to name a pair, and nothing that costs anything to carry.
-struct SelectedPair {
-    /// Index into the *normalized* statements.
-    std::size_t statement = 0;
-
-    /// The focus node, rendered in full.
-    std::string focus_node;
 };
 
 namespace detail {
@@ -482,51 +361,9 @@ struct ValidationResultDeleter {
     }
 };
 
-struct PropertyWitnessListDeleter {
-    void operator()(ShiftyPropertyWitnessList *value) const noexcept {
-        shifty_property_witness_list_destroy(value);
-    }
-};
-
 struct AlgebraResultDeleter {
     void operator()(ShiftyAlgebraResult *value) const noexcept {
         shifty_algebra_result_destroy(value);
-    }
-};
-
-struct EvidenceSessionDeleter {
-    void operator()(ShiftyEvidenceSession *value) const noexcept {
-        shifty_evidence_session_destroy(value);
-    }
-};
-
-struct EvidenceRunDeleter {
-    void operator()(ShiftyEvidenceRun *value) const noexcept {
-        shifty_evidence_run_destroy(value);
-    }
-};
-
-struct FailureListDeleter {
-    void operator()(ShiftyFailureList *value) const noexcept {
-        shifty_failure_list_destroy(value);
-    }
-};
-
-struct StringDeleter {
-    void operator()(ShiftyString *value) const noexcept {
-        shifty_string_destroy(value);
-    }
-};
-
-struct BindingNameListDeleter {
-    void operator()(ShiftyBindingNameList *value) const noexcept {
-        shifty_binding_name_list_destroy(value);
-    }
-};
-
-struct PathResolutionListDeleter {
-    void operator()(ShiftyPathResolutionList *value) const noexcept {
-        shifty_path_resolution_list_destroy(value);
     }
 };
 
@@ -535,13 +372,6 @@ struct ShapeMapDeleter {
         shifty_shape_map_destroy(value);
     }
 };
-
-using OwnedString = std::unique_ptr<ShiftyString, StringDeleter>;
-
-using OwnedBindingNames =
-    std::unique_ptr<ShiftyBindingNameList, BindingNameListDeleter>;
-using OwnedPathResolutions =
-    std::unique_ptr<ShiftyPathResolutionList, PathResolutionListDeleter>;
 
 /// Convert the C++ `value_paths` (label -> path) list into the ABI's
 /// parallel string-pair array, valid for the duration of the call.
@@ -558,37 +388,8 @@ inline std::vector<ShiftyStringPair> build_value_path_pairs(
     return out;
 }
 
-/// Not an overload of from_c(): ShiftyEvaluationStatus and
-/// ShiftyQueryResultKind are both uint32_t typedefs, so they cannot be
-/// distinguished by overload resolution.
-inline EvaluationStatus evaluation_status_from_c(ShiftyEvaluationStatus status) {
-    switch (status) {
-    case SHIFTY_EVALUATION_PASS:
-        return EvaluationStatus::Pass;
-    case SHIFTY_EVALUATION_FAIL:
-        return EvaluationStatus::Fail;
-    }
-    throw std::runtime_error("unknown evaluation status returned by shifty");
-}
-
-inline ConformanceRun from_c(const ShiftyConformanceRun &run) {
-    ConformanceRun out;
-    out.conforms = run.conforms != 0;
-    out.selected_pairs = run.selected_pairs;
-    out.passed = run.passed;
-    out.failed = run.failed;
-    return out;
-}
-
 inline std::optional<std::size_t> optional_index(std::size_t value) {
-    if (value == SHIFTY_EVIDENCE_NO_INDEX) {
-        return std::nullopt;
-    }
-    return value;
-}
-
-inline std::optional<std::uint32_t> optional_constraint(std::uint32_t value) {
-    if (value == SHIFTY_EVIDENCE_NO_CONSTRAINT) {
+    if (value == SHIFTY_NO_INDEX) {
         return std::nullopt;
     }
     return value;
@@ -596,112 +397,9 @@ inline std::optional<std::uint32_t> optional_constraint(std::uint32_t value) {
 
 } // namespace detail
 
-/// The statement-oriented coverage horizon of one evidence-carrying validation
-/// run: every authored statement, every focus its selector chose, and exactly
-/// one evidence polarity per pair — a satisfaction trace where the shape held, a
-/// failure witness where it did not. Unlike a validation report, passing pairs
-/// are present too, which is what makes the run usable as provenance rather
-/// than only as a findings list.
-///
-/// Move-only: the structured view is materialized eagerly, while json() and
-/// compact_json() are served from the retained engine handle.
-class EvidenceRun {
-public:
-    EvidenceRun(const EvidenceRun &) = delete;
-    EvidenceRun &operator=(const EvidenceRun &) = delete;
-    EvidenceRun(EvidenceRun &&) noexcept = default;
-    EvidenceRun &operator=(EvidenceRun &&) noexcept = default;
-    ~EvidenceRun() = default;
-
-    /// Returns true when no selected pair failed at or above the run's
-    /// minimum severity.
-    [[nodiscard]] bool conforms() const noexcept { return conforms_; }
-
-    /// Returns every authored statement, including those that selected nothing.
-    [[nodiscard]] const std::vector<StatementEvidence> &statements() const noexcept {
-        return statements_;
-    }
-
-    /// Returns the whole run as JSON, evidence trees included.
-    [[nodiscard]] std::string json() const {
-        return detail::copy(shifty_evidence_run_json(handle_.get()));
-    }
-
-    /// Returns the run with evidence nodes and RDF terms hash-consed into
-    /// shared tables and referenced by index. Lossless: expand_evidence()
-    /// restores exactly what json() returns.
-    ///
-    /// \param include_catalog Keep the constraint catalog in the encoding. Pass
-    /// false for a consumer that already holds the schema — on a small graph the
-    /// catalog is most of the payload — and supply it to expand_evidence()
-    /// separately, from EvidenceSession::constraints_json().
-    /// \throws Error if the run cannot be encoded.
-    [[nodiscard]] std::string compact_json(bool include_catalog = true) const {
-        ShiftyString *raw = nullptr;
-        detail::check(shifty_evidence_run_compact_json(
-            handle_.get(),
-            static_cast<std::uint8_t>(include_catalog),
-            &raw));
-        detail::OwnedString owned(raw);
-        return detail::copy(shifty_string_data(owned.get()));
-    }
-
-    /// Returns true when the run conforms, so a run can be tested directly.
-    explicit operator bool() const noexcept { return conforms_; }
-
-private:
-    friend class EvidenceSession;
-    using Handle = std::unique_ptr<ShiftyEvidenceRun, detail::EvidenceRunDeleter>;
-
-    explicit EvidenceRun(ShiftyEvidenceRun *raw) : handle_(raw) {
-        conforms_ = shifty_evidence_run_conforms(handle_.get()) != 0;
-        const std::size_t count =
-            shifty_evidence_run_statement_count(handle_.get());
-        statements_.reserve(count);
-        for (std::size_t i = 0; i < count; ++i) {
-            StatementEvidence statement;
-            statement.source_statement_id =
-                shifty_evidence_statement_source_id(handle_.get(), i);
-            statement.normalized_statement_id = detail::optional_index(
-                shifty_evidence_statement_normalized_id(handle_.get(), i));
-            statement.source_constraint_id =
-                shifty_evidence_statement_source_constraint(handle_.get(), i);
-            statement.normalized_constraint_id = detail::optional_constraint(
-                shifty_evidence_statement_normalized_constraint(handle_.get(), i));
-            statement.constraint_kind = detail::copy(
-                shifty_evidence_statement_constraint_kind(handle_.get(), i));
-            statement.target =
-                detail::copy(shifty_evidence_statement_target(handle_.get(), i));
-
-            const std::size_t focus_count =
-                shifty_evidence_statement_focus_count(handle_.get(), i);
-            statement.selected_foci.reserve(focus_count);
-            for (std::size_t f = 0; f < focus_count; ++f) {
-                FocusEvidence focus;
-                focus.focus_node =
-                    detail::copy(shifty_evidence_focus_node(handle_.get(), i, f));
-                focus.status = detail::evaluation_status_from_c(
-                    shifty_evidence_focus_status(handle_.get(), i, f));
-                focus.evidence_json = detail::copy(
-                    shifty_evidence_focus_evidence_json(handle_.get(), i, f));
-                focus.explanation = detail::copy(
-                    shifty_evidence_focus_explanation(handle_.get(), i, f));
-                statement.selected_foci.push_back(std::move(focus));
-            }
-            statements_.push_back(std::move(statement));
-        }
-    }
-
-    Handle handle_;
-    bool conforms_ = false;
-    std::vector<StatementEvidence> statements_;
-};
-
 // ── shape-map v2: typed key -> value bindings ────────────────────────────────
-// The flat view one level above the evidence trees: for each selected
-// (shape, focus) pair, which property obligations bound to which values and
-// which are still unbound, with a typed Key -> Binding vocabulary. This is the
-// C++ port of the Python `shifty.ShapeMap` / `shifty.shape_map()`.
+// For each selected (shape, focus) pair, report which property obligations
+// bound to which values using a typed Key -> Binding vocabulary.
 
 /// The three RDF term kinds a shape-map value can carry.
 enum class TermKind {
@@ -890,15 +588,36 @@ private:
 /// qualifier class when one is declared, disambiguated by ordinal when several
 /// bindings share a `(path, qualifier)`. `str()` reads
 /// `hasPoint->Supply_Air_Flow_Sensor`, or the `kind` tag for a pathless key.
+enum class KeyKind {
+    Count,
+    And,
+    Or,
+    Top,
+    Pending,
+    TestConst,
+    TestType,
+    TestKind,
+    Closed,
+    Eq,
+    Disj,
+    Lt,
+    Le,
+    UniqueLang,
+    Not,
+    Sparql,
+    Expression,
+    Unknown,
+};
+
 class Key {
 public:
     Key() = default;
     Key(std::optional<Path> path, std::optional<Qualifier> qualifier,
-        std::size_t ordinal = 1, std::string kind = "count")
+        std::size_t ordinal = 1, KeyKind kind = KeyKind::Count)
         : path_(std::move(path)),
           qualifier_(std::move(qualifier)),
           ordinal_(ordinal),
-          kind_(std::move(kind)) {}
+          kind_(kind) {}
 
     /// The path, or std::nullopt for a pathless key (nodeKind, …).
     [[nodiscard]] const std::optional<Path> &path() const noexcept { return path_; }
@@ -909,8 +628,8 @@ public:
     /// Disambiguates identical `(path, qualifier)` pairs; the n-th in
     /// lowering order.
     [[nodiscard]] std::size_t ordinal() const noexcept { return ordinal_; }
-    /// The constraint tag fallback for pathless keys (e.g. `count`).
-    [[nodiscard]] const std::string &kind() const noexcept { return kind_; }
+    /// The constraint category used when this key has no property path.
+    [[nodiscard]] KeyKind kind() const noexcept { return kind_; }
 
     /// The rendered key, reading e.g. `hasPoint->Supply_Air_Flow_Sensor`.
     [[nodiscard]] std::string str() const;
@@ -918,16 +637,19 @@ public:
 
     bool operator==(const Key &other) const noexcept {
         return path_ == other.path_ && qualifier_ == other.qualifier_ &&
-               ordinal_ == other.ordinal_ && kind_ == other.kind_;
+               ordinal_ == other.ordinal_ && kind_ == other.kind_ &&
+               unknown_kind_ == other.unknown_kind_;
     }
     bool operator!=(const Key &other) const noexcept { return !(*this == other); }
     bool operator<(const Key &other) const noexcept;  // for std::map<Key, …>
 
 private:
+    friend class Binding;
     std::optional<Path> path_;
     std::optional<Qualifier> qualifier_;
     std::size_t ordinal_ = 1;
-    std::string kind_ = "count";
+    KeyKind kind_ = KeyKind::Count;
+    std::string unknown_kind_;
 };
 
 /// One bound value plus its `value_paths` annotations.
@@ -939,9 +661,15 @@ struct BoundValue {
     std::map<std::string, std::vector<Term>> annotations;
 };
 
+/// Whether a shape-map key has a usable value binding.
+enum class BindingStatus {
+    Bound,
+    Unbound,
+};
+
 /// One key of a mapping: a property obligation and what it bound to. A passing
-/// (`ok()`) binding carries `values()`; a failing one carries
-/// `missing()`/`rejected_values()` and the `evidence_json()` witness subtree.
+/// (`ok()`) binding carries `values()`; a failing one carries its shortfall
+/// and any rejected near-matches.
 class Binding {
 public:
     Binding() = default;
@@ -954,22 +682,12 @@ public:
         return key_.qualifier();
     }
 
-    /// True when bound (`status() == "pass"`).
-    [[nodiscard]] bool ok() const noexcept { return ok_; }
-    /// `"pass"` (bound) or `"fail"` (unbound).
-    [[nodiscard]] const std::string &status() const noexcept { return status_; }
-
-    /// The loaded source constraint id.
-    [[nodiscard]] std::uint32_t source_constraint_id() const noexcept {
-        return source_constraint_id_;
+    /// True when the key has a usable value binding.
+    [[nodiscard]] bool ok() const noexcept {
+        return status_ == BindingStatus::Bound;
     }
-    /// The normalized constraint id, absent when there is none.
-    [[nodiscard]] const std::optional<std::uint32_t> &constraint_id() const noexcept {
-        return constraint_id_;
-    }
+    [[nodiscard]] BindingStatus status() const noexcept { return status_; }
 
-    /// SHACL severity (`"violation"`/`"warning"`/`"info"`, lowercased).
-    [[nodiscard]] const std::string &severity() const noexcept { return severity_; }
     /// The author's names for the slot (`name_path`), if any.
     [[nodiscard]] const std::vector<std::string> &names() const noexcept {
         return names_;
@@ -981,8 +699,7 @@ public:
     }
 
     /// The values the key's path bound. For a failing key these are the
-    /// qualifying near-matches (same as `partial_values()`). Empty only when
-    /// the evidence was unavailable.
+    /// qualifying near-matches (same as `partial_values()`).
     [[nodiscard]] const std::vector<Term> &values() const noexcept {
         return values_;
     }
@@ -990,21 +707,20 @@ public:
     [[nodiscard]] bool expects_single() const noexcept {
         return min().has_value() && *min() == 1 && max().has_value() && *max() == 1;
     }
-    /// The declared lower bound, present even when evidence was never
-    /// materialized.
+    /// The declared lower bound.
     [[nodiscard]] const std::optional<std::size_t> &min() const noexcept { return min_; }
     /// The declared upper bound.
     [[nodiscard]] const std::optional<std::size_t> &max() const noexcept { return max_; }
     /// How many qualifying values are still owed (0 for a bound key).
     [[nodiscard]] std::size_t missing() const noexcept { return missing_; }
-    /// The count observed, when evidence carried it.
+    /// The observed qualifying-value count, when available.
     [[nodiscard]] const std::optional<std::size_t> &observed() const noexcept {
         return observed_;
     }
     /// Values that did qualify under a failing count (never enough) — the same
     /// as `values()` for a failing key.
     [[nodiscard]] std::vector<Term> partial_values() const {
-        return ok_ ? std::vector<Term>{} : values_;
+        return ok() ? std::vector<Term>{} : values_;
     }
     /// Near-miss candidates the path reached but the qualifier rejected.
     [[nodiscard]] const std::vector<Term> &rejected_values() const noexcept {
@@ -1028,14 +744,6 @@ public:
         return out;
     }
 
-    /// This key's evidence subtree as JSON. Empty when the evidence was not
-    /// materialized.
-    [[nodiscard]] const std::string &evidence_json() const noexcept {
-        return evidence_json_;
-    }
-    /// The same evidence as indented text.
-    [[nodiscard]] const std::string &explain() const noexcept { return explain_; }
-
 private:
     friend class Mapping;
     friend class ShapeMap;
@@ -1043,11 +751,7 @@ private:
                           std::size_t mapping, std::size_t index);
 
     Key key_;
-    bool ok_ = false;
-    std::string status_;
-    std::uint32_t source_constraint_id_ = 0;
-    std::optional<std::uint32_t> constraint_id_;
-    std::string severity_;
+    BindingStatus status_ = BindingStatus::Unbound;
     std::vector<std::string> names_;
     std::optional<std::size_t> min_;
     std::optional<std::size_t> max_;
@@ -1056,8 +760,6 @@ private:
     std::vector<Term> values_;
     std::vector<Term> rejected_values_;
     std::vector<BoundValue> annotated_values_;
-    std::string evidence_json_;
-    std::string explain_;
 };
 
 /// One `(focus node, shape statement)` association with its key bindings.
@@ -1065,8 +767,8 @@ class Mapping {
 public:
     Mapping() = default;
 
-    /// The focus node, rendered in full (`<iri>`, `_:label`, `"lit"@lang`, …)
-    /// — the same spelling `FocusEvidence::focus_node` carries.
+    /// The focus node, rendered in full N-Triples form (`<iri>`, `_:label`,
+    /// `"lit"@lang`, …).
     [[nodiscard]] const std::string &focus() const noexcept { return focus_; }
     /// The named shape IRI, or empty for an anonymous shape.
     [[nodiscard]] const std::string &shape_name() const noexcept { return shape_name_; }
@@ -1078,12 +780,6 @@ public:
     [[nodiscard]] const std::vector<Binding> &bindings() const noexcept {
         return bindings_;
     }
-    /// The underlying focus evaluation: `evaluation().passed()`, its
-    /// `evidence_json` / `explanation`.
-    [[nodiscard]] const FocusEvidence &evaluation() const noexcept {
-        return evaluation_;
-    }
-
     /// Every bound key, in authored order.
     [[nodiscard]] std::vector<const Binding *> successful() const {
         std::vector<const Binding *> out;
@@ -1092,8 +788,7 @@ public:
         }
         return out;
     }
-    /// Every unbound key; the binding carries the witness subtree, shortfall
-    /// counts, and near-misses.
+    /// Every unbound key, including shortfall counts and near-matches.
     [[nodiscard]] std::vector<const Binding *> unsuccessful() const {
         std::vector<const Binding *> out;
         for (const auto &binding : bindings_) {
@@ -1158,11 +853,16 @@ private:
     std::string target_;
     bool conforms_ = false;
     std::vector<Binding> bindings_;
-    FocusEvidence evaluation_;
 };
 
-/// Options applied to `EvidenceSession::shape_map()`.
+/// Options applied to `PreparedValidator::shape_map()`.
 struct ShapeMapOptions {
+    /// Validation behavior used while extracting bindings.
+    GraphMode graph_mode = GraphMode::Union;
+    bool run_inference = true;
+    Severity minimum_severity = Severity::Info;
+    std::vector<std::string> shape_names;
+
     /// A SPARQL 1.1 property path evaluated from each property shape's own
     /// node over the shapes graph to carry the author's name for a slot.
     /// Defaults to `sh:name`; set to empty to skip name resolution.
@@ -1174,7 +874,7 @@ struct ShapeMapOptions {
 };
 
 /// Key -> value bindings for every selected (shape, focus) pair of a run,
-/// grouped by shape identity. Built from `EvidenceSession::shape_map()`.
+/// grouped by shape identity. Built by `PreparedValidator::shape_map()`.
 ///
 /// Move-only: the structured view is materialized eagerly, while `to_json()`
 /// is served from the retained engine handle.
@@ -1263,7 +963,7 @@ public:
     [[nodiscard]] const std::string &to_json() const noexcept { return json_; }
 
 private:
-    friend class EvidenceSession;
+    friend class PreparedValidator;
     using Handle = std::unique_ptr<ShiftyShapeMap, detail::ShapeMapDeleter>;
 
     explicit ShapeMap(ShiftyShapeMap *raw);
@@ -1505,6 +1205,51 @@ inline bool operator<(const Qualifier &a, const Qualifier &b) {
     return a.term() < b.term();
 }
 
+inline std::string_view key_kind_name(KeyKind kind) noexcept {
+    switch (kind) {
+    case KeyKind::Count: return "count";
+    case KeyKind::And: return "and";
+    case KeyKind::Or: return "or";
+    case KeyKind::Top: return "top";
+    case KeyKind::Pending: return "pending";
+    case KeyKind::TestConst: return "testconst";
+    case KeyKind::TestType: return "testtype";
+    case KeyKind::TestKind: return "testkind";
+    case KeyKind::Closed: return "closed";
+    case KeyKind::Eq: return "eq";
+    case KeyKind::Disj: return "disj";
+    case KeyKind::Lt: return "lt";
+    case KeyKind::Le: return "le";
+    case KeyKind::UniqueLang: return "uniquelang";
+    case KeyKind::Not: return "not";
+    case KeyKind::Sparql: return "sparql";
+    case KeyKind::Expression: return "expression";
+    case KeyKind::Unknown: return "unknown";
+    }
+    return "unknown";
+}
+
+inline KeyKind key_kind_from_string(std::string_view value) noexcept {
+    if (value == "count") return KeyKind::Count;
+    if (value == "and") return KeyKind::And;
+    if (value == "or") return KeyKind::Or;
+    if (value == "top") return KeyKind::Top;
+    if (value == "pending") return KeyKind::Pending;
+    if (value == "testconst") return KeyKind::TestConst;
+    if (value == "testtype") return KeyKind::TestType;
+    if (value == "testkind") return KeyKind::TestKind;
+    if (value == "closed") return KeyKind::Closed;
+    if (value == "eq") return KeyKind::Eq;
+    if (value == "disj") return KeyKind::Disj;
+    if (value == "lt") return KeyKind::Lt;
+    if (value == "le") return KeyKind::Le;
+    if (value == "uniquelang") return KeyKind::UniqueLang;
+    if (value == "not") return KeyKind::Not;
+    if (value == "sparql") return KeyKind::Sparql;
+    if (value == "expression") return KeyKind::Expression;
+    return KeyKind::Unknown;
+}
+
 inline std::string Key::str() const {
     std::string base;
     if (path_.has_value()) {
@@ -1513,7 +1258,9 @@ inline std::string Key::str() const {
             base += "\u2192" + qualifier_->str();  // →
         }
     } else {
-        base = kind_;
+        base = kind_ == KeyKind::Unknown && !unknown_kind_.empty()
+                   ? unknown_kind_
+                   : std::string(key_kind_name(kind_));
     }
     if (ordinal_ > 1) {
         base += "#" + std::to_string(ordinal_);
@@ -1533,7 +1280,8 @@ inline bool Key::operator<(const Key &other) const noexcept {
         return *qualifier_ < *other.qualifier_;
     }
     if (ordinal_ != other.ordinal_) return ordinal_ < other.ordinal_;
-    return kind_ < other.kind_;
+    if (kind_ != other.kind_) return kind_ < other.kind_;
+    return unknown_kind_ < other.unknown_kind_;
 }
 
 inline const std::vector<Mapping> &ShapeMap::mappings(
@@ -1583,23 +1331,20 @@ inline Binding Binding::from_c(const ShiftyShapeMap *map, std::size_t shape,
             Term::from_c(shifty_shape_map_binding_qualifier_term(
                 map, shape, mapping, index)));
     }
+    const std::string kind_name = detail::copy(
+        shifty_shape_map_binding_key_kind(map, shape, mapping, index));
     out.key_ = Key(std::move(path), std::move(qualifier),
                    shifty_shape_map_binding_key_ordinal(map, shape, mapping,
                                                         index),
-                   detail::copy(shifty_shape_map_binding_key_kind(
-                       map, shape, mapping, index)));
+                   key_kind_from_string(kind_name));
+    if (out.key_.kind_ == KeyKind::Unknown) {
+        out.key_.unknown_kind_ = kind_name;
+    }
 
-    out.ok_ = shifty_shape_map_binding_status(map, shape, mapping, index) ==
-              SHIFTY_EVALUATION_PASS;
-    out.status_ = out.ok_ ? "pass" : "fail";
-    out.source_constraint_id_ =
-        shifty_shape_map_binding_source_constraint(map, shape, mapping, index);
-    out.constraint_id_ = detail::optional_constraint(
-        shifty_shape_map_binding_normalized_constraint(map, shape, mapping,
-                                                       index));
-    out.severity_ = detail::copy(
-        shifty_shape_map_binding_severity(map, shape, mapping, index));
-
+    out.status_ = shifty_shape_map_binding_status(map, shape, mapping, index) ==
+                          SHIFTY_BINDING_BOUND
+                      ? BindingStatus::Bound
+                      : BindingStatus::Unbound;
     const std::size_t name_count =
         shifty_shape_map_binding_name_count(map, shape, mapping, index);
     out.names_.reserve(name_count);
@@ -1632,11 +1377,6 @@ inline Binding Binding::from_c(const ShiftyShapeMap *map, std::size_t shape,
             shifty_shape_map_binding_rejected_value(map, shape, mapping, index,
                                                     v)));
     }
-
-    out.evidence_json_ = detail::copy(
-        shifty_shape_map_binding_evidence_json(map, shape, mapping, index));
-    out.explain_ = detail::copy(
-        shifty_shape_map_binding_explain(map, shape, mapping, index));
 
     // value_paths annotations: one group per label, each holding an entry per
     // bound value in `values()` order.
@@ -1680,13 +1420,6 @@ inline Mapping Mapping::from_c(const ShiftyShapeMap *map, std::size_t shape,
         detail::copy(shifty_shape_map_mapping_shape_name(map, shape, index));
     out.target_ = detail::copy(shifty_shape_map_mapping_target(map, shape, index));
     out.conforms_ = shifty_shape_map_mapping_conforms(map, shape, index) != 0;
-    out.evaluation_.focus_node = out.focus_;
-    out.evaluation_.status = out.conforms_ ? EvaluationStatus::Pass
-                                           : EvaluationStatus::Fail;
-    out.evaluation_.evidence_json = detail::copy(
-        shifty_shape_map_mapping_evidence_json(map, shape, index));
-    out.evaluation_.explanation = detail::copy(
-        shifty_shape_map_mapping_explanation(map, shape, index));
     const std::size_t binding_count =
         shifty_shape_map_mapping_binding_count(map, shape, index);
     out.bindings_.reserve(binding_count);
@@ -1696,56 +1429,6 @@ inline Mapping Mapping::from_c(const ShiftyShapeMap *map, std::size_t shape,
     return out;
 }
 
-
-/// The failing pairs of one conformance scan, with the totals that scan
-/// produced. Move-only: the engine-side pairs are retained so explaining one
-/// costs no re-selection and no term re-parsing.
-class Failures {
-public:
-    Failures(const Failures &) = delete;
-    Failures &operator=(const Failures &) = delete;
-    Failures(Failures &&) noexcept = default;
-    Failures &operator=(Failures &&) noexcept = default;
-    ~Failures() = default;
-
-    /// Returns the conformance totals of the scan that produced these pairs.
-    [[nodiscard]] const ConformanceRun &conformance() const noexcept {
-        return conformance_;
-    }
-
-    /// Returns the pairs that failed, in selection order.
-    [[nodiscard]] const std::vector<SelectedPair> &pairs() const noexcept {
-        return pairs_;
-    }
-
-    /// Returns the number of failing pairs.
-    [[nodiscard]] std::size_t size() const noexcept { return pairs_.size(); }
-
-    /// Returns true when nothing failed.
-    [[nodiscard]] bool empty() const noexcept { return pairs_.empty(); }
-
-private:
-    friend class EvidenceSession;
-    using Handle = std::unique_ptr<ShiftyFailureList, detail::FailureListDeleter>;
-
-    explicit Failures(ShiftyFailureList *raw) : handle_(raw) {
-        conformance_ =
-            detail::from_c(shifty_failure_list_conformance(handle_.get()));
-        const std::size_t count = shifty_failure_list_len(handle_.get());
-        pairs_.reserve(count);
-        for (std::size_t i = 0; i < count; ++i) {
-            SelectedPair pair;
-            pair.statement = shifty_failure_statement(handle_.get(), i);
-            pair.focus_node =
-                detail::copy(shifty_failure_focus(handle_.get(), i));
-            pairs_.push_back(std::move(pair));
-        }
-    }
-
-    Handle handle_;
-    ConformanceRun conformance_;
-    std::vector<SelectedPair> pairs_;
-};
 
 /// An in-memory RDF graph owned by the Rust engine.
 ///
@@ -1833,7 +1516,6 @@ public:
 
 private:
     friend class PreparedValidator;
-    friend class EvidenceSession;
     using Handle = std::unique_ptr<ShiftyDataset, detail::DatasetDeleter>;
 
     using DatasetResultFunction =
@@ -2000,49 +1682,31 @@ public:
             detail::copy(shifty_validation_result_results_text(result.get())));
     }
 
-    /// Returns the observed `sh:property` bindings for every focus node that
-    /// conforms to a target/profile node shape — the inverse of validate():
-    /// successful bindings rather than violations. `options.key_path` (when
-    /// set) is a SPARQL 1.1 property path expression evaluated from each
-    /// `sh:property` shape's own node to produce a stable key; see
-    /// [`PropertyWitness::key`].
+    /// Extracts typed key/value bindings directly from the shapes and data.
     ///
-    /// \throws Error for a malformed `key_path`, non-stratifiable shapes, or
-    /// validation failures.
-    [[nodiscard]] std::vector<PropertyWitness> witnesses(
+    /// \throws Error for malformed property paths, non-stratifiable shapes,
+    /// inference failures, or validation failures.
+    [[nodiscard]] ShapeMap shape_map(
         const Dataset &dataset,
-        ValidationOptions options = {}) const {
-        ShiftyPropertyWitnessList *raw = nullptr;
-        detail::check(shifty_prepared_validator_witnesses(
+        ShapeMapOptions options = {}) const {
+        ShiftyShapeMap *raw = nullptr;
+        const auto shape_names = detail::string_views(options.shape_names);
+        const auto value_pairs =
+            detail::build_value_path_pairs(options.value_paths);
+        detail::check(shifty_prepared_validator_shape_map(
             handle_.get(),
             dataset.handle_.get(),
-            detail::optional_data(options.key_path),
-            options.key_path.size(),
             detail::to_c(options.graph_mode),
             static_cast<std::uint8_t>(options.run_inference),
+            detail::to_c(options.minimum_severity),
+            shape_names.data(),
+            shape_names.size(),
+            detail::optional_data(options.name_path),
+            options.name_path.size(),
+            value_pairs.data(),
+            value_pairs.size(),
             &raw));
-        std::unique_ptr<ShiftyPropertyWitnessList, detail::PropertyWitnessListDeleter>
-            list(raw);
-
-        const std::size_t count = shifty_property_witness_list_len(list.get());
-        std::vector<PropertyWitness> out;
-        out.reserve(count);
-        for (std::size_t i = 0; i < count; ++i) {
-            PropertyWitness witness;
-            witness.focus_node = detail::copy(shifty_property_witness_focus(list.get(), i));
-            witness.shape_id = detail::copy(shifty_property_witness_shape(list.get(), i));
-            witness.key = detail::copy(shifty_property_witness_key(list.get(), i));
-
-            const std::size_t value_count =
-                shifty_property_witness_value_count(list.get(), i);
-            witness.value_nodes.reserve(value_count);
-            for (std::size_t v = 0; v < value_count; ++v) {
-                witness.value_nodes.push_back(
-                    detail::copy(shifty_property_witness_value(list.get(), i, v)));
-            }
-            out.push_back(std::move(witness));
-        }
-        return out;
+        return ShapeMap(raw);
     }
 
     /// Validates a dataset using the algebra path: the engine's own
@@ -2108,7 +1772,6 @@ public:
     }
 
 private:
-    friend class EvidenceSession;
 
     explicit PreparedValidator(ShiftyPreparedValidator *raw) : handle_(raw) {}
 
@@ -2135,290 +1798,6 @@ private:
         std::unique_ptr<ShiftyPreparedValidator, detail::ValidatorDeleter>;
     Handle handle_;
 };
-
-/// Evidence-carrying validation over one immutable shapes/data snapshot.
-///
-/// Where validate() reports what failed, an evidence run reports what was
-/// *decided*: every authored statement, every focus it selected, and one
-/// evidence polarity each — a satisfaction trace where the shape held, a failure
-/// witness where it did not. Statements that selected no focus nodes are
-/// reported too, so a run is a coverage horizon over the schema rather than a
-/// list of findings.
-///
-/// Inference, normalization, stratification, indexing, and SPARQL preparation
-/// happen once in the constructor and are reused by every call. `graph_mode` and
-/// `run_inference` define the snapshot, so they are read from the options here
-/// and ignored afterwards; `minimum_severity` and `shape_names` are per-call.
-///
-/// On a corpus where failures are a small fraction of selected pairs, prefer
-/// find_failures() plus explain() to validate(): the scan decides each pair
-/// with one short-circuiting test, and evidence is materialized only for the
-/// pairs you ask about.
-///
-/// EvidenceSession is move-only and independent of the PreparedValidator and
-/// Dataset it was built from — neither needs to outlive it.
-class EvidenceSession {
-public:
-    /// Prepares an evidence snapshot over a validator's shapes and a dataset.
-    ///
-    /// Only `options.graph_mode` and `options.run_inference` are read; the rest
-    /// apply per call. As with validate(), a dataset holding only data uses the
-    /// shapes graph for evaluation under the default GraphMode::Union — load the
-    /// shapes into the dataset as well for the embedded-data pattern, where
-    /// focus nodes are discovered from the shapes document too.
-    ///
-    /// \throws Error for non-stratifiable shapes or inference failures.
-    EvidenceSession(
-        const PreparedValidator &validator,
-        const Dataset &dataset,
-        ValidationOptions options = {}) {
-        detail::check_abi();
-        ShiftyEvidenceSession *raw = nullptr;
-        detail::check(shifty_evidence_session_create(
-            validator.handle_.get(),
-            dataset.handle_.get(),
-            detail::to_c(options.graph_mode),
-            static_cast<std::uint8_t>(options.run_inference),
-            &raw));
-        handle_.reset(raw);
-    }
-
-    EvidenceSession(const EvidenceSession &) = delete;
-    EvidenceSession &operator=(const EvidenceSession &) = delete;
-    EvidenceSession(EvidenceSession &&) noexcept = default;
-    EvidenceSession &operator=(EvidenceSession &&) noexcept = default;
-    ~EvidenceSession() = default;
-
-    /// Returns the source/normalized constraint catalogs this snapshot's
-    /// evidence refers to by id, as JSON. Fixed per snapshot, so take it once
-    /// rather than per run — on a small model the catalog is the majority of a
-    /// run's serialized bytes.
-    [[nodiscard]] std::string constraints_json() const {
-        return detail::copy(
-            shifty_evidence_session_constraints_json(handle_.get()));
-    }
-
-    /// Returns the complete coverage horizon for this snapshot.
-    ///
-    /// `options.shape_names`, when non-empty, limits validation to those named
-    /// shapes as top-level entry points; referenced helper shapes are still
-    /// evaluated normally.
-    ///
-    /// \throws Error on validation failure.
-    [[nodiscard]] EvidenceRun validate(ValidationOptions options = {}) const {
-        ShiftyEvidenceRun *raw = nullptr;
-        const auto shape_names = detail::string_views(options.shape_names);
-        detail::check(shifty_evidence_session_validate(
-            handle_.get(),
-            detail::to_c(options.minimum_severity),
-            shape_names.data(),
-            shape_names.size(),
-            &raw));
-        return EvidenceRun(raw);
-    }
-
-    /// Decides the same pairs with one short-circuiting satisfaction test
-    /// instead of materializing evidence — a verdict with counts, and the
-    /// baseline that isolates what evidence tracing costs.
-    ///
-    /// `options.minimum_severity` is not honored: with no failure evidence
-    /// there is no per-constraint severity to weigh, so any failing pair makes
-    /// the run non-conforming. Only `options.shape_names` applies.
-    ///
-    /// \throws Error on validation failure.
-    [[nodiscard]] ConformanceRun validate_conformance(
-        ValidationOptions options = {}) const {
-        ShiftyConformanceRun run{};
-        const auto shape_names = detail::string_views(options.shape_names);
-        detail::check(shifty_evidence_session_validate_conformance(
-            handle_.get(), shape_names.data(), shape_names.size(), &run));
-        return detail::from_c(run);
-    }
-
-    /// Runs the same single pass and additionally retains the pairs that
-    /// failed, ready for explain(). Same severity caveat as
-    /// validate_conformance().
-    ///
-    /// \throws Error on validation failure.
-    [[nodiscard]] Failures find_failures(ValidationOptions options = {}) const {
-        ShiftyFailureList *raw = nullptr;
-        const auto shape_names = detail::string_views(options.shape_names);
-        detail::check(shifty_evidence_session_find_failures(
-            handle_.get(), shape_names.data(), shape_names.size(), &raw));
-        return Failures(raw);
-    }
-
-    /// Materializes evidence for one pair of a failure list. Target selection
-    /// is not re-run — the pair is taken as already selected, which is the
-    /// point: re-deriving the selection would cost what the whole pass costs.
-    ///
-    /// The returned run carries an empty constraint catalog; take the catalog
-    /// once from constraints_json().
-    ///
-    /// \throws Error if `index` is out of bounds, or on evaluation failure.
-    [[nodiscard]] EvidenceRun explain(
-        const Failures &failures,
-        std::size_t index) const {
-        ShiftyEvidenceRun *raw = nullptr;
-        detail::check(shifty_evidence_session_explain_failure(
-            handle_.get(), failures.handle_.get(), index, &raw));
-        return EvidenceRun(raw);
-    }
-
-    /// Explains an arbitrary pair, naming the focus by its full rendering
-    /// (`<iri>`, `_:label`, `"lit"@lang`, `"lit"^^<datatype>`) — the spelling
-    /// SelectedPair::focus_node and FocusEvidence::focus_node carry.
-    /// `statement` indexes the *normalized* statements. A focus the statement
-    /// never selected still yields well-defined evidence; it just describes a
-    /// pair no run contained.
-    ///
-    /// \throws Error for a malformed focus term, or on evaluation failure.
-    [[nodiscard]] EvidenceRun explain(
-        std::size_t statement,
-        std::string_view focus_node) const {
-        ShiftyEvidenceRun *raw = nullptr;
-        detail::check(shifty_evidence_session_explain(
-            handle_.get(),
-            statement,
-            focus_node.data(),
-            focus_node.size(),
-            &raw));
-        return EvidenceRun(raw);
-    }
-
-    /// Builds the shape map for `run` of the *same snapshot* (a run returned
-    /// by `validate()`). `options.name_path` (a SPARQL 1.1 property path,
-    /// default `sh:name`) carries the author's name for each slot, evaluated
-    /// from the property shape's own node over the shapes graph; set empty to
-    /// skip. `options.value_paths` (`label -> path`) annotates each bound
-    /// *value* from the data graph. Materialized eagerly, unlike Python's lazy
-    /// `ShapeMap`.
-    ///
-    /// \throws Error for a malformed `name_path`/`value_paths` path.
-    [[nodiscard]] ShapeMap shape_map(
-        const EvidenceRun &run, ShapeMapOptions options = {}) const {
-        ShiftyShapeMap *raw = nullptr;
-        const auto value_pairs =
-            detail::build_value_path_pairs(options.value_paths);
-        detail::check(shifty_evidence_session_shape_map(
-            handle_.get(),
-            run.handle_.get(),
-            detail::optional_data(options.name_path),
-            options.name_path.size(),
-            value_pairs.data(),
-            value_pairs.size(),
-            &raw));
-        return ShapeMap(raw);
-    }
-
-    /// Maps raw (source) constraint id to the values `name_path` reaches from
-    /// that constraint's originating shapes-graph node, evaluated over the
-    /// shapes graph. `name_path` defaults to `sh:name`. Constraints with no
-    /// source-node provenance, or where `name_path` resolves to nothing, are
-    /// omitted.
-    ///
-    /// \throws Error for a malformed `name_path`.
-    [[nodiscard]] std::map<std::uint32_t, std::vector<std::string>>
-    binding_names(std::string_view name_path = "sh:name") const {
-        ShiftyBindingNameList *raw = nullptr;
-        detail::check(shifty_evidence_session_binding_names(
-            handle_.get(), name_path.data(), name_path.size(), &raw));
-        detail::OwnedBindingNames owned(raw);
-        std::map<std::uint32_t, std::vector<std::string>> out;
-        const std::size_t count = shifty_binding_name_list_len(owned.get());
-        for (std::size_t i = 0; i < count; ++i) {
-            std::vector<std::string> names;
-            const std::size_t count_v =
-                shifty_binding_name_value_count(owned.get(), i);
-            names.reserve(count_v);
-            for (std::size_t v = 0; v < count_v; ++v) {
-                names.push_back(detail::copy(
-                    shifty_binding_name_value(owned.get(), i, v)));
-            }
-            out[shifty_binding_name_constraint(owned.get(), i)] = std::move(names);
-        }
-        return out;
-    }
-
-    /// The raw schema's shape name for `constraint_id` — the IRI of the named
-    /// (non-blank) RDF node it was lowered from. `std::nullopt` when the
-    /// constraint has no name.
-    [[nodiscard]] std::optional<std::string> shape_name_of(
-        std::uint32_t constraint_id) const {
-        ShiftyString *raw = nullptr;
-        detail::check(shifty_evidence_session_shape_name_of(
-            handle_.get(), constraint_id, &raw));
-        if (raw == nullptr) return std::nullopt;
-        detail::OwnedString owned(raw);
-        return detail::copy(shifty_string_data(owned.get()));
-    }
-
-    /// Batch-evaluates `path` (a SPARQL 1.1 property path, same grammar as
-    /// `name_path`) from each of `nodes` (N-Triples spellings) over this
-    /// session's evaluation graph — the data graph, unioned with the shapes
-    /// graph to match this session's own `graph_mode`. Returns each input
-    /// node's N-Triples spelling mapped to the N-Triples spellings it reaches,
-    /// in input order.
-    ///
-    /// \throws Error for a malformed node or `path`.
-    [[nodiscard]] std::vector<std::pair<std::string, std::vector<std::string>>>
-    resolve_path(
-        const std::vector<std::string> &nodes, std::string_view path) const {
-        const auto views = detail::string_views(nodes);
-        ShiftyPathResolutionList *raw = nullptr;
-        detail::check(shifty_evidence_session_resolve_path(
-            handle_.get(), views.data(), views.size(), path.data(), path.size(),
-            &raw));
-        detail::OwnedPathResolutions owned(raw);
-        std::vector<std::pair<std::string, std::vector<std::string>>> out;
-        const std::size_t count = shifty_path_resolution_list_len(owned.get());
-        out.reserve(count);
-        for (std::size_t i = 0; i < count; ++i) {
-            std::vector<std::string> reached;
-            const std::size_t count_v =
-                shifty_path_resolution_value_count(owned.get(), i);
-            reached.reserve(count_v);
-            for (std::size_t v = 0; v < count_v; ++v) {
-                reached.push_back(detail::copy(
-                    shifty_path_resolution_value(owned.get(), i, v)));
-            }
-            out.emplace_back(
-                detail::copy(shifty_path_resolution_node(owned.get(), i)),
-                std::move(reached));
-        }
-        return out;
-    }
-
-private:
-    using Handle =
-        std::unique_ptr<ShiftyEvidenceSession, detail::EvidenceSessionDeleter>;
-    Handle handle_;
-};
-
-
-/// Restores a run compacted by EvidenceRun::compact_json(), returning the same
-/// JSON EvidenceRun::json() produced.
-///
-/// \param compact The compact encoding.
-/// \param catalog The constraint catalog for an encoding written with
-/// `include_catalog = false` — the `"constraints"` value of the original run,
-/// which EvidenceSession::constraints_json() returns. Leave empty when the
-/// encoding carries its own.
-/// \throws Error if the encoding is malformed, was written by another version
-/// of the format, or omits a catalog without one being supplied.
-[[nodiscard]] inline std::string expand_evidence(
-    std::string_view compact,
-    std::string_view catalog = {}) {
-    ShiftyString *raw = nullptr;
-    detail::check(shifty_evidence_expand_json(
-        compact.data(),
-        compact.size(),
-        detail::optional_data(catalog),
-        catalog.size(),
-        &raw));
-    detail::OwnedString owned(raw);
-    return detail::copy(shifty_string_data(owned.get()));
-}
 
 /// Returns the ABI version implemented by the linked static library.
 [[nodiscard]] inline std::uint32_t abi_version() noexcept {
