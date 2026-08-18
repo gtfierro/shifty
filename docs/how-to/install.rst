@@ -73,9 +73,10 @@ To build the module yourself, for embedding in your own page:
 C++
 ---
 
-A C++17 static library lives in ``cpp/``, built with CMake, exposing validation
-and the evidence interface. See ``cpp/README.md`` for the API and build
-instructions.
+A C++17 static library lives in ``cpp/``, built with CMake, exposing the full
+SDK — dataset and SPARQL, validation, evidence-carrying validation, and the
+shape-map vocabulary. See :doc:`../reference/cpp` for the API and
+``cpp/README.md`` for build instructions.
 
 Rust
 ----

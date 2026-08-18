@@ -13,6 +13,9 @@ For that, see the :doc:`how-to guides <../how-to/index>` and
      - Every command and flag of the ``shifty`` binary.
    * - :doc:`python`
      - The ``pyshifty`` validation, inference, and prepared-validator API.
+   * - :doc:`cpp`
+     - The C++17 static library: dataset, prepared validator, evidence
+       sessions, and the shape-map vocabulary.
    * - :doc:`evidence`
      - The evidence data model: sessions, runs, polarity, projections, and
        serialization.
@@ -34,6 +37,7 @@ The Rust API is documented separately on
 
    cli
    python
+   cpp
    evidence
    shape-maps
    feature-support
