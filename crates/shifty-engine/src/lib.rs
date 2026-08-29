@@ -25,14 +25,13 @@ pub mod validate;
 pub mod value;
 pub mod witness;
 
-pub use enumerate::{
-    EnumOptions, FixpointResult, RepairSolution, candidates, enumerate_repair, repair_to_fixpoint,
-};
 pub use compact::{
     CompactError, Sharing, compact, compact_value, expand, expand_value, expand_with_catalog,
     sharing, to_compact_json,
 };
-pub use sharing::{ResultSharing, result_sharing};
+pub use enumerate::{
+    EnumOptions, FixpointResult, RepairSolution, candidates, enumerate_repair, repair_to_fixpoint,
+};
 pub use evidence::{
     ConformanceRun, PreparedEvidenceValidator, SelectedPair, validate_graphs_with_evidence,
     validate_graphs_with_evidence_and_mode, validate_graphs_with_evidence_and_mode_and_options,
@@ -50,6 +49,7 @@ pub use report::{
     report_to_graph, validate_report, validate_report_graphs, validate_report_graphs_with_mode,
     validate_report_graphs_with_mode_and_options, validate_report_with_options,
 };
+pub use sharing::{ResultSharing, result_sharing};
 pub use synthesize::{
     EvidenceOrigin, SynthesizedRepair, synthesize, synthesize_focus, synthesize_focus_with_origins,
     synthesize_with_origins,

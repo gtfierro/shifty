@@ -11,6 +11,7 @@
 use crate::rule::Rule;
 use crate::selector::Selector;
 use crate::shape::{ShapeArena, ShapeId};
+use crate::term::Term;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -38,6 +39,10 @@ pub struct Schema {
     /// order.
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub names: HashMap<ShapeId, Vec<String>>,
+    /// Originating shapes-graph node for arena slots lowered from an RDF node
+    /// (named or blank). Synthetic slots introduced by lowering have no entry.
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub sources: HashMap<ShapeId, Term>,
 }
 
 impl Schema {

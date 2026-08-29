@@ -159,6 +159,15 @@ impl PreparedEvidenceValidator {
         })
     }
 
+    /// The evaluation data graph this snapshot was prepared over: the dataset
+    /// after inference (when requested), exactly as target selection and the
+    /// evaluator see it. Borrowed so a caller resolving extra paths (e.g. the
+    /// shape-map `value_paths` feature) evaluates over the same graph the run
+    /// used without cloning it.
+    pub fn data(&self) -> &Graph {
+        &self.data
+    }
+
     /// Validate the prepared snapshot for conformance only.
     ///
     /// Preparation, target selection, and the evaluator are exactly those of
@@ -359,6 +368,36 @@ impl PreparedEvidenceValidator {
             .map_or(&[], Vec::as_slice)
     }
 
+    /// Materialize evidence for one focus against one *normalized* constraint —
+    /// any arena id, not just a statement's top-level shape.
+    ///
+    /// This is the sub-statement counterpart of [`explain`](Self::explain): a
+    /// failing conjunction's [`Witness`] carries only its failing children, so a
+    /// caller reconstructing per-property coverage uses the run's
+    /// [`EvaluationProgress`] to learn which children passed and this method to
+    /// materialize the satisfaction evidence the witness elided. Like
+    /// [`explain`](Self::explain), no target selection is involved: the pair is
+    /// taken as given, and a focus no statement selects still yields
+    /// well-defined evidence. Returns `None` when `constraint` is not an arena
+    /// id of the normalized schema (see [`schema`](Self::schema)).
+    pub fn explain_constraint(&self, focus: &oxrdf::Term, constraint: ShapeId) -> Option<Evidence> {
+        if (constraint.0 as usize) >= self.schema.arena.len() {
+            return None;
+        }
+        let backend = self
+            .sparql
+            .frozen()
+            .expect("prepared evidence validator always owns a frozen dataset");
+        let mut evaluator = ShapeEvaluator::new(backend, &self.schema.arena, &self.sparql);
+        prefetch_sparql_constraints(
+            &self.schema.arena,
+            constraint,
+            std::slice::from_ref(focus),
+            &self.sparql,
+        );
+        Some(materialize_evidence(&mut evaluator, focus, constraint))
+    }
+
     /// The constraint catalogs an [`EvidenceRun`] carries.
     ///
     /// Fixed for the snapshot, so a caller explaining pairs one at a time takes
@@ -505,7 +544,7 @@ impl PreparedEvidenceValidator {
             for statement in &mut statements {
                 statement
                     .selected_foci
-                    .sort_by(|left, right| left.focus.to_string().cmp(&right.focus.to_string()));
+                    .sort_by_key(|focus| focus.focus.to_string());
             }
         }
 

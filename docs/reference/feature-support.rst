@@ -1,7 +1,7 @@
 Feature support
 ===============
 
-Legend: ✅ supported · ⚠️ partial / gated · ❌ unsupported.
+Legend: ✅ supported · ⚠️ partial or gated · ❌ unsupported.
 
 SHACL Core
 ----------
@@ -62,7 +62,7 @@ SHACL-AF (Advanced Features)
      - Notes
    * - Rules — ``sh:TripleRule``, ``sh:SPARQLRule`` (CONSTRUCT)
      - ✅
-     - forward-chained to a fixed point with ``sh:order`` / ``sh:condition``
+     - forward-chained to a fixed point, honouring ``sh:order`` / ``sh:condition``
    * - Node expressions — ``sh:this``, constants, ``sh:path``, ``sh:filterShape``, ``sh:intersection``, ``sh:union``, function application
      - ✅
      -
@@ -74,7 +74,7 @@ SHACL-AF (Advanced Features)
      - native execution with Spareval fallback
    * - Custom constraint components — ``sh:parameter`` + ``sh:validator`` / ``sh:nodeValidator`` / ``sh:propertyValidator``
      - ✅
-     - optional params, simple & complex ``$PATH``; report path
+     - optional params, simple and complex ``$PATH``, report path
    * - Expression constraints — ``sh:expression``
      - ✅
      -
@@ -83,13 +83,14 @@ SHACL-AF (Advanced Features)
      - full data-graph access
    * - SHACL functions — ``sh:SPARQLFunction`` called from SPARQL (``sh:sparql``, CONSTRUCT, ``dash:expression``)
      - ⚠️
-     - evaluated as **pure** functions of their arguments; a body that reads the data graph is gated (see below)
+     - evaluated as **pure** functions of their arguments; a body that reads
+       the data graph is gated — see `Partial support`_
    * - JavaScript — ``sh:js*``, ``sh:JSFunction``
      - ❌
      - no JS engine
 
-Recursion & semantics
----------------------
+Recursion and semantics
+-----------------------
 
 .. list-table::
    :header-rows: 1
@@ -100,24 +101,44 @@ Recursion & semantics
      - Notes
    * - Stratified recursive shapes
      - ✅
-     - gfp validation / lfp inference per stratum
-   * - Non-stratifiable schemas (cycle through negation)
+     - greatest fixed point for validation, least for inference, per stratum
+   * - Non-stratifiable schemas (a cycle through negation)
      - ❌
      - **diagnosed and refused**, never guessed
 
-Feature-handling policy
------------------------
+See :doc:`../explanation/recursion` for what those fixed points mean and why a
+non-stratifiable schema has no answer to give.
 
-Partially supported features are handled per an ``on_unsupported`` setting
-(``EngineOptions`` in Rust; the ``on_unsupported=`` keyword on
-``validate`` / ``validate_algebra`` / ``infer`` and ``PreparedValidator`` in
-Python):
+Partial support
+---------------
 
-- ``"ignore"`` (default) — best-effort: e.g. a graph-reading function called from
-  a SPARQL context is evaluated over an empty dataset (result may be unreliable).
-- ``"error"`` — fail loudly: the unsupported construct is refused so the failure
-  surfaces (e.g. as a constraint error) instead of a silent wrong answer.
+A ⚠️ feature is one where Shifty can produce an answer but cannot guarantee it
+is the right one. Rather than pick silently, it lets you choose what happens,
+through ``on_unsupported`` — ``EngineOptions`` in Rust, and a keyword on
+``validate``, ``validate_algebra``, ``infer``, and ``PreparedValidator`` in
+Python:
+
+``"ignore"`` (default)
+   Best effort. A graph-reading function called from a SPARQL context is
+   evaluated over an empty dataset, so the result may be wrong.
+
+``"error"``
+   Refuse. The unsupported construct surfaces as a failure instead of a silent
+   wrong answer.
 
 .. code-block:: python
 
    conforms, report, text = shifty.validate(data, shapes, on_unsupported="error")
+
+The default is ``"ignore"`` for compatibility with existing pipelines, but if
+you are going to act on the result, ``"error"`` is the setting you want: it
+converts an unreliable answer into a visible one.
+
+Evidence and repair coverage
+----------------------------
+
+Validation status is exact for every supported feature. The *explanations* are
+not always available: a ``sh:sparql`` constraint is opaque to evidence and
+blocked for repair, because an arbitrary query cannot be inverted. The complete
+list of these cases is in :doc:`evidence` under "Opaque and blocked evidence",
+and repair's blocking reasons are in :doc:`repair`.

@@ -16,6 +16,7 @@ use crate::sparql::{SparqlDiagnostic, SparqlExecutor, SparqlViolation};
 use crate::value::{compare_terms, value_type_holds};
 use oxrdf::{Graph, NamedNode, Term};
 use regex::Regex;
+use rustc_hash::{FxHashMap, FxHashSet};
 use serde::{Deserialize, Serialize};
 use shifty_algebra::render::{
     describe_negation, describe_shape, negated_class_target_shape, path_to_string, shape_to_string,
@@ -25,7 +26,6 @@ use shifty_algebra::{
     SparqlConstraint,
 };
 use shifty_opt::{FocusSource, PhysicalPlan, analyze};
-use rustc_hash::{FxHashMap, FxHashSet};
 use std::cmp::Ordering;
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fmt;

@@ -85,6 +85,7 @@ pub fn normalize_with_mapping(schema: &Schema) -> NormalizedSchema {
         statements,
         rules,
         names,
+        sources: Default::default(),
     };
     normalized.arena.debug_assert_finalized();
     NormalizedSchema {
@@ -707,6 +708,7 @@ mod tests {
             }],
             rules: Vec::new(),
             names: Default::default(),
+            sources: Default::default(),
         }
     }
 
@@ -1212,6 +1214,7 @@ mod tests {
             }],
             rules: vec![],
             names: Default::default(),
+            sources: Default::default(),
         };
         let n = normalize(&schema);
         assert_eq!(n.statements[0].selector, Selector::HasOut(q));
@@ -1231,6 +1234,7 @@ mod tests {
             }],
             rules: vec![],
             names: Default::default(),
+            sources: Default::default(),
         };
         let n = normalize(&schema);
         assert_eq!(n.statements[0].selector, Selector::HasIn(q));
@@ -1257,6 +1261,7 @@ mod tests {
             ],
             rules: vec![],
             names: Default::default(),
+            sources: Default::default(),
         };
         let n = normalize(&schema);
         assert_eq!(n.statements.len(), 1);
@@ -1283,6 +1288,7 @@ mod tests {
             ],
             rules: vec![],
             names: Default::default(),
+            sources: Default::default(),
         };
         let n = normalize_with_mapping(&schema);
         assert_eq!(n.schema.statements.len(), 1);

@@ -139,7 +139,10 @@ impl ResultSharing {
     /// Share of canonical occurrences that are of a payload more than one
     /// request reaches.
     pub fn shared_occurrence_fraction(&self) -> f64 {
-        fraction(self.shared_canonical_occurrences, self.canonical_occurrences)
+        fraction(
+            self.shared_canonical_occurrences,
+            self.canonical_occurrences,
+        )
     }
 
     /// Requests reaching the average distinct payload; 1.0 when nothing is
@@ -165,7 +168,11 @@ fn ratio(occurrences: usize, distinct: usize) -> f64 {
 }
 
 fn fraction(part: usize, whole: usize) -> f64 {
-    if whole == 0 { 0.0 } else { part as f64 / whole as f64 }
+    if whole == 0 {
+        0.0
+    } else {
+        part as f64 / whole as f64
+    }
 }
 
 /// A judgment node compared and hashed by the structure it holds, so that
@@ -321,7 +328,11 @@ pub fn result_sharing(run: &EvidenceRun) -> ResultSharing {
     }
 
     measured.distinct_payloads = payloads.occurrences.len();
-    measured.occurrences = payloads.occurrences.iter().map(|&count| count as usize).sum();
+    measured.occurrences = payloads
+        .occurrences
+        .iter()
+        .map(|&count| count as usize)
+        .sum();
     measured.canonical_occurrences = payloads
         .canonical_occurrences
         .iter()

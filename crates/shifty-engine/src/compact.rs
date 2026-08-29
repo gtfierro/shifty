@@ -164,7 +164,10 @@ fn encode(mut value: Value, include_catalog: bool) -> (Value, Sharing) {
     let mut nodes = Interner::default();
     let mut families = Families::default();
     let statements = intern(
-        value.get_mut("statements").map(Value::take).unwrap_or(json!([])),
+        value
+            .get_mut("statements")
+            .map(Value::take)
+            .unwrap_or(json!([])),
         &mut terms,
         &mut nodes,
         &mut families,
@@ -184,8 +187,7 @@ fn encode(mut value: Value, include_catalog: bool) -> (Value, Sharing) {
     // The catalog shares the same tables: its shapes are the very constraints
     // the evidence nodes refer to, so interning both together collapses the
     // overlap instead of writing each side out separately.
-    let catalog =
-        include_catalog.then(|| intern(catalog, &mut terms, &mut nodes, &mut families));
+    let catalog = include_catalog.then(|| intern(catalog, &mut terms, &mut nodes, &mut families));
 
     let mut out = Map::new();
     out.insert("v".into(), json!(VERSION));
@@ -270,10 +272,9 @@ impl std::fmt::Display for CompactError {
             Self::MissingCatalog => {
                 write!(f, "compact evidence omits its constraint catalog")
             }
-            Self::Version(found) => write!(
-                f,
-                "compact evidence version {found:?}, expected {VERSION}"
-            ),
+            Self::Version(found) => {
+                write!(f, "compact evidence version {found:?}, expected {VERSION}")
+            }
             Self::Malformed => write!(f, "compact evidence is missing its tables"),
             Self::Decode(error) => write!(f, "compact evidence does not decode: {error}"),
         }
@@ -411,9 +412,10 @@ fn hash_into(value: &Value, hasher: &mut FxHasher) {
 /// them.
 fn is_term(map: &Map<String, Value>) -> bool {
     !map.contains_key("details")
-        && map.get("type").and_then(Value::as_str).is_some_and(|kind| {
-            matches!(kind, "uri" | "bnode" | "literal")
-        })
+        && map
+            .get("type")
+            .and_then(Value::as_str)
+            .is_some_and(|kind| matches!(kind, "uri" | "bnode" | "literal"))
         && map.contains_key("value")
 }
 
@@ -504,7 +506,10 @@ fn restore(value: &Value, terms: &[Value], nodes: &[Value]) -> Value {
             )
         }
         Value::Array(items) => Value::Array(
-            items.iter().map(|item| restore(item, terms, nodes)).collect(),
+            items
+                .iter()
+                .map(|item| restore(item, terms, nodes))
+                .collect(),
         ),
         other => other.clone(),
     }
@@ -594,7 +599,10 @@ mod tests {
         let original = run();
         let full = original.to_json().unwrap().len();
         let packed = to_compact_json(&original, true).unwrap().len();
-        assert!(packed < full, "compact {packed} not smaller than full {full}");
+        assert!(
+            packed < full,
+            "compact {packed} not smaller than full {full}"
+        );
     }
 
     #[test]

@@ -141,41 +141,55 @@ one shape; `shape_name` is empty for anonymous (blank-node) shapes.
 `AlgebraResult::results_text()` gives a pre-formatted human-readable summary,
 same as `ValidationResult::results_text()`.
 
-### Property witnesses
+### Shape maps: typed key -> value bindings
 
-`validate()` reports violations. `PreparedValidator::witnesses()` is its
-inverse: for every focus node that *conforms* to a target/profile node shape,
-it returns the values each `sh:property` shape's `sh:path` resolved to. When a
-property shape uses `sh:qualifiedValueShape` (e.g. to disambiguate several
-same-typed sensors), the witness is narrowed to the value(s) satisfying the
-qualifier rather than every raw path value.
+`PreparedValidator::shape_map()` extracts the configuration-oriented view of
+the shapes: for every selected `(shape, focus)` pair, bound keys carry typed
+RDF values and unbound keys carry the shortfall count and near-matches.
 
 ```cpp
-shifty::ValidationOptions options;
-options.key_path = "zea:roleName";
+shifty::ShapeMapOptions opts;
+opts.name_path = "sh:name";            // author's name per slot, shapes graph
+opts.value_paths = {{"ts", "demo:hasTimeseriesId"}};  // annotate each value
 
-for (const auto &w : validator.witnesses(dataset, options)) {
-    std::cout << w.focus_node << " " << w.key << " =";
-    for (const auto &value : w.value_nodes) {
-        std::cout << " " << value;
+const auto smap = validator.shape_map(dataset, opts);
+
+for (const auto &name : smap.shape_names()) {
+    for (const auto &mapping : smap.mappings(name)) {
+        for (const auto *binding : mapping.successful()) {
+            std::cout << binding->key().str() << ":";
+            for (const auto &value : binding->values()) {
+                std::cout << " " << value.n3();
+            }
+            std::cout << "\n";
+        }
+        for (const auto *binding : mapping.unsuccessful()) {
+            std::cout << binding->key().str() << ": missing "
+                      << binding->missing() << "\n";
+        }
     }
-    std::cout << "\n";
 }
 ```
 
-`key_path` is a SPARQL 1.1 property path expression (sequence `/`, alternation
-`|`, inverse `^`, and the Kleene forms `*`/`+`/`?` are all supported)
-evaluated from each `sh:property` shape's own node, over the shapes graph, to
-produce a stable key. `zea:roleName` above is the direct-annotation case; if
-the key instead lives one hop further away — say, through an intermediate
-role-descriptor node — the same mechanism reaches it with e.g.
-`"zea:role/zea:roleName"` or, if the descriptor points *at* the property shape
-rather than the other way around, `"^zea:describes/zea:roleName"`. Prefixes
-resolve against the shapes document's declared `@prefix`es. Property shapes
-where the path resolves to no value fall back to their own IRI/blank-node id
-as the key. `value_nodes` entries are rendered in full (`<iri>`, `_:label`,
-`"lit"`, `"lit"@lang`, `"lit"^^<datatype>`) so IRI and literal bindings stay
-distinguishable.
+Keys are typed (`KeyKind`, plus a `Path` and optional `Qualifier` —
+`QualifierKind::Cls`/`Const`/`Datatype`/`ShapeRef`), values are typed
+`Term`s (`TermKind::Iri`/`Literal`/`BNode`), and bindings carry cardinality
+(`min`/`max`/`observed`/`expects_single`).
+`name_path` (default `sh:name`; set `ShapeMapOptions::name_path` empty to
+skip) carries the author's name for each slot, evaluated from the property
+shape's own node over the shapes graph; `value_paths` annotates each bound
+*value* from the data graph, resolved in one batched call per label
+(`Binding::annotated_values()` / `annotations()`).
+
+A partially-conforming focus yields both sides: failing keys report
+`missing()`/`rejected_values()`, while passing keys retain every value already
+available to the configuration consumer. `Binding::status()` returns the typed
+`BindingStatus::Bound`/`Unbound` enum.
+
+`Mapping` also offers `for_focus()` (via `ShapeMap`), `by_name()`, `find()`,
+`value_map()` / `value_map_by_name()`, and `ShapeMap::to_json()` for a
+plain-JSON summary. `Path::parse_json()` round-trips the `key_path_json`
+encoding into a typed `Path` for pattern matching.
 
 ## Install
 

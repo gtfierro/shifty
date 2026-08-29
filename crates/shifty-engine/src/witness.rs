@@ -87,7 +87,7 @@ pub enum Failure {
         shape: ShapeId,
         node: Term,
         observed: Vec<Term>,
-        expected: Shape,
+        expected: Box<Shape>,
         reached_by: Path,
         produced_by: Option<PathSupport>,
     },
@@ -183,7 +183,7 @@ pub enum Satisfaction {
         shape: ShapeId,
         node: Term,
         observed: Vec<Term>,
-        expected: Shape,
+        expected: Box<Shape>,
         reached_by: Path,
         produced_by: PathSupport,
     },
@@ -1266,8 +1266,9 @@ fn relational_witness(
         Shape::UniqueLang(p) => (RelKind::UniqueLang, p.clone(), None),
         _ => unreachable!("relational_witness on non-relational shape"),
     };
-    let with_support =
-        |g: &dyn PathBackend, p: &Path| -> Vec<(Term, PathSupport)> { succ_with_support(g, node, p) };
+    let with_support = |g: &dyn PathBackend, p: &Path| -> Vec<(Term, PathSupport)> {
+        succ_with_support(g, node, p)
+    };
     let lhs = with_support(g, &lpath);
     let rhs = match &rpred {
         Some(q) => with_support(g, &Path::Pred(q.clone())),
@@ -1387,7 +1388,7 @@ fn evaluate_node(
                     shape: id,
                     node: node.clone(),
                     observed: vec![node.clone()],
-                    expected: eval.arena().get(id).clone(),
+                    expected: Box::new(eval.arena().get(id).clone()),
                     reached_by: reached_by.clone(),
                     produced_by: produced_by.cloned().unwrap_or(PathSupport::Empty),
                 })
@@ -1396,7 +1397,7 @@ fn evaluate_node(
                     shape: id,
                     node: node.clone(),
                     observed: vec![node.clone()],
-                    expected: eval.arena().get(id).clone(),
+                    expected: Box::new(eval.arena().get(id).clone()),
                     reached_by: reached_by.clone(),
                     produced_by: produced_by.cloned(),
                 })
@@ -1765,16 +1766,18 @@ fn compare_terms(left: &Term, right: &Term) -> std::cmp::Ordering {
             Term::Literal(_) => 2,
         }
     }
-    rank(left).cmp(&rank(right)).then_with(|| match (left, right) {
-        (Term::NamedNode(left), Term::NamedNode(right)) => left.as_str().cmp(right.as_str()),
-        (Term::BlankNode(left), Term::BlankNode(right)) => left.as_str().cmp(right.as_str()),
-        (Term::Literal(left), Term::Literal(right)) => left
-            .value()
-            .cmp(right.value())
-            .then_with(|| left.datatype().as_str().cmp(right.datatype().as_str()))
-            .then_with(|| left.language().cmp(&right.language())),
-        _ => std::cmp::Ordering::Equal,
-    })
+    rank(left)
+        .cmp(&rank(right))
+        .then_with(|| match (left, right) {
+            (Term::NamedNode(left), Term::NamedNode(right)) => left.as_str().cmp(right.as_str()),
+            (Term::BlankNode(left), Term::BlankNode(right)) => left.as_str().cmp(right.as_str()),
+            (Term::Literal(left), Term::Literal(right)) => left
+                .value()
+                .cmp(right.value())
+                .then_with(|| left.datatype().as_str().cmp(right.datatype().as_str()))
+                .then_with(|| left.language().cmp(&right.language())),
+            _ => std::cmp::Ordering::Equal,
+        })
 }
 
 fn succ_with_support_unordered(
@@ -1811,8 +1814,7 @@ fn succ_with_support_unordered(
             _ => pred(g, from, inner)
                 .into_iter()
                 .map(|value| {
-                    let support =
-                        path_support(g, from, path, &value).unwrap_or(PathSupport::Empty);
+                    let support = path_support(g, from, path, &value).unwrap_or(PathSupport::Empty);
                     (value, support)
                 })
                 .collect(),
@@ -2191,7 +2193,9 @@ mod tests {
         match support {
             PathSupport::Edge(edge) => out.push(edge.clone()),
             PathSupport::Chain(parts) | PathSupport::Alt(parts) => {
-                parts.iter().for_each(|part| collect_support_edges(part, out));
+                parts
+                    .iter()
+                    .for_each(|part| collect_support_edges(part, out));
             }
             PathSupport::Empty => {}
         }
@@ -2230,7 +2234,9 @@ mod tests {
             Path::Star(Path::Pred(named("http://ex/r")).into()),
             Path::Seq(vec![
                 Path::Pred(named("http://www.w3.org/1999/02/22-rdf-syntax-ns#type")),
-                Path::Star(Path::Pred(named("http://www.w3.org/2000/01/rdf-schema#subClassOf")).into()),
+                Path::Star(
+                    Path::Pred(named("http://www.w3.org/2000/01/rdf-schema#subClassOf")).into(),
+                ),
             ]),
         ];
 
