@@ -4,6 +4,16 @@ Python API reference
 The ``pyshifty`` package exposes the engine through `PyO3 <https://pyo3.rs>`_
 bindings. Install with ``pip install pyshifty``; import as ``shifty``.
 
+.. list-table::
+   :widths: 20 80
+
+   * - Distribution
+     - ``pyshifty``; import name ``shifty``
+   * - Stability
+     - Stable, except interfaces explicitly marked experimental
+   * - Related
+     - :doc:`evidence`, :doc:`shape-maps`, :doc:`feature-support`
+
 This page covers validation and inference. The evidence and shape-map
 interfaces have their own pages: :doc:`evidence` and :doc:`shape-maps`. The
 experimental repair API is in :doc:`repair`.
@@ -30,8 +40,8 @@ N-Triples, avoiding rdflib's slower Turtle serializer.
    ``shacl_graph``, or passing ``None``) makes that graph both the shapes and
    the data. Passing a separate shapes graph compiles the schema **only** from
    it — SHACL vocabulary sitting in the data graph is ignored, never turned
-   into constraints. Passing an empty ``rdflib.Graph()`` means "an explicitly
-   empty shapes graph", which is not the same as ``None``. See
+   into constraints. An explicitly empty shapes graph raises ``ValueError`` by
+   default; it is not the same as ``None``. See
    :doc:`../explanation/shapes-and-data`.
 
 ``validate``
@@ -52,9 +62,10 @@ N-Triples, avoiding rdflib's slower Turtle serializer.
        base=None,
    ) -> tuple[bool, rdflib.Graph, str]
 
-The ``pyshacl``-compatible entry point. Returns ``(conforms, report_graph,
-results_text)``: the boolean, a W3C ``sh:ValidationReport`` as an
-``rdflib.Graph``, and that report rendered for a human.
+The ``pyshacl``-compatible signature and report model. Returns ``(conforms,
+report_graph, results_text)``: the boolean, a W3C ``sh:ValidationReport`` as an
+``rdflib.Graph``, and that report rendered for a human. Shifty additionally
+rejects an explicitly empty shapes graph by default.
 
 Requires ``rdflib`` at call time, since it constructs the report graph.
 
@@ -244,6 +255,8 @@ Parses, lowers, normalizes, and plans a shapes graph once, for reuse across
 many data graphs. This is the right tool whenever the schema is fixed and the
 data changes, which is most batch and service workloads.
 
+An explicitly empty shapes graph raises ``ValueError``.
+
 .. code-block:: python
 
    validator = shifty.PreparedValidator(shapes)
@@ -256,6 +269,8 @@ data changes, which is most batch and service workloads.
 accept ``graph_mode``, ``shape_names``, ``infer``, ``minimum_severity``,
 ``sort_results``, and ``on_unsupported`` as keywords, with the same meanings as
 the module-level functions.
+
+.. _python-property-witnesses:
 
 ``PreparedValidator.witnesses``
 -------------------------------

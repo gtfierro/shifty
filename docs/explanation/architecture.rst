@@ -71,13 +71,21 @@ property shape means — is:
 rather than a dozen vocabulary terms, and evidence, repair, and the cost model
 each need one case for all of them.
 
-This encoding is visible from the outside, which is worth knowing before it
-surprises you. A ``sh:datatype`` violation is reported as a ``CountHigh``
-against a ``max 0`` you never wrote — see
-:doc:`../tutorials/explaining-a-failure`.
+This encoding is visible in validation results. A ``sh:datatype`` violation is
+reported as a ``CountHigh`` against a ``max 0`` that does not appear explicitly
+in the shapes graph. See :doc:`../tutorials/explaining-a-failure` for a worked
+example and :doc:`../reference/python` for the structured result fields.
 
 The pipeline
 ------------
+
+.. figure:: ../_static/pipeline.svg
+   :alt: Shapes pass through compile stages while data passes through indexing and inference; both meet at evaluation, which produces reports and evidence, with evidence feeding the optional repair workflow.
+   :align: center
+   :width: 100%
+
+   Compilation is paid once per shapes graph. Prepared validators reuse the
+   compiled plan across data graphs.
 
 ``shifty inspect --stage <stage>`` prints the output of each layer; see
 :doc:`../how-to/inspect-pipeline` for worked output.

@@ -1,10 +1,8 @@
 Reading validation results in code
 ==================================
 
-:doc:`first-validation` printed a report and you read it. This tutorial is
-about the next step: writing code that consumes a validation result and does
-something useful with it — grouping failures, routing them by severity, or
-rendering your own explanation instead of the engine's.
+This tutorial uses the structured result interface to group failures, route
+them by severity, and render application-specific explanations.
 
 It takes about fifteen minutes. Use the ``shapes.ttl`` and the *failing*
 ``data.ttl`` from the first tutorial:
@@ -16,8 +14,8 @@ It takes about fifteen minutes. Use the ``shapes.ttl`` and the *failing*
    ex:alice a ex:Person ; ex:name "Alice" ; ex:email "alice@example.org" .
    ex:bob   a ex:Person ; ex:name 123 .
 
-Three result formats, and when to want each
--------------------------------------------
+Result formats
+--------------
 
 Shifty can hand you a validation result in three shapes.
 
@@ -39,37 +37,13 @@ This tutorial uses the third.
 Walk the violations
 -------------------
 
-.. code-block:: python
+.. literalinclude:: ../examples/structured-results.py
+   :language: python
 
-   import pathlib
-   import shifty
+.. program-output:: python examples/structured-results.py
+   :cwd: ..
 
-   shapes = pathlib.Path("shapes.ttl").read_text()
-   data = pathlib.Path("data.ttl").read_text()
-
-   result = shifty.validate_algebra(data, shapes)
-
-   print("conforms:", result.conforms)
-   print("violations:", len(result.violations))
-
-   for violation in result.violations:
-       print(violation.focus_node, violation.severity)
-       for reason in violation.reasons:
-           print("   ", reason.constraint_kind, reason.path, reason.value)
-           print("   ", reason.message)
-
-.. code-block:: text
-
-   conforms: False
-   violations: 1
-   <http://example.org/bob> Violation
-       ConstraintKind.Cardinality <http://example.org/email> <http://example.org/bob>
-       at least 1 value(s) required along <http://example.org/email>, found 0
-       ConstraintKind.ValueType <http://example.org/name> "123"^^<http://www.w3.org/2001/XMLSchema#integer>
-       test(datatype(xsd:string)) not satisfied
-
-The structure is two levels, and the split is worth internalising because it is
-where most reporting bugs come from.
+The result has two levels.
 
 A **violation** is one failing focus node under one statement. A **reason** is
 one thing that went wrong there. Bob is a single violation with two reasons.
@@ -78,13 +52,13 @@ will under-count; if you flatten reasons and call it "number of bad nodes", you
 will over-count. Which one you want depends on whether you are counting things
 to fix or nodes to fix them on.
 
-Note also that ``reason.value`` is the *offending value* when there is one —
+``reason.value`` is the *offending value* when there is one —
 the integer ``123`` for the datatype failure. For the missing email there is no
 offending value, because the problem is an absence, so the field falls back to
 the focus node.
 
-Branch on the constraint, not the message
------------------------------------------
+Branch on constraint kind
+-------------------------
 
 ``reason.message`` is generated prose. It is good for display and a bad thing
 to make decisions from: it is not a stable interface, and matching on
@@ -161,17 +135,16 @@ Then prefer it, falling back to the engine's:
 is why the fallback matters. This two-line pattern is most of what a good
 error-reporting layer needs.
 
-Severity is per reason, not per node
-------------------------------------
+Reason severity
+---------------
 
 The email obligation above is a ``sh:Warning`` while the name obligation is a
 ``sh:Violation``, and Bob has both. So severity lives on the reason.
 ``violation.severity`` reports the most severe reason under that node — useful
 for sorting, misleading if you assume every reason shares it.
 
-Severity also decides what counts as failure, and this is the part that
-surprises people. Give Bob a valid name so the only remaining problem is the
-warning-level missing email:
+Severity also decides what counts as failure. Give Bob a valid name so the
+only remaining problem is the warning-level missing email:
 
 .. code-block:: python
 

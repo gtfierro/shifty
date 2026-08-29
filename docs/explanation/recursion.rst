@@ -55,11 +55,11 @@ The same machinery serves SHACL-AF rule inference, which is Datalog with
 stratified negation. Recursive validation and recursive inference run on one
 engine rather than two.
 
-Polarity is semantic, not syntactic
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Dependency polarity
+~~~~~~~~~~~~~~~~~~~
 
-There is a trap here worth spelling out, because getting it wrong would reject
-schemas that are perfectly fine.
+Dependency polarity follows monotonicity rather than the surface syntax of the
+normalized expression.
 
 Shifty encodes ``∀π.φ`` as ``∃≤0 π.¬φ`` (see :doc:`architecture`). So a
 thoroughly positive SHACL constraint — ``sh:node S`` inside a property shape —

@@ -1,23 +1,20 @@
 Tutorials
 =========
 
-Three lessons, meant to be worked through in order at a terminal. They are
-learning material rather than reference: every step is spelled out, and the
-files are small enough that you can hold the whole example in your head.
+These tutorials introduce validation, structured results, and failure
+explanations using small examples.
 
 :doc:`first-validation` installs Shifty, writes a shapes file and a data file
-by hand, and gets a validation report out. By the end you will have seen the
-difference between the shapes graph and the data graph, which is the single
-distinction that causes the most confusion later.
+by hand, and produces a validation report. It also separates the roles of the
+shapes graph and the data graph.
 
 :doc:`reading-results` moves from reading a report to writing code that
 consumes one: walking violations and their reasons, branching on the constraint
 that failed rather than on its message, and grouping findings the way your
 consumer needs them.
 
-:doc:`explaining-a-failure` asks the harder question. A validation result is a
-list of failures, so it cannot tell you which nodes passed, or why. The
-evidence interface keeps the validator's derivation and answers both.
+:doc:`explaining-a-failure` uses the evidence interface to inspect which nodes
+passed or failed and the derivation behind each result.
 
 If you already know SHACL and just want a specific job done, the
 :doc:`how-to guides <../how-to/index>` are shorter and assume more.

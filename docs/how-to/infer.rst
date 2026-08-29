@@ -13,36 +13,20 @@ A rule lives on a shape and fires for each node that shape targets. This one
 copies a rectangle's width to an ``ex:area`` property — not a useful
 calculation, but a small complete example:
 
-.. code-block:: turtle
+.. literalinclude:: ../examples/inference/rules.ttl
+   :language: turtle
 
-   @prefix sh: <http://www.w3.org/ns/shacl#> .
-   @prefix ex: <http://example.org/> .
-
-   ex:RectangleShape a sh:NodeShape ;
-       sh:targetClass ex:Rectangle ;
-       sh:rule [
-           a sh:TripleRule ;
-           sh:subject sh:this ;
-           sh:predicate ex:area ;
-           sh:object [ sh:path ex:width ] ;
-       ] .
-
-.. code-block:: turtle
-
-   @prefix ex: <http://example.org/> .
-   ex:r1 a ex:Rectangle ; ex:width 3 ; ex:height 2 .
+.. literalinclude:: ../examples/inference/data.ttl
+   :language: turtle
 
 Print the derived triples
 -------------------------
 
-.. code-block:: bash
+.. literalinclude:: ../examples/inference/infer.sh
+   :language: bash
 
-   shifty infer --shapes rules.ttl --data data.ttl
-
-.. code-block:: text
-
-   inferred 1 triple(s):
-     <http://example.org/r1> <http://example.org/area> "3"^^<http://www.w3.org/2001/XMLSchema#integer>
+.. program-output:: bash infer.sh
+   :cwd: ../examples/inference
 
 Only the *new* triples are listed, not the input. ``--format json`` gives the
 same thing structured.

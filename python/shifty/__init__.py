@@ -67,8 +67,8 @@ passed to the engine. A single input keeps its native fast path.
 
 ``graph_mode`` applies to ``validate`` and ``validate_algebra``. When the
 shapes graph is omitted or passed as ``None``, all modes are equivalent because
-data and shapes are the same embedded graph. Passing an empty ``rdflib.Graph()``
-is an explicit empty shapes graph, not embedded-shapes mode. ``infer`` does not
+data and shapes are the same embedded graph. An explicitly empty shapes graph
+raises :class:`ValueError`; it is not embedded-shapes mode. ``infer`` does not
 accept ``graph_mode``.
 
 ``shape_names`` applies to ``validate`` and ``validate_algebra``. It limits
@@ -984,9 +984,9 @@ def validate(
         The RDF data to validate. A list/tuple of inputs is unioned first.
     shacl_graph:
         The SHACL shapes graph.  If ``None``, shapes are expected to be
-        embedded in *data_graph* (standard SHACL pattern). Passing an empty
-        ``rdflib.Graph()`` means an explicit empty shapes graph. A list/tuple
-        of inputs is unioned first.
+        embedded in *data_graph* (standard SHACL pattern). An explicitly empty
+        graph raises :class:`ValueError`. A list/tuple of inputs is unioned
+        first.
     graph_mode:
         ``"union"`` (default), ``"data"``, or ``"union-all"``.
     shape_names:

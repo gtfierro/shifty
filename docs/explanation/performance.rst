@@ -63,9 +63,10 @@ catalog is fixed per snapshot rather than per pair, so it comes separately from
 ``constraints()`` — on a small 223P model the catalog is 57% of a whole run's
 serialized bytes, which would swamp a single pair.
 
-These four are methods on the Rust ``PreparedEvidenceValidator``. The Python
-bindings currently expose the whole-run ``validate`` only, so the cheap failure
-path is a Rust-level API today.
+These four are methods on Rust's ``PreparedEvidenceValidator`` and Python's
+``EvidenceSession``. In Python, call ``validate_conformance()`` for counts,
+``find_failures()`` for the selected failing pairs, and ``explain(pair)`` for
+one derivation. See the :doc:`evidence API reference <../reference/evidence>`.
 
 Where the cost goes
 -------------------

@@ -145,9 +145,9 @@ reordered by estimated cost: ``@10`` checks ``@9`` (cost 1, the email
 minCount) before ``@7`` (cost 3, the name constraints), so a node missing its
 email short-circuits without touching the more expensive branch.
 
-This is the stage that explains a surprising runtime. A conjunction whose cheap
-branch is not first, or a target seeding from a scan rather than an index, will
-show up here.
+The plan exposes two common sources of runtime cost: a conjunction whose cheap
+branch is not first, and target selection that seeds from a scan rather than an
+index.
 
 Whether SPARQL runs natively
 ----------------------------

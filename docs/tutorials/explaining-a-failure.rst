@@ -1,14 +1,8 @@
-Asking why a node passed or failed
-==================================
+Explain a validation result
+===========================
 
-:doc:`reading-results` ended on two questions a validation result cannot
-answer, because a result is a list of failures: *which nodes passed?* and *why,
-exactly, did this one fail?*
-
-This tutorial answers both with the evidence interface, which keeps the
-derivation the validator built instead of discarding it once the boolean has
-been extracted. By the end you will be able to tell a passing node from an
-unchecked one, and read a failure as a tree rather than a message.
+A validation result lists failures, but does not identify passing nodes or
+retain the derivation behind a failure. The evidence interface provides both.
 
 Set up
 ------
@@ -25,8 +19,8 @@ something to explain:
 
 ``shapes.ttl`` is unchanged.
 
-Evidence: the derivation, kept
-------------------------------
+Inspect the validation evidence
+-------------------------------
 
 An ordinary validation report is lossy on purpose: it tells you what to fix and
 discards everything else. The evidence interface keeps the derivation instead.
@@ -56,12 +50,10 @@ Open a session over the two graphs and validate:
       pass <http://example.org/alice>
       fail <http://example.org/bob>
 
-Alice is here. That is the first thing the evidence interface buys you: the
-report from the previous tutorial had no row for Alice, and no way to tell
-"passed" apart from "never selected". Here there are three distinct states — a
-statement whose target selected nothing has an empty ``selected_foci`` list, a
-selected node that passed has ``status == "pass"``, and a selected node that
-failed has ``status == "fail"``.
+The evidence includes Alice even though the validation report did not. A
+statement whose target selected nothing has an empty ``selected_foci`` list. A
+selected node has ``status == "pass"`` or ``status == "fail"`` according to its
+validation result.
 
 Now ask why Bob failed:
 
@@ -87,28 +79,27 @@ branches failed, and both must be fixed. The ``CountLow`` branch is the missing
 email, stated as an arithmetic gap — zero values found, one required — rather
 than as a message.
 
-The ``CountHigh`` branch is more surprising, because nothing in ``shapes.ttl``
-mentions a maximum. It is there because ``sh:datatype`` is a constraint on
-*every* value of ``ex:name``, and "every value satisfies φ" is compiled as "at
-most zero values satisfy ¬φ". So a universal constraint appears as a count with
-``max 0``, and the "match" it is complaining about is the one value that
-violates it. This is the algebra showing through; :doc:`../explanation/architecture`
-explains the encoding.
+The ``CountHigh`` branch appears even though ``shapes.ttl`` does not declare a
+maximum. ``sh:datatype`` constrains *every* value of ``ex:name``, and "every
+value satisfies φ" is compiled as "at most zero values satisfy ¬φ". A
+universal constraint therefore appears as a count with ``max 0``; its "match"
+is the value that violates the datatype constraint. The
+:doc:`architecture explanation <../explanation/architecture>` describes this
+encoding.
 
 ``[cuttable]`` is the engine noting that this leaf rests on a concrete triple —
 one that could be pointed at, or removed, to change the outcome. Leaves that
 have no such finite support say so instead; :doc:`../explanation/recursion`
 covers the case where that happens.
 
-Two things are worth knowing before you build on this. ``explain()`` produces
-text for humans — parse ``walk()``, ``constraint_kind``, and the structured
-projections instead, all described in :doc:`../reference/evidence`. And this
-evidence is *canonical*: a failed conjunction keeps the children that establish
-the failure and drops passing siblings, so the tree is a proof rather than a
-log. When you want the siblings too, ``focus.progress`` has them.
+``explain()`` produces text for humans. Programs should use ``walk()``,
+``constraint_kind``, and the structured projections described in
+:doc:`../reference/evidence`. Evidence is canonical: a failed conjunction keeps
+the children that establish the failure and drops passing siblings.
+``focus.progress`` contains the immediate authored siblings and their statuses.
 
-Ask what satisfied the passing node
------------------------------------
+Inspect a passing node
+----------------------
 
 Alice conforms. The interesting question is *with what* — and this is the one a
 validation report cannot answer at all, because Alice does not appear in it.
@@ -204,18 +195,16 @@ them, ask the session directly:
    detail = session.evidence_for(focus.focus, child.normalized_constraint_ref)
    # {"status": "pass", "evidence": {...}}
 
-The division of labour is worth remembering: canonical evidence answers *why
-did this result hold?*, progress answers *what happened to the authored
-children along the way?*, and ``evidence_for`` fills in any one of them on
-demand.
+Canonical evidence explains why a result holds. Progress reports the status of
+the immediate authored children. ``evidence_for`` materializes the derivation
+for one child on demand.
 
-What you have seen
-------------------
+Evidence guarantees and cost
+----------------------------
 
-The evidence interface is the validator's own derivation, kept rather than
-discarded. That is why it cannot disagree with ``validate()`` about whether a
-graph conforms — there is no second implementation of SHACL involved, only a
-richer return value from the same fold.
+The evidence interface retains the validator's derivation. It uses the same
+SHACL evaluation as ``validate()``, with a richer return value from the same
+fold.
 
 It also has a cost. Materializing evidence for every selected pair runs
 2.5–5.4x the time of deciding conformance, and grows with model size. If you
@@ -223,13 +212,13 @@ only care about failures — which is most callers — there is a much cheaper
 path; :doc:`../explanation/performance` has the measurements and the entry
 points.
 
-Where to go next:
+Related documentation
+---------------------
 
 - :doc:`../how-to/shape-maps` — the same bindings as a flat table, for when a
   shape is really an extraction schema.
 - :doc:`../reference/evidence` — the exact data model, for building on.
-- :doc:`../explanation/evidence-design` — why evidence is shaped this way, and
-  what it honestly cannot explain.
+- :doc:`../explanation/evidence-design` — the evidence model and its limits.
 - :doc:`../how-to/repair` — **experimental**: failure evidence is also the
   input to a symbolic repair layer that computes which edits would make a node
   conform. It is early and its API is expected to change.

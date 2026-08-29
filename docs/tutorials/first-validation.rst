@@ -32,32 +32,17 @@ binaries yet:
    cargo install --path crates/shifty-cli
 
 This tutorial uses the CLI for the first half and Python for the second. If
-you would rather not install the Rust toolchain, skip to `Doing the same thing
-from Python`_ — nothing in the CLI half is a prerequisite.
+you would rather not install the Rust toolchain, skip to `Validate from
+Python`_ — nothing in the CLI half is a prerequisite.
 
-Two files, two roles
---------------------
+Create the shapes and data graphs
+---------------------------------
 
 Create a working directory with two files in it. The first describes what a
 valid person looks like. Call it ``shapes.ttl``:
 
-.. code-block:: turtle
-
-   @prefix sh:  <http://www.w3.org/ns/shacl#> .
-   @prefix ex:  <http://example.org/> .
-   @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
-
-   ex:PersonShape a sh:NodeShape ;
-       sh:targetClass ex:Person ;
-       sh:property [
-           sh:path ex:name ;
-           sh:minCount 1 ;
-           sh:datatype xsd:string ;
-       ] ;
-       sh:property [
-           sh:path ex:email ;
-           sh:minCount 1 ;
-       ] .
+.. literalinclude:: ../examples/quick-start/shapes.ttl
+   :language: turtle
 
 Read that as three separate claims. ``sh:targetClass ex:Person`` says *which*
 nodes this shape applies to: every node typed ``ex:Person``. The first
@@ -67,38 +52,29 @@ each must have at least one ``ex:email``, with no constraint on the value.
 
 The second file is the data to check. Call it ``data.ttl``:
 
-.. code-block:: turtle
+.. literalinclude:: ../examples/quick-start/data.ttl
+   :language: turtle
 
-   @prefix ex: <http://example.org/> .
-
-   ex:alice a ex:Person ; ex:name "Alice" ; ex:email "alice@example.org" .
-   ex:bob   a ex:Person ; ex:name 123 .
-
-Alice satisfies both obligations. Bob breaks both, in two different ways: his
-``ex:name`` is present but is an integer rather than a string, and he has no
-``ex:email`` at all. Two failure modes in one node is deliberate — they produce
-visibly different output.
+Alice satisfies both obligations. Bob's ``ex:name`` is an integer rather than a
+string, and he has no ``ex:email``. The validator reports these as distinct
+reasons.
 
 Run the validator
 -----------------
 
-.. code-block:: bash
+.. literalinclude:: ../examples/quick-start/validate.sh
+   :language: bash
 
-   shifty validate --shapes shapes.ttl --data data.ttl
+.. program-output:: bash validate.sh
+   :cwd: ../examples/quick-start
 
-.. code-block:: text
-
-   conforms: false
-   violations: 1
-     <http://example.org/bob>  [severity: Violation; target: class(<http://example.org/Person>)]
-         - [Violation] (<http://example.org/email>) <http://example.org/bob> → at least 1 value(s) required along <http://example.org/email>, found 0
-         - [Violation] (<http://example.org/name>) "123"^^<http://www.w3.org/2001/XMLSchema#integer> → test(datatype(xsd:string)) not satisfied
-
-Alice is absent from the output. This is worth noticing now, because it is the
-first thing people find surprising: a validation report lists what went wrong,
-so a node that passed leaves no trace, and a node that passed is
-indistinguishable in the report from a node the shape never looked at.
-:doc:`explaining-a-failure` is about getting that information back.
+Alice is absent from the output. A validation report contains failures only. It
+does not distinguish between a node that passed validation and a node that was
+never selected by the shape. To inspect selection and passing evaluations, use
+the :doc:`evidence interface <../reference/evidence>`; to extract selected
+nodes and values as bindings, use :doc:`shape maps <../reference/shape-maps>`.
+The :doc:`failure-explanation tutorial <explaining-a-failure>` demonstrates
+the evidence workflow.
 
 The report groups by *focus node* — the node being checked — rather than by
 constraint. Bob is one violation with two reasons under it. Each reason names
@@ -132,11 +108,11 @@ Run the same command again:
 
 The quotes around ``"Bob"`` are doing real work here. In Turtle, ``123`` is an
 ``xsd:integer`` and ``"123"`` is an ``xsd:string``; they are different RDF
-terms, and ``sh:datatype`` distinguishes them. A surprising share of SHACL
-violations in practice are this typo.
+terms, and ``sh:datatype`` distinguishes them. Many SHACL datatype violations
+come from this difference.
 
-Doing the same thing from Python
---------------------------------
+Validate from Python
+--------------------
 
 ``shifty.validate`` takes the data graph first and the shapes graph second —
 the argument order of ``pyshacl.validate``, so existing code can switch by
@@ -186,13 +162,22 @@ summary, so the two commands print different text for the same result. The
 ``shapes.ttl`` were written inline with ``[ ... ]`` and so have no IRI of their
 own.
 
+.. note::
+
+   This tutorial uses ``validate()`` because it returns the standard W3C report
+   vocabulary. Shifty also provides ``validate_algebra()``, its native
+   structured result interface. Both return the same conformance decision, but
+   expose different report models. See :doc:`validation interfaces
+   <../explanation/validation-interfaces>` before choosing an interface for an
+   application.
+
 Any of ``str`` (Turtle text), ``bytes``, ``pathlib.Path``, or an
 ``rdflib.Graph`` works as an argument, and a list of them is merged first.
 Passing paths is the fastest option, because the file is parsed in Rust without
 a round-trip through rdflib.
 
-The rule about which graph is which
------------------------------------
+Shapes and data graph inputs
+----------------------------
 
 You passed two files, and Shifty treated them asymmetrically: shapes were read
 **only** from ``shapes.ttl``. If ``data.ttl`` had contained a stray
@@ -210,13 +195,11 @@ If you pass just one graph, it plays both roles:
    conforms, report, text = shifty.validate("combined.ttl")
 
 This is the common case where shape definitions and instance data live in the
-same file. The full rule, including how to deliberately validate against shapes
-embedded in your data, is in :doc:`../explanation/shapes-and-data` — it is
-worth reading once, because getting it wrong produces a validation run that
-passes for the wrong reason.
+same file. :doc:`../explanation/shapes-and-data` specifies the graph-input and
+visibility rules, including how to validate against shapes embedded in data.
 
-Where to go next
-----------------
+Next steps
+----------
 
 :doc:`reading-results` continues with this same graph, and moves from reading a
 report to writing code that consumes one.

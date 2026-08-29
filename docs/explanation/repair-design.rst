@@ -91,8 +91,8 @@ can render a template, show it to a person, serialize the choices as data, fill
 it partially, and come back to it. ``instantiate`` is a pure fold of a plan over
 a template; it validates nothing and chooses nothing.
 
-Computed from the algebra, not from the report
-----------------------------------------------
+Algebraic repair synthesis
+--------------------------
 
 Repair recurses over the shape arena rather than over the W3C validation
 report, and this is not an implementation detail.
@@ -108,8 +108,8 @@ This is the same argument that makes evidence and repair the same machinery.
 The witness that failure evidence produces is exactly the lossless input
 synthesis needs — see :doc:`evidence-design`.
 
-Three folds, and why there are three
-------------------------------------
+Repair synthesis folds
+----------------------
 
 Synthesis is three mutually recursive folds:
 
@@ -129,8 +129,8 @@ carries fuel. At fuel exhaustion a recursive obligation becomes a
 ``conforms to`` hole and is handed to the driver, which is a better failure mode
 than either diverging or silently truncating.
 
-Data only, and why
-------------------
+Repair scope
+------------
 
 A template adds and deletes *data* triples. The schema is ground truth.
 

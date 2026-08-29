@@ -394,6 +394,9 @@ fn validate(args: ValidateArgs) -> Result<(), Box<dyn Error>> {
     }
     let base = args.base.as_deref();
     let shapes_loaded = load_sources(&args.shapes, base)?;
+    if shapes_loaded.graph.is_empty() {
+        return Err("explicit shapes graph is empty".into());
+    }
     let parsed = shifty_parse::parse_loaded(&shapes_loaded);
     let normalized = shifty_opt::normalize(&parsed.schema);
     for d in &parsed.diagnostics {

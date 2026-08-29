@@ -65,8 +65,8 @@ The run stays green.
 Keeping the schema fixed makes validation predictable and matches the SHACL
 specification's own separation of the two graphs.
 
-If you want data-embedded shapes
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Shapes embedded in data
+~~~~~~~~~~~~~~~~~~~~~~~
 
 Say so explicitly. Both ``--shapes`` and the Python ``shapes`` argument accept
 multiple sources and union them, so add the data file as an additional shapes
@@ -80,38 +80,45 @@ source:
 
    conforms, report, text = shifty.validate(data, [shapes, data])
 
-One trap in Python: to validate a combined graph, omit the second argument or
-pass ``None``. Passing an empty ``rdflib.Graph()`` is not the same thing — that
-means "an explicitly empty shapes graph", which compiles to a schema with no
-constraints, which conforms to everything.
+To validate a combined graph in Python, omit the second argument or pass
+``None``. An explicitly supplied shapes graph that contains no triples raises
+``ValueError``, preventing an accidental vacuous validation from being reported
+as successful.
 
 .. code-block:: python
 
    shifty.validate(combined)              # combined is both
    shifty.validate(combined, None)        # same
-   shifty.validate(combined, rdflib.Graph())   # no constraints; always conforms
+   shifty.validate(combined, rdflib.Graph())   # ValueError: empty shapes graph
 
-That last line is the shape of a bug that looks like a success.
+This guard applies only when the supplied shapes graph has zero triples. A
+nonempty schema whose targets select no focus nodes remains a valid conforming
+run.
 
 Which triples are visible
 -------------------------
 
 The second question is entirely separate, and applies *after* the schema is
 fixed. It is controlled by ``graph_mode`` (``--graph-mode`` on the CLI), and it
-governs what path traversal, class-hierarchy lookup, and SPARQL can see.
+governs both where focus nodes are selected and what path traversal,
+class-hierarchy lookup, and SPARQL can see.
 
 .. list-table::
-   :widths: 20 80
+   :widths: 20 35 45
    :header-rows: 1
 
    * - Mode
-     - Behaviour
+     - Focus selection
+     - Evaluation graph
    * - ``data``
-     - Focus nodes and evaluation use the data graph only.
+     - Data
+     - Data
    * - ``union`` *(default)*
-     - Focus nodes from data; evaluation sees data ∪ shapes.
+     - Data
+     - Data ∪ shapes
    * - ``union-all``
-     - Focus nodes and evaluation both see data ∪ shapes.
+     - Data ∪ shapes
+     - Data ∪ shapes
 
 The default is ``union`` because of class hierarchies. ``sh:class ex:Sensor``
 has to hold for an ``ex:TemperatureSensor`` when the ontology says
@@ -124,9 +131,9 @@ So the modes trade off like this. ``data`` is the strict reading: the data
 graph must stand entirely on its own, ontology included. Use it when you want
 to know whether a graph is self-contained. ``union`` is the practical default:
 the data is validated, the shapes side supplies vocabulary. ``union-all`` also
-selects focus nodes from the shapes graph, which you want when the shapes file
-contains instances you intend to validate too, and which will otherwise
-surprise you by validating your ontology.
+selects focus nodes from the shapes graph, which is useful when the shapes file
+contains instances you intend to validate too. It can also select ontology
+resources in the shapes graph as validation targets.
 
 ``infer()`` takes no ``graph_mode``. Graph modes describe what validation can
 see; inference always reads and extends the data graph.

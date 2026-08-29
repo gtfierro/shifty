@@ -1,6 +1,7 @@
 import threading
 import time
 
+import pytest
 import rdflib
 
 import shifty
@@ -52,6 +53,11 @@ def test_prepared_validator_accepts_rdflib_graph():
     result = shifty.PreparedValidator(SHAPES).validate_algebra(graph, infer=False)
 
     assert result.conforms is True
+
+
+def test_prepared_validator_rejects_empty_shapes():
+    with pytest.raises(ValueError, match="explicit shapes graph is empty"):
+        shifty.PreparedValidator(rdflib.Graph())
 
 
 def test_validation_releases_gil():

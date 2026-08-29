@@ -1,0 +1,84 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1120 470" role="img" aria-labelledby="title desc">
+  <title id="title">Shifty compilation and evaluation pipeline</title>
+  <desc id="desc">A shapes graph is lowered, normalized, analyzed, and planned. A data graph is indexed and may be extended by inference. The compiled plan and indexed evaluation graph meet in the evaluator, which returns validation results and evidence. Evidence can feed the experimental repair workflow, whose candidates are validated again.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#52606d"/>
+    </marker>
+    <style>
+      .box { fill: #f7f9fb; stroke: #52606d; stroke-width: 2; }
+      .compile-box { fill: #e7f1ff; stroke: #2767a5; stroke-width: 2; }
+      .data-box { fill: #e7f7ef; stroke: #25734f; stroke-width: 2; }
+      .output-box { fill: #fff4d6; stroke: #8a6514; stroke-width: 2; }
+      .experimental-box { fill: #f7eafb; stroke: #7a3d8c; stroke-width: 2; stroke-dasharray: 7 5; }
+      .label { fill: #17202a; font-family: sans-serif; font-size: 17px; font-weight: 600; text-anchor: middle; }
+      .small { fill: #34495e; font-family: sans-serif; font-size: 14px; text-anchor: middle; }
+      .lane { fill: #34495e; font-family: sans-serif; font-size: 15px; font-weight: 600; }
+      .arrow { fill: none; stroke: #52606d; stroke-width: 2.2; marker-end: url(#arrow); }
+    </style>
+  </defs>
+
+  <text class="lane" x="24" y="48">Compile once per shapes graph</text>
+  <rect class="compile-box" x="24" y="70" width="150" height="76" rx="10"/>
+  <text class="label" x="99" y="101">Shapes graph</text>
+  <text class="small" x="99" y="125">SHACL RDF</text>
+
+  <rect class="compile-box" x="214" y="70" width="150" height="76" rx="10"/>
+  <text class="label" x="289" y="101">Lower</text>
+  <text class="small" x="289" y="125">path + shape algebra</text>
+
+  <rect class="compile-box" x="404" y="70" width="150" height="76" rx="10"/>
+  <text class="label" x="479" y="101">Normalize</text>
+  <text class="small" x="479" y="125">rewrite + intern</text>
+
+  <rect class="compile-box" x="594" y="70" width="150" height="76" rx="10"/>
+  <text class="label" x="669" y="101">Analyse</text>
+  <text class="small" x="669" y="125">recursion strata</text>
+
+  <rect class="compile-box" x="784" y="70" width="150" height="76" rx="10"/>
+  <text class="label" x="859" y="101">Plan</text>
+  <text class="small" x="859" y="125">indexes + ordering</text>
+
+  <path class="arrow" d="M174 108 H214"/>
+  <path class="arrow" d="M364 108 H404"/>
+  <path class="arrow" d="M554 108 H594"/>
+  <path class="arrow" d="M744 108 H784"/>
+
+  <text class="lane" x="24" y="239">Prepare each data snapshot</text>
+  <rect class="data-box" x="24" y="260" width="150" height="76" rx="10"/>
+  <text class="label" x="99" y="291">Data graph</text>
+  <text class="small" x="99" y="315">RDF instances</text>
+
+  <rect class="data-box" x="214" y="260" width="150" height="76" rx="10"/>
+  <text class="label" x="289" y="291">Index</text>
+  <text class="small" x="289" y="315">terms + adjacency</text>
+
+  <rect class="data-box" x="404" y="260" width="150" height="76" rx="10"/>
+  <text class="label" x="479" y="291">Infer</text>
+  <text class="small" x="479" y="315">optional fixed point</text>
+
+  <path class="arrow" d="M174 298 H214"/>
+  <path class="arrow" d="M364 298 H404"/>
+
+  <rect class="box" x="654" y="246" width="170" height="104" rx="10"/>
+  <text class="label" x="739" y="288">Evaluate</text>
+  <text class="small" x="739" y="313">compiled plan over</text>
+  <text class="small" x="739" y="332">visible triples</text>
+  <path class="arrow" d="M554 298 H654"/>
+  <path class="arrow" d="M859 146 V194 Q859 214 839 222 L787 246"/>
+
+  <rect class="output-box" x="870" y="218" width="220" height="76" rx="10"/>
+  <text class="label" x="980" y="249">Validation results</text>
+  <text class="small" x="980" y="273">report or structured findings</text>
+  <rect class="output-box" x="870" y="320" width="220" height="76" rx="10"/>
+  <text class="label" x="980" y="351">Evidence</text>
+  <text class="small" x="980" y="375">derivations + shape maps</text>
+  <path class="arrow" d="M824 276 L870 260"/>
+  <path class="arrow" d="M824 320 L870 348"/>
+
+  <rect class="experimental-box" x="448" y="390" width="250" height="60" rx="10"/>
+  <text class="label" x="573" y="416">Symbolic repair</text>
+  <text class="small" x="573" y="437">experimental candidate edits</text>
+  <path class="arrow" d="M870 371 H760 Q740 371 726 385 L698 410"/>
+  <path class="arrow" d="M448 420 H388 Q368 420 368 400 V355 Q368 335 388 329 L404 324"/>
+</svg>

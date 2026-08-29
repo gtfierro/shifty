@@ -7,11 +7,11 @@ and a diagnostic — and it is a lossy summary of what the validator computed.
 
 The validator decided conformance by structural recursion over the constraint.
 At every step it knew which sub-constraint held, on which values, supported by
-which triples. That derivation existed, was used to produce the boolean, and
-was discarded. Evidence is the decision to keep it.
+which triples. The evidence interface retains that derivation after computing
+the boolean.
 
-Three things a report cannot tell you
--------------------------------------
+Information absent from validation reports
+------------------------------------------
 
 **Why a node passed.** A report has no row for a conforming node, so there is
 no way to ask what satisfied the constraint. If your shape says a VAV has a
@@ -48,14 +48,14 @@ statement that was included in the run appears, and each selected
            ├── status = "pass" → Satisfaction
            └── status = "fail" → Failure
 
-This makes the three states observably different: no row means unselected, a
-``pass`` row means checked and held, a ``fail`` row means checked and did not.
+No row means unselected, a ``pass`` row means checked and held, and a ``fail``
+row means checked and did not.
 Retaining statements whose target selected nothing is the part that requires
 deliberate effort — the easy implementation drops them, and with them the
 answer to "did this shape apply to anything?"
 
-Two polarities, one machine
----------------------------
+Satisfaction and failure evidence
+---------------------------------
 
 ``Satisfaction`` and ``Failure`` are not two report formats that happen to
 resemble each other. They are logical complements, computed by mutually
@@ -74,12 +74,11 @@ something that currently holds, and the satisfaction trace is the record of
 what to falsify. The two polarities are one machine because the problem is one
 problem.
 
-Canonical evidence is a proof, not a log
-----------------------------------------
+Canonical evidence
+------------------
 
 A failed conjunction retains the children that establish the failure and drops
-the ones that passed. This is deliberate, and it is the design decision people
-question most, so it is worth stating the reasoning.
+the ones that passed.
 
 Canonical evidence answers *why did this result hold?* The answer to that
 question, for a conjunction, is the failing conjunct. A passing sibling is not
@@ -95,7 +94,7 @@ authored children are available separately, through
 ``FocusEvaluation.progress``, which reports the immediate authored children and
 their statuses without materializing why each held.
 
-The division of labour:
+Canonical evidence, progress, and on-demand evidence provide different views:
 
 - **canonical evidence** answers *why did this result hold?*
 - **progress** answers *what happened to the immediate authored children while
@@ -103,8 +102,8 @@ The division of labour:
 - **session.evidence_for(focus, constraint_id)** materializes the full evidence
   for one of those elided children, on demand.
 
-Two identities, because normalization is not identity-preserving
-----------------------------------------------------------------
+Source and normalized identities
+--------------------------------
 
 Evidence carries both a source and a normalized identity for every statement
 and constraint. This is a direct consequence of compiling shapes
@@ -119,8 +118,8 @@ common-subexpression elimination. Discarding either one loses something: with
 only source ids you cannot explain the execution, and with only normalized ids
 you cannot point at the SHACL the user wrote.
 
-What evidence honestly cannot explain
--------------------------------------
+Limits of evidence
+------------------
 
 The validation *status* is exact everywhere. The explanation is not always
 available, and the cases where it is missing are marked in the tree rather than
@@ -134,14 +133,14 @@ expression failures are opaque for the same reason. Passing closed and
 relational constraints are blocked only in the deletive direction, which does
 not affect their validation result.
 
-Coinductive satisfaction is the subtlest case. Under greatest-fixed-point
-semantics (:doc:`recursion`), a node can conform because no counterexample is
+Under greatest-fixed-point semantics (:doc:`recursion`), a node can conform
+because no counterexample is
 reachable, and there is then no finite set of supporting triples to point at.
 Evidence records a ``coinductive`` leaf. That is a real limit, not a placeholder
 for missing work.
 
-One more limit worth stating plainly: a ``PathSupport`` is *one* concrete
-successful route, not an enumeration of all of them. For an alternative path,
+``PathSupport`` records one concrete successful route rather than enumerating
+all of them. For an alternative path,
 Shifty keeps the first successful syntactic alternative. So a path support is a
 positive reachability certificate and is **not** a deletion cut — anything
 derived from it is a candidate that still has to pass the repair gate.
@@ -149,8 +148,8 @@ derived from it is a candidate that still has to pass the repair gate.
 The costs
 ---------
 
-Keeping the derivation is not free, and the numbers are not small. Materializing
-evidence for every selected pair costs 2.5–5.4x deciding conformance, rising
+Materializing evidence for every selected pair costs 2.5–5.4x deciding
+conformance, rising
 with model size, and a mid-size model's serialized run can reach tens of
 megabytes before compaction.
 

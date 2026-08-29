@@ -137,6 +137,10 @@
 
 ### Changed
 
+- Validation now rejects an explicitly supplied zero-triple shapes graph
+  instead of reporting vacuous conformance. Omitting the Python shapes argument
+  or passing `None` still selects embedded shapes, and inference still accepts
+  an empty rules graph.
 - Conformance-only `validate_conformance` and `find_failures` now take
   `ConformanceOptions`, which exposes only entry-shape selection. The old
   `ValidationOptions` parameter suggested that severity and result sorting were

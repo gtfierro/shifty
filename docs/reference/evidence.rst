@@ -4,6 +4,18 @@ Evidence reference
 The evidence interface records why every selected focus node passed or failed,
 linked to both the authored SHACL statement and its normalized algebra.
 
+.. list-table::
+   :widths: 20 80
+
+   * - Frontends
+     - Python ``EvidenceSession``, Rust ``PreparedEvidenceValidator``, and C++
+       ``EvidenceSession``
+   * - Stability
+     - Stable
+   * - Related
+     - :doc:`../how-to/explain-failures`,
+       :doc:`../explanation/evidence-design`, :doc:`shape-maps`
+
 :doc:`../how-to/explain-failures` shows how to use it;
 :doc:`../explanation/evidence-design` explains why it is shaped this way.
 

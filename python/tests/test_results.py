@@ -375,12 +375,13 @@ class TestMultipleViolations:
 # ── Edge cases for result objects ────────────────────────────────────────────
 
 class TestResultEdgeCases:
-    def test_empty_shapes_validation(self):
+    def test_empty_shapes_validation_requires_opt_in(self):
         shapes = PREFIXES + ""
         data = PREFIXES + "ex:a a ex:Thing ."
-        result = shifty.validate_algebra(data.encode(), shapes.encode())
-        assert result.conforms is True
-        assert result.violations == []
+
+        with pytest.raises(ValueError, match="explicit shapes graph is empty"):
+            shifty.validate_algebra(data.encode(), shapes.encode())
+
 
     def test_empty_data_validation(self):
         shapes = PREFIXES + """\

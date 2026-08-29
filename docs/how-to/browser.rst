@@ -61,8 +61,7 @@ Embed it in your own page
 ``crates/shifty-wasm/README.md`` documents the JavaScript API and the embedding
 details.
 
-Two limits are worth knowing before you design around it. The module is a full
-engine, so it is not small — budget for the download on a first visit. And it
-runs in the tab's memory: a shapes closure of a few hundred thousand triples
-against a large data graph will hit browser memory limits well before it would
-hit them natively. For interactive-sized inputs it is comfortable.
+The module contains the full engine, which increases the initial download. It
+also runs in the tab's memory, so a shapes closure of a few hundred thousand
+triples against a large data graph reaches browser memory limits before the
+native engine. The browser build is intended for interactive-sized inputs.

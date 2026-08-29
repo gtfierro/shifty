@@ -4,10 +4,6 @@ Shifty
 .. raw:: html
 
    <div class="sh-hero">
-     <p class="sh-tagline">
-       A SHACL validation and SHACL-AF inference engine, built on a compiled
-       algebra rather than an interpreter over the shapes graph.
-     </p>
      <div class="sh-badges">
        <a href="https://pypi.org/project/pyshifty/"><img src="https://img.shields.io/pypi/v/pyshifty.svg" alt="PyPI"></a>
        <a href="https://crates.io/crates/shifty-cli"><img src="https://img.shields.io/crates/v/shifty-cli.svg" alt="Crates.io"></a>
@@ -21,120 +17,133 @@ Shifty
      </div>
    </div>
 
-Shifty does two things: it **validates** RDF graphs against SHACL shapes, and it
-runs **SHACL-AF inference** — ``sh:rule`` entries forward-chained to a fixed
-point. Both are driven by the same compiled representation, so a constraint has
-one meaning in the system rather than one per feature.
-
-Rather than interpret the shapes graph at validation time, Shifty lowers SHACL
-to a path algebra (π) and a shape grammar (φ) taken from `Common Foundations for
-SHACL, ShEx, and PG-Schema <https://arxiv.org/abs/2502.01295>`_, normalizes it,
-and plans it. SHACL's vocabulary is much larger than its semantics; reducing
-dozens of constraint components to a handful of operators is what makes the
-optimizer, the inference engine, and the result formats below tractable to write
-once each.
-
-- **Full SHACL Core validation** — node and property shapes, all standard
-  constraint components, the full property-path language.
-- **SHACL-AF inference** — triple rules and SPARQL CONSTRUCT rules to a fixed
-  point, with stratification analysis for recursive rulesets.
-- **Recursion with a defined semantics** — cyclic shape references are
-  evaluated in strata; a schema whose recursion runs through a negation is
-  diagnosed and refused rather than guessed at.
-- **Multiple frontends** — CLI, Python (``pyshifty``), a C++17 static library,
-  and a WebAssembly module that runs in the browser.
-
-Results you can act on
-----------------------
-
-Validation returns a W3C ``sh:ValidationReport`` when you want interoperability.
-When you want to *do* something with the result, ``validate_algebra`` returns
-the same findings as structured objects — no RDF graph to query, and a stable
-constraint kind to branch on:
-
-.. code-block:: python
-
-   result = shifty.validate_algebra(data, shapes)
-
-   for violation in result.violations:
-       print(violation.focus_node, violation.severity)
-       for reason in violation.reasons:
-           print(" ", reason.constraint_kind)   # ConstraintKind.Cardinality
-           print(" ", reason.path)              # <http://example.org/email>
-           print(" ", reason.value)             # the offending value node
-           print(" ", reason.message)           # engine-generated description
-           print(" ", reason.author_message)    # your sh:message, if any
-
-Each reason also carries the algebra node that produced it, so you can see the
-compiled constraint behind a finding rather than reverse-engineering it from
-prose. :doc:`tutorials/reading-results` walks through this.
-
-Going further, the :doc:`evidence interface <reference/evidence>` keeps the
-whole derivation instead of discarding it — which nodes a shape actually
-selected, why each one passed, and which triples supported it. That answers
-questions a validation report structurally cannot, such as "did this profile
-apply to anything?" and "which sensor satisfied this obligation?"
-
-Where to start
---------------
-
-.. list-table::
-   :widths: 25 75
-
-   * - :doc:`Tutorials <tutorials/index>`
-     - Start here if you are new. Three lessons: get a validation running,
-       walk its results in code, then ask the engine why each node passed or
-       failed.
-   * - :doc:`How-to guides <how-to/index>`
-     - Recipes for a specific job: run inference, extract bindings, inspect
-       the compiled plan.
-   * - :doc:`Reference <reference/index>`
-     - Exact behaviour of the CLI flags, the Python API, the evidence data
-       model, and the supported SHACL feature set.
-   * - :doc:`Explanation <explanation/index>`
-     - Why the engine is built this way — the algebra, the recursion
-       semantics, and what the measurements say things cost.
+Shifty is a SHACL/SHACL-AF inference and validation engine for RDF graphs. It
+is available from Python, the command line, C++17, Rust, and WebAssembly.
 
 Quick start
 -----------
 
 Validate a data graph against a shapes graph:
 
-.. code-block:: bash
+.. literalinclude:: examples/quick-start/validate.sh
+   :language: bash
 
-   shifty validate --shapes shapes.ttl --data data.ttl
+.. program-output:: bash validate.sh
+   :cwd: examples/quick-start
 
-.. code-block:: text
-
-   conforms: false
-   violations: 1
-     <http://example.org/bob>  [severity: Violation; target: class(<http://example.org/Person>)]
-         - [Violation] (<http://example.org/email>) <http://example.org/bob> → at least 1 value(s) required along <http://example.org/email>, found 0
-         - [Violation] (<http://example.org/name>) "123"^^<http://www.w3.org/2001/XMLSchema#integer> → test(datatype(xsd:string)) not satisfied
-
-Run rules to a fixed point:
+Run SHACL-AF rules to a fixed point:
 
 .. code-block:: bash
 
    shifty infer --shapes rules.ttl --data data.ttl
 
-From Python, with a ``pyshacl``-compatible signature:
+The structured Python interface returns the same validation decision:
 
-.. code-block:: python
+.. literalinclude:: examples/quick-start/validate.py
+   :language: python
 
-   import shifty
+.. program-output:: python validate.py
+   :cwd: examples/quick-start
 
-   conforms, report_graph, results_text = shifty.validate(data, shapes)
+The `playground <https://shifty.gtf.fyi/playground/>`_ runs the WebAssembly
+build locally in the browser, so graphs entered there do not leave the machine.
 
-And in the browser: the `playground <https://shifty.gtf.fyi/playground/>`_ runs
-the whole engine as WebAssembly, so nothing you paste into it leaves your
-machine.
+Validation interfaces
+---------------------
+
+Shifty compiles SHACL into the path and shape algebra developed in Ahmetaj et
+al., `Common Foundations for SHACL, ShEx, and PG-Schema
+<https://doi.org/10.1145/3696410.3714694>`_ (The Web Conference 2025). The
+compiled representation supports normalization, shared subexpressions, indexed
+target selection, and cost-based planning before evaluation begins.
+
+Two result interfaces are available:
+
+.. list-table::
+   :widths: 24 76
+   :header-rows: 1
+
+   * - Interface
+     - Result
+   * - Native algebraic
+     - ``validate_algebra()`` returns structured violations and their nested
+       algebraic reasons; the CLI renders the same result model by default.
+       This is the lower-overhead reporting path and does not construct a W3C
+       ``sh:ValidationReport``.
+   * - W3C-compatible
+     - ``validate()`` and ``shifty validate --report`` return a W3C
+       ``sh:ValidationReport`` for interoperability with SHACL tooling.
+
+The native representation also supports :doc:`evidence
+<reference/evidence>`, passing-node :ref:`property witnesses
+<python-property-witnesses>`, and :doc:`shape-map bindings
+<reference/shape-maps>`. See :doc:`explanation/validation-interfaces` for the
+tradeoffs between the two result models and `Introducing the Shifty SHACL
+Engine <https://gtf.fyi/posts/shacl/shifty/>`_ for the original rationale.
+
+Interface support
+-----------------
+
+.. list-table::
+   :widths: 22 78
+
+   * - :doc:`Python <reference/python>`
+     - ``pip install pyshifty``. Validate, infer, explain, and reuse prepared
+       schemas from ``pyshifty``.
+   * - :doc:`Command line <reference/cli>`
+     - Install the ``shifty`` binary and use it in scripts or CI.
+   * - :doc:`C++ <reference/cpp>`
+     - Link the C++17 static library and use its prepared-validator API.
+   * - `Rust <https://docs.rs/shifty-engine>`_
+     - Use the engine crates directly; API details live on docs.rs.
+   * - :doc:`Browser / WebAssembly <how-to/browser>`
+     - Run Shifty locally in the browser.
+
+Common tasks
+------------
+
+.. list-table::
+   :widths: 32 68
+
+   * - :doc:`Run a first validation <tutorials/first-validation>`
+     - Install Shifty, validate a small graph, and fix one failure.
+   * - :doc:`Configure validation <how-to/validate>`
+     - Choose graph visibility, report format, severity threshold, and named
+       entry shapes.
+   * - :doc:`Run inference <how-to/infer>`
+     - Execute SHACL-AF rules and retrieve the inferred triples.
+   * - :doc:`Explain a failure <how-to/explain-failures>`
+     - Trace a finding through its compiled constraint and supporting triples.
+   * - :doc:`Extract shape-map bindings <how-to/shape-maps>`
+     - Query which focus nodes and values matched selected shapes.
+   * - :doc:`Inspect the compiler pipeline <how-to/inspect-pipeline>`
+     - Inspect the lowered algebra, normalization, recursion strata, and plan.
+   * - :doc:`Compute symbolic repairs <how-to/repair>`
+     - Explore candidate graph edits with the experimental repair API.
 
 .. note::
 
-   Shifty also has an **experimental** symbolic repair layer, which computes the
-   space of edits that would make a failing node conform. It is early and its
-   API is expected to change; see :doc:`how-to/repair` if you want to try it.
+   Symbolic repair is **experimental**. Its API may change; see
+   :doc:`how-to/repair` for its current scope.
+
+Documentation
+-------------
+
+.. list-table::
+   :widths: 25 75
+
+   * - :doc:`Tutorials <tutorials/index>`
+     - Guided introductions to validation, results, and evidence.
+   * - :doc:`How-to guides <how-to/index>`
+     - Procedures for specific validation and inference tasks.
+   * - :doc:`Reference <reference/index>`
+     - Interfaces, options, fields, and feature-support boundaries.
+   * - :doc:`Explanation <explanation/index>`
+     - Design, semantics, and performance tradeoffs.
+
+The :doc:`documentation contribution guide <contributing>` describes the page
+conventions and preview workflow. Documentation issues can be filed on
+`GitHub <https://github.com/gtfierro/shifty/issues/new>`_.
 
 .. toctree::
    :maxdepth: 2
@@ -144,4 +153,5 @@ machine.
    how-to/index
    reference/index
    explanation/index
+   contributing
    Rust API (docs.rs) <https://docs.rs/shifty-engine>

@@ -6,9 +6,11 @@ The common variations on running a validation, and what each one changes.
 Basic run
 ---------
 
-.. code-block:: bash
+.. literalinclude:: ../examples/quick-start/validate.sh
+   :language: bash
 
-   shifty validate --shapes shapes.ttl --data data.ttl
+.. program-output:: bash validate.sh
+   :cwd: ../examples/quick-start
 
 .. code-block:: python
 
@@ -17,6 +19,10 @@ Basic run
 Both ``--shapes`` and ``--data`` accept local paths or ``http(s)`` URLs, and
 both are repeatable — several files are merged into one graph before anything
 else happens.
+
+An explicitly supplied shapes graph with zero triples is rejected. Omitting the
+second Python argument uses shapes embedded in the data graph; omitting CLI
+``--data`` makes the ``--shapes`` graph serve both roles.
 
 Omitting ``--data`` (or the second Python argument) makes the single graph play
 both roles. If that is not what you expect, read
@@ -127,6 +133,10 @@ authored alongside the shapes, and ``sh:class`` needs to traverse
 ``rdfs:subClassOf`` to work. Reach for ``data`` when you want a strict check
 that the data stands on its own; reach for ``union-all`` when the shapes graph
 also contains instances you intend to validate.
+
+The :doc:`shapes and data graph explanation
+<../explanation/shapes-and-data>` tabulates these modes and covers the separate
+question of where shape definitions come from.
 
 Choose what counts as failure
 -----------------------------

@@ -1,9 +1,8 @@
 Explanation
 ===========
 
-Why Shifty works the way it does. These pages are for reading rather than
-following: they discuss design decisions, the reasoning behind them, and the
-trade-offs each one bought — including the ones that turned out badly.
+Design and semantics of Shifty's compiler, evaluator, evidence model, and
+experimental repair layer.
 
 .. list-table::
    :widths: 30 70
@@ -12,6 +11,9 @@ trade-offs each one bought — including the ones that turned out badly.
      - Shapes are compiled, not interpreted. What the algebra is, what each
        layer of the pipeline does, and why one IR drives validation,
        inference, and the richer result formats alike.
+   * - :doc:`validation-interfaces`
+     - The native algebraic result model and W3C ``sh:ValidationReport``
+       compatibility interface, including their reporting tradeoffs.
    * - :doc:`shapes-and-data`
      - The distinction between the shapes graph and the data graph, and the
        separate question of which triples are visible during evaluation. The
@@ -39,6 +41,7 @@ trade-offs each one bought — including the ones that turned out badly.
    :hidden:
 
    architecture
+   validation-interfaces
    shapes-and-data
    recursion
    evidence-design

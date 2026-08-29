@@ -7,6 +7,16 @@ validation, and shape-map extraction all run in Rust; the C++ side is a thin
 RAII layer over a stable C ABI. The public API is a single header,
 ``shifty/shifty.hpp``.
 
+.. list-table::
+   :widths: 20 80
+
+   * - Language
+     - C++17; public header ``shifty/shifty.hpp``
+   * - Stability
+     - Stable, except interfaces explicitly marked experimental
+   * - Related
+     - :doc:`../how-to/install`, :doc:`evidence`, :doc:`shape-maps`
+
 :doc:`../how-to/install` covers building with CMake and linking. This page
 describes the API surface; the shape-map vocabulary (typed keys, bindings, and
 terms) has its own section below and mirrors the Python
@@ -232,6 +242,7 @@ Unlike Python, the C++ shape map is materialized eagerly at build time, so a
        annotations.
    * - ``annotations()``
      - ``label -> value -> reached``, pivoted from ``annotated_values()``.
+
 A partially-conforming focus yields both sides: its failing keys report
 ``missing()``/``rejected_values()``, while its passing keys are materialized so
 a configuration consumer sees every value the focus can already supply.

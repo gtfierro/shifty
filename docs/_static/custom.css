@@ -5,17 +5,9 @@
    ───────────────────────────────────────────────────────── */
 .sh-hero {
   text-align: center;
-  padding: 2.5rem 1rem 2rem;
+  padding: 1.25rem 1rem 1.5rem;
   border-bottom: 1px solid var(--color-background-border);
   margin-bottom: 2.5rem;
-}
-
-.sh-tagline {
-  font-size: 1.15rem;
-  color: var(--color-foreground-secondary);
-  max-width: 640px;
-  margin: 0 auto 1.6rem;
-  line-height: 1.6;
 }
 
 .sh-badges {
@@ -23,7 +15,7 @@
   gap: 0.5rem;
   justify-content: center;
   flex-wrap: wrap;
-  margin-bottom: 1.8rem;
+  margin-bottom: 1.25rem;
 }
 
 .sh-badges a img {

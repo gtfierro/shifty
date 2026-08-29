@@ -9,13 +9,19 @@ requires-python = ">=3.9"
 dependencies = [
     "sphinx>=7.0",
     "furo>=2024.1",
+    "sphinxcontrib-programoutput>=0.18",
+    "pyshifty",
 ]
 
 [dependency-groups]
 dev = [
     "sphinx>=7.0",
     "furo>=2024.1",
+    "sphinxcontrib-programoutput>=0.18",
 ]
+
+[tool.uv.sources]
+pyshifty = { path = "../python", editable = true }
 
 [tool.setuptools]
 packages = []

@@ -1,6 +1,17 @@
 CLI reference
 =============
 
+.. list-table::
+   :widths: 20 80
+
+   * - Binary
+     - ``shifty`` (crate ``shifty-cli``)
+   * - Stability
+     - Stable
+   * - Related
+     - :doc:`../how-to/install`, :doc:`../how-to/validate`,
+       :doc:`feature-support`
+
 .. code-block:: text
 
    shifty <COMMAND>

@@ -43,30 +43,32 @@ be merged:
        minimum_severity="warning",
    )
 
-Tell "passed" apart from "never checked"
+Distinguish passing and unselected nodes
 ----------------------------------------
 
-This is the question a validation report cannot answer, and the reason the
-evidence run keeps statements whose target selected nothing:
+Validation reports do not distinguish a passing node from an unselected node.
+Evidence runs retain statements whose targets select nothing:
 
-.. code-block:: python
+.. literalinclude:: ../examples/evidence-selection.py
+   :language: python
+   :start-after: # [example-start]
+   :end-before: # [example-end]
 
-   for statement in run.statements:
-       if not statement.selected_foci:
-           print("selected nothing:", statement.selector)
-           continue
-       for focus in statement.selected_foci:
-           print(focus.status, focus.focus)
+For a shapes graph with ``Person`` and ``Equipment`` target statements, where
+the data contains Alice and Bob but no equipment, the output is:
 
-Three states, all observable: no focus row at all means the node was not
-selected; a row with ``status == "pass"`` means it was checked and held; a row
+.. program-output:: python examples/evidence-selection.py
+   :cwd: ..
+
+Evidence distinguishes three states. No focus row means the node was not
+selected. A row with ``status == "pass"`` means it was checked and held. A row
 with ``status == "fail"`` means it was checked and did not.
 
-Note the difference between a statement that selected nothing and one excluded
-by ``shape_names``. The first appears in the run with an empty
-``selected_foci``; the second does not appear at all.
+The ``Equipment`` statement is present with an empty ``selected_foci`` list. If
+``shape_names`` excluded that statement, its selector block would not appear in
+the output at all.
 
-Pull the facts out of an evidence tree
+Extract values and supporting triples
 --------------------------------------
 
 Rather than walking the tree yourself, use the projections — they are the same
@@ -124,8 +126,8 @@ elided passes, ask the session for it directly:
 ``evidence_for`` takes the pair as given — no target selection happens — so it
 also works for a focus node no statement selects.
 
-Explain only the failures, cheaply
-----------------------------------
+Explain failures on demand
+--------------------------
 
 Materializing evidence for every selected pair is the expensive case, and
 failures are usually a small minority. If you only care about failures, do not
