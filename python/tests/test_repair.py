@@ -138,7 +138,7 @@ def test_repair_tree_nodes_link_back_to_typed_evidence_origins():
     assert len(origins) == 1
     origin = origins[0]
     assert isinstance(origin, shifty.RepairOrigin)
-    assert origin.statement_id == fw.statement_id
+    assert origin.statement_id == fw.statement
     assert origin.constraint_id in {atom.constraint_id for atom in fw.summary()}
     assert origin.node == fw.focus
     assert origin.status == "fail"
@@ -415,6 +415,8 @@ def test_repair_node_against_builds_the_subshape():
     sub = s.repair_node_against("<urn:f1>", sid)
     assert sub is not None
     assert sub.holes()  # the fresh node must gain at least one property
+    assert sub.origins()
+    assert all(origin.statement_id is None for origin in sub.origins())
     # building it out + linking it makes sound progress:
     delta = shifty.delta_from_graph(
         '@prefix ex: <http://example.org/> .'

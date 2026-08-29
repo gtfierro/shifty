@@ -294,8 +294,9 @@ Rust API
        }
    }
 
-``PreparedEvidenceValidator`` also has the partial entry points, which have no
-Python equivalent yet:
+``PreparedEvidenceValidator`` also has partial entry points. Conformance-only
+scans take ``ConformanceOptions`` rather than the broader ``ValidationOptions``
+because severity filtering requires failure evidence:
 
 .. list-table::
    :widths: 34 66
@@ -303,9 +304,9 @@ Python equivalent yet:
 
    * - Method
      - Cost
-   * - ``validate_conformance(&options)``
+   * - ``validate_conformance(&scan_options)``
      - Counts only, no evidence. The baseline.
-   * - ``find_failures(&options)``
+   * - ``find_failures(&scan_options)``
      - Counts plus which pairs failed.
    * - ``explain(&pair)``
      - Evidence for one already-selected pair.

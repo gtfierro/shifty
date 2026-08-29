@@ -1168,7 +1168,8 @@ pub fn satisfy_shape(
 /// separate data graph.
 ///
 /// The `statement` field of the returned [`FocusWitness`] is a sentinel
-/// (`usize::MAX`): this is not a top-level statement, and synthesis ignores it.
+/// (`usize::MAX`): this is not a top-level statement. Traceable synthesis maps
+/// it to an absent statement origin rather than exposing the sentinel.
 pub fn witness_node(
     context: &Graph,
     schema: &Schema,

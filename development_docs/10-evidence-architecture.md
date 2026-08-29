@@ -159,7 +159,9 @@ be reported as evaluation sharing.
 `synthesize_with_origins` attaches an `EvidenceOrigin` to each retained repair
 node. It records the schema-local statement, a child-index path from that
 statement's root evidence, normalized constraint, judgment node, polarity, and
-typed evidence kind. A joint synthetic node may cite several origins. The
+typed evidence kind. The statement is absent for evidence requested directly
+against a node and sub-constraint, where no authored statement exists. A joint
+synthetic node may cite several origins. The
 intended chain is:
 
 ```text

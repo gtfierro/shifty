@@ -17,11 +17,12 @@ use pyo3::prelude::*;
 use pyo3::pybacked::PyBackedBytes;
 use shifty_algebra::{Schema, Selector, ShapeArena, ShapeId};
 use shifty_engine::{
-    Evidence as IrEvidence, EvidenceKind as IrEvidenceKind, EvidenceOrigin as IrEvidenceOrigin,
-    FocusSat as IrSat, FocusWitness as IrFocus, PathSupport as IrPathSupport,
-    PreparedEvidenceValidator, SatTrace, ValidationOptions, Witness, apply as engine_apply,
-    candidates as engine_candidates, gate as engine_gate, graph_union, satisfy_shape,
-    shape_id_for_iri, synthesize_with_origins, witness_node, witness_shape, witness_violations,
+    ConformanceOptions, Evidence as IrEvidence, EvidenceKind as IrEvidenceKind,
+    EvidenceOrigin as IrEvidenceOrigin, FocusSat as IrSat, FocusWitness as IrFocus,
+    PathSupport as IrPathSupport, PreparedEvidenceValidator, SatTrace, ValidationOptions, Witness,
+    apply as engine_apply, candidates as engine_candidates, gate as engine_gate, graph_union,
+    satisfy_shape, shape_id_for_iri, synthesize_with_origins, witness_node, witness_shape,
+    witness_violations,
 };
 use shifty_repair::{
     Edit, EditOp, Hole as IrHole, HoleConstraint, NodeId, Plan, RepairTree as IrTree, Slot,
@@ -1829,7 +1830,6 @@ impl PyConformanceRun {
 #[pyclass(frozen, name = "SelectedPair")]
 pub struct PySelectedPair {
     inner: shifty_engine::SelectedPair,
-    source_statements: Vec<usize>,
 }
 
 #[pymethods]
@@ -1837,7 +1837,7 @@ impl PySelectedPair {
     /// The focus node, rendered.
     #[getter]
     fn focus(&self) -> String {
-        self.inner.focus.to_string()
+        self.inner.focus().to_string()
     }
 
     /// Index of the *normalized* statement this pair was decided against.
@@ -1850,23 +1850,23 @@ impl PySelectedPair {
     /// `source_statements` for the authored ids.
     #[getter]
     fn normalized_statement(&self) -> usize {
-        self.inner.statement
+        self.inner.normalized_statement()
     }
 
-    /// The authored statements that normalize to `normalized_statement`, in
-    /// source order. More than one when common-subexpression elimination merged
-    /// them, which is why `explain` returns an evaluation per authored
-    /// statement rather than one per pair.
+    /// The authored statements selected for this normalized request, in source
+    /// order. More than one when an unscoped request was formed from statements
+    /// merged by common-subexpression elimination; a scoped request retains
+    /// only the statements the caller selected.
     #[getter]
     fn source_statements(&self) -> Vec<usize> {
-        self.source_statements.clone()
+        self.inner.source_statements().to_vec()
     }
 
     fn __repr__(&self) -> String {
         format!(
             "SelectedPair(focus={:?}, normalized_statement={})",
-            self.inner.focus.to_string(),
-            self.inner.statement
+            self.inner.focus().to_string(),
+            self.inner.normalized_statement()
         )
     }
 }
@@ -1883,6 +1883,12 @@ fn validation_options(
         entry_shape_names: entry_shape_names.unwrap_or_default(),
         ..ValidationOptions::default()
     })
+}
+
+fn conformance_options(entry_shape_names: Option<Vec<String>>) -> ConformanceOptions {
+    ConformanceOptions {
+        entry_shape_names: entry_shape_names.unwrap_or_default(),
+    }
 }
 
 /// Index key for an IRI written either bare or in angle brackets. Focus terms
@@ -2408,7 +2414,7 @@ impl EvidenceSession {
         &self,
         entry_shape_names: Option<Vec<String>>,
     ) -> PyResult<PyConformanceRun> {
-        let options = validation_options(entry_shape_names, "info", true)?;
+        let options = conformance_options(entry_shape_names);
         Ok(conformance_to_py(
             self.prepared.validate_conformance(&options),
         ))
@@ -2426,20 +2432,11 @@ impl EvidenceSession {
         py: Python<'_>,
         entry_shape_names: Option<Vec<String>>,
     ) -> PyResult<(PyConformanceRun, Vec<Py<PySelectedPair>>)> {
-        let options = validation_options(entry_shape_names, "info", true)?;
+        let options = conformance_options(entry_shape_names);
         let (run, failures) = self.prepared.find_failures(&options);
         let pairs = failures
             .into_iter()
-            .map(|pair| {
-                let source_statements = self.prepared.source_statements(pair.statement).to_vec();
-                Py::new(
-                    py,
-                    PySelectedPair {
-                        inner: pair,
-                        source_statements,
-                    },
-                )
-            })
+            .map(|pair| Py::new(py, PySelectedPair { inner: pair }))
             .collect::<PyResult<Vec<_>>>()?;
         Ok((conformance_to_py(run), pairs))
     }
@@ -2894,7 +2891,8 @@ pub struct RepairTree {
 #[pyclass(get_all, eq, frozen, name = "RepairOrigin")]
 #[derive(Clone, PartialEq, Eq)]
 pub struct RepairOrigin {
-    pub statement_id: usize,
+    /// Authored statement id, absent for direct node/sub-shape repairs.
+    pub statement_id: Option<usize>,
     pub path: Vec<usize>,
     pub constraint_id: u32,
     pub node: Option<String>,
@@ -2923,7 +2921,7 @@ impl From<&IrEvidenceOrigin> for RepairOrigin {
 impl RepairOrigin {
     fn __repr__(&self) -> String {
         format!(
-            "RepairOrigin(statement={}, path={:?}, kind={:?})",
+            "RepairOrigin(statement={:?}, path={:?}, kind={:?})",
             self.statement_id, self.path, self.kind
         )
     }

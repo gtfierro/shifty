@@ -26,7 +26,9 @@
 //!
 //! Emits one CSV row per model on stdout; progress and errors on stderr.
 
-use shifty_engine::{PreparedEvidenceValidator, ValidationGraphMode, ValidationOptions};
+use shifty_engine::{
+    ConformanceOptions, PreparedEvidenceValidator, ValidationGraphMode, ValidationOptions,
+};
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -171,14 +173,15 @@ fn main() {
         )
         .unwrap_or_else(|error| panic!("{name}: schema is non-stratifiable: {error}"));
         let options = ValidationOptions::default();
+        let scan_options = ConformanceOptions::default();
 
         // ---- timed: validation only -----------------------------------------
         // One warm-up round, discarded: it faults in the caches all arms share.
         // Its duration is only consulted when `--budget-ms` is in play.
         let probe = Instant::now();
-        let _ = prepared.validate_conformance(&options);
+        let _ = prepared.validate_conformance(&scan_options);
         let _ = prepared.validate_canonical(&options);
-        let (_, warm_failures) = prepared.find_failures(&options);
+        let (_, warm_failures) = prepared.find_failures(&scan_options);
         for pair in &warm_failures {
             std::hint::black_box(prepared.explain_canonical(pair));
         }
@@ -211,7 +214,7 @@ fn main() {
                 match arm {
                     Arm::Conformance => {
                         let start = Instant::now();
-                        let conformance_run = prepared.validate_conformance(&options);
+                        let conformance_run = prepared.validate_conformance(&scan_options);
                         conformance_samples.push(start.elapsed());
                         std::hint::black_box(conformance_run.selected_pairs);
                         last_conformance = Some(conformance_run);
@@ -225,7 +228,8 @@ fn main() {
                     }
                     Arm::OnDemand => {
                         let start = Instant::now();
-                        let (on_demand_conformance, failures) = prepared.find_failures(&options);
+                        let (on_demand_conformance, failures) =
+                            prepared.find_failures(&scan_options);
                         let discovery = start.elapsed();
 
                         let start = Instant::now();
@@ -304,7 +308,7 @@ fn main() {
             .collect();
         let discovered_failures: HashSet<_> = last_failures
             .iter()
-            .map(|pair| (pair.statement, pair.focus.clone()))
+            .map(|pair| (pair.normalized_statement(), pair.focus().clone()))
             .collect();
         assert_eq!(
             full_selected.len(),

@@ -110,6 +110,14 @@
   the Brick and 223P corpora.
 ### Fixed
 
+- Fixed scoped on-demand explanation fanning a normalized failure back out to
+  authored statements the caller did not select. `SelectedPair` now retains
+  the exact selected source-statement ids and `explain` honors them.
+- Fixed direct node/sub-shape repairs exposing `usize::MAX` as a statement
+  provenance id. `EvidenceOrigin.statement` / Python
+  `RepairOrigin.statement_id` are now optional and are absent for such roots.
+- Fixed compact JSON expansion silently replacing dangling or forward table
+  references with `null`; malformed references now return `InvalidReference`.
 - Fixed `shape_names` / `--shape` scoping silently dropping shapes that
   normalization collapsed, and doing so *nondeterministically*. `Schema.names`
   held one name per arena slot, so when common-subexpression elimination merged
@@ -129,6 +137,10 @@
 
 ### Changed
 
+- Conformance-only `validate_conformance` and `find_failures` now take
+  `ConformanceOptions`, which exposes only entry-shape selection. The old
+  `ValidationOptions` parameter suggested that severity and result sorting were
+  honored even though a no-evidence scan cannot implement either.
 - Which route a multi-route value cites in `PathSupport` now follows traversal
   order. Every cited triple still exists in the evaluation graph; validation
   verdicts, evidence structure, and failure content are unchanged.

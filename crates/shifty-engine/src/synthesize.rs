@@ -30,7 +30,9 @@ type Materialized = (Vec<Edit>, Vec<(Hole, HoleConstraint)>);
 /// `path` is a child-index path from the root evidence node under `statement`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EvidenceOrigin {
-    pub statement: usize,
+    /// Authored statement containing the root evidence, or `None` when the
+    /// evidence was requested directly for a node and sub-constraint.
+    pub statement: Option<usize>,
     pub path: Vec<usize>,
     pub constraint_id: ShapeId,
     pub node: Option<Term>,
@@ -90,7 +92,13 @@ pub fn synthesize_focus_with_origins(arena: &ShapeArena, ws: &[FocusWitness]) ->
     let children: Vec<RepairTree> = ws.iter().map(|w| s.repair_witness(w)).collect();
     let roots = ws
         .iter()
-        .map(|w| evidence_origin(w.statement, &[], EvidenceNodeRef::Failure(&w.failure)))
+        .map(|w| {
+            evidence_origin(
+                (w.statement != usize::MAX).then_some(w.statement),
+                &[],
+                EvidenceNodeRef::Failure(&w.failure),
+            )
+        })
         .collect();
     let tree = s.with_origins(roots, |s| s.all(children));
     s.finish(tree)
@@ -100,7 +108,9 @@ struct Synth<'a> {
     arena: &'a ShapeArena,
     next_node: u32,
     next_hole: u32,
-    statement: Option<usize>,
+    /// Outer `Option` means synthesis is rooted; inner `Option` is the optional
+    /// authored-statement identity of that root.
+    statement: Option<Option<usize>>,
     evidence_path: Vec<usize>,
     current_origins: Vec<EvidenceOrigin>,
     origins: BTreeMap<NodeId, Vec<EvidenceOrigin>>,
@@ -141,7 +151,8 @@ impl<'a> Synth<'a> {
     }
 
     fn repair_witness(&mut self, witness: &FocusWitness) -> RepairTree {
-        let previous_statement = self.statement.replace(witness.statement);
+        let statement = (witness.statement != usize::MAX).then_some(witness.statement);
+        let previous_statement = self.statement.replace(statement);
         let previous_path = std::mem::take(&mut self.evidence_path);
         let tree = self.repair(&witness.failure);
         self.evidence_path = previous_path;
@@ -695,7 +706,7 @@ impl<'a> Synth<'a> {
 }
 
 fn evidence_origin(
-    statement: usize,
+    statement: Option<usize>,
     path: &[usize],
     evidence: EvidenceNodeRef<'_>,
 ) -> EvidenceOrigin {
@@ -753,7 +764,7 @@ fn subj_term(t: &Triple) -> Term {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::witness::{Evidence, witness_violations};
+    use crate::witness::{Evidence, witness_node, witness_violations};
     use shifty_parse::{load_turtle, parse_turtle};
     use shifty_repair::{Plan, instantiate};
 
@@ -809,7 +820,7 @@ mod tests {
             for &index in &origin.path {
                 cursor = cursor.children()[index];
             }
-            assert_eq!(origin.statement, witnesses[0].statement);
+            assert_eq!(origin.statement, Some(witnesses[0].statement));
             assert_eq!(origin.constraint_id, cursor.constraint_id());
             assert_eq!(origin.node.as_ref(), cursor.node());
             assert_eq!(origin.status, cursor.status());
@@ -823,6 +834,32 @@ mod tests {
                 .flatten()
                 .any(|origin| origin.status == EvaluationStatus::Pass),
             "repairing a failed Not must link its deletive operators to the inner satisfaction",
+        );
+    }
+
+    #[test]
+    fn direct_node_repair_has_no_authored_statement_origin() {
+        let ttl = format!(
+            "{PREFIXES}
+            ex:S a sh:NodeShape ; sh:targetNode ex:x ;
+                sh:property [ sh:path ex:p ; sh:minCount 1 ] .
+            "
+        );
+        let parsed = parse_turtle(ttl.as_bytes(), None).unwrap();
+        let loaded = load_turtle(ttl.as_bytes(), None).unwrap();
+        let statement = &parsed.schema.statements[0];
+        let node = Term::NamedNode(oxrdf::NamedNode::new("http://ex/direct").unwrap());
+        let witness = witness_node(&loaded.graph, &parsed.schema, &node, statement.shape)
+            .expect("stratifiable")
+            .expect("direct node fails");
+
+        let synthesized = synthesize_with_origins(&parsed.schema.arena, &witness);
+        assert!(
+            synthesized
+                .origins
+                .values()
+                .flatten()
+                .all(|origin| origin.statement.is_none())
         );
     }
 
@@ -851,7 +888,7 @@ mod tests {
         assert_eq!(
             origins
                 .iter()
-                .map(|origin| origin.statement)
+                .filter_map(|origin| origin.statement)
                 .collect::<BTreeSet<_>>(),
             witnesses.iter().map(|witness| witness.statement).collect(),
         );

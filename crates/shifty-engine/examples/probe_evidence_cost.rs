@@ -17,7 +17,9 @@
 //!       --shapes benchmark/brick/Brick-closure.ttl \
 //!       --data benchmark/brick/models/bldg1.ttl
 
-use shifty_engine::{PreparedEvidenceValidator, ValidationGraphMode, ValidationOptions, profile};
+use shifty_engine::{
+    ConformanceOptions, PreparedEvidenceValidator, ValidationGraphMode, ValidationOptions, profile,
+};
 use std::fs;
 use std::path::PathBuf;
 use std::time::Instant;
@@ -70,6 +72,7 @@ fn main() {
     )
     .expect("stratifiable");
     let options = ValidationOptions::default();
+    let scan_options = ConformanceOptions::default();
 
     println!("model: {}", data_path.display());
     println!("normalized arena nodes: {}", prepared.schema().arena.len());
@@ -83,7 +86,7 @@ fn main() {
     profile::enable();
     let _ = profile::take_evidence_visits();
     let start = Instant::now();
-    let conformance = prepared.validate_conformance(&options);
+    let conformance = prepared.validate_conformance(&scan_options);
     let conformance_ms = start.elapsed().as_secs_f64() * 1e3;
     let conformance_visits = profile::take_evidence_visits();
     let conformance_probes = profile::take_path_probes();
@@ -106,7 +109,7 @@ fn main() {
     // materialized for those pairs alone.
     profile::enable();
     let start = Instant::now();
-    let (_, failures) = prepared.find_failures(&options);
+    let (_, failures) = prepared.find_failures(&scan_options);
     let find_ms = start.elapsed().as_secs_f64() * 1e3;
     let start = Instant::now();
     let explained: usize = failures

@@ -135,9 +135,10 @@ That split is available today on the Rust ``PreparedEvidenceValidator``:
 
 .. code-block:: rust
 
-   let conformance = prepared.validate_conformance(&options);   // counts only
-   let failures = prepared.find_failures(&options);             // which pairs failed
-   for pair in &failures.pairs {
+   let scan = ConformanceOptions::default();
+   let conformance = prepared.validate_conformance(&scan);      // counts only
+   let (_, failures) = prepared.find_failures(&scan);           // which pairs failed
+   for pair in &failures {
        let evidence = prepared.explain(pair);                   // one pair
    }
    let catalog = prepared.constraints();                        // once per snapshot
@@ -148,8 +149,8 @@ the measurements and the reasoning. ``explain`` returns exactly what ``validate`
 would have produced for that pair. It does not re-run target selection, so
 pairs must come from ``find_failures`` or an earlier run.
 
-The Python bindings currently expose the whole-run ``validate`` only; use
-``find_failures``/``explain`` from Rust when the cost matters.
+The Python ``EvidenceSession`` exposes the same workflow with
+``find_failures(shape_names=...)`` and ``explain(pair)``.
 
 Serialize a run
 ---------------

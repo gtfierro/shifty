@@ -236,7 +236,7 @@ pub fn expand_value(value: &Value, catalog: Value) -> Result<Value, CompactError
     // order lets each one reuse the already-expanded form of its children.
     let mut expanded: Vec<Value> = Vec::with_capacity(nodes.len());
     for node in nodes {
-        let value = restore(node, terms, &expanded);
+        let value = restore(node, terms, &expanded)?;
         expanded.push(value);
     }
 
@@ -247,8 +247,8 @@ pub fn expand_value(value: &Value, catalog: Value) -> Result<Value, CompactError
     );
     // An interned catalog resolves through the tables; one supplied out of band
     // holds no references and passes through unchanged.
-    out.insert("constraints".into(), restore(&catalog, terms, &expanded));
-    out.insert("statements".into(), restore(statements, terms, &expanded));
+    out.insert("constraints".into(), restore(&catalog, terms, &expanded)?);
+    out.insert("statements".into(), restore(statements, terms, &expanded)?);
     Ok(Value::Object(out))
 }
 
@@ -262,6 +262,8 @@ pub enum CompactError {
     Version(Option<u64>),
     /// Required tables are absent or not arrays.
     Malformed,
+    /// A table reference points outside the entries available at that point.
+    InvalidReference { table: &'static str, id: usize },
     /// The reconstructed value is not a valid run.
     Decode(serde_json::Error),
 }
@@ -276,6 +278,9 @@ impl std::fmt::Display for CompactError {
                 write!(f, "compact evidence version {found:?}, expected {VERSION}")
             }
             Self::Malformed => write!(f, "compact evidence is missing its tables"),
+            Self::InvalidReference { table, id } => {
+                write!(f, "compact evidence has invalid {table} reference {id}")
+            }
             Self::Decode(error) => write!(f, "compact evidence does not decode: {error}"),
         }
     }
@@ -490,28 +495,34 @@ fn intern(
 }
 
 /// Resolve table references back into the original tree.
-fn restore(value: &Value, terms: &[Value], nodes: &[Value]) -> Value {
+fn restore(value: &Value, terms: &[Value], nodes: &[Value]) -> Result<Value, CompactError> {
     match value {
         Value::Object(map) => {
             if let Some(id) = reference(map, TERM_REF) {
-                return terms.get(id).cloned().unwrap_or(Value::Null);
+                return terms
+                    .get(id)
+                    .cloned()
+                    .ok_or(CompactError::InvalidReference { table: "term", id });
             }
             if let Some(id) = reference(map, NODE_REF) {
-                return nodes.get(id).cloned().unwrap_or(Value::Null);
+                return nodes
+                    .get(id)
+                    .cloned()
+                    .ok_or(CompactError::InvalidReference { table: "node", id });
             }
-            Value::Object(
+            Ok(Value::Object(
                 map.iter()
-                    .map(|(key, child)| (key.clone(), restore(child, terms, nodes)))
-                    .collect(),
-            )
+                    .map(|(key, child)| Ok((key.clone(), restore(child, terms, nodes)?)))
+                    .collect::<Result<Map<_, _>, CompactError>>()?,
+            ))
         }
-        Value::Array(items) => Value::Array(
+        Value::Array(items) => Ok(Value::Array(
             items
                 .iter()
                 .map(|item| restore(item, terms, nodes))
-                .collect(),
-        ),
-        other => other.clone(),
+                .collect::<Result<Vec<_>, _>>()?,
+        )),
+        other => Ok(other.clone()),
     }
 }
 
@@ -776,5 +787,40 @@ mod tests {
         let mut encoded = compact(&run(), true).unwrap();
         encoded["v"] = json!(VERSION + 1);
         assert!(matches!(expand(&encoded), Err(CompactError::Version(_))));
+    }
+
+    #[test]
+    fn dangling_and_forward_references_are_rejected() {
+        let dangling = json!({
+            "v": VERSION,
+            "conforms": false,
+            "terms": [],
+            "nodes": [],
+            "statements": { (NODE_REF): 0 },
+            "constraints": [],
+        });
+        assert!(matches!(
+            expand_value(&dangling, json!([])),
+            Err(CompactError::InvalidReference {
+                table: "node",
+                id: 0
+            })
+        ));
+
+        let forward = json!({
+            "v": VERSION,
+            "conforms": false,
+            "terms": [],
+            "nodes": [{ (NODE_REF): 0 }],
+            "statements": [],
+            "constraints": [],
+        });
+        assert!(matches!(
+            expand_value(&forward, json!([])),
+            Err(CompactError::InvalidReference {
+                table: "node",
+                id: 0
+            })
+        ));
     }
 }

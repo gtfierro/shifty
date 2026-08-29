@@ -50,16 +50,57 @@ pub struct ConformanceRun {
     pub failed: usize,
 }
 
-/// One `(statement, focus)` pair, as target selection produced it.
+/// Selection controls for a conformance-only scan.
+///
+/// Unlike [`ValidationOptions`], this type contains only choices the
+/// short-circuiting scan can honor without materializing failure evidence.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ConformanceOptions {
+    pub entry_shape_names: Vec<String>,
+}
+
+impl From<&ValidationOptions> for ConformanceOptions {
+    fn from(options: &ValidationOptions) -> Self {
+        Self {
+            entry_shape_names: options.entry_shape_names.clone(),
+        }
+    }
+}
+
+/// One normalized `(statement, focus)` request, together with the authored
+/// statements whose selection produced it.
 ///
 /// The handle [`explain`](PreparedEvidenceValidator::explain) takes: enough to
-/// name a pair, and nothing that costs anything to carry. `statement` indexes
-/// the *normalized* statements, which are what evidence is materialized
-/// against — several authored statements may share one.
+/// name a pair while preserving scoped source fan-out. Several authored
+/// statements may share one normalized statement, but only the authored
+/// statements selected for this handle are retained.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SelectedPair {
-    pub statement: usize,
-    pub focus: oxrdf::Term,
+    normalized_statement: usize,
+    focus: oxrdf::Term,
+    source_statements: Vec<usize>,
+}
+
+impl SelectedPair {
+    fn new(normalized_statement: usize, focus: oxrdf::Term, source_statements: Vec<usize>) -> Self {
+        Self {
+            normalized_statement,
+            focus,
+            source_statements,
+        }
+    }
+
+    pub fn normalized_statement(&self) -> usize {
+        self.normalized_statement
+    }
+
+    pub fn focus(&self) -> &oxrdf::Term {
+        &self.focus
+    }
+
+    pub fn source_statements(&self) -> &[usize] {
+        &self.source_statements
+    }
 }
 
 impl PreparedEvidenceValidator {
@@ -177,11 +218,9 @@ impl PreparedEvidenceValidator {
     /// difference against [`validate`](Self::validate) on the same snapshot is
     /// the cost of evidence tracing alone.
     ///
-    /// `options.minimum_severity` is not honored: without failure evidence there
-    /// is no per-constraint severity to weigh, so every failing pair makes
-    /// `conforms` false — the default `Severity::Info` threshold. Only
-    /// `entry_shape_names` applies; `sort_results` is irrelevant to counts.
-    pub fn validate_conformance(&self, options: &ValidationOptions) -> ConformanceRun {
+    /// Every failing pair makes `conforms` false: severity filtering requires
+    /// the failure evidence this entry point deliberately does not construct.
+    pub fn validate_conformance(&self, options: &ConformanceOptions) -> ConformanceRun {
         self.scan_conformance(options, |_, _, _| {})
     }
 
@@ -195,15 +234,29 @@ impl PreparedEvidenceValidator {
     /// evidence for everything and discarding the passes.
     pub fn find_failures(
         &self,
-        options: &ValidationOptions,
+        options: &ConformanceOptions,
     ) -> (ConformanceRun, Vec<SelectedPair>) {
+        let selected_sources: Vec<Vec<usize>> = self
+            .raw_by_normalized
+            .iter()
+            .map(|sources| {
+                sources
+                    .iter()
+                    .copied()
+                    .filter(|&source| {
+                        self.source_statement_selected(source, &options.entry_shape_names)
+                    })
+                    .collect()
+            })
+            .collect();
         let mut failures = Vec::new();
         let run = self.scan_conformance(options, |statement, focus, holds| {
             if !holds {
-                failures.push(SelectedPair {
+                failures.push(SelectedPair::new(
                     statement,
-                    focus: focus.clone(),
-                });
+                    focus.clone(),
+                    selected_sources[statement].clone(),
+                ));
             }
         });
         (run, failures)
@@ -217,7 +270,7 @@ impl PreparedEvidenceValidator {
     /// benchmark divides by.
     fn scan_conformance(
         &self,
-        options: &ValidationOptions,
+        options: &ConformanceOptions,
         mut observe: impl FnMut(usize, &oxrdf::Term, bool),
     ) -> ConformanceRun {
         let backend = self
@@ -263,7 +316,8 @@ impl PreparedEvidenceValidator {
     /// would have produced for it.
     ///
     /// Returns one [`StatementEvaluation`] per authored statement that
-    /// normalizes to `pair.statement`, each carrying the single focus, so a
+    /// normalizes to the pair's normalized statement and was selected when the
+    /// handle was created, each carrying the single focus, so a
     /// caller can treat the result exactly like a slice of a full run. Empty if
     /// the statement index is out of range.
     ///
@@ -294,7 +348,7 @@ impl PreparedEvidenceValidator {
         pair: &SelectedPair,
         include_progress: bool,
     ) -> Vec<StatementEvaluation> {
-        let Some(statement) = self.schema.statements.get(pair.statement) else {
+        let Some(statement) = self.schema.statements.get(pair.normalized_statement) else {
             return Vec::new();
         };
         let backend = self
@@ -310,8 +364,9 @@ impl PreparedEvidenceValidator {
         );
         let evidence = materialize_evidence(&mut evaluator, &pair.focus, statement.shape);
 
-        self.raw_by_normalized[pair.statement]
+        self.raw_by_normalized[pair.normalized_statement]
             .iter()
+            .filter(|raw_statement| pair.source_statements.contains(raw_statement))
             .map(|&raw_statement| {
                 let raw = &self.raw_schema.statements[raw_statement];
                 let progress = include_progress
@@ -329,7 +384,7 @@ impl PreparedEvidenceValidator {
                     &self.raw_schema,
                     &self.schema,
                     raw_statement,
-                    pair.statement,
+                    pair.normalized_statement,
                 );
                 evaluation.selected_foci.push(FocusEvaluation {
                     focus: pair.focus.clone(),
@@ -893,6 +948,30 @@ mod tests {
     }
 
     #[test]
+    fn scoped_failure_handles_explain_only_the_selected_authored_statement() {
+        let ttl = format!("{PREFIXES}{COLLAPSING}");
+        let parsed = parse_turtle(ttl.as_bytes(), None).unwrap();
+        let loaded = load_turtle(ttl.as_bytes(), None).unwrap();
+        let prepared =
+            PreparedEvidenceValidator::new(&loaded.graph, &parsed.schema).expect("stratifiable");
+        let options = ConformanceOptions {
+            entry_shape_names: vec!["http://ex/S1".to_string()],
+        };
+
+        let (_, failures) = prepared.find_failures(&options);
+        assert_eq!(failures.len(), 1);
+        assert_eq!(failures[0].source_statements(), [0]);
+        assert_eq!(
+            prepared
+                .explain(&failures[0])
+                .iter()
+                .map(|statement| statement.source_statement_id)
+                .collect::<Vec<_>>(),
+            [0],
+        );
+    }
+
+    #[test]
     fn a_collapsed_shape_answers_to_every_name_that_reached_it() {
         let ttl = format!("{PREFIXES}{COLLAPSING}");
         let parsed = parse_turtle(ttl.as_bytes(), None).unwrap();
@@ -968,7 +1047,7 @@ mod tests {
         let loaded = load_turtle(ttl.as_bytes(), None).unwrap();
         let prepared = PreparedEvidenceValidator::new(&loaded.graph, &parsed.schema).unwrap();
         let options = ValidationOptions::default();
-        let conformance = prepared.validate_conformance(&options);
+        let conformance = prepared.validate_conformance(&ConformanceOptions::from(&options));
         let evidence = prepared.validate(&options);
 
         assert_eq!(conformance.conforms, evidence.conforms);
@@ -1271,7 +1350,7 @@ mod tests {
             assert_eq!(with_progress.evidence, without_progress.evidence);
         }
 
-        let (_, failures) = prepared.find_failures(&options);
+        let (_, failures) = prepared.find_failures(&ConformanceOptions::from(&options));
         let explained = prepared.explain_canonical(&failures[0]);
         assert!(
             explained
@@ -1418,13 +1497,17 @@ mod tests {
         let validator = prepared(&format!("{PREFIXES}{ON_DEMAND}"));
         let options = ValidationOptions::default();
         let full = validator.validate(&options);
-        let (conformance, failures) = validator.find_failures(&options);
+        let conformance_options = ConformanceOptions::from(&options);
+        let (conformance, failures) = validator.find_failures(&conformance_options);
 
         assert_eq!(conformance.conforms, full.conforms);
         assert!(!failures.is_empty(), "fixture has no failing pair");
         assert_eq!(conformance.failed, failures.len());
         // Counting is unchanged by observing.
-        assert_eq!(conformance, validator.validate_conformance(&options));
+        assert_eq!(
+            conformance,
+            validator.validate_conformance(&conformance_options)
+        );
 
         // Each reported failure explains to failure evidence, and nothing that
         // failed in the full run is missing from the list.
@@ -1451,7 +1534,7 @@ mod tests {
             .collect();
         for pair in &failures {
             assert!(
-                full_failures.contains(&(pair.statement, pair.focus.to_string())),
+                full_failures.contains(&(pair.normalized_statement(), pair.focus().to_string())),
                 "failure {pair:?} was not a pair of the full run"
             );
         }
@@ -1460,10 +1543,11 @@ mod tests {
     #[test]
     fn explaining_an_unknown_statement_is_empty() {
         let validator = prepared(&format!("{PREFIXES}{ON_DEMAND}"));
-        let pair = SelectedPair {
-            statement: usize::MAX,
-            focus: oxrdf::NamedNode::new("http://ex/good").unwrap().into(),
-        };
+        let pair = SelectedPair::new(
+            usize::MAX,
+            oxrdf::NamedNode::new("http://ex/good").unwrap().into(),
+            vec![],
+        );
         assert!(validator.explain(&pair).is_empty());
     }
 
@@ -1509,10 +1593,11 @@ mod tests {
         for statement in &full.statements {
             let normalized = statement.normalized_statement_id.unwrap();
             for focus in &statement.selected_foci {
-                let pair = SelectedPair {
-                    statement: normalized,
-                    focus: focus.focus.clone(),
-                };
+                let pair = SelectedPair::new(
+                    normalized,
+                    focus.focus.clone(),
+                    vec![statement.source_statement_id],
+                );
                 let explained = validator.explain(&pair);
                 let matching = explained
                     .iter()

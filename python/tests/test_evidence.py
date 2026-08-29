@@ -796,6 +796,17 @@ def test_shape_names_reaches_a_shape_that_cse_collapsed_onto_another():
         assert session.validate_conformance(shape_names=[name]).selected_pairs == 1
 
 
+def test_scoped_failure_handle_explains_only_the_selected_authored_statement():
+    session = shifty.EvidenceSession(COLLAPSING_SHAPES, COLLAPSING_DATA, infer=False)
+
+    _, pairs = session.find_failures(shape_names=["http://ex/S1"])
+    assert len(pairs) == 1
+    assert pairs[0].source_statements == [0]
+    assert [st.shape_iri for st in session.explain(pairs[0]).statements] == [
+        "http://ex/S1"
+    ]
+
+
 def test_a_collapsed_shape_is_still_addressable_by_either_name():
     # The reverse lookup goes through the same name table, so a shape that lost
     # a name to the merge used to be unfindable by it.
@@ -875,4 +886,17 @@ def test_a_foreign_version_is_rejected():
     encoded = run.to_compact_dict()
     encoded["v"] = 999
     with pytest.raises(ValueError, match="version"):
+        shifty.expand_evidence(encoded)
+
+
+def test_a_dangling_compact_reference_is_rejected():
+    encoded = {
+        "v": 1,
+        "conforms": False,
+        "terms": [],
+        "nodes": [],
+        "statements": {"#": 999},
+        "constraints": [],
+    }
+    with pytest.raises(ValueError, match="invalid node reference 999"):
         shifty.expand_evidence(encoded)
