@@ -111,7 +111,7 @@ mod tests {
             .schema
             .names
             .iter()
-            .find(|(_, name)| name.as_str() == "http://ex/PersonShape")
+            .find(|(_, names)| names.iter().any(|name| name == "http://ex/PersonShape"))
             .map(|(id, _)| *id)
             .expect("PersonShape should be named");
         assert_eq!(

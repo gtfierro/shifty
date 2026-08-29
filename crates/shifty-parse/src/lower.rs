@@ -52,14 +52,6 @@ pub fn lower(g: &Loaded) -> Lowered {
         }
         l.parse_rules(s, &selectors);
     }
-    let names = l
-        .cache
-        .iter()
-        .filter_map(|(node, id)| match node {
-            NamedOrBlankNode::NamedNode(n) => Some((*id, n.as_str().to_string())),
-            NamedOrBlankNode::BlankNode(_) => None,
-        })
-        .collect();
     // Every shape lowered from an RDF node (named or blank) is keyed by that
     // node in `cache`; `id` is the node's outermost slot (the `Annotated`
     // wrapper `lower_shape` sets last), which is what progress children and
@@ -69,13 +61,18 @@ pub fn lower(g: &Loaded) -> Lowered {
         .iter()
         .map(|(node, id)| (*id, Term::from(node.clone())))
         .collect();
-    let schema = Schema {
+    let mut schema = Schema {
         arena: l.arena,
         statements: l.statements,
         rules: l.rules,
-        names,
+        names: Default::default(),
         sources,
     };
+    for (node, id) in &l.cache {
+        if let NamedOrBlankNode::NamedNode(n) = node {
+            schema.add_name(*id, n.as_str().to_string());
+        }
+    }
     schema.arena.debug_assert_finalized();
     Lowered {
         schema,

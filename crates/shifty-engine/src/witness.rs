@@ -1,8 +1,8 @@
 //! The witnessing evaluator (`docs/06-repair.md` §5) — the structured, lossless
 //! sibling of [`explain`](crate::validate). For a focus node that fails a
-//! statement it returns a [`Witness`]: the failed sub-DAG of `φ`, pruned to
+//! statement it returns a [`Failure`]: the failed sub-DAG of `φ`, pruned to
 //! exactly what did not hold, with the structural gap at each node. Its dual,
-//! [`SatTrace`], records *why* a shape currently holds, so a `Not(φ)` failure can
+//! [`Satisfaction`], records *why* a shape currently holds, so a `Not(φ)` failure can
 //! be repaired by breaking `φ`. One dispatcher produces both tagged polarities;
 //! they are mutually recursive only in their data grammar through `Not`.
 //!
@@ -22,16 +22,16 @@ use std::collections::{BTreeSet, HashSet, VecDeque};
 
 /// Why one focus node failed one statement: the failed sub-structure of `φ`,
 /// pruned to exactly the parts that did not hold. The input to repair synthesis.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
 pub struct FocusWitness {
     pub focus: Term,
     /// Index of the violated `(selector, shape)` statement in the schema.
     pub statement: usize,
-    pub failure: Witness,
+    pub failure: Failure,
 }
 
 /// The relational (pairwise) leaf constraints — distinct from value-type atoms.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash)]
 pub enum RelKind {
     Eq,
     Disj,
@@ -45,7 +45,7 @@ pub enum RelKind {
 ///
 /// This is deliberately *not* a complete deletion cut: an alternative or
 /// cyclic path may have additional routes that are not represented here.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
 #[serde(tag = "type", content = "details", rename_all = "snake_case")]
 pub enum PathSupport {
     /// Reflexive (`Id`): the node reached itself; nothing to cut.
@@ -61,25 +61,25 @@ pub enum PathSupport {
 }
 
 /// A reached value that satisfied a qualified count's nested shape.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
 pub struct QualifiedMatch {
     pub value: Term,
     pub path_support: PathSupport,
-    pub satisfaction: Box<SatTrace>,
+    pub satisfaction: Box<Satisfaction>,
 }
 
 /// A reached near-match that failed a qualified count's nested shape.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
 pub struct RejectedCandidate {
     pub value: Term,
     pub path_support: PathSupport,
-    pub failure: Box<Witness>,
+    pub failure: Box<Failure>,
 }
 
 /// The failed sub-structure of `φ` (additive direction: what to *add*).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
 #[serde(tag = "type", content = "details", rename_all = "snake_case")]
-pub enum Witness {
+pub enum Failure {
     /// A value-type leaf failed at `node` (TestConst / TestType / TestKind).
     /// `produced_by` names the triples that made `node` a value (`Some` for a
     /// value-scoped atom, `None` for one on the focus itself).
@@ -87,7 +87,7 @@ pub enum Witness {
         shape: ShapeId,
         node: Term,
         observed: Vec<Term>,
-        expected: Shape,
+        expected: Box<Shape>,
         reached_by: Path,
         produced_by: Option<PathSupport>,
     },
@@ -112,19 +112,19 @@ pub enum Witness {
     Not {
         shape: ShapeId,
         node: Term,
-        inner: Box<SatTrace>,
+        inner: Box<Satisfaction>,
     },
     /// Conjunction: every listed child failed and ALL must be repaired.
     All {
         shape: ShapeId,
         node: Term,
-        failed: Vec<Witness>,
+        failed: Vec<Failure>,
     },
     /// Disjunction: no branch held; repairing ANY ONE suffices.
     Any {
         shape: ShapeId,
         node: Term,
-        branches: Vec<Witness>,
+        branches: Vec<Failure>,
     },
     /// `∃≥min π.q` under-satisfied: `have` values match, `min` required.
     ///
@@ -156,7 +156,7 @@ pub enum Witness {
         matched: Vec<(Term, PathSupport)>,
         max: u64,
         excess_values: Vec<(Term, PathSupport)>,
-        per_value: Vec<(Term, Witness)>,
+        per_value: Vec<(Term, Failure)>,
     },
     /// Opaque SPARQL — no algebraic witness.
     Opaque {
@@ -167,11 +167,15 @@ pub enum Witness {
     },
 }
 
+/// Compatibility spelling retained for the repair-facing API. New public code
+/// should use [`Failure`], the vocabulary shared with [`Evidence`].
+pub type Witness = Failure;
+
 /// Why `φ` currently *holds* at a node (deletive direction: what to *delete*).
-/// The dual of [`Witness`].
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// The dual of [`Failure`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
 #[serde(tag = "type", content = "details", rename_all = "snake_case")]
-pub enum SatTrace {
+pub enum Satisfaction {
     /// `⊤` — vacuously true; no graph edit falsifies it.
     Irrefutable { shape: ShapeId },
     /// A value-type leaf holds at `node`; `produced_by` names the edges to cut.
@@ -179,7 +183,7 @@ pub enum SatTrace {
         shape: ShapeId,
         node: Term,
         observed: Vec<Term>,
-        expected: Shape,
+        expected: Box<Shape>,
         reached_by: Path,
         produced_by: PathSupport,
     },
@@ -187,13 +191,13 @@ pub enum SatTrace {
     AllHeld {
         shape: ShapeId,
         node: Term,
-        children: Vec<SatTrace>,
+        children: Vec<Satisfaction>,
     },
     /// Disjunction holds because these branches hold ⟹ break EVERY one.
     AnyHeld {
         shape: ShapeId,
         node: Term,
-        satisfied: Vec<SatTrace>,
+        satisfied: Vec<Satisfaction>,
     },
     /// `∃[min..max] π.q` holds. `matches` carries each counted value with its
     /// concrete path certificate and q-satisfaction trace.
@@ -202,7 +206,7 @@ pub enum SatTrace {
         node: Term,
         path: Path,
         qualifier: ShapeId,
-        matches: Vec<(Term, PathSupport, SatTrace)>,
+        matches: Vec<(Term, PathSupport, Satisfaction)>,
         observed_count: u64,
         min: Option<u64>,
         max: Option<u64>,
@@ -215,13 +219,13 @@ pub enum SatTrace {
         node: Term,
         path: Path,
         qualifier: ShapeId,
-        values: Vec<(Term, PathSupport, SatTrace)>,
+        values: Vec<(Term, PathSupport, Satisfaction)>,
     },
     /// `¬φ` holds because `φ` fails ⟹ make `φ` hold. Flips to the additive side.
     NotHeld {
         shape: ShapeId,
         node: Term,
-        inner_fails: Box<Witness>,
+        inner_fails: Box<Failure>,
     },
     /// Holds but cannot be falsified by data deletion in scope (closed / relational
     /// / opaque SPARQL).
@@ -235,28 +239,101 @@ pub enum SatTrace {
     Coinductive { shape: ShapeId, node: Term },
 }
 
+/// Compatibility spelling retained while repair internals migrate to the
+/// unified evidence vocabulary. New public code should use [`Satisfaction`].
+pub type SatTrace = Satisfaction;
+
 /// The applicable evidence polarity for one selected `(statement, focus)` pair.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
 #[serde(tag = "status", content = "evidence", rename_all = "snake_case")]
 pub enum Evidence {
     #[serde(rename = "pass")]
-    Satisfaction(SatTrace),
+    Satisfaction(Satisfaction),
     #[serde(rename = "fail")]
-    Failure(Witness),
+    Failure(Failure),
 }
 
-/// Public name for failure-side evidence. `Witness` remains as an internal and
-/// repair-facing spelling while callers migrate to the unified vocabulary.
-pub type Failure = Witness;
-
-/// Public name for pass-side evidence.
-pub type Satisfaction = SatTrace;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash)]
 #[serde(rename_all = "snake_case")]
 pub enum EvaluationStatus {
     Pass,
     Fail,
+}
+
+/// Stable, polarity-aware discriminant for an evidence node.
+///
+/// This is the shared enumeration used when evidence must be named without
+/// copying its variant payload, including repair-origin links and language
+/// bindings. It is distinct from repair choice kinds and candidate enumeration.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash)]
+#[serde(rename_all = "snake_case")]
+pub enum EvidenceKind {
+    Irrefutable,
+    AtomHeld,
+    AllHeld,
+    AnyHeld,
+    CountHeld,
+    AllValuesHeld,
+    NotHeld,
+    Blocked,
+    Coinductive,
+    AtomFailed,
+    RelationalFailed,
+    ClosedFailed,
+    NotFailed,
+    AllFailed,
+    AnyFailed,
+    CountLow,
+    CountHigh,
+    Opaque,
+}
+
+impl EvidenceKind {
+    pub fn status(self) -> EvaluationStatus {
+        match self {
+            Self::Irrefutable
+            | Self::AtomHeld
+            | Self::AllHeld
+            | Self::AnyHeld
+            | Self::CountHeld
+            | Self::AllValuesHeld
+            | Self::NotHeld
+            | Self::Blocked
+            | Self::Coinductive => EvaluationStatus::Pass,
+            Self::AtomFailed
+            | Self::RelationalFailed
+            | Self::ClosedFailed
+            | Self::NotFailed
+            | Self::AllFailed
+            | Self::AnyFailed
+            | Self::CountLow
+            | Self::CountHigh
+            | Self::Opaque => EvaluationStatus::Fail,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Irrefutable => "irrefutable",
+            Self::AtomHeld => "atom_held",
+            Self::AllHeld => "all_held",
+            Self::AnyHeld => "any_held",
+            Self::CountHeld => "count_held",
+            Self::AllValuesHeld => "all_values_held",
+            Self::NotHeld => "not_held",
+            Self::Blocked => "blocked",
+            Self::Coinductive => "coinductive",
+            Self::AtomFailed => "atom_failed",
+            Self::RelationalFailed => "relational_failed",
+            Self::ClosedFailed => "closed_failed",
+            Self::NotFailed => "not_failed",
+            Self::AllFailed => "all_failed",
+            Self::AnyFailed => "any_failed",
+            Self::CountLow => "count_low",
+            Self::CountHigh => "count_high",
+            Self::Opaque => "opaque",
+        }
+    }
 }
 
 impl Evidence {
@@ -300,6 +377,47 @@ impl Evidence {
         dedup_stable(values)
     }
 
+    /// The values of [`matched_values`](Self::matched_values), grouped by the
+    /// path each was counted along. Groups appear in traversal order and values
+    /// within a group in match order, both deduplicated by first occurrence; a
+    /// path counted at more than one evidence node yields one group holding
+    /// every value counted along it.
+    ///
+    /// This reads the structured match records directly, so callers need not
+    /// parse `explain()` text or re-derive values from supporting triples.
+    pub fn matched_values_by_path(&self) -> Vec<(Path, Vec<Term>)> {
+        let mut pairs = Vec::new();
+        collect_matched_by_path(self, &mut pairs);
+        let mut out: Vec<(Path, Vec<Term>)> = Vec::new();
+        for (path, value) in pairs {
+            match out.iter_mut().find(|(seen, _)| seen == path) {
+                Some((_, values)) => {
+                    if !values.contains(value) {
+                        values.push(value.clone());
+                    }
+                }
+                None => out.push((path.clone(), vec![value.clone()])),
+            }
+        }
+        out
+    }
+
+    /// The matched values counted along `path`, in match order and
+    /// deduplicated — the single-path projection of
+    /// [`matched_values_by_path`](Self::matched_values_by_path). Empty when the
+    /// evidence counted nothing along `path`.
+    pub fn values_for_path(&self, path: &Path) -> Vec<Term> {
+        let mut pairs = Vec::new();
+        collect_matched_by_path(self, &mut pairs);
+        dedup_stable(
+            pairs
+                .into_iter()
+                .filter(|(seen, _)| *seen == path)
+                .map(|(_, value)| value.clone())
+                .collect(),
+        )
+    }
+
     pub fn missing_obligations(&self) -> Vec<MissingObligation> {
         let mut out = Vec::new();
         collect_missing(self, &mut out);
@@ -341,7 +459,7 @@ pub enum EvidenceNodeRef<'a> {
     Failure(&'a Witness),
 }
 
-impl EvidenceNodeRef<'_> {
+impl<'a> EvidenceNodeRef<'a> {
     pub fn constraint_id(self) -> ShapeId {
         match self {
             Self::Satisfaction(value) => satisfaction_constraint_id(value),
@@ -349,44 +467,136 @@ impl EvidenceNodeRef<'_> {
         }
     }
 
-    pub fn status(self) -> EvaluationStatus {
+    /// The node this judgment is about, completing the `(constraint, node)`
+    /// address the shape memo (`validate.rs`) is keyed by.
+    ///
+    /// `None` only for [`SatTrace::Irrefutable`], which is `⊤` and so is about
+    /// no node at all.
+    pub fn node(self) -> Option<&'a Term> {
         match self {
-            Self::Satisfaction(_) => EvaluationStatus::Pass,
-            Self::Failure(_) => EvaluationStatus::Fail,
+            Self::Satisfaction(value) => satisfaction_node(value),
+            Self::Failure(value) => Some(failure_node(value)),
+        }
+    }
+
+    pub fn status(self) -> EvaluationStatus {
+        self.evidence_kind().status()
+    }
+
+    pub fn evidence_kind(self) -> EvidenceKind {
+        match self {
+            Self::Satisfaction(value) => match value {
+                SatTrace::Irrefutable { .. } => EvidenceKind::Irrefutable,
+                SatTrace::Atom { .. } => EvidenceKind::AtomHeld,
+                SatTrace::AllHeld { .. } => EvidenceKind::AllHeld,
+                SatTrace::AnyHeld { .. } => EvidenceKind::AnyHeld,
+                SatTrace::CountHeld { .. } => EvidenceKind::CountHeld,
+                SatTrace::ForAllHeld { .. } => EvidenceKind::AllValuesHeld,
+                SatTrace::NotHeld { .. } => EvidenceKind::NotHeld,
+                SatTrace::Blocked { .. } => EvidenceKind::Blocked,
+                SatTrace::Coinductive { .. } => EvidenceKind::Coinductive,
+            },
+            Self::Failure(value) => match value {
+                Witness::Atom { .. } => EvidenceKind::AtomFailed,
+                Witness::Relational { .. } => EvidenceKind::RelationalFailed,
+                Witness::Closed { .. } => EvidenceKind::ClosedFailed,
+                Witness::Not { .. } => EvidenceKind::NotFailed,
+                Witness::All { .. } => EvidenceKind::AllFailed,
+                Witness::Any { .. } => EvidenceKind::AnyFailed,
+                Witness::CountLow { .. } => EvidenceKind::CountLow,
+                Witness::CountHigh { .. } => EvidenceKind::CountHigh,
+                Witness::Opaque { .. } => EvidenceKind::Opaque,
+            },
         }
     }
 
     pub fn kind(self) -> &'static str {
+        self.evidence_kind().as_str()
+    }
+
+    /// Immediate evidence children in stable semantic order.
+    ///
+    /// This is the shared grammar of failure and satisfaction evidence. `Not`
+    /// crosses polarity; qualified counts can contain both satisfaction traces
+    /// for matches and failure witnesses for rejected candidates. Callers that
+    /// only need structure should use this instead of maintaining another
+    /// variant-specific recursive walk.
+    pub fn children(self) -> Vec<Self> {
+        let mut out = Vec::new();
+        self.for_each_child(|child| out.push(child));
+        out
+    }
+
+    fn for_each_child(self, mut visit: impl FnMut(Self)) {
         match self {
-            Self::Satisfaction(value) => match value {
-                SatTrace::Irrefutable { .. } => "irrefutable",
-                SatTrace::Atom { .. } => "atom_held",
-                SatTrace::AllHeld { .. } => "all_held",
-                SatTrace::AnyHeld { .. } => "any_held",
-                SatTrace::CountHeld { .. } => "count_held",
-                SatTrace::ForAllHeld { .. } => "all_values_held",
-                SatTrace::NotHeld { .. } => "not_held",
-                SatTrace::Blocked { .. } => "blocked",
-                SatTrace::Coinductive { .. } => "coinductive",
-            },
             Self::Failure(value) => match value {
-                Witness::Atom { .. } => "atom_failed",
-                Witness::Relational { .. } => "relational_failed",
-                Witness::Closed { .. } => "closed_failed",
-                Witness::Not { .. } => "not_failed",
-                Witness::All { .. } => "all_failed",
-                Witness::Any { .. } => "any_failed",
-                Witness::CountLow { .. } => "count_low",
-                Witness::CountHigh { .. } => "count_high",
-                Witness::Opaque { .. } => "opaque",
+                Witness::Not { inner, .. } => visit(Self::Satisfaction(inner)),
+                Witness::All { failed, .. } => {
+                    failed.iter().for_each(|child| visit(Self::Failure(child)))
+                }
+                Witness::Any { branches, .. } => branches
+                    .iter()
+                    .for_each(|child| visit(Self::Failure(child))),
+                Witness::CountLow {
+                    qualifying_matches,
+                    rejected_candidates,
+                    ..
+                } => {
+                    qualifying_matches.iter().for_each(|item| {
+                        visit(Self::Satisfaction(&item.satisfaction));
+                    });
+                    rejected_candidates
+                        .iter()
+                        .for_each(|item| visit(Self::Failure(&item.failure)));
+                }
+                Witness::CountHigh { per_value, .. } => per_value
+                    .iter()
+                    .for_each(|(_, child)| visit(Self::Failure(child))),
+                Witness::Atom { .. }
+                | Witness::Relational { .. }
+                | Witness::Closed { .. }
+                | Witness::Opaque { .. } => {}
+            },
+            Self::Satisfaction(value) => match value {
+                SatTrace::AllHeld { children, .. } => children
+                    .iter()
+                    .for_each(|child| visit(Self::Satisfaction(child))),
+                SatTrace::AnyHeld { satisfied, .. } => satisfied
+                    .iter()
+                    .for_each(|child| visit(Self::Satisfaction(child))),
+                SatTrace::CountHeld { matches, .. } => matches
+                    .iter()
+                    .for_each(|(_, _, child)| visit(Self::Satisfaction(child))),
+                SatTrace::ForAllHeld { values, .. } => values
+                    .iter()
+                    .for_each(|(_, _, child)| visit(Self::Satisfaction(child))),
+                SatTrace::NotHeld { inner_fails, .. } => visit(Self::Failure(inner_fails)),
+                SatTrace::Irrefutable { .. }
+                | SatTrace::Atom { .. }
+                | SatTrace::Blocked { .. }
+                | SatTrace::Coinductive { .. } => {}
             },
         }
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// One cardinality deficit: `node` has `observed_count` values along `path`
+/// satisfying `qualifier`, and needs `required_count`.
+///
+/// Everything needed to describe the missing edge is here, so a driver never
+/// has to read `explain()` to learn what would close the gap. `node` is not
+/// always the focus — a count nested inside a rejected candidate reports its own
+/// node — so filter on it when you mean deficits on the focus itself.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
 pub struct MissingObligation {
     pub constraint_id: ShapeId,
+    /// The node the deficit is about.
+    pub node: Term,
+    /// The path its values were counted along.
+    pub path: Path,
+    /// The shape each counted value must satisfy — what an added value has to
+    /// conform to for the count to move.
+    pub qualifier: ShapeId,
     pub observed_count: u64,
     pub required_count: u64,
     pub missing: u64,
@@ -428,64 +638,45 @@ fn satisfaction_constraint_id(value: &SatTrace) -> ShapeId {
     }
 }
 
+fn failure_node(value: &Witness) -> &Term {
+    match value {
+        Witness::Atom { node, .. }
+        | Witness::Relational { node, .. }
+        | Witness::Closed { node, .. }
+        | Witness::Not { node, .. }
+        | Witness::All { node, .. }
+        | Witness::Any { node, .. }
+        | Witness::CountLow { node, .. }
+        | Witness::CountHigh { node, .. }
+        | Witness::Opaque { node, .. } => node,
+    }
+}
+
+fn satisfaction_node(value: &SatTrace) -> Option<&Term> {
+    match value {
+        SatTrace::Irrefutable { .. } => None,
+        SatTrace::Atom { node, .. }
+        | SatTrace::AllHeld { node, .. }
+        | SatTrace::AnyHeld { node, .. }
+        | SatTrace::CountHeld { node, .. }
+        | SatTrace::ForAllHeld { node, .. }
+        | SatTrace::NotHeld { node, .. }
+        | SatTrace::Blocked { node, .. }
+        | SatTrace::Coinductive { node, .. } => Some(node),
+    }
+}
+
 fn walk_evidence<'a>(value: &'a Evidence, out: &mut Vec<EvidenceNodeRef<'a>>) {
-    match value {
-        Evidence::Satisfaction(value) => walk_sat(value, out),
-        Evidence::Failure(value) => walk_failure(value, out),
-    }
+    let root = match value {
+        Evidence::Satisfaction(value) => EvidenceNodeRef::Satisfaction(value),
+        Evidence::Failure(value) => EvidenceNodeRef::Failure(value),
+    };
+    walk_node(root, out);
 }
 
-fn walk_failure<'a>(value: &'a Witness, out: &mut Vec<EvidenceNodeRef<'a>>) {
-    out.push(EvidenceNodeRef::Failure(value));
-    match value {
-        Witness::Not { inner, .. } => walk_sat(inner, out),
-        Witness::All { failed, .. } => failed.iter().for_each(|child| walk_failure(child, out)),
-        Witness::Any { branches, .. } => {
-            branches.iter().for_each(|child| walk_failure(child, out));
-        }
-        Witness::CountLow {
-            qualifying_matches,
-            rejected_candidates,
-            ..
-        } => {
-            qualifying_matches
-                .iter()
-                .for_each(|item| walk_sat(&item.satisfaction, out));
-            rejected_candidates
-                .iter()
-                .for_each(|item| walk_failure(&item.failure, out));
-        }
-        Witness::CountHigh { per_value, .. } => per_value
-            .iter()
-            .for_each(|(_, child)| walk_failure(child, out)),
-        Witness::Atom { .. }
-        | Witness::Relational { .. }
-        | Witness::Closed { .. }
-        | Witness::Opaque { .. } => {}
-    }
-}
-
-fn walk_sat<'a>(value: &'a SatTrace, out: &mut Vec<EvidenceNodeRef<'a>>) {
-    out.push(EvidenceNodeRef::Satisfaction(value));
-    match value {
-        SatTrace::AllHeld { children, .. } => {
-            children.iter().for_each(|child| walk_sat(child, out));
-        }
-        SatTrace::AnyHeld { satisfied, .. } => {
-            satisfied.iter().for_each(|child| walk_sat(child, out));
-        }
-        SatTrace::CountHeld { matches, .. } => matches
-            .iter()
-            .for_each(|(_, _, child)| walk_sat(child, out)),
-        SatTrace::ForAllHeld { values, .. } => {
-            values.iter().for_each(|(_, _, child)| walk_sat(child, out))
-        }
-        SatTrace::NotHeld { inner_fails, .. } => walk_failure(inner_fails, out),
-        SatTrace::Irrefutable { .. }
-        | SatTrace::Atom { .. }
-        | SatTrace::Blocked { .. }
-        | SatTrace::Coinductive { .. } => {}
-    }
+fn walk_node<'a>(value: EvidenceNodeRef<'a>, out: &mut Vec<EvidenceNodeRef<'a>>) {
+    out.push(value);
+    value.for_each_child(|child| walk_node(child, out));
 }
 
 fn support_triples(value: &PathSupport, out: &mut Vec<Triple>) {
@@ -603,14 +794,47 @@ fn collect_matched(value: &Evidence, out: &mut Vec<Term>) {
     }
 }
 
+/// The same match records [`collect_matched`] reads, each paired with the path
+/// its containing node counted along.
+fn collect_matched_by_path<'a>(value: &'a Evidence, out: &mut Vec<(&'a Path, &'a Term)>) {
+    for node in value.walk() {
+        match node {
+            EvidenceNodeRef::Satisfaction(SatTrace::CountHeld { path, matches, .. }) => {
+                out.extend(matches.iter().map(|(value, _, _)| (path, value)));
+            }
+            EvidenceNodeRef::Satisfaction(SatTrace::ForAllHeld { path, values, .. }) => {
+                out.extend(values.iter().map(|(value, _, _)| (path, value)));
+            }
+            EvidenceNodeRef::Failure(Witness::CountLow {
+                path,
+                qualifying_matches,
+                ..
+            }) => out.extend(qualifying_matches.iter().map(|item| (path, &item.value))),
+            EvidenceNodeRef::Failure(Witness::CountHigh { path, matched, .. }) => {
+                out.extend(matched.iter().map(|(value, _)| (path, value)));
+            }
+            _ => {}
+        }
+    }
+}
+
 fn collect_missing(value: &Evidence, out: &mut Vec<MissingObligation>) {
     for node in value.walk() {
         if let EvidenceNodeRef::Failure(Witness::CountLow {
-            shape, have, min, ..
+            shape,
+            node,
+            path,
+            qualifier,
+            have,
+            min,
+            ..
         }) = node
         {
             out.push(MissingObligation {
                 constraint_id: *shape,
+                node: node.clone(),
+                path: path.clone(),
+                qualifier: *qualifier,
                 observed_count: *have,
                 required_count: *min,
                 missing: min - have,
@@ -756,7 +980,7 @@ impl EvidenceRun {
 }
 
 /// Why a holding shape admits no data-deletion repair.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
 pub enum BlockReason {
     OpaqueSparql,
     /// Falsifying `closed(Q)` would need *adding* a disallowed predicate.
@@ -840,7 +1064,7 @@ pub fn shape_id_for_iri(schema: &Schema, iri: &str) -> Option<ShapeId> {
     schema
         .names
         .iter()
-        .find_map(|(id, name)| (name == iri).then_some(*id))
+        .find_map(|(id, names)| names.iter().any(|name| name == iri).then_some(*id))
 }
 
 /// Witness only the `(focus, statement)` violations whose statement targets
@@ -1042,8 +1266,9 @@ fn relational_witness(
         Shape::UniqueLang(p) => (RelKind::UniqueLang, p.clone(), None),
         _ => unreachable!("relational_witness on non-relational shape"),
     };
-    let with_support =
-        |g: &dyn PathBackend, p: &Path| -> Vec<(Term, PathSupport)> { succ_with_support(g, node, p) };
+    let with_support = |g: &dyn PathBackend, p: &Path| -> Vec<(Term, PathSupport)> {
+        succ_with_support(g, node, p)
+    };
     let lhs = with_support(g, &lpath);
     let rhs = match &rpred {
         Some(q) => with_support(g, &Path::Pred(q.clone())),
@@ -1163,7 +1388,7 @@ fn evaluate_node(
                     shape: id,
                     node: node.clone(),
                     observed: vec![node.clone()],
-                    expected: eval.arena().get(id).clone(),
+                    expected: Box::new(eval.arena().get(id).clone()),
                     reached_by: reached_by.clone(),
                     produced_by: produced_by.cloned().unwrap_or(PathSupport::Empty),
                 })
@@ -1172,7 +1397,7 @@ fn evaluate_node(
                     shape: id,
                     node: node.clone(),
                     observed: vec![node.clone()],
-                    expected: eval.arena().get(id).clone(),
+                    expected: Box::new(eval.arena().get(id).clone()),
                     reached_by: reached_by.clone(),
                     produced_by: produced_by.cloned(),
                 })
@@ -1541,16 +1766,18 @@ fn compare_terms(left: &Term, right: &Term) -> std::cmp::Ordering {
             Term::Literal(_) => 2,
         }
     }
-    rank(left).cmp(&rank(right)).then_with(|| match (left, right) {
-        (Term::NamedNode(left), Term::NamedNode(right)) => left.as_str().cmp(right.as_str()),
-        (Term::BlankNode(left), Term::BlankNode(right)) => left.as_str().cmp(right.as_str()),
-        (Term::Literal(left), Term::Literal(right)) => left
-            .value()
-            .cmp(right.value())
-            .then_with(|| left.datatype().as_str().cmp(right.datatype().as_str()))
-            .then_with(|| left.language().cmp(&right.language())),
-        _ => std::cmp::Ordering::Equal,
-    })
+    rank(left)
+        .cmp(&rank(right))
+        .then_with(|| match (left, right) {
+            (Term::NamedNode(left), Term::NamedNode(right)) => left.as_str().cmp(right.as_str()),
+            (Term::BlankNode(left), Term::BlankNode(right)) => left.as_str().cmp(right.as_str()),
+            (Term::Literal(left), Term::Literal(right)) => left
+                .value()
+                .cmp(right.value())
+                .then_with(|| left.datatype().as_str().cmp(right.datatype().as_str()))
+                .then_with(|| left.language().cmp(&right.language())),
+            _ => std::cmp::Ordering::Equal,
+        })
 }
 
 fn succ_with_support_unordered(
@@ -1587,8 +1814,7 @@ fn succ_with_support_unordered(
             _ => pred(g, from, inner)
                 .into_iter()
                 .map(|value| {
-                    let support =
-                        path_support(g, from, path, &value).unwrap_or(PathSupport::Empty);
+                    let support = path_support(g, from, path, &value).unwrap_or(PathSupport::Empty);
                     (value, support)
                 })
                 .collect(),
@@ -1967,7 +2193,9 @@ mod tests {
         match support {
             PathSupport::Edge(edge) => out.push(edge.clone()),
             PathSupport::Chain(parts) | PathSupport::Alt(parts) => {
-                parts.iter().for_each(|part| collect_support_edges(part, out));
+                parts
+                    .iter()
+                    .for_each(|part| collect_support_edges(part, out));
             }
             PathSupport::Empty => {}
         }
@@ -2006,7 +2234,9 @@ mod tests {
             Path::Star(Path::Pred(named("http://ex/r")).into()),
             Path::Seq(vec![
                 Path::Pred(named("http://www.w3.org/1999/02/22-rdf-syntax-ns#type")),
-                Path::Star(Path::Pred(named("http://www.w3.org/2000/01/rdf-schema#subClassOf")).into()),
+                Path::Star(
+                    Path::Pred(named("http://www.w3.org/2000/01/rdf-schema#subClassOf")).into(),
+                ),
             ]),
         ];
 
@@ -2084,6 +2314,144 @@ mod tests {
         )));
     }
 
+    fn pred_path(iri: &str) -> Path {
+        Path::Pred(NamedNode::new_unchecked(iri))
+    }
+
+    fn terms(values: &[Term]) -> Vec<String> {
+        values.iter().map(|value| value.to_string()).collect()
+    }
+
+    #[test]
+    fn satisfaction_groups_matched_values_by_the_path_they_were_counted_along() {
+        let ttl = format!(
+            "{PREFIXES}
+            ex:S a sh:NodeShape ; sh:targetNode ex:x ;
+                sh:property [ sh:path ex:p ; sh:minCount 1 ] ;
+                sh:property [ sh:path ex:q ; sh:minCount 1 ] .
+            ex:x ex:p ex:y1, ex:y2 ; ex:q ex:z .
+            "
+        );
+        let parsed = parse_turtle(ttl.as_bytes(), None).unwrap();
+        let loaded = load_turtle(ttl.as_bytes(), None).unwrap();
+        let schema = &parsed.schema;
+        let s = shape_id_for_iri(schema, "http://ex/S").expect("ex:S is named");
+        let sats = satisfy_shape(&loaded.graph, &loaded.graph, schema, s).expect("stratifiable");
+        let evidence = Evidence::Satisfaction(sats[0].trace.clone());
+
+        // One group per counted path. Group order follows evidence traversal,
+        // which is the planner's business, so look each path up by name.
+        let grouped = evidence.matched_values_by_path();
+        assert_eq!(grouped.len(), 2);
+        let group = |iri: &str| {
+            grouped
+                .iter()
+                .find(|(path, _)| *path == pred_path(iri))
+                .map(|(_, values)| terms(values))
+                .expect("path was counted")
+        };
+        assert_eq!(group("http://ex/p"), ["<http://ex/y1>", "<http://ex/y2>"]);
+        assert_eq!(group("http://ex/q"), ["<http://ex/z>"]);
+
+        // The single-path projection agrees with the grouping, and together the
+        // groups partition `matched_values` in the same order.
+        assert_eq!(
+            terms(&evidence.values_for_path(&pred_path("http://ex/p"))),
+            ["<http://ex/y1>", "<http://ex/y2>"],
+        );
+        assert_eq!(
+            terms(&evidence.values_for_path(&pred_path("http://ex/q"))),
+            ["<http://ex/z>"],
+        );
+        assert_eq!(
+            grouped
+                .into_iter()
+                .flat_map(|(_, values)| values)
+                .collect::<Vec<_>>(),
+            evidence.matched_values(),
+        );
+
+        // A path this evidence never counted along is empty, not an error.
+        assert!(
+            evidence
+                .values_for_path(&pred_path("http://ex/absent"))
+                .is_empty()
+        );
+        assert!(evidence.values_for_path(&Path::Id).is_empty());
+    }
+
+    #[test]
+    fn a_short_count_attributes_its_qualifying_matches_to_its_own_path() {
+        // ex:p is short by one; ex:q is met. Both contribute matched values, and
+        // each set must land under the path that counted it.
+        let ttl = format!(
+            "{PREFIXES}
+            ex:S a sh:NodeShape ; sh:targetNode ex:x ;
+                sh:property [ sh:path ex:p ; sh:minCount 3 ] ;
+                sh:property [ sh:path ex:q ; sh:minCount 1 ] .
+            ex:x ex:p ex:y1, ex:y2 ; ex:q ex:z .
+            "
+        );
+        let ws = run(&ttl);
+        assert_eq!(ws.len(), 1);
+        let evidence = Evidence::Failure(ws[0].failure.clone());
+
+        assert_eq!(
+            terms(&evidence.values_for_path(&pred_path("http://ex/p"))),
+            ["<http://ex/y1>", "<http://ex/y2>"],
+        );
+        assert!(
+            evidence
+                .values_for_path(&pred_path("http://ex/q"))
+                .is_empty(),
+            "a satisfied sibling is not part of the failure's evidence",
+        );
+    }
+
+    #[test]
+    fn a_deficit_names_the_node_path_and_qualifier_that_would_close_it() {
+        // ex:x needs two ex:p values of class ex:C and has one; ex:near is
+        // reached but rejected, and its own class check is short as well.
+        let ttl = format!(
+            "{PREFIXES}
+            ex:S a sh:NodeShape ; sh:targetNode ex:x ;
+                sh:property [ sh:path ex:p ;
+                              sh:qualifiedValueShape [ sh:class ex:C ] ;
+                              sh:qualifiedMinCount 2 ] .
+            ex:x ex:p ex:good, ex:near .
+            ex:good a ex:C .
+            "
+        );
+        let parsed = parse_turtle(ttl.as_bytes(), None).unwrap();
+        let loaded = load_turtle(ttl.as_bytes(), None).unwrap();
+        let ws =
+            witness_violations(&loaded.graph, &loaded.graph, &parsed.schema).expect("stratifiable");
+        let obligations = Evidence::Failure(ws[0].failure.clone()).missing_obligations();
+
+        // The deficit on the focus: one more ex:p value, of class ex:C.
+        let on_focus: Vec<_> = obligations
+            .iter()
+            .filter(|item| item.node.to_string() == "<http://ex/x>")
+            .collect();
+        assert_eq!(on_focus.len(), 1);
+        assert_eq!(on_focus[0].path, pred_path("http://ex/p"));
+        assert_eq!((on_focus[0].observed_count, on_focus[0].missing), (1, 1));
+        assert_eq!(
+            shifty_algebra::render::describe_shape(&parsed.schema.arena, on_focus[0].qualifier),
+            "instance of <http://ex/C>",
+            "the qualifier says what an added value must satisfy",
+        );
+
+        // A count nested inside the rejected candidate reports *its* node, so
+        // the two deficits are told apart without reading `explain()`.
+        assert!(
+            obligations
+                .iter()
+                .any(|item| item.node.to_string() == "<http://ex/near>"),
+            "obligations: {obligations:?}",
+        );
+    }
+
     /// Does any node in the satisfaction trace satisfy `pred`?
     fn any_sat(t: &SatTrace, pred: &impl Fn(&SatTrace) -> bool) -> bool {
         if pred(t) {
@@ -2096,5 +2464,114 @@ mod tests {
             SatTrace::ForAllHeld { values, .. } => values.iter().any(|(_, _, c)| any_sat(c, pred)),
             _ => false,
         }
+    }
+
+    #[test]
+    fn shared_child_grammar_is_preorder_and_crosses_polarity_at_not() {
+        let node = Term::NamedNode(NamedNode::new_unchecked("http://ex/x"));
+        let failure = Evidence::Failure(Witness::All {
+            shape: ShapeId(0),
+            node: node.clone(),
+            failed: vec![
+                Witness::Not {
+                    shape: ShapeId(1),
+                    node: node.clone(),
+                    inner: Box::new(SatTrace::Irrefutable { shape: ShapeId(2) }),
+                },
+                Witness::Opaque {
+                    shape: ShapeId(3),
+                    node: node.clone(),
+                    messages: Vec::new(),
+                    diagnostic: None,
+                },
+            ],
+        });
+
+        let root = failure.walk()[0];
+        assert_eq!(
+            root.children()
+                .into_iter()
+                .map(EvidenceNodeRef::kind)
+                .collect::<Vec<_>>(),
+            ["not_failed", "opaque"],
+        );
+        assert_eq!(
+            failure
+                .walk()
+                .into_iter()
+                .map(|item| (item.kind(), item.status()))
+                .collect::<Vec<_>>(),
+            [
+                ("all_failed", EvaluationStatus::Fail),
+                ("not_failed", EvaluationStatus::Fail),
+                ("irrefutable", EvaluationStatus::Pass),
+                ("opaque", EvaluationStatus::Fail),
+            ],
+        );
+
+        let satisfaction = Evidence::Satisfaction(SatTrace::NotHeld {
+            shape: ShapeId(4),
+            node,
+            inner_fails: Box::new(Witness::Opaque {
+                shape: ShapeId(5),
+                node: Term::NamedNode(NamedNode::new_unchecked("http://ex/x")),
+                messages: Vec::new(),
+                diagnostic: None,
+            }),
+        });
+        assert_eq!(
+            satisfaction
+                .walk()
+                .into_iter()
+                .map(|item| (item.kind(), item.status()))
+                .collect::<Vec<_>>(),
+            [
+                ("not_held", EvaluationStatus::Pass),
+                ("opaque", EvaluationStatus::Fail),
+            ],
+        );
+    }
+
+    #[test]
+    fn evidence_kind_is_an_exhaustive_polarity_discriminant() {
+        let passing = [
+            EvidenceKind::Irrefutable,
+            EvidenceKind::AtomHeld,
+            EvidenceKind::AllHeld,
+            EvidenceKind::AnyHeld,
+            EvidenceKind::CountHeld,
+            EvidenceKind::AllValuesHeld,
+            EvidenceKind::NotHeld,
+            EvidenceKind::Blocked,
+            EvidenceKind::Coinductive,
+        ];
+        let failing = [
+            EvidenceKind::AtomFailed,
+            EvidenceKind::RelationalFailed,
+            EvidenceKind::ClosedFailed,
+            EvidenceKind::NotFailed,
+            EvidenceKind::AllFailed,
+            EvidenceKind::AnyFailed,
+            EvidenceKind::CountLow,
+            EvidenceKind::CountHigh,
+            EvidenceKind::Opaque,
+        ];
+
+        assert!(
+            passing
+                .iter()
+                .all(|kind| kind.status() == EvaluationStatus::Pass)
+        );
+        assert!(
+            failing
+                .iter()
+                .all(|kind| kind.status() == EvaluationStatus::Fail)
+        );
+        let names = passing
+            .iter()
+            .chain(&failing)
+            .map(|kind| kind.as_str())
+            .collect::<HashSet<_>>();
+        assert_eq!(names.len(), passing.len() + failing.len());
     }
 }

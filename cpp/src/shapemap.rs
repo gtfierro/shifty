@@ -63,10 +63,10 @@ impl TermInfo {
         if let Some(language) = &self.language {
             return format!("\"{escaped}\"@{language}");
         }
-        if let Some(datatype) = &self.datatype {
-            if datatype != XSD_STRING {
-                return format!("\"{escaped}\"^^<{datatype}>");
-            }
+        if let Some(datatype) = &self.datatype
+            && datatype != XSD_STRING
+        {
+            return format!("\"{escaped}\"^^<{datatype}>");
         }
         format!("\"{escaped}\"")
     }
@@ -113,10 +113,10 @@ fn term_from_json(term: &Value) -> TermInfo {
 /// The local name of an IRI: the segment after the last '#', '/', or ':'.
 fn local(iri: &str) -> &str {
     for sep in ['#', '/', ':'] {
-        if let Some((_, tail)) = iri.rsplit_once(sep) {
-            if !tail.is_empty() {
-                return tail;
-            }
+        if let Some((_, tail)) = iri.rsplit_once(sep)
+            && !tail.is_empty()
+        {
+            return tail;
         }
     }
     iri
@@ -341,10 +341,10 @@ fn qualifier_from_json(
 ) -> Option<QualifierInfo> {
     let mut lookup_id = qualifier_id;
     // `∀π.φ ≡ ∃≤0 π.¬φ`: the qualifier label may sit under a `Not`.
-    if let Some(Value::Object(map)) = catalog.get(qualifier_id) {
-        if map.contains_key("Not") {
-            lookup_id = map["Not"].as_u64().map(|v| v as u32);
-        }
+    if let Some(Value::Object(map)) = catalog.get(qualifier_id)
+        && map.contains_key("Not")
+    {
+        lookup_id = map["Not"].as_u64().map(|v| v as u32);
     }
     let (name, unwrapped) = catalog.unwrap_checking_names(shape_name_of, lookup_id);
     if let Some(name) = name {
@@ -376,10 +376,10 @@ fn qualifier_from_json(
                     .and_then(Value::as_u64)
                     .map(|v| v as u32),
             );
-            if let Some(QualifierInfo::Const(term)) = &inner {
-                if term.kind == TermKind::Iri {
-                    return Some(QualifierInfo::Cls(term.value.clone()));
-                }
+            if let Some(QualifierInfo::Const(term)) = &inner
+                && term.kind == TermKind::Iri
+            {
+                return Some(QualifierInfo::Cls(term.value.clone()));
             }
             return inner;
         }
@@ -573,10 +573,10 @@ fn terms_from(items: &[Value], field: Option<&str>) -> Vec<TermInfo> {
             Some(field) => item.get(field),
         };
         let term = entry.map(term_from_json);
-        if let Some(term) = term {
-            if !out.contains(&term) {
-                out.push(term);
-            }
+        if let Some(term) = term
+            && !out.contains(&term)
+        {
+            out.push(term);
         }
     }
     out
@@ -772,17 +772,22 @@ fn irrefutable_node() -> Value {
 }
 
 /// The session-backed pieces the builder cannot derive from the run alone.
+type BindingNamesFn<'a> = dyn Fn(Option<&str>) -> Result<HashMap<u32, Vec<String>>, String> + 'a;
+type MaterializeConstraintFn<'a> = dyn Fn(&str, u32) -> Result<Option<Value>, String> + 'a;
+type ResolvePathFn<'a> =
+    dyn Fn(&[String], &str) -> Result<HashMap<String, Vec<String>>, String> + 'a;
+
 pub struct ShapeMapBuildInputs<'a> {
     /// The raw schema's shape name for a source constraint id.
     pub shape_name_of: &'a dyn Fn(u32) -> Option<String>,
     /// `name_path` -> constraint id -> reached names over the shapes graph.
-    pub binding_names: &'a dyn Fn(Option<&str>) -> Result<HashMap<u32, Vec<String>>, String>,
+    pub binding_names: &'a BindingNamesFn<'a>,
     /// Materialize evidence for one `(focus, normalized constraint)` pair;
     /// returns the satisfaction trace as JSON (`None` when the constraint is
     /// not a normalized arena id).
-    pub materialize_constraint: &'a dyn Fn(&str, u32) -> Result<Option<Value>, String>,
+    pub materialize_constraint: &'a MaterializeConstraintFn<'a>,
     /// Batch-evaluate a path from N-Triples nodes over the session's graph.
-    pub resolve_path: &'a dyn Fn(&[String], &str) -> Result<HashMap<String, Vec<String>>, String>,
+    pub resolve_path: &'a ResolvePathFn<'a>,
 }
 
 /// Per-focus metadata parallel to the run JSON.
@@ -1061,7 +1066,7 @@ fn build_mapping(
 fn annotate_values(
     shapes: &mut [ShapeMapShape],
     value_paths: &[(String, String)],
-    resolve_path: &dyn Fn(&[String], &str) -> Result<HashMap<String, Vec<String>>, String>,
+    resolve_path: &ResolvePathFn<'_>,
 ) -> Result<(), String> {
     let mut nodes: Vec<String> = Vec::new();
     for shape in shapes.iter() {

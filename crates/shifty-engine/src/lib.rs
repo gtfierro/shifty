@@ -17,6 +17,7 @@ pub mod path;
 mod path_plan;
 pub mod profile;
 pub mod report;
+pub mod sharing;
 mod sparql;
 pub use sparql::SparqlDiagnostic;
 pub mod synthesize;
@@ -24,12 +25,12 @@ pub mod validate;
 pub mod value;
 pub mod witness;
 
-pub use enumerate::{
-    EnumOptions, FixpointResult, RepairSolution, candidates, enumerate_repair, repair_to_fixpoint,
-};
 pub use compact::{
     CompactError, Sharing, compact, compact_value, expand, expand_value, expand_with_catalog,
     sharing, to_compact_json,
+};
+pub use enumerate::{
+    EnumOptions, FixpointResult, RepairSolution, candidates, enumerate_repair, repair_to_fixpoint,
 };
 pub use evidence::{
     ConformanceRun, PreparedEvidenceValidator, SelectedPair, validate_graphs_with_evidence,
@@ -48,7 +49,11 @@ pub use report::{
     report_to_graph, validate_report, validate_report_graphs, validate_report_graphs_with_mode,
     validate_report_graphs_with_mode_and_options, validate_report_with_options,
 };
-pub use synthesize::{synthesize, synthesize_focus};
+pub use sharing::{ResultSharing, result_sharing};
+pub use synthesize::{
+    EvidenceOrigin, SynthesizedRepair, synthesize, synthesize_focus, synthesize_focus_with_origins,
+    synthesize_with_origins,
+};
 pub use validate::{
     EngineOptions, NonStratifiable, Reason, UnsupportedPolicy, ValidationGraphMode,
     ValidationOptions, ValidationOutcome, Violation, focus_nodes, graph_union, validate,
@@ -60,10 +65,10 @@ pub use validate::{
 };
 pub use witness::{
     BlockReason, ChildEvaluation, ConstraintCatalog, ConstraintRecord, EvaluationProgress,
-    EvaluationStatus, Evidence, EvidenceNodeRef, EvidenceRun, EvidenceSummary, Failure,
-    FocusEvaluation, FocusSat, FocusWitness, MissingObligation, PathSupport, QualifiedMatch,
-    RejectedCandidate, RelKind, SatTrace, Satisfaction, StatementEvaluation, Witness,
-    satisfy_shape, shape_id_for_iri, witness_node, witness_shape, witness_violations,
+    EvaluationStatus, Evidence, EvidenceKind, EvidenceNodeRef, EvidenceRun, EvidenceSummary,
+    Failure, FocusEvaluation, FocusSat, FocusWitness, MissingObligation, PathSupport,
+    QualifiedMatch, RejectedCandidate, RelKind, SatTrace, Satisfaction, StatementEvaluation,
+    Witness, satisfy_shape, shape_id_for_iri, witness_node, witness_shape, witness_violations,
 };
 
 #[cfg(test)]

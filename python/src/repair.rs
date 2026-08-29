@@ -17,16 +17,17 @@ use pyo3::prelude::*;
 use pyo3::pybacked::PyBackedBytes;
 use shifty_algebra::{Schema, Selector, ShapeArena, ShapeId};
 use shifty_engine::{
-    Evidence as IrEvidence, FocusSat as IrSat, FocusWitness as IrFocus,
-    PathSupport as IrPathSupport, PreparedEvidenceValidator, SatTrace, ValidationOptions, Witness,
-    apply as engine_apply, candidates as engine_candidates, gate as engine_gate, graph_union,
-    satisfy_shape, shape_id_for_iri, synthesize, witness_node, witness_shape, witness_violations,
+    Evidence as IrEvidence, EvidenceKind as IrEvidenceKind, EvidenceOrigin as IrEvidenceOrigin,
+    FocusSat as IrSat, FocusWitness as IrFocus, PathSupport as IrPathSupport,
+    PreparedEvidenceValidator, SatTrace, ValidationOptions, Witness, apply as engine_apply,
+    candidates as engine_candidates, gate as engine_gate, graph_union, satisfy_shape,
+    shape_id_for_iri, synthesize_with_origins, witness_node, witness_shape, witness_violations,
 };
 use shifty_repair::{
     Edit, EditOp, Hole as IrHole, HoleConstraint, NodeId, Plan, RepairTree as IrTree, Slot,
     instantiate,
 };
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 
 // ── shared rendering (ports of the CLI renderers; kept local to the binding) ────
@@ -220,6 +221,107 @@ fn render_tree(t: &IrTree, arena: &ShapeArena, indent: usize, out: &mut Vec<Stri
 
 // ── flat witness summary ────────────────────────────────────────────────────────
 
+/// Exact kind of a structured evidence node. Unlike `WitnessKind` and
+/// `SatKind`, which classify flattened driver summaries, this enum is a
+/// one-to-one projection of the Rust evidence grammar.
+#[pyclass(eq, eq_int, hash, frozen, name = "EvidenceKind")]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub enum PyEvidenceKind {
+    Irrefutable,
+    AtomHeld,
+    AllHeld,
+    AnyHeld,
+    CountHeld,
+    AllValuesHeld,
+    NotHeld,
+    Blocked,
+    Coinductive,
+    AtomFailed,
+    RelationalFailed,
+    ClosedFailed,
+    NotFailed,
+    AllFailed,
+    AnyFailed,
+    CountLow,
+    CountHigh,
+    Opaque,
+}
+
+impl From<IrEvidenceKind> for PyEvidenceKind {
+    fn from(kind: IrEvidenceKind) -> Self {
+        match kind {
+            IrEvidenceKind::Irrefutable => Self::Irrefutable,
+            IrEvidenceKind::AtomHeld => Self::AtomHeld,
+            IrEvidenceKind::AllHeld => Self::AllHeld,
+            IrEvidenceKind::AnyHeld => Self::AnyHeld,
+            IrEvidenceKind::CountHeld => Self::CountHeld,
+            IrEvidenceKind::AllValuesHeld => Self::AllValuesHeld,
+            IrEvidenceKind::NotHeld => Self::NotHeld,
+            IrEvidenceKind::Blocked => Self::Blocked,
+            IrEvidenceKind::Coinductive => Self::Coinductive,
+            IrEvidenceKind::AtomFailed => Self::AtomFailed,
+            IrEvidenceKind::RelationalFailed => Self::RelationalFailed,
+            IrEvidenceKind::ClosedFailed => Self::ClosedFailed,
+            IrEvidenceKind::NotFailed => Self::NotFailed,
+            IrEvidenceKind::AllFailed => Self::AllFailed,
+            IrEvidenceKind::AnyFailed => Self::AnyFailed,
+            IrEvidenceKind::CountLow => Self::CountLow,
+            IrEvidenceKind::CountHigh => Self::CountHigh,
+            IrEvidenceKind::Opaque => Self::Opaque,
+        }
+    }
+}
+
+impl From<PyEvidenceKind> for IrEvidenceKind {
+    fn from(kind: PyEvidenceKind) -> Self {
+        match kind {
+            PyEvidenceKind::Irrefutable => Self::Irrefutable,
+            PyEvidenceKind::AtomHeld => Self::AtomHeld,
+            PyEvidenceKind::AllHeld => Self::AllHeld,
+            PyEvidenceKind::AnyHeld => Self::AnyHeld,
+            PyEvidenceKind::CountHeld => Self::CountHeld,
+            PyEvidenceKind::AllValuesHeld => Self::AllValuesHeld,
+            PyEvidenceKind::NotHeld => Self::NotHeld,
+            PyEvidenceKind::Blocked => Self::Blocked,
+            PyEvidenceKind::Coinductive => Self::Coinductive,
+            PyEvidenceKind::AtomFailed => Self::AtomFailed,
+            PyEvidenceKind::RelationalFailed => Self::RelationalFailed,
+            PyEvidenceKind::ClosedFailed => Self::ClosedFailed,
+            PyEvidenceKind::NotFailed => Self::NotFailed,
+            PyEvidenceKind::AllFailed => Self::AllFailed,
+            PyEvidenceKind::AnyFailed => Self::AnyFailed,
+            PyEvidenceKind::CountLow => Self::CountLow,
+            PyEvidenceKind::CountHigh => Self::CountHigh,
+            PyEvidenceKind::Opaque => Self::Opaque,
+        }
+    }
+}
+
+impl PyEvidenceKind {
+    fn as_str(self) -> &'static str {
+        IrEvidenceKind::from(self).as_str()
+    }
+
+    fn status_str(self) -> &'static str {
+        match IrEvidenceKind::from(self).status() {
+            shifty_engine::EvaluationStatus::Pass => "pass",
+            shifty_engine::EvaluationStatus::Fail => "fail",
+        }
+    }
+}
+
+#[pymethods]
+impl PyEvidenceKind {
+    #[getter]
+    fn status(&self) -> &'static str {
+        self.status_str()
+    }
+
+    fn __str__(&self) -> &'static str {
+        self.as_str()
+    }
+}
+
 /// The kind of a failing witness leaf — the enumerated discriminant of
 /// [`WitnessAtom`]. `Not` marks a `¬φ` that holds and must be falsified; the
 /// `Count*` variants an under-/over-satisfied cardinality.
@@ -242,6 +344,8 @@ pub enum WitnessKind {
 pub struct WitnessAtom {
     /// The leaf kind (see [`WitnessKind`]).
     pub kind: WitnessKind,
+    /// Exact structured evidence kind this flattened leaf projects from.
+    pub evidence_kind: PyEvidenceKind,
     /// Algebra arena id of the failed constraint that produced this atom.
     pub constraint_id: u32,
     /// Stable semantic kind of that constraint.
@@ -274,6 +378,15 @@ fn witness_atom(
 ) -> WitnessAtom {
     WitnessAtom {
         kind,
+        evidence_kind: match kind {
+            WitnessKind::Atom => PyEvidenceKind::AtomFailed,
+            WitnessKind::Relational => PyEvidenceKind::RelationalFailed,
+            WitnessKind::Closed => PyEvidenceKind::ClosedFailed,
+            WitnessKind::CountLow => PyEvidenceKind::CountLow,
+            WitnessKind::CountHigh => PyEvidenceKind::CountHigh,
+            WitnessKind::Not => PyEvidenceKind::NotFailed,
+            WitnessKind::Opaque => PyEvidenceKind::Opaque,
+        },
         constraint_id: shape.0,
         constraint_kind: constraint_kind_to_py(shifty_algebra::ConstraintKind::of(arena, shape)),
         path,
@@ -414,6 +527,8 @@ pub enum SatKind {
 pub struct SatAtom {
     /// The leaf kind (see [`SatKind`]).
     pub kind: SatKind,
+    /// Exact structured evidence kind whose payload produced this summary row.
+    pub evidence_kind: PyEvidenceKind,
     /// The π path to the matched value, if any.
     pub path: Option<String>,
     /// The matched/holding node value, if any.
@@ -442,6 +557,7 @@ fn sat_leaves(s: &SatTrace, out: &mut Vec<SatAtom>) {
             node, reached_by, ..
         } => out.push(SatAtom {
             kind: SatKind::Atom,
+            evidence_kind: PyEvidenceKind::AtomHeld,
             path: Some(path_str(reached_by)),
             value: Some(node.to_string()),
             detail: "value-type test holds".into(),
@@ -462,6 +578,7 @@ fn sat_leaves(s: &SatTrace, out: &mut Vec<SatAtom>) {
             for (v, _, _) in matches {
                 out.push(SatAtom {
                     kind: SatKind::Match,
+                    evidence_kind: PyEvidenceKind::CountHeld,
                     path: Some(path_str(path)),
                     value: Some(v.to_string()),
                     detail: format!("matched value (count {bounds})"),
@@ -472,6 +589,7 @@ fn sat_leaves(s: &SatTrace, out: &mut Vec<SatAtom>) {
             for (value, _, trace) in values {
                 out.push(SatAtom {
                     kind: SatKind::Match,
+                    evidence_kind: PyEvidenceKind::AllValuesHeld,
                     path: Some(path_str(path)),
                     value: Some(value.to_string()),
                     detail: "checked value satisfies universal qualifier".into(),
@@ -491,18 +609,21 @@ fn sat_leaves(s: &SatTrace, out: &mut Vec<SatAtom>) {
         }
         SatTrace::NotHeld { node, .. } => out.push(SatAtom {
             kind: SatKind::Not,
+            evidence_kind: PyEvidenceKind::NotHeld,
             path: None,
             value: Some(node.to_string()),
             detail: "negation holds (the inner shape fails)".into(),
         }),
         SatTrace::Blocked { node, reason, .. } => out.push(SatAtom {
             kind: SatKind::Blocked,
+            evidence_kind: PyEvidenceKind::Blocked,
             path: None,
             value: Some(node.to_string()),
             detail: format!("holds, no enumerable values ({reason:?})"),
         }),
         SatTrace::Coinductive { node, .. } => out.push(SatAtom {
             kind: SatKind::Coinductive,
+            evidence_kind: PyEvidenceKind::Coinductive,
             path: None,
             value: Some(node.to_string()),
             detail: "assumed (gfp back-edge)".into(),
@@ -863,10 +984,14 @@ impl RepairSession {
         let fw = py
             .allow_threads(|| witness_node(&self.context, &self.schema, &term, ShapeId(shape_id)))
             .map_err(|e| py_value_error(format!("non-stratifiable schema: {e}")))?;
-        Ok(fw.map(|fw| RepairTree {
-            inner: synthesize(&self.schema.arena, &fw),
-            schema: Arc::clone(&self.schema),
-            data: Arc::clone(&self.data),
+        Ok(fw.map(|fw| {
+            let synthesized = synthesize_with_origins(&self.schema.arena, &fw);
+            RepairTree {
+                inner: synthesized.tree,
+                origins: synthesized.origins,
+                schema: Arc::clone(&self.schema),
+                data: Arc::clone(&self.data),
+            }
         }))
     }
 
@@ -1006,6 +1131,9 @@ fn build_target(sel: &Selector, schema: &Schema) -> Target {
 
 #[pyclass(get_all, frozen, name = "EvidenceNode")]
 pub struct PyEvidenceNode {
+    /// Exact typed discriminant of this structured node.
+    pub evidence_kind: PyEvidenceKind,
+    /// Compatibility spelling of `evidence_kind` in snake case.
     pub kind: String,
     pub status: String,
     pub constraint_id: u32,
@@ -1058,12 +1186,52 @@ impl PyPathSupport {
     }
 }
 
-#[pyclass(get_all, frozen, name = "MissingObligation")]
+/// One cardinality deficit, with everything needed to describe the edge that
+/// would close it: `node` has `observed_count` values along `path` satisfying
+/// `qualifier`, and needs `required_count`.
+#[pyclass(frozen, name = "MissingObligation")]
 pub struct PyMissingObligation {
+    /// Arena id of the count constraint that came up short.
+    #[pyo3(get)]
     pub constraint_id: u32,
+    /// The node the deficit is about. Not always the focus — a count nested
+    /// inside a rejected candidate reports its own node — so compare it against
+    /// the focus when you mean deficits on the focus itself.
+    #[pyo3(get)]
+    pub node: String,
+    /// The path the values were counted along, rendered (`ex:p`, `^ex:p`,
+    /// `<http://ex/a>/<http://ex/b>`). Pass it straight to `values_for_path` to
+    /// see which values are already there.
+    #[pyo3(get)]
+    pub path: String,
+    /// How many values along `path` already satisfy `qualifier`.
+    #[pyo3(get)]
     pub observed_count: u64,
+    /// How many the constraint demands.
+    #[pyo3(get)]
     pub required_count: u64,
+    /// `required_count - observed_count`: how many more values would close it.
+    #[pyo3(get)]
     pub missing: u64,
+    qualifier: Py<Constraint>,
+}
+
+#[pymethods]
+impl PyMissingObligation {
+    /// What each counted value must satisfy — the structured constraint an
+    /// added value has to conform to for the count to move. Its `id` is the
+    /// arena id accepted by `RepairSession.describe_shape`.
+    #[getter]
+    fn qualifier(&self, py: Python<'_>) -> Py<Constraint> {
+        self.qualifier.clone_ref(py)
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "MissingObligation(node={:?}, path={:?}, missing={})",
+            self.node, self.path, self.missing
+        )
+    }
 }
 
 fn evidence_nodes(value: &IrEvidence) -> Vec<PyEvidenceNode> {
@@ -1079,13 +1247,11 @@ fn evidence_nodes(value: &IrEvidence) -> Vec<PyEvidenceNode> {
                     IrEvidence::Failure(value.clone())
                 }
             };
+            let evidence_kind = PyEvidenceKind::from(node.evidence_kind());
             PyEvidenceNode {
-                kind: node.kind().to_string(),
-                status: match node.status() {
-                    shifty_engine::EvaluationStatus::Pass => "pass",
-                    shifty_engine::EvaluationStatus::Fail => "fail",
-                }
-                .to_string(),
+                evidence_kind,
+                kind: evidence_kind.as_str().to_string(),
+                status: evidence_kind.status_str().to_string(),
                 constraint_id: node.constraint_id().0,
                 json: evidence.to_json().expect("evidence node is serializable"),
             }
@@ -1115,6 +1281,41 @@ fn path_support_to_py(py: Python<'_>, value: IrPathSupport) -> PyResult<Py<PyPat
             json,
         },
     )
+}
+
+/// Does `query` name `path`? Accepts the rendered spelling `path_str` produces
+/// (`ex:p`, `^ex:p`, `ex:a/ex:b`) and, for a single predicate step, the bare or
+/// bracketed IRI — so a caller holding an IRI need not know the prefix table.
+fn path_matches(path: &shifty_algebra::Path, query: &str) -> bool {
+    if path_str(path) == query {
+        return true;
+    }
+    match path {
+        shifty_algebra::Path::Pred(pred) => {
+            let iri = pred.as_str();
+            query == iri
+                || query
+                    .strip_prefix('<')
+                    .and_then(|inner| inner.strip_suffix('>'))
+                    == Some(iri)
+        }
+        _ => false,
+    }
+}
+
+/// Matched values counted along `query`, read from the structured match records
+/// and rendered as RDF terms in match order without duplicates.
+fn evidence_values_for_path(value: &IrEvidence, query: &str) -> Vec<String> {
+    let query = query.trim();
+    let mut seen = HashSet::new();
+    value
+        .matched_values_by_path()
+        .into_iter()
+        .filter(|(path, _)| path_matches(path, query))
+        .flat_map(|(_, values)| values)
+        .map(|value| value.to_string())
+        .filter(|value| seen.insert(value.clone()))
+        .collect()
 }
 
 fn evidence_to_dict(py: Python<'_>, value: &IrEvidence) -> PyResult<Py<PyAny>> {
@@ -1160,7 +1361,9 @@ impl FocusWitness {
     #[getter]
     fn shape_name(&self) -> Option<String> {
         let statement = &self.selector_schema.statements[self.statement];
-        self.selector_schema.names.get(&statement.shape).cloned()
+        self.selector_schema
+            .name_of(statement.shape)
+            .map(str::to_string)
     }
 
     /// The target selector as a structured [`Target`] (its `kind`, the class /
@@ -1207,6 +1410,9 @@ impl FocusWitness {
             .collect()
     }
 
+    /// Every value that qualified or was checked successfully along a counted
+    /// path, deduplicated in traversal order. `values_for_path` narrows this to
+    /// one path; `offending_values` is the complementary view.
     fn matched_values(&self) -> Vec<String> {
         IrEvidence::Failure(self.inner.failure.clone())
             .matched_values()
@@ -1215,15 +1421,32 @@ impl FocusWitness {
             .collect()
     }
 
-    fn missing_obligations(&self) -> Vec<PyMissingObligation> {
+    /// The subset of `matched_values` counted along `path`, in match order and
+    /// without duplicates. `path` is the rendered form (`ex:p`, `^ex:p`,
+    /// `ex:a/ex:b`) or, for a single predicate step, its IRI with or without
+    /// angle brackets. Empty when nothing was counted along `path`.
+    fn values_for_path(&self, path: &str) -> Vec<String> {
+        evidence_values_for_path(&IrEvidence::Failure(self.inner.failure.clone()), path)
+    }
+
+    /// The cardinality deficits in this failure, each describing the edge that
+    /// would close it — see [`PyMissingObligation`]. Every count that came up
+    /// short is reported, including ones nested inside a rejected candidate, so
+    /// compare `node` against `focus` when you mean the focus's own deficits.
+    fn missing_obligations(&self, py: Python<'_>) -> PyResult<Vec<PyMissingObligation>> {
         IrEvidence::Failure(self.inner.failure.clone())
             .missing_obligations()
             .into_iter()
-            .map(|value| PyMissingObligation {
-                constraint_id: value.constraint_id.0,
-                observed_count: value.observed_count,
-                required_count: value.required_count,
-                missing: value.missing,
+            .map(|value| {
+                Ok(PyMissingObligation {
+                    constraint_id: value.constraint_id.0,
+                    node: value.node.to_string(),
+                    path: path_str(&value.path),
+                    observed_count: value.observed_count,
+                    required_count: value.required_count,
+                    missing: value.missing,
+                    qualifier: constraint_to_py(py, &self.schema.arena, value.qualifier)?,
+                })
             })
             .collect()
     }
@@ -1240,6 +1463,13 @@ impl FocusWitness {
         vec![self.selector_schema.statements[self.statement].shape.0]
     }
 
+    /// The IRI of the shape whose statement selected this focus, or `None` when
+    /// that shape came from a blank node.
+    #[getter]
+    fn shape_iri(&self) -> Option<String> {
+        statement_shape_iri(&self.selector_schema, self.statement)
+    }
+
     fn to_json(&self) -> PyResult<String> {
         IrEvidence::Failure(self.inner.failure.clone())
             .to_json()
@@ -1252,9 +1482,11 @@ impl FocusWitness {
 
     /// Synthesize the repair space (`RepairTree`) for this violation.
     fn repair_tree(&self, py: Python<'_>) -> RepairTree {
-        let tree = py.allow_threads(|| synthesize(&self.schema.arena, &self.inner));
+        let synthesized =
+            py.allow_threads(|| synthesize_with_origins(&self.schema.arena, &self.inner));
         RepairTree {
-            inner: tree,
+            inner: synthesized.tree,
+            origins: synthesized.origins,
             schema: Arc::clone(&self.schema),
             data: Arc::clone(&self.data),
         }
@@ -1304,7 +1536,9 @@ impl FocusSatisfaction {
     #[getter]
     fn shape_name(&self) -> Option<String> {
         let statement = &self.selector_schema.statements[self.statement];
-        self.selector_schema.names.get(&statement.shape).cloned()
+        self.selector_schema
+            .name_of(statement.shape)
+            .map(str::to_string)
     }
 
     /// The target selector as a structured [`Target`] — the inspectable form of
@@ -1352,6 +1586,9 @@ impl FocusSatisfaction {
             .collect()
     }
 
+    /// Every value that qualified or was checked successfully along a counted
+    /// path, deduplicated in traversal order — the values that make this focus
+    /// conform. `values_for_path` narrows this to one path.
     fn matched_values(&self) -> Vec<String> {
         IrEvidence::Satisfaction(self.inner.trace.clone())
             .matched_values()
@@ -1360,6 +1597,16 @@ impl FocusSatisfaction {
             .collect()
     }
 
+    /// The subset of `matched_values` counted along `path`, in match order and
+    /// without duplicates. `path` is the rendered form (`ex:p`, `^ex:p`,
+    /// `ex:a/ex:b`) or, for a single predicate step, its IRI with or without
+    /// angle brackets. Empty when nothing was counted along `path`.
+    fn values_for_path(&self, path: &str) -> Vec<String> {
+        evidence_values_for_path(&IrEvidence::Satisfaction(self.inner.trace.clone()), path)
+    }
+
+    /// Always empty: a satisfaction has no unmet cardinality. Present so the
+    /// two polarities answer the same projections.
     fn missing_obligations(&self) -> Vec<PyMissingObligation> {
         Vec::new()
     }
@@ -1370,6 +1617,13 @@ impl FocusSatisfaction {
 
     fn source_constraints(&self) -> Vec<u32> {
         vec![self.selector_schema.statements[self.statement].shape.0]
+    }
+
+    /// The IRI of the shape whose statement selected this focus, or `None` when
+    /// that shape came from a blank node.
+    #[getter]
+    fn shape_iri(&self) -> Option<String> {
+        statement_shape_iri(&self.selector_schema, self.statement)
     }
 
     fn to_json(&self) -> PyResult<String> {
@@ -1497,7 +1751,9 @@ impl PyStatementEvaluation {
     #[getter]
     fn shape_name(&self) -> Option<String> {
         let statement = &self.selector_schema.statements[self.source_statement_id];
-        self.selector_schema.names.get(&statement.shape).cloned()
+        self.selector_schema
+            .name_of(statement.shape)
+            .map(str::to_string)
     }
 
     #[getter]
@@ -1506,6 +1762,14 @@ impl PyStatementEvaluation {
             &self.selector_schema.statements[self.source_statement_id].selector,
             &self.selector_schema,
         )
+    }
+
+    /// The IRI of the shape this statement heads, or `None` when the shape came
+    /// from a blank node. Use it to group a run by authored shape without
+    /// re-validating; `EvidenceRun.covered_shapes()` lists the names in play.
+    #[getter]
+    fn shape_iri(&self) -> Option<String> {
+        statement_shape_iri(&self.selector_schema, self.source_statement_id)
     }
 
     #[getter]
@@ -1525,13 +1789,199 @@ impl PyStatementEvaluation {
     }
 }
 
+/// Conformance totals for one pass over a prepared snapshot: how many
+/// `(statement, focus)` pairs were selected and how they came out. No evidence
+/// is materialized, so this costs strictly less than a full run.
+///
+/// The counts are over *normalized* statements, which is what makes the pass
+/// cheap — a merged statement is decided once. A run instead reports one focus
+/// row per *authored* statement, so its row count is the larger number whenever
+/// common-subexpression elimination merged anything. `selected_pairs` equals the
+/// distinct `(normalized_statement_id, focus)` pairs a run contains.
+#[pyclass(get_all, frozen, name = "ConformanceRun")]
+pub struct PyConformanceRun {
+    /// Whether every selected pair passed.
+    pub conforms: bool,
+    /// Distinct normalized pairs target selection produced.
+    pub selected_pairs: usize,
+    /// Of those, how many held.
+    pub passed: usize,
+    /// Of those, how many did not. `find_failures` names them.
+    pub failed: usize,
+}
+
+#[pymethods]
+impl PyConformanceRun {
+    fn __bool__(&self) -> bool {
+        self.conforms
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "ConformanceRun(conforms={}, selected_pairs={}, passed={}, failed={})",
+            self.conforms, self.selected_pairs, self.passed, self.failed
+        )
+    }
+}
+
+/// A handle naming one selected `(statement, focus)` pair — what `find_failures`
+/// hands back and `explain` takes.
+#[pyclass(frozen, name = "SelectedPair")]
+pub struct PySelectedPair {
+    inner: shifty_engine::SelectedPair,
+    source_statements: Vec<usize>,
+}
+
+#[pymethods]
+impl PySelectedPair {
+    /// The focus node, rendered.
+    #[getter]
+    fn focus(&self) -> String {
+        self.inner.focus.to_string()
+    }
+
+    /// Index of the *normalized* statement this pair was decided against.
+    ///
+    /// Deliberately not called `statement`: everywhere else in the evidence API
+    /// a bare statement id is an *authored* one (`Failure.statement`,
+    /// `failure_for(focus, statement=...)`, `StatementEvaluation.source_statement_id`).
+    /// Evidence is materialized against the normalized statement, so this is a
+    /// different numbering and the two must not be crossed. See
+    /// `source_statements` for the authored ids.
+    #[getter]
+    fn normalized_statement(&self) -> usize {
+        self.inner.statement
+    }
+
+    /// The authored statements that normalize to `normalized_statement`, in
+    /// source order. More than one when common-subexpression elimination merged
+    /// them, which is why `explain` returns an evaluation per authored
+    /// statement rather than one per pair.
+    #[getter]
+    fn source_statements(&self) -> Vec<usize> {
+        self.source_statements.clone()
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "SelectedPair(focus={:?}, normalized_statement={})",
+            self.inner.focus.to_string(),
+            self.inner.statement
+        )
+    }
+}
+
+/// The options both evidence entry points take, parsed once.
+fn validation_options(
+    entry_shape_names: Option<Vec<String>>,
+    minimum_severity: &str,
+    sort_results: bool,
+) -> PyResult<ValidationOptions> {
+    Ok(ValidationOptions {
+        minimum_severity: parse_minimum_severity(minimum_severity).map_err(py_value_error)?,
+        sort_results,
+        entry_shape_names: entry_shape_names.unwrap_or_default(),
+        ..ValidationOptions::default()
+    })
+}
+
+/// Index key for an IRI written either bare or in angle brackets. Focus terms
+/// that are blank nodes or literals are not bracketed, so they key on their
+/// rendered form unchanged.
+fn unbracket(value: &str) -> &str {
+    value
+        .strip_prefix('<')
+        .and_then(|inner| inner.strip_suffix('>'))
+        .unwrap_or(value)
+}
+
+/// The IRI of the shape `statement` heads, or `None` when that shape came from
+/// a blank node and so has no name to report.
+fn statement_shape_iri(schema: &Schema, statement: usize) -> Option<String> {
+    let shape = schema.statements.get(statement)?.shape;
+    schema.name_of(shape).map(str::to_string)
+}
+
+/// Resolve a strict single-evidence lookup. Ambiguity is an error rather than a
+/// silent first-match, so a caller that assumed one evaluation per focus hears
+/// about the statement that broke the assumption.
+fn exactly_one<T>(
+    kind: &str,
+    focus: &str,
+    statement: Option<usize>,
+    mut matches: Vec<(usize, T)>,
+) -> PyResult<T> {
+    match matches.len() {
+        1 => Ok(matches.pop().expect("length checked").1),
+        0 => Err(py_value_error(match statement {
+            Some(id) => format!("no {kind} for focus {focus} under statement {id}"),
+            None => format!("no {kind} for focus {focus}"),
+        })),
+        count => {
+            let ids = matches
+                .iter()
+                .map(|(id, _)| id.to_string())
+                .collect::<Vec<_>>()
+                .join(", ");
+            Err(py_value_error(format!(
+                "focus {focus} has {count} {kind}s (statements {ids}); \
+                 pass statement= to choose one"
+            )))
+        }
+    }
+}
+
 /// Complete statement-oriented coverage for one evidence validation run.
 #[pyclass(name = "EvidenceRun")]
 pub struct EvidenceValidationOutcome {
     #[pyo3(get)]
     conforms: bool,
     statements: Vec<Py<PyStatementEvaluation>>,
+    /// Every selected focus in statement order — the flat view the indexes address.
+    foci: Vec<Py<FocusEvidence>>,
+    /// Focus key → positions in `foci`, so a per-focus projection is one hash
+    /// lookup rather than a scan over every statement.
+    focus_index: HashMap<String, Vec<usize>>,
+    /// Shape IRI → positions in `foci`, the same trick for the shape-scoped
+    /// projections.
+    shape_index: HashMap<String, Vec<usize>>,
+    /// Named shapes this run has statements for, in statement order.
+    covered_shapes: Vec<String>,
+    /// Every shape the schema names, so an IRI that names no shape at all can be
+    /// told apart from one this run simply has no statements for.
+    known_shapes: HashSet<String>,
     json: String,
+}
+
+impl EvidenceValidationOutcome {
+    fn evaluations_for(&self, focus: &str) -> impl Iterator<Item = &Py<FocusEvidence>> {
+        self.focus_index
+            .get(unbracket(focus.trim()))
+            .into_iter()
+            .flatten()
+            .map(|index| &self.foci[*index])
+    }
+
+    /// A misspelled shape IRI is an error; a real shape this run has no
+    /// statements for is an empty projection. Only the schema can tell them
+    /// apart, which is why the run retains the names it knows.
+    fn evaluations_for_shape(
+        &self,
+        shape_iri: &str,
+    ) -> PyResult<impl Iterator<Item = &Py<FocusEvidence>>> {
+        let key = unbracket(shape_iri.trim());
+        if !self.known_shapes.contains(key) {
+            return Err(py_value_error(format!(
+                "no shape named <{key}> in the schema"
+            )));
+        }
+        Ok(self
+            .shape_index
+            .get(key)
+            .into_iter()
+            .flatten()
+            .map(|index| &self.foci[*index]))
+    }
 }
 
 #[pymethods]
@@ -1542,6 +1992,141 @@ impl EvidenceValidationOutcome {
             .iter()
             .map(|statement| statement.clone_ref(py))
             .collect()
+    }
+
+    /// Every evaluation of `focus`, one per statement that selected it, in
+    /// statement order. `focus` is an IRI with or without angle brackets, or a
+    /// blank node / literal in its rendered form. Empty when no statement
+    /// selected `focus` — an unselected focus is not an error.
+    fn results_for(&self, py: Python<'_>, focus: &str) -> Vec<Py<FocusEvidence>> {
+        self.evaluations_for(focus)
+            .map(|value| value.clone_ref(py))
+            .collect()
+    }
+
+    /// The failing evaluations of `focus`, in statement order — `results_for`
+    /// restricted to one polarity. Empty when `focus` failed nothing.
+    fn failures_for(&self, py: Python<'_>, focus: &str) -> Vec<Py<FocusWitness>> {
+        self.evaluations_for(focus)
+            .filter_map(|value| value.borrow(py).failure.as_ref().map(|f| f.clone_ref(py)))
+            .collect()
+    }
+
+    /// The passing evaluations of `focus`, in statement order — the dual of
+    /// `failures_for`. Empty when `focus` satisfied nothing.
+    fn satisfactions_for(&self, py: Python<'_>, focus: &str) -> Vec<Py<FocusSatisfaction>> {
+        self.evaluations_for(focus)
+            .filter_map(|value| {
+                value
+                    .borrow(py)
+                    .satisfaction
+                    .as_ref()
+                    .map(|s| s.clone_ref(py))
+            })
+            .collect()
+    }
+
+    /// The single failure of `focus`, or the one under authored statement
+    /// `statement`. Raises `ValueError` when there is no such failure, and when
+    /// `focus` failed more than one statement and `statement` does not pick one
+    /// out — an ambiguous match is never resolved silently.
+    #[pyo3(signature = (focus, statement=None))]
+    fn failure_for(
+        &self,
+        py: Python<'_>,
+        focus: &str,
+        statement: Option<usize>,
+    ) -> PyResult<Py<FocusWitness>> {
+        let matches = self
+            .failures_for(py, focus)
+            .into_iter()
+            .map(|value| {
+                let id = value.borrow(py).statement;
+                (id, value)
+            })
+            .filter(|(id, _)| statement.is_none_or(|wanted| wanted == *id))
+            .collect();
+        exactly_one("failure", focus, statement, matches)
+    }
+
+    /// The named shapes this run has statements for, in statement order and
+    /// without duplicates — the coverage the shape-scoped projections address.
+    ///
+    /// A shape rooted at a blank node has no IRI to report and appears only in
+    /// `statements`, so this is a list of the *nameable* coverage, not a count
+    /// of every statement. An IRI absent from this list but present in the
+    /// schema projects empty rather than raising; see `failures_for_shape`.
+    fn covered_shapes(&self) -> Vec<String> {
+        self.covered_shapes.clone()
+    }
+
+    /// Every evaluation made under `shape_iri`, in statement order — the
+    /// shape-scoped counterpart of `results_for`. Raises `ValueError` if the
+    /// schema names no such shape; returns `[]` for a shape this run holds no
+    /// statements for, which `covered_shapes()` lets you check up front.
+    fn results_for_shape(
+        &self,
+        py: Python<'_>,
+        shape_iri: &str,
+    ) -> PyResult<Vec<Py<FocusEvidence>>> {
+        Ok(self
+            .evaluations_for_shape(shape_iri)?
+            .map(|value| value.clone_ref(py))
+            .collect())
+    }
+
+    /// The failing evaluations made under `shape_iri`, in statement order.
+    /// Raises and projects like `results_for_shape`.
+    fn failures_for_shape(
+        &self,
+        py: Python<'_>,
+        shape_iri: &str,
+    ) -> PyResult<Vec<Py<FocusWitness>>> {
+        Ok(self
+            .evaluations_for_shape(shape_iri)?
+            .filter_map(|value| value.borrow(py).failure.as_ref().map(|f| f.clone_ref(py)))
+            .collect())
+    }
+
+    /// The passing evaluations made under `shape_iri`, in statement order — the
+    /// dual of `failures_for_shape`.
+    fn satisfactions_for_shape(
+        &self,
+        py: Python<'_>,
+        shape_iri: &str,
+    ) -> PyResult<Vec<Py<FocusSatisfaction>>> {
+        Ok(self
+            .evaluations_for_shape(shape_iri)?
+            .filter_map(|value| {
+                value
+                    .borrow(py)
+                    .satisfaction
+                    .as_ref()
+                    .map(|s| s.clone_ref(py))
+            })
+            .collect())
+    }
+
+    /// The single satisfaction of `focus`, or the one under authored statement
+    /// `statement` — the dual of `failure_for`, and equally strict about an
+    /// ambiguous match.
+    #[pyo3(signature = (focus, statement=None))]
+    fn satisfaction_for(
+        &self,
+        py: Python<'_>,
+        focus: &str,
+        statement: Option<usize>,
+    ) -> PyResult<Py<FocusSatisfaction>> {
+        let matches = self
+            .satisfactions_for(py, focus)
+            .into_iter()
+            .map(|value| {
+                let id = value.borrow(py).statement;
+                (id, value)
+            })
+            .filter(|(id, _)| statement.is_none_or(|wanted| wanted == *id))
+            .collect();
+        exactly_one("satisfaction", focus, statement, matches)
     }
 
     fn to_json(&self) -> String {
@@ -1620,6 +2205,14 @@ pub struct EvidenceSession {
     raw_schema: Arc<Schema>,
     normalized_schema: Arc<Schema>,
     data: Arc<Graph>,
+    /// The data graph before inference. `revalidate` patches *this* when it
+    /// re-runs the rules, so a deletion stops supporting what it derived.
+    base_data: Arc<Graph>,
+    /// Retained so `revalidate` can re-prepare a patched graph.
+    /// Whether a data graph was supplied separately from the shapes graph;
+    /// inference and preparation take a different entry point either way.
+    has_data_graph: bool,
+    run_infer: bool,
     shapes: shifty_parse::Loaded,
     graph_mode: shifty_engine::ValidationGraphMode,
     diagnostics: Vec<String>,
@@ -1668,6 +2261,7 @@ impl EvidenceSession {
             .map(|spec| spec.load(base.as_deref()))
             .transpose()
             .map_err(py_value_error)?;
+        let has_data_graph = data_loaded.is_some();
         let base_data = data_loaded
             .as_ref()
             .map_or(&shapes_loaded.graph, |loaded| &loaded.graph);
@@ -1685,7 +2279,7 @@ impl EvidenceSession {
             base_data.clone()
         };
 
-        let prepared = if data_loaded.is_some() {
+        let prepared = if has_data_graph {
             PreparedEvidenceValidator::with_graphs(
                 &evaluated,
                 &shapes_loaded.graph,
@@ -1697,12 +2291,16 @@ impl EvidenceSession {
         }
         .map_err(|error| py_value_error(format!("non-stratifiable schema: {error}")))?;
         let normalized_schema = Arc::new(prepared.schema().clone());
+        let base_data = Arc::new(base_data.clone());
 
         Ok(Self {
             prepared,
             raw_schema: Arc::new(raw_schema),
             normalized_schema,
             data: Arc::new(evaluated),
+            base_data,
+            has_data_graph,
+            run_infer,
             shapes: shapes_loaded,
             graph_mode: mode,
             diagnostics,
@@ -1722,19 +2320,296 @@ impl EvidenceSession {
         minimum_severity: &str,
         sort_results: bool,
     ) -> PyResult<EvidenceValidationOutcome> {
-        let options = ValidationOptions {
-            minimum_severity: parse_minimum_severity(minimum_severity).map_err(py_value_error)?,
-            sort_results,
-            entry_shape_names: entry_shape_names.unwrap_or_default(),
-            ..ValidationOptions::default()
-        };
+        let options = validation_options(entry_shape_names, minimum_severity, sort_results)?;
         let outcome = self.prepared.validate(&options);
+        self.build_run(py, outcome, &self.normalized_schema, &self.data)
+    }
+
+    /// Validate `G ⊕ ΔG`: the run `validate()` would produce over this
+    /// session's graph with `delta` applied. Pure — the session keeps its own
+    /// snapshot, so a run taken before the edit stays valid and comparable.
+    ///
+    /// Unlike `validate()`, this cannot reuse the prepared snapshot: a patched
+    /// graph needs its own normalization, indexing, and SPARQL preparation. It
+    /// still skips file I/O, parsing, and schema lowering.
+    ///
+    /// `infer` re-runs SHACL-AF rules over the patched graph, so an added
+    /// triple can fire a rule and a deleted one stops supporting what it
+    /// derived. It defaults to whatever the session was built with, which keeps
+    /// the before and after runs on the same baseline. Passing `False` patches
+    /// the already-inferred graph instead and leaves the rules alone — cheaper,
+    /// and sound only if the edit fires none of them.
+    #[pyo3(signature = (
+        delta,
+        infer=None,
+        entry_shape_names=None,
+        minimum_severity="info",
+        sort_results=true
+    ))]
+    fn revalidate(
+        &self,
+        py: Python<'_>,
+        delta: &RepairDelta,
+        infer: Option<bool>,
+        entry_shape_names: Option<Vec<String>>,
+        minimum_severity: &str,
+        sort_results: bool,
+    ) -> PyResult<EvidenceValidationOutcome> {
+        let options = validation_options(entry_shape_names, minimum_severity, sort_results)?;
+        let run_infer = infer.unwrap_or(self.run_infer);
+
+        // With inference on, patch the graph the rules read. Patching the
+        // already-derived graph would strand triples that the deletion should
+        // have invalidated, since inference only ever adds.
+        let source = if run_infer {
+            &self.base_data
+        } else {
+            &self.data
+        };
+        let patched = engine_apply(source, &delta.inner);
+        let evaluated = if run_infer && !self.raw_schema.rules.is_empty() {
+            if self.has_data_graph {
+                shifty_engine::infer_graphs(&patched, &self.shapes.graph, &self.raw_schema)
+            } else {
+                shifty_engine::infer(&patched, &self.raw_schema)
+            }
+            .map_err(|error| py_value_error(format!("non-stratifiable schema: {error}")))?
+            .graph
+        } else {
+            patched
+        };
+
+        let prepared = if self.has_data_graph {
+            PreparedEvidenceValidator::with_graphs(
+                &evaluated,
+                &self.shapes.graph,
+                &self.raw_schema,
+                self.graph_mode,
+            )
+        } else {
+            PreparedEvidenceValidator::new(&evaluated, &self.raw_schema)
+        }
+        .map_err(|error| py_value_error(format!("non-stratifiable schema: {error}")))?;
+
+        let normalized_schema = Arc::new(prepared.schema().clone());
+        let outcome = prepared.validate(&options);
+        self.build_run(py, outcome, &normalized_schema, &Arc::new(evaluated))
+    }
+
+    /// Decide every selected pair without materializing any evidence — the
+    /// cheapest of the four entry points, and the baseline the others are
+    /// measured against.
+    ///
+    /// `minimum_severity` is not honored: with no failure evidence there is no
+    /// per-constraint severity to weigh, so any failing pair makes `conforms`
+    /// false. Only `entry_shape_names` applies.
+    #[pyo3(signature = (entry_shape_names=None))]
+    fn validate_conformance(
+        &self,
+        entry_shape_names: Option<Vec<String>>,
+    ) -> PyResult<PyConformanceRun> {
+        let options = validation_options(entry_shape_names, "info", true)?;
+        Ok(conformance_to_py(
+            self.prepared.validate_conformance(&options),
+        ))
+    }
+
+    /// The same pass as `validate_conformance`, also returning a handle for each
+    /// pair that failed.
+    ///
+    /// Paying only a term clone per failing pair, this plus `explain` on each
+    /// result is far cheaper than `validate` when failures are a small share of
+    /// selected pairs — which is the usual case.
+    #[pyo3(signature = (entry_shape_names=None))]
+    fn find_failures(
+        &self,
+        py: Python<'_>,
+        entry_shape_names: Option<Vec<String>>,
+    ) -> PyResult<(PyConformanceRun, Vec<Py<PySelectedPair>>)> {
+        let options = validation_options(entry_shape_names, "info", true)?;
+        let (run, failures) = self.prepared.find_failures(&options);
+        let pairs = failures
+            .into_iter()
+            .map(|pair| {
+                let source_statements = self.prepared.source_statements(pair.statement).to_vec();
+                Py::new(
+                    py,
+                    PySelectedPair {
+                        inner: pair,
+                        source_statements,
+                    },
+                )
+            })
+            .collect::<PyResult<Vec<_>>>()?;
+        Ok((conformance_to_py(run), pairs))
+    }
+
+    /// Materialize evidence for one pair, as a run holding just that pair.
+    ///
+    /// Every projection works on the result, so it reads like a slice of a full
+    /// run: one `StatementEvaluation` per authored statement that normalizes to
+    /// the pair's, each carrying the single focus.
+    ///
+    /// Target selection is *not* re-run — the pair is taken as already
+    /// selected, which is the point. Pairs should come from `find_failures` or
+    /// an earlier run over this snapshot.
+    ///
+    /// The returned run carries **no constraint catalog**: it is fixed per
+    /// snapshot rather than per pair, so take it once from `constraints()`.
+    /// That only affects serialization; the `constraint` objects on statements
+    /// and evidence are present either way.
+    fn explain(
+        &self,
+        py: Python<'_>,
+        pair: &PySelectedPair,
+    ) -> PyResult<EvidenceValidationOutcome> {
+        self.explain_run(py, self.prepared.explain(&pair.inner))
+    }
+
+    /// `explain` without the authored-statement progress view, keeping the
+    /// satisfaction trace or failure witness and the authored identities.
+    fn explain_canonical(
+        &self,
+        py: Python<'_>,
+        pair: &PySelectedPair,
+    ) -> PyResult<EvidenceValidationOutcome> {
+        self.explain_run(py, self.prepared.explain_canonical(&pair.inner))
+    }
+
+    /// The source and normalized constraint catalogs for this snapshot, as a
+    /// dict.
+    ///
+    /// Fixed for the snapshot, so a caller explaining pairs one at a time takes
+    /// this once instead of paying for it per pair. It is also the `catalog`
+    /// argument of `shifty.expand_evidence`, which is what makes
+    /// `to_compact_json(include_catalog=False)` usable: the catalog travels once,
+    /// out of band.
+    fn constraints(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        let json = serde_json::to_string(&self.prepared.constraints())
+            .map_err(|error| py_value_error(format!("cannot serialize constraints: {error}")))?;
+        Ok(py.import("json")?.call_method1("loads", (json,))?.unbind())
+    }
+
+    /// Evidence for one focus against any normalized constraint in the run's
+    /// catalog, including constraints below a statement's top-level shape.
+    fn evidence_for(&self, py: Python<'_>, focus: &str, constraint_id: u32) -> PyResult<Py<PyAny>> {
+        self.evidence_for_impl(py, focus, constraint_id)
+    }
+
+    #[pyo3(signature = (name_path=None))]
+    fn binding_names(&self, name_path: Option<&str>) -> PyResult<HashMap<u32, Vec<String>>> {
+        self.binding_names_impl(name_path)
+    }
+
+    fn shape_name_of(&self, constraint_id: u32) -> Option<String> {
+        self.shape_name_of_impl(constraint_id)
+    }
+
+    fn resolve_path(
+        &self,
+        nodes: Vec<String>,
+        path: &str,
+    ) -> PyResult<HashMap<String, Vec<String>>> {
+        self.resolve_path_impl(nodes, path)
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "EvidenceSession(statements={}, triples={})",
+            self.raw_schema.statements.len(),
+            self.data.len()
+        )
+    }
+}
+
+fn conformance_to_py(run: shifty_engine::ConformanceRun) -> PyConformanceRun {
+    PyConformanceRun {
+        conforms: run.conforms,
+        selected_pairs: run.selected_pairs,
+        passed: run.passed,
+        failed: run.failed,
+    }
+}
+
+impl EvidenceSession {
+    /// Wrap the statements `explain` produced as a run. `conforms` is derived
+    /// from the evidence rather than assumed: explaining a *passing* pair is
+    /// well-defined, so this is not always false.
+    fn explain_run(
+        &self,
+        py: Python<'_>,
+        statements: Vec<shifty_engine::StatementEvaluation>,
+    ) -> PyResult<EvidenceValidationOutcome> {
+        let conforms = statements.iter().all(|statement| {
+            statement
+                .selected_foci
+                .iter()
+                .all(|focus| focus.status() == shifty_engine::EvaluationStatus::Pass)
+        });
+        // The catalog is fixed per snapshot; `constraints()` serves it once.
+        let run = shifty_engine::EvidenceRun {
+            conforms,
+            constraints: shifty_engine::ConstraintCatalog {
+                source: Vec::new(),
+                normalized: Vec::new(),
+            },
+            statements,
+        };
+        let json = serde_json::to_string(&run)
+            .map_err(|error| py_value_error(format!("cannot serialize evidence: {error}")))?;
+        self.build_outcome(
+            py,
+            conforms,
+            run.statements,
+            json,
+            &self.normalized_schema,
+            &self.data,
+        )
+    }
+
+    /// Turn one engine run into the Python object graph, including the focus
+    /// and shape indexes. `normalized_schema` and `data` come from whichever
+    /// prepared validator produced `outcome`, so a revalidated run reports
+    /// arena ids and reads repair candidates from its own patched graph.
+    fn build_run(
+        &self,
+        py: Python<'_>,
+        outcome: shifty_engine::EvidenceRun,
+        normalized_schema: &Arc<Schema>,
+        data: &Arc<Graph>,
+    ) -> PyResult<EvidenceValidationOutcome> {
         let json = serde_json::to_string(&outcome)
             .map_err(|error| py_value_error(format!("cannot serialize evidence: {error}")))?;
-        let conforms = outcome.conforms;
-        let mut statements = Vec::with_capacity(outcome.statements.len());
+        self.build_outcome(
+            py,
+            outcome.conforms,
+            outcome.statements,
+            json,
+            normalized_schema,
+            data,
+        )
+    }
 
-        for statement in outcome.statements {
+    /// The object graph itself, over whatever set of statements the caller has —
+    /// a whole run from `validate`, or the one pair `explain` materialized.
+    fn build_outcome(
+        &self,
+        py: Python<'_>,
+        conforms: bool,
+        outcome_statements: Vec<shifty_engine::StatementEvaluation>,
+        json: String,
+        normalized_schema: &Arc<Schema>,
+        data: &Arc<Graph>,
+    ) -> PyResult<EvidenceValidationOutcome> {
+        let mut statements = Vec::with_capacity(outcome_statements.len());
+        let mut foci: Vec<Py<FocusEvidence>> = Vec::new();
+        let mut focus_index: HashMap<String, Vec<usize>> = HashMap::new();
+        let mut shape_index: HashMap<String, Vec<usize>> = HashMap::new();
+        let mut covered_shapes: Vec<String> = Vec::new();
+        let known_shapes: HashSet<String> =
+            self.raw_schema.names.values().flatten().cloned().collect();
+
+        for statement in outcome_statements {
             let normalized_statement_id = statement
                 .normalized_statement_id
                 .ok_or_else(|| py_value_error("statement has no normalized identity".into()))?;
@@ -1751,9 +2626,14 @@ impl EvidenceSession {
                 .normalized_constraint_id
                 .ok_or_else(|| py_value_error("statement has no normalized constraint".into()))?;
             let constraint =
-                constraint_to_py(py, &self.normalized_schema.arena, normalized_constraint_id)?;
+                constraint_to_py(py, &normalized_schema.arena, normalized_constraint_id)?;
             let constraint_kind = constraint_kind_to_py(statement.constraint_kind);
+            let shape_iri = self
+                .raw_schema
+                .name_of(raw_statement.shape)
+                .map(str::to_string);
             let mut selected_foci = Vec::with_capacity(statement.selected_foci.len());
+            let first_focus = foci.len();
 
             for result in statement.selected_foci {
                 let focus = result.focus.to_string();
@@ -1830,15 +2710,16 @@ impl EvidenceSession {
                                     statement: normalized_statement_id,
                                     failure,
                                 },
-                                schema: Arc::clone(&self.normalized_schema),
+                                schema: Arc::clone(normalized_schema),
                                 selector_schema: Arc::clone(&self.raw_schema),
-                                data: Arc::clone(&self.data),
+                                data: Arc::clone(data),
                             },
                         )?;
                         ("fail".to_string(), None, Some(value))
                     }
                 };
-                selected_foci.push(Py::new(
+                let key = unbracket(&focus).to_string();
+                let evaluation = Py::new(
                     py,
                     FocusEvidence {
                         focus,
@@ -1847,7 +2728,22 @@ impl EvidenceSession {
                         failure,
                         progress,
                     },
-                )?);
+                )?;
+                focus_index.entry(key).or_default().push(foci.len());
+                foci.push(evaluation.clone_ref(py));
+                selected_foci.push(evaluation);
+            }
+
+            // A statement covers its shape even when the selector chose nothing,
+            // so record coverage on the statement rather than on its foci.
+            if let Some(iri) = shape_iri {
+                if !shape_index.contains_key(&iri) {
+                    covered_shapes.push(iri.clone());
+                }
+                shape_index
+                    .entry(iri)
+                    .or_default()
+                    .extend(first_focus..foci.len());
             }
 
             statements.push(Py::new(
@@ -1869,10 +2765,17 @@ impl EvidenceSession {
         Ok(EvidenceValidationOutcome {
             conforms,
             statements,
+            foci,
+            focus_index,
+            shape_index,
+            covered_shapes,
+            known_shapes,
             json,
         })
     }
+}
 
+impl EvidenceSession {
     /// Evidence for `focus` against one *normalized* constraint id — any
     /// constraint in the run's catalog, not just a statement's top-level shape.
     ///
@@ -1886,7 +2789,12 @@ impl EvidenceSession {
     ///
     /// No target selection is involved: the pair is taken as given, and a focus
     /// no statement selects still yields well-defined evidence.
-    fn evidence_for(&self, py: Python<'_>, focus: &str, constraint_id: u32) -> PyResult<Py<PyAny>> {
+    fn evidence_for_impl(
+        &self,
+        py: Python<'_>,
+        focus: &str,
+        constraint_id: u32,
+    ) -> PyResult<Py<PyAny>> {
         let term = parse_term(focus).map_err(py_value_error)?;
         let evidence = self
             .prepared
@@ -1909,8 +2817,7 @@ impl EvidenceSession {
     /// Constraints with no source-node provenance, or where `name_path`
     /// resolves to nothing, are omitted. Literal values render as their bare
     /// lexical form; IRIs/blank nodes render as `<…>`/`_:…`.
-    #[pyo3(signature = (name_path=None))]
-    fn binding_names(&self, name_path: Option<&str>) -> PyResult<HashMap<u32, Vec<String>>> {
+    fn binding_names_impl(&self, name_path: Option<&str>) -> PyResult<HashMap<u32, Vec<String>>> {
         let expr = name_path.unwrap_or("sh:name");
         let path = shifty_parse::parse_property_path(expr, &self.shapes)
             .map_err(|e| py_value_error(format!("invalid name_path: {e}")))?;
@@ -1932,8 +2839,10 @@ impl EvidenceSession {
 
     /// The raw schema's shape name for `constraint_id` — the IRI of the
     /// named (non-blank) RDF node it was lowered from, when it has one.
-    fn shape_name_of(&self, constraint_id: u32) -> Option<String> {
-        self.raw_schema.names.get(&ShapeId(constraint_id)).cloned()
+    fn shape_name_of_impl(&self, constraint_id: u32) -> Option<String> {
+        self.raw_schema
+            .name_of(ShapeId(constraint_id))
+            .map(str::to_string)
     }
 
     /// Batch-evaluate `path` (a SPARQL 1.1 property path, same grammar as
@@ -1942,7 +2851,7 @@ impl EvidenceSession {
     /// graph to match this session's own `graph_mode` (`union`/`union_all`;
     /// `data` mode reads the data graph alone). Returns each input node's
     /// N-Triples spelling mapped to the N-Triples spellings it reaches.
-    fn resolve_path(
+    fn resolve_path_impl(
         &self,
         nodes: Vec<String>,
         path: &str,
@@ -1970,26 +2879,78 @@ impl EvidenceSession {
         }
         Ok(out)
     }
-
-    fn __repr__(&self) -> String {
-        format!(
-            "EvidenceSession(statements={}, triples={})",
-            self.raw_schema.statements.len(),
-            self.data.len()
-        )
-    }
 }
 
 /// The repair space for one violation: an AND/OR/Repeat tree with typed holes.
 #[pyclass(name = "RepairTree")]
 pub struct RepairTree {
     inner: IrTree,
+    origins: BTreeMap<NodeId, Vec<IrEvidenceOrigin>>,
     schema: Arc<Schema>,
     data: Arc<Graph>,
 }
 
+/// The evidence occurrence that justified one repair-tree node.
+#[pyclass(get_all, eq, frozen, name = "RepairOrigin")]
+#[derive(Clone, PartialEq, Eq)]
+pub struct RepairOrigin {
+    pub statement_id: usize,
+    pub path: Vec<usize>,
+    pub constraint_id: u32,
+    pub node: Option<String>,
+    pub status: String,
+    pub evidence_kind: PyEvidenceKind,
+    /// Compatibility spelling of `evidence_kind` in snake case.
+    pub kind: String,
+}
+
+impl From<&IrEvidenceOrigin> for RepairOrigin {
+    fn from(origin: &IrEvidenceOrigin) -> Self {
+        let evidence_kind = PyEvidenceKind::from(origin.kind);
+        Self {
+            statement_id: origin.statement,
+            path: origin.path.clone(),
+            constraint_id: origin.constraint_id.0,
+            node: origin.node.as_ref().map(ToString::to_string),
+            status: evidence_kind.status_str().to_string(),
+            evidence_kind,
+            kind: evidence_kind.as_str().to_string(),
+        }
+    }
+}
+
+#[pymethods]
+impl RepairOrigin {
+    fn __repr__(&self) -> String {
+        format!(
+            "RepairOrigin(statement={}, path={:?}, kind={:?})",
+            self.statement_id, self.path, self.kind
+        )
+    }
+}
+
 #[pymethods]
 impl RepairTree {
+    /// Stable id of the root repair operator.
+    #[getter]
+    fn root_id(&self) -> u32 {
+        self.inner.id().0
+    }
+
+    /// Evidence occurrences justifying `node_id`, or the root when omitted.
+    /// A joint synthetic node can have several origins; an ordinary node has
+    /// one. Unknown ids return an empty list.
+    #[pyo3(signature = (node_id=None))]
+    fn origins(&self, node_id: Option<u32>) -> Vec<RepairOrigin> {
+        let node = NodeId(node_id.unwrap_or_else(|| self.inner.id().0));
+        self.origins
+            .get(&node)
+            .into_iter()
+            .flatten()
+            .map(RepairOrigin::from)
+            .collect()
+    }
+
     /// True if no data repair is possible in scope (opaque SPARQL / identity /
     /// coinductive).
     #[getter]
@@ -2049,7 +3010,11 @@ impl RepairTree {
     }
 
     fn __repr__(&self) -> String {
-        format!("RepairTree(blocked={})", self.inner.is_blocked())
+        format!(
+            "RepairTree(root_id={}, blocked={})",
+            self.inner.id().0,
+            self.inner.is_blocked()
+        )
     }
 }
 
@@ -2446,16 +3411,20 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyEvidenceNode>()?;
     m.add_class::<PyPathSupport>()?;
     m.add_class::<PyMissingObligation>()?;
+    m.add_class::<PyConformanceRun>()?;
+    m.add_class::<PySelectedPair>()?;
     m.add_class::<RepairSession>()?;
     m.add_class::<FocusWitness>()?;
     m.add_class::<FocusSatisfaction>()?;
     m.add_class::<Target>()?;
     m.add_class::<TargetKind>()?;
+    m.add_class::<PyEvidenceKind>()?;
     m.add_class::<WitnessAtom>()?;
     m.add_class::<WitnessKind>()?;
     m.add_class::<SatAtom>()?;
     m.add_class::<SatKind>()?;
     m.add_class::<RepairTree>()?;
+    m.add_class::<RepairOrigin>()?;
     m.add_class::<Hole>()?;
     m.add_class::<Choice>()?;
     m.add_class::<ChoiceKind>()?;

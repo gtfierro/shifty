@@ -30,7 +30,10 @@ fn main() {
     let mut dump_json: Option<PathBuf> = None;
     let mut argv = std::env::args().skip(1);
     while let Some(flag) = argv.next() {
-        let mut value = || argv.next().unwrap_or_else(|| panic!("{flag} needs a value"));
+        let mut value = || {
+            argv.next()
+                .unwrap_or_else(|| panic!("{flag} needs a value"))
+        };
         match flag.as_str() {
             "--shapes" => shapes_path = PathBuf::from(value()),
             "--data" => data_path = PathBuf::from(value()),
@@ -222,8 +225,7 @@ fn main() {
     );
     println!(
         "per-memo-lookup cost:      {:.2} us",
-        conformance_ms * 1e3
-            / (conformance_cache.hits + conformance_cache.misses).max(1) as f64
+        conformance_ms * 1e3 / (conformance_cache.hits + conformance_cache.misses).max(1) as f64
     );
 
     // ---- attribution: which statements own the time ------------------------

@@ -61,12 +61,22 @@ pub fn normalize_with_mapping(schema: &Schema) -> NormalizedSchema {
         statement_map.push(index);
     }
     let rules = schema.rules.iter().map(|r| z.rule(r)).collect();
-    // remap shape names through the CSE memo (CSE may collapse two named shapes)
-    let names = schema
-        .names
-        .iter()
-        .filter_map(|(old, name)| z.memo.get(old).map(|new| (*new, name.clone())))
-        .collect();
+    // Remap shape names through the CSE memo. CSE collapses two named shapes
+    // onto one slot, so names accumulate rather than overwrite — dropping one
+    // would make a later lookup by that name miss, and *which* one was dropped
+    // depended on hash iteration order.
+    let mut names: HashMap<ShapeId, Vec<String>> = HashMap::new();
+    for (old, old_names) in &schema.names {
+        let Some(new) = z.memo.get(old) else { continue };
+        names
+            .entry(*new)
+            .or_default()
+            .extend(old_names.iter().cloned());
+    }
+    for list in names.values_mut() {
+        list.sort();
+        list.dedup();
+    }
     let shape_map = (0..schema.arena.len())
         .map(|index| z.memo.get(&ShapeId(index as u32)).copied())
         .collect();

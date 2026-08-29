@@ -110,7 +110,7 @@ for any run.
    * - Repeated RDF terms
      - 498x
      - 68x
-   * - Repeated evidence subtrees
+   * - Repeated tagged subtrees
      - 5.41x
      - 1.78x
    * - The constraint catalog
@@ -131,12 +131,137 @@ Concretely, on ``bldg1.ttl``: 243,249 term occurrences of 548 distinct terms,
 
 Measure sharing with ``shifty_engine::sharing()`` rather than by comparing
 table sizes to node counts. The tables an encoding writes also hold catalog
-entries that no evidence occurrence refers to, and ``walk()`` counts only
-``Evidence``/``Witness`` nodes while the encoder also interns path-support and
-shape nodes — comparing across those denominators understates sharing by
-several fold. ``sharing()`` counts inside the interner, against the same
-predicates the encoder interns by, so a quoted ratio cannot drift from what
-compaction collapses.
+entries that no evidence occurrence refers to, so comparing across those
+denominators is not measuring the same thing on both sides. ``sharing()`` counts
+inside the interner, against the same predicates the encoder interns by, so a
+quoted ratio cannot drift from what compaction collapses.
+
+Which tagged node is being counted
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The subtree ratio above is over *all* tagged nodes, and that is the right
+denominator for the encoding and the wrong one for anything else. Three enums
+serialize as ``{"type", "details"}``: ``Witness`` and ``SatTrace``, which are
+validation judgments, and ``PathSupport``, which is a certificate recording how
+a value was reached. The encoder interns all three. Split apart over the corpus:
+
+.. list-table::
+   :header-rows: 1
+
+   * - Suite
+     - Judgments
+     - Path support
+     - Support share of occurrences
+   * - Brick
+     - 1.31x
+     - 66.2x
+     - 78.7%
+   * - 223P
+     - 1.31x
+     - 5.73x
+     - 39.1%
+
+**Validation judgments barely repeat at all, and repeat equally on both
+corpora.** Every bit of the 5.41x/1.78x contrast was path support — how many
+certificates the evidence carries, and how heavily those certificates repeat.
+Reading the combined ratio as "how much do validation results repeat" is not
+approximately right; it is measuring a different thing that happens to dominate
+the sum.
+
+``sharing()`` splits them: ``result_occurrences``/``distinct_results`` for
+judgments, ``support_occurrences``/``distinct_support`` for certificates, and
+``support_share`` for the mixture. The partition is exact by construction — a
+tagged node is a judgment exactly when its payload carries a ``shape``, which
+every ``Witness`` and ``SatTrace`` variant does and no ``PathSupport`` does — and
+``result_occurrences`` is checked against ``run.walk()``, an independent
+traversal written against the types.
+
+Sharing across independently addressable results
+------------------------------------------------
+
+``shifty_engine::result_sharing()`` answers the question the byte-level ratios
+cannot: how much of the derivation is reached from more than one result a caller
+can ask for. It walks the typed evidence and never serializes, so its judgment
+counts are an independent check on the encoder's — ``bench_evidence`` asserts
+they agree on every model.
+
+**The addressable unit is the normalized request.** A run reports one record per
+*authored* ``(statement, focus)`` pair, because a report has to name the
+statement its reader wrote. Two authored statements that normalize together are
+one request, evaluated once; reporting it twice is duplication, not sharing.
+Counting sharing across authored records would therefore book source
+traceability as a saving. ``result_sharing`` counts across normalized requests
+and reports ``duplicate_records`` separately, so the cost of preserving
+authorship is visible rather than folded in. ``divergent_duplicates`` — records
+that answer one request with unequal evidence — must be zero, and is checked.
+
+**The interior address is** ``(constraint, node, polarity)``: the shape memo's
+``(ShapeId, Term)`` key plus which way it came out. *Constraint* and *node*
+rather than *shape* and *focus*, because ``focus`` names the top-level selected
+node and interior judgments are usually about some other node reached from it.
+
+**A key addresses evidence only if it determines evidence.** It may not:
+``Witness::Atom`` carries ``reached_by`` and ``produced_by``, which describe the
+derivation rather than the judgment, so one key can occur with several payloads.
+``divergent_keys`` over ``multi_occurrence_keys`` measures how often it does.
+This is the number that decides whether evidence construction can be memoized on
+the judgment the way conformance already is — a boolean memo key is sufficient
+for evidence only where divergence is negligible.
+
+What the corpus says
+~~~~~~~~~~~~~~~~~~~~
+
+.. list-table::
+   :header-rows: 1
+
+   * -
+     - Brick
+     - 223P
+   * - Requests behind authored records
+     - 286,705 of 401,457 (+40.0% duplication, 0 divergent)
+     - 204,733 of 282,438 (+38.0%, 0 divergent)
+   * - Judgments reached from 2+ requests
+     - 1.0%, covering 6.2% of occurrences
+     - 4.0%, covering 20.7%
+   * - Requests per distinct judgment
+     - 1.06
+     - 1.17
+   * - Repeated keys carrying 2+ payloads
+     - 10.7%, covering 41.9% of occurrences
+     - 16.3%, covering 9.6%
+   * - Bracket (lossless → key-addressed)
+     - 1.31x → 2.13x
+     - 1.31x → 1.43x
+
+**Sharing across addressable results is close to absent, and what looks like
+sharing is one constant.** The most widely shared payload on every model
+measured is ``SatTrace::Irrefutable`` — 44 bytes of ``⊤`` — reached from 8,856
+requests on ``bldg12`` and 15,874 on ``nrel-example``. The *next* most shared
+payload on ``bldg12`` is reached from two. Shared payloads there are 1.0% of
+distinct judgments and 0.1% of evidence bytes. 223P has a genuine tail — several
+multi-kilobyte subtrees reached from 13 requests each, 5.9% of bytes — but
+nothing that would carry a claim about structure sharing between results.
+
+So the compact encoding's 80% size reduction is not a cross-result sharing
+result. It comes from repeated terms and repeated path certificates *within*
+results. It is a serialization technique, and belongs in the writeup as one.
+
+**Evidence is not a function of the judgment.** On Brick only 10.7% of repeated
+keys carry more than one payload, but those keys account for 41.9% of all
+judgment occurrences — divergence concentrates in exactly the keys that repeat
+most. A ``(constraint, node) -> bool`` memo is therefore sufficient for
+conformance and *insufficient* for evidence: the same judgment, reached along a
+different path, legitimately records different ``reached_by``/``produced_by``.
+Caching evidence on the conformance memo's key would return the wrong
+derivation, not merely a differently-formatted one.
+
+The bracket makes the size of the loss concrete: 1.31x is collapsed losslessly
+today, 2.13x would be collapsible by a judgment-keyed memo on Brick, and the gap
+is unreachable without either widening the key to include derivation context or
+accepting that evidence is context-free when it is not.
+
+Quote ``result_redundancy`` as achieved. Quote ``key_redundancy`` only next to
+``divergence_fraction``.
 
 The optimizations
 -----------------
@@ -226,12 +351,21 @@ What is not done
 ----------------
 
 **Materializing a DAG rather than a tree.** The 3.9–5.1x gap between visits and
-distinct ``(shape, focus)`` conclusions is the largest remaining runtime cost.
-Stratification is what would make sharing sound — it guarantees the derivation
-relation is acyclic — and the conformance memo already proves the sharing exists
-by hitting on those same pairs. Extending its value from ``bool`` to an evidence
-handle is the change; an arena of nodes referenced by index would also *be* the
-compact encoding, making serialization a projection rather than a second pass.
+distinct ``(shape, focus)`` conclusions is the largest remaining runtime cost,
+and stratification would make sharing sound by guaranteeing the derivation
+relation is acyclic.
+
+*The obvious version of this does not work, and* ``result_sharing`` *is what
+established that.* The plan was to extend the conformance memo's value from
+``bool`` to an evidence handle, on the reasoning that the memo hitting on a pair
+proves the evidence for it is shareable. It does not: on Brick, keys carrying
+more than one payload account for 41.9% of judgment occurrences. The memo's key
+determines the *answer* and not the *derivation*, so an evidence handle stored
+under it would hand back a witness that reached the node another way. Any real
+attempt has to widen the key with whatever ``reached_by``/``produced_by``
+distinguishes the payloads, and that is a different and larger change — and
+worth substantially less, since the collapse it could reach is 2.13x rather than
+the 3.9–5.1x the visit counts suggest.
 
 **Interning during serialization.** Compaction still hands itself an
 intermediate ``serde_json::Value``, which is 2.4 s of the 9.8 s on ``bldg11``.
@@ -263,8 +397,8 @@ split:
        --shapes benchmark/brick/Brick-closure.ttl \
        --data benchmark/brick/models/bldg11.ttl
 
-The two are not interchangeable. ``bench_evidence`` reports the mean of several
-iterations over a warmed snapshot; ``probe_evidence_cost`` reports one cold
-pass. Absolute times differ substantially between them, so a ratio from one
-should never be compared against a ratio from the other. Figures quoted on this
-page come from the probe unless stated otherwise.
+The two are not interchangeable.
+``bench_evidence`` reports the median of ten rotated, paired rounds over a warmed snapshot and retains the raw samples in its CSV.
+``probe_evidence_cost`` reports one cold pass.
+Absolute times differ substantially between them, so a ratio from one should never be compared against a ratio from the other.
+Figures quoted on this page come from the probe unless stated otherwise.

@@ -776,7 +776,7 @@ pub(crate) fn shape_name_for(
     schema: &shifty_algebra::Schema,
 ) -> Option<String> {
     let shape_id = schema.statements.get(v.statement)?.shape;
-    schema.names.get(&shape_id).cloned()
+    schema.name_of(shape_id).map(str::to_string)
 }
 
 /// Build a Python [`Violation`] from an engine violation (shared by the

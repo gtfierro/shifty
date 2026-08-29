@@ -668,7 +668,7 @@ fn term_text(term: &Term) -> String {
 /// shape was declared with an IRI/blank-node id (rather than inlined).
 fn shape_name_for(violation: &Violation, schema: &Schema) -> Option<String> {
     let shape_id = schema.statements.get(violation.statement)?.shape;
-    schema.names.get(&shape_id).cloned()
+    schema.name_of(shape_id).map(str::to_string)
 }
 
 fn build_algebra_result(outcome: ValidationOutcome, schema: &Schema) -> ShiftyAlgebraResult {
@@ -859,7 +859,9 @@ impl ShapeMapSession {
     /// The raw schema's shape name for `constraint_id` — the IRI of the named
     /// (non-blank) RDF node it was lowered from, when it has one.
     fn shape_name_of(&self, constraint_id: u32) -> Option<String> {
-        self.raw_schema.names.get(&ShapeId(constraint_id)).cloned()
+        self.raw_schema
+            .name_of(ShapeId(constraint_id))
+            .map(str::to_string)
     }
 
     /// Batch-evaluate `path` (a SPARQL 1.1 property path, same grammar as
@@ -2217,7 +2219,7 @@ pub unsafe extern "C" fn shifty_shape_map_binding_has_qualifier(
         .and_then(|map| map.shapes.get(shape_index))
         .and_then(|shape| shape.mappings.get(mapping_index))
         .and_then(|mapping| mapping.bindings.get(binding_index))
-        .map_or(false, |binding| binding.qualifier.is_some())
+        .is_some_and(|binding| binding.qualifier.is_some())
         .into()
 }
 

@@ -361,7 +361,7 @@ fn to_js<T: Serialize>(value: &T) -> Result<JsValue, JsError> {
 
 fn shape_name_for(v: &Violation, schema: &Schema) -> Option<String> {
     let shape_id = schema.statements.get(v.statement)?.shape;
-    schema.names.get(&shape_id).cloned()
+    schema.name_of(shape_id).map(str::to_string)
 }
 
 fn violation_to_js(v: &Violation, schema: &Schema) -> JsViolation {

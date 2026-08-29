@@ -30,10 +30,12 @@ pub fn schema_to_text(schema: &Schema) -> String {
 
     out.push_str("shapes:\n");
     for id in &reachable {
+        // Every name, not just one: a shape carrying two means CSE collapsed
+        // them, which a dump of the IR should show rather than hide.
         let name_suffix = schema
             .names
             .get(id)
-            .map(|iri| format!("  # {}", compact(iri)))
+            .map(|iris| format!("  # {}", compact_all(iris)))
             .unwrap_or_default();
         out.push_str(&format!(
             "  @{} = {}{}\n",
@@ -603,6 +605,14 @@ const WELL_KNOWN: &[(&str, &str)] = &[
 ];
 
 /// Compact an IRI using well-known prefixes, else `<iri>`.
+/// Every name a shape answers to, compacted and comma-joined.
+fn compact_all(iris: &[String]) -> String {
+    iris.iter()
+        .map(|iri| compact(iri))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
 fn compact(iri: &str) -> String {
     for (prefix, ns) in WELL_KNOWN {
         if let Some(local) = iri.strip_prefix(ns) {
@@ -630,7 +640,7 @@ pub fn schema_to_dot(schema: &Schema) -> String {
         let name_line = schema
             .names
             .get(id)
-            .map(|iri| format!("\n{}", compact(iri)))
+            .map(|iris| format!("\n{}", compact_all(iris)))
             .unwrap_or_default();
         let label = dot_escape(&format!("@{}{}\n{}", id.0, name_line, def));
         let node_attrs = match schema.arena.get(*id) {

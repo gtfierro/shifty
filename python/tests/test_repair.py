@@ -70,6 +70,7 @@ def test_witness_summary_and_explain():
     assert len(atoms) == 1
     a = atoms[0]
     assert a.kind == shifty.WitnessKind.CountHigh
+    assert a.evidence_kind == shifty.EvidenceKind.CountHigh
     assert a.constraint_kind == shifty.ConstraintKind.Cardinality
     assert a.path == "<http://example.org/name>"
     assert "max 1" in a.detail
@@ -126,6 +127,27 @@ def test_repair_tree_holes_and_candidates():
     # the over-count repair offers the two existing names as deletable options.
     cands = holes[0].candidates()
     assert set(cands) == {'"Bob"', '"Bobby"'}
+
+
+def test_repair_tree_nodes_link_back_to_typed_evidence_origins():
+    fw = session(DATA_MAXCOUNT).witnesses()[0]
+    tree = fw.repair_tree()
+
+    assert tree.root_id >= 0
+    origins = tree.origins()
+    assert len(origins) == 1
+    origin = origins[0]
+    assert isinstance(origin, shifty.RepairOrigin)
+    assert origin.statement_id == fw.statement_id
+    assert origin.constraint_id in {atom.constraint_id for atom in fw.summary()}
+    assert origin.node == fw.focus
+    assert origin.status == "fail"
+    assert origin.kind == "count_high"
+    assert origin.evidence_kind == shifty.EvidenceKind.CountHigh
+    assert origin.status == origin.evidence_kind.status
+    assert origin.kind == str(origin.evidence_kind)
+    assert tree.origins(tree.root_id) == origins
+    assert tree.origins(2**32 - 1) == []
 
 
 def test_choices_expose_the_repeat():
@@ -596,6 +618,21 @@ def test_witnesses_for_accepts_angle_brackets_and_rejects_unknown():
         raise AssertionError("expected ValueError for an unknown shape")
 
 
+def test_witnesses_and_satisfactions_report_the_shape_that_selected_them():
+    s = two_shape_session()
+    # The session builds these objects from the normalized schema rather than the
+    # evidence run's source schema, so pin shape_iri on that path too.
+    assert {w.shape_iri for w in s.witnesses()} == {
+        "http://example.org/PersonShape",
+        "http://example.org/WidgetShape",
+    }
+    scoped = s.witnesses_for("http://example.org/PersonShape")
+    assert [w.shape_iri for w in scoped] == ["http://example.org/PersonShape"]
+    assert [
+        fs.shape_iri for fs in s.satisfactions_for("http://example.org/PersonShape")
+    ] == ["http://example.org/PersonShape"]
+
+
 def test_satisfactions_for_lists_passing_foci_with_matched_values():
     s = two_shape_session()
     sats = s.satisfactions_for("http://example.org/PersonShape")
@@ -609,6 +646,12 @@ def test_satisfactions_for_lists_passing_foci_with_matched_values():
     # the matched value for the checked property surfaces in the flat summary.
     matched = [(a.path, a.value) for a in fs.summary() if a.kind == shifty.SatKind.Match]
     assert ("<http://example.org/name>", '"Carol"') in matched
+    assert all(
+        atom.evidence_kind
+        in {shifty.EvidenceKind.CountHeld, shifty.EvidenceKind.AllValuesHeld}
+        for atom in fs.summary()
+        if atom.kind == shifty.SatKind.Match
+    )
     assert "Held" in fs.explain()
 
 

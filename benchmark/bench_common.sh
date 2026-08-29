@@ -28,13 +28,26 @@ printf "$hdr_fmt" "model" "infer ms" "+/-" "infer+val ms" "+/-" "report ms" "+/-
 # shellcheck disable=SC2059
 printf "$hdr_fmt" "$(sep $COL_MODEL)" "$(sep $COL_MS)" "$(sep $COL_SD)" "$(sep $COL_MS)" "$(sep $COL_SD)" "$(sep $COL_MS)" "$(sep $COL_SD)"
 
-# time_cmd <cmd...> -> elapsed milliseconds on stdout
+# time_cmd <cmd...> -> elapsed milliseconds on stdout.
+#
+# Do the timing inside Perl so the measured interval only covers the command.
+# GNU `date +%s%N` is not portable to macOS, where `%N` is printed literally.
 time_cmd() {
-    local start end
-    start=$(date +%s%N)
-    "$@" > /dev/null 2>&1
-    end=$(date +%s%N)
-    echo $(( (end - start) / 1000000 ))
+    perl -MTime::HiRes=clock_gettime,CLOCK_MONOTONIC -e '
+        my $start = clock_gettime(CLOCK_MONOTONIC);
+        my $pid = fork();
+        die "fork failed: $!\n" unless defined $pid;
+        if ($pid == 0) {
+            open STDOUT, ">", "/dev/null" or die "open /dev/null: $!\n";
+            open STDERR, ">", "/dev/null" or die "open /dev/null: $!\n";
+            exec @ARGV;
+            exit 127;
+        }
+        waitpid($pid, 0);
+        exit(($? >> 8) || 1) if $? != 0;
+        my $elapsed = clock_gettime(CLOCK_MONOTONIC) - $start;
+        printf "%.0f\n", $elapsed * 1000;
+    ' -- "$@"
 }
 
 # median_spread <cmd...> -> "MEDIAN SPREAD" (two integers) on stdout.
@@ -42,11 +55,13 @@ time_cmd() {
 # SPREAD is the largest one-sided deviation from the median, so "median +/-
 # spread" brackets every sample.
 median_spread() {
-    local samples=() sorted n median lo hi dlo dhi spread
+    local samples=() sorted=() n median lo hi dlo dhi spread sample
     for _ in $(seq 1 "$ITERATIONS"); do
         samples+=("$(time_cmd "$@")")
     done
-    mapfile -t sorted < <(printf '%s\n' "${samples[@]}" | sort -n)
+    while IFS= read -r sample; do
+        sorted+=("$sample")
+    done < <(printf '%s\n' "${samples[@]}" | sort -n)
     n=${#sorted[@]}
     median=${sorted[$(( n / 2 ))]}          # middle sample (upper-middle if even)
     lo=${sorted[0]}; hi=${sorted[$(( n - 1 ))]}
