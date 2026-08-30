@@ -56,8 +56,8 @@ def solve_one(session, fw):
 
 def main():
     parser = argparse.ArgumentParser(description="Drive symbolic repair of RDF data")
-    parser.add_argument("shapes", help="Shapes graph (Turtle file)")
-    parser.add_argument("data", help="Data graph to repair (Turtle file)")
+    parser.add_argument("shapes", help="Shapes graph (Turtle file or HTTP(S) URL)")
+    parser.add_argument("data", help="Data graph to repair (Turtle file or HTTP(S) URL)")
     parser.add_argument("--no-infer", action="store_true", help="Skip SHACL-AF inference")
     parser.add_argument("--apply", metavar="OUT", help="Write the repaired graph (N-Triples) here")
     args = parser.parse_args()

@@ -171,6 +171,49 @@ class TestValidatePyshacl:
         conforms, _, _ = validate(pathlib.Path(data_file), pathlib.Path(shapes_file))
         assert conforms is True
 
+    def test_accepts_http_urls(self, monkeypatch):
+        urls = {
+            "https://example.test/data.ttl": CONFORMS_DATA.encode(),
+            "https://example.test/shapes.ttl": SHAPES.encode(),
+        }
+
+        class Response:
+            headers = {"Content-Type": "text/turtle; charset=utf-8"}
+
+            def __init__(self, url):
+                self.url = url
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc_value, traceback):
+                return False
+
+            def read(self):
+                return urls[self.url]
+
+            def geturl(self):
+                return self.url
+
+        calls = []
+
+        def urlopen(url, *, timeout):
+            calls.append((url, timeout))
+            return Response(url)
+
+        monkeypatch.setattr("urllib.request.urlopen", urlopen)
+        conforms, _, _ = validate(
+            "https://example.test/data.ttl",
+            "https://example.test/shapes.ttl",
+            infer=False,
+        )
+
+        assert conforms is True
+        assert calls == [
+            ("https://example.test/data.ttl", 30),
+            ("https://example.test/shapes.ttl", 30),
+        ]
+
     def test_accepts_rdflib_graph(self):
         data_g = rdflib.Graph()
         data_g.parse(data=CONFORMS_DATA, format="turtle")

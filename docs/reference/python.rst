@@ -23,16 +23,18 @@ Graph inputs
 
 Every entry point accepts the same input type, written ``GraphInput`` below:
 
-- ``str`` — Turtle text
+- ``str`` — Turtle text, a local file path, or an HTTP(S) URL
 - ``bytes`` — Turtle bytes
 - ``pathlib.Path`` — a file, parsed in Rust from its extension
 - ``rdflib.Graph``
 
 A ``list`` or ``tuple`` of these is merged at the triple level first.
 
-``pathlib.Path`` is the fastest form, because the file never crosses the
-Python/Rust boundary as text. ``rdflib.Graph`` inputs are transferred as
-N-Triples, avoiding rdflib's slower Turtle serializer.
+``pathlib.Path`` is the fastest file form, because the file never crosses the
+Python/Rust boundary as text. HTTP(S) URLs are fetched once and passed as
+bytes. ``rdflib.Graph`` inputs are transferred as N-Triples, avoiding rdflib's
+slower Turtle serializer. URL formats are inferred from the response content
+type or the final URL suffix; Turtle is the fallback.
 
 .. note::
 

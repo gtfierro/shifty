@@ -49,8 +49,9 @@ All three functions accept any of:
 
 * :class:`rdflib.Graph`       — serialized to N-Triples automatically
 * :class:`pathlib.Path`       — parsed directly as Turtle or N-Triples
-* ``str``                     — treated as a file path if the path exists,
-                                otherwise as raw Turtle text
+* ``str``                     — treated as a file path if the path exists, an
+                                HTTP(S) URL if it has that scheme, otherwise
+                                as raw Turtle text
 * ``bytes``                   — raw Turtle bytes passed directly to the parser
 
 A ``list`` or ``tuple`` of any of the above is also accepted for every
@@ -79,6 +80,9 @@ evaluating referenced helper shapes normally.
 from __future__ import annotations
 
 import pathlib
+import urllib.error
+import urllib.parse
+import urllib.request
 import warnings
 from typing import TYPE_CHECKING, NamedTuple, Optional, Sequence, Union
 
@@ -268,6 +272,32 @@ def _path_format(path: pathlib.Path) -> str:
     return "nt" if path.suffix.lower() in {".nt", ".ntriples"} else "turtle"
 
 
+def _url_format(url: str, content_type: str = "") -> str:
+    suffix = pathlib.PurePosixPath(urllib.parse.urlparse(url).path).suffix.lower()
+    if suffix in {".nt", ".ntriples"}:
+        return "nt"
+    media_type = content_type.split(";", 1)[0].strip().lower()
+    if media_type == "application/n-triples":
+        return "nt"
+    return "turtle"
+
+
+def _is_http_url(value: str) -> bool:
+    parsed = urllib.parse.urlparse(value)
+    return parsed.scheme in {"http", "https"} and bool(parsed.netloc)
+
+
+def _fetch_url(url: str) -> _RdfInput:
+    try:
+        with urllib.request.urlopen(url, timeout=30) as response:
+            data = response.read()
+            content_type = response.headers.get("Content-Type", "")
+            final_url = response.geturl()
+    except urllib.error.URLError as error:
+        raise OSError(f"could not fetch RDF URL {url!r}: {error}") from error
+    return _RdfInput(data, None, _url_format(final_url or url, content_type))
+
+
 def _to_rdf_input(graph: GraphInput) -> _RdfInput:
     """Convert a public graph input into the native binding's input descriptor."""
     if isinstance(graph, bytes):
@@ -282,6 +312,8 @@ def _to_rdf_input(graph: GraphInput) -> _RdfInput:
         path = pathlib.Path(graph)
         if path.is_file():
             return _RdfInput(None, str(path), _path_format(path))
+        if _is_http_url(graph):
+            return _fetch_url(graph)
         return _RdfInput(graph.encode("utf-8"), None, "turtle")
     serialize = getattr(graph, "serialize", None)
     if serialize is not None:
@@ -292,7 +324,8 @@ def _to_rdf_input(graph: GraphInput) -> _RdfInput:
             return _RdfInput(result, None, "nt")
     raise TypeError(
         f"Cannot convert {type(graph).__name__!r} to RDF data. "
-        "Expected rdflib.Graph, pathlib.Path, str (path or Turtle), or bytes."
+        "Expected rdflib.Graph, pathlib.Path, str (path, HTTP(S) URL, or Turtle), "
+        "or bytes."
     )
 
 
@@ -331,12 +364,19 @@ def _as_rdflib_graph(graph: GraphInput) -> "rdflib.Graph":
             g = rdflib.Graph()
             g.parse(source=graph, format=_path_format(path))
             return g
+        if _is_http_url(graph):
+            source = _fetch_url(graph)
+            assert source.data is not None
+            g = rdflib.Graph()
+            g.parse(data=source.data, format=source.format)
+            return g
         g = rdflib.Graph()
         g.parse(data=graph, format="turtle")
         return g
     raise TypeError(
         f"Cannot convert {type(graph).__name__!r} to RDF data. "
-        "Expected rdflib.Graph, pathlib.Path, str (path or Turtle), or bytes."
+        "Expected rdflib.Graph, pathlib.Path, str (path, HTTP(S) URL, or Turtle), "
+        "or bytes."
     )
 
 

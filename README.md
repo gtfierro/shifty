@@ -296,7 +296,7 @@ conforms, report_graph, results_text = shifty.validate(data, shapes)
 # results_text → human-readable summary
 ```
 
-Graph inputs can be a string, `bytes`, `pathlib.Path`, or `rdflib.Graph`. If `shacl_graph` is omitted or passed as `None`, shapes are expected to be embedded in the data graph. An explicitly supplied zero-triple shapes graph raises `ValueError`.
+Graph inputs can be a string (Turtle text, local path, or HTTP(S) URL), `bytes`, `pathlib.Path`, or `rdflib.Graph`. HTTP(S) URLs are fetched once; their format is inferred from the response content type or URL suffix. If `shacl_graph` is omitted or passed as `None`, shapes are expected to be embedded in the data graph. An explicitly supplied zero-triple shapes graph raises `ValueError`.
 
 To validate a shapes graph against itself, pass it once. The embedded path
 parses and plans one graph without constructing separate data and shapes

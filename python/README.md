@@ -179,7 +179,7 @@ conforms, report_graph, results_text = shifty.validate(data, shapes)
 # results_text → human-readable summary
 ```
 
-Graph inputs can be a string, `bytes`, `pathlib.Path`, or `rdflib.Graph`. If `shacl_graph` is omitted or passed as `None`, shapes are expected to be embedded in the data graph. An explicitly supplied zero-triple shapes graph raises `ValueError`.
+Graph inputs can be a string (Turtle text, local path, or HTTP(S) URL), `bytes`, `pathlib.Path`, or `rdflib.Graph`. HTTP(S) URLs are fetched once; their format is inferred from the response content type or URL suffix. If `shacl_graph` is omitted or passed as `None`, shapes are expected to be embedded in the data graph. An explicitly supplied zero-triple shapes graph raises `ValueError`.
 
 > **Where shapes are read from.** Pass a *single* graph (omit `shacl_graph` or pass `None`) and shifty reads both the shape definitions and the data from that one graph. Pass a *separate* shapes graph and the schema is compiled **only** from it — SHACL vocabulary that happens to sit in the data graph is ignored, never turned into constraints. This keeps validation predictable and matches SHACL's separation of the shapes graph from the data graph. To validate against shapes that live in the data graph, union that graph into the `shacl_graph` argument yourself (it accepts a list, unioned before evaluation); shifty will not read shapes from the data side automatically.
 
