@@ -25,6 +25,10 @@ pub struct NormalizedSchema {
     /// statements may map to the same normalized index when CSE/deduplication
     /// proves they are the same semantic statement.
     pub statement_map: Vec<usize>,
+    /// Raw arena slot -> normalized arena slot. Unreachable/orphaned raw slots
+    /// map to `None`; every slot reachable from a statement or rule maps to the
+    /// canonical slot that normalization evaluates.
+    pub shape_map: Vec<Option<ShapeId>>,
 }
 
 /// Normalize a schema: CSE + compaction + Boolean/count simplification.
@@ -57,22 +61,37 @@ pub fn normalize_with_mapping(schema: &Schema) -> NormalizedSchema {
         statement_map.push(index);
     }
     let rules = schema.rules.iter().map(|r| z.rule(r)).collect();
-    // remap shape names through the CSE memo (CSE may collapse two named shapes)
-    let names = schema
-        .names
-        .iter()
-        .filter_map(|(old, name)| z.memo.get(old).map(|new| (*new, name.clone())))
+    // Remap shape names through the CSE memo. CSE collapses two named shapes
+    // onto one slot, so names accumulate rather than overwrite — dropping one
+    // would make a later lookup by that name miss, and *which* one was dropped
+    // depended on hash iteration order.
+    let mut names: HashMap<ShapeId, Vec<String>> = HashMap::new();
+    for (old, old_names) in &schema.names {
+        let Some(new) = z.memo.get(old) else { continue };
+        names
+            .entry(*new)
+            .or_default()
+            .extend(old_names.iter().cloned());
+    }
+    for list in names.values_mut() {
+        list.sort();
+        list.dedup();
+    }
+    let shape_map = (0..schema.arena.len())
+        .map(|index| z.memo.get(&ShapeId(index as u32)).copied())
         .collect();
     let normalized = Schema {
         arena: z.dst,
         statements,
         rules,
         names,
+        sources: Default::default(),
     };
     normalized.arena.debug_assert_finalized();
     NormalizedSchema {
         schema: normalized,
         statement_map,
+        shape_map,
     }
 }
 
@@ -689,6 +708,7 @@ mod tests {
             }],
             rules: Vec::new(),
             names: Default::default(),
+            sources: Default::default(),
         }
     }
 
@@ -1194,6 +1214,7 @@ mod tests {
             }],
             rules: vec![],
             names: Default::default(),
+            sources: Default::default(),
         };
         let n = normalize(&schema);
         assert_eq!(n.statements[0].selector, Selector::HasOut(q));
@@ -1213,6 +1234,7 @@ mod tests {
             }],
             rules: vec![],
             names: Default::default(),
+            sources: Default::default(),
         };
         let n = normalize(&schema);
         assert_eq!(n.statements[0].selector, Selector::HasIn(q));
@@ -1239,6 +1261,7 @@ mod tests {
             ],
             rules: vec![],
             names: Default::default(),
+            sources: Default::default(),
         };
         let n = normalize(&schema);
         assert_eq!(n.statements.len(), 1);
@@ -1265,6 +1288,7 @@ mod tests {
             ],
             rules: vec![],
             names: Default::default(),
+            sources: Default::default(),
         };
         let n = normalize_with_mapping(&schema);
         assert_eq!(n.schema.statements.len(), 1);

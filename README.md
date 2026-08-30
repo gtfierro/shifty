@@ -110,7 +110,8 @@ maturin develop
 ### C++
 
 The C++17 SDK embeds Shifty as a Rust static library and provides RAII wrappers
-for RDF loading, SPARQL queries, and reusable SHACL validators:
+for RDF loading, SPARQL queries, reusable SHACL validators, and evidence-carrying
+validation:
 
 ```sh
 cmake -S cpp -B build/cpp
@@ -127,9 +128,18 @@ dataset.load_file("data.ttl");
 auto rows = dataset.query("SELECT ?s WHERE { ?s ?p ?o }");
 auto validator = shifty::PreparedValidator::from_file("shapes.ttl");
 auto report = validator.validate(dataset);
+
+shifty::EvidenceSession evidence(validator, dataset);
+for (const auto &statement : evidence.validate().statements()) {
+    for (const auto &focus : statement.selected_foci) {
+        std::cout << focus.focus_node << " " << focus.explanation << "\n";
+    }
+}
 ```
 
-See [`cpp/README.md`](cpp/README.md) for installation and CMake package usage.
+See [`cpp/README.md`](cpp/README.md) for installation, CMake package usage, and
+the scan-then-explain path for corpora where materializing all evidence is too
+expensive.
 
 ### Browser / WebAssembly
 
@@ -286,7 +296,7 @@ conforms, report_graph, results_text = shifty.validate(data, shapes)
 # results_text → human-readable summary
 ```
 
-Graph inputs can be a string, `bytes`, `pathlib.Path`, or `rdflib.Graph`. If `shacl_graph` is omitted or passed as `None`, shapes are expected to be embedded in the data graph. Do not pass an empty `rdflib.Graph()` for embedded shapes; that is treated as an explicit empty shapes graph.
+Graph inputs can be a string, `bytes`, `pathlib.Path`, or `rdflib.Graph`. If `shacl_graph` is omitted or passed as `None`, shapes are expected to be embedded in the data graph. An explicitly supplied zero-triple shapes graph raises `ValueError`.
 
 To validate a shapes graph against itself, pass it once. The embedded path
 parses and plans one graph without constructing separate data and shapes
@@ -357,6 +367,78 @@ for v in result.violations:
 
 Set `infer=False` when validation should not first run embedded SHACL-AF rules
 to a fixed point.
+
+### Evidence coverage
+
+`EvidenceSession` returns a statement-oriented `EvidenceRun`. Every authored
+statement remains visible, including a target that selects no nodes; each
+selected focus contains exactly one tagged `Satisfaction` or `Failure`:
+
+```python
+session = shifty.EvidenceSession(shapes, data, infer=False)
+run = session.validate()
+
+for statement in run.statements:
+    print(statement.source_statement_id, statement.selector)
+    if not statement.selected_foci:
+        print("target selected nothing")
+    for focus in statement.selected_foci:
+        print(focus.status, focus.focus, focus.evidence.explain())
+        if focus.progress:
+            print([(child.status, child.source_constraint_ref)
+                   for child in focus.progress.evaluated_children])
+        print("matched", focus.evidence.matched_values())
+        print("missing", focus.evidence.missing_obligations())
+        print("offending", focus.evidence.offending_values())
+
+assert run.to_dict() == json.loads(run.to_json())
+```
+
+#### Compact encoding
+
+Full evidence repeats itself: the same conclusion is reached through many
+parents and written out at each occurrence, and the constraint catalog is
+emitted on every run whatever the findings. `to_compact_json()` hash-conses
+evidence nodes and RDF terms into shared tables and refers to them by index.
+It is lossless — `expand_evidence()` restores exactly what `to_dict()` produced.
+
+```python
+run = shifty.EvidenceSession(shapes, data).validate()
+
+packed = run.to_compact_json()
+assert shifty.expand_evidence(packed) == run.to_dict()
+
+# A consumer that already holds the schema does not need the catalog shipped
+# with every run — on a small graph the catalog is most of the payload.
+wire = run.to_compact_json(include_catalog=False)
+catalog = run.to_dict()["constraints"]
+assert shifty.expand_evidence(wire, catalog) == run.to_dict()
+```
+
+Across the 45 Brick and 19 ASHRAE 223P benchmark models this takes evidence from
+8,901 to 2,559 bytes per selected pair. Which redundancy dominates depends on
+the corpus: repeated subtrees on Brick (a 6× node redundancy), the fixed catalog
+on small 223P models. `to_compact_dict()` returns the same encoding already
+parsed, and `expand_evidence(..., as_dict=False)` returns JSON text.
+
+`walk()` traverses canonical evidence in deterministic pre-order. Projection
+methods preserve first occurrence in that order and deduplicate subsequent
+values or triples. A `PathSupport` is one concrete positive reachability
+certificate only: predicate, inverse, sequence, and closure paths are retained;
+an alternative path uses the first successful syntactic route. It is not an
+all-route enumeration or a deletion cut.
+
+The same interface is available in C++ as `shifty::EvidenceSession` — including
+the compact encoding and `expand_evidence()` — where evidence trees cross the
+ABI as JSON. See [`cpp/README.md`](cpp/README.md#evidence-carrying-validation).
+
+Positive recursive back-edges follow Shifty's existing greatest-fixed-point
+semantics and appear as `coinductive` satisfaction nodes. Negation crosses the
+typed grammars directly. Passing SPARQL, expression, closed, and relational
+constraints may be `blocked` when no deletive repair is supported; failing
+SPARQL/expression constraints are `opaque`, with SPARQL messages and diagnostics
+retained when available. A `Failure` is also the repair entry point through
+`failure.repair_tree()`.
 
 ### Infer
 

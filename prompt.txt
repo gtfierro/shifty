@@ -1,0 +1,320 @@
+Implement an initial evidence-carrying validation interface in Shifty.
+
+Repository context
+
+Shifty is a Rust implementation of SHACL and SHACL-AF with Python bindings.
+Inspect the current source, tests, README, and `development_docs` before changing code.
+Treat the current implementation and executable tests as authoritative when documentation disagrees with them.
+
+The research problem
+
+A conventional SHACL report tells a consumer that validation passed or failed, but it does not expose enough structured evidence to answer why.
+The new interface must describe the constraint evaluations, graph values, path traversals, and nested decisions that produced each pass or failure.
+Evidence must remain machine-readable and linked to both the source SHACL statement and Shifty's normalized constraint representation.
+
+This is an initial implementation, not a redesign of the physical-plan executor.
+Reuse the existing logical validation and witness machinery where possible.
+Do not claim or attempt full fusion of evidence construction with the normalized physical-plan executor in this change.
+
+Required public interface
+
+Expose one validation-run object grouped first by source statement and then by every focus node selected for that statement:
+
+```text
+EvidenceRun {
+    statements: Vec<StatementEvaluation>
+}
+
+StatementEvaluation {
+    source_statement_id: StatementId,
+    normalized_statement_id: Option<StatementId>,
+    constraint_id: Option<ConstraintId>,
+    constraint_kind: ConstraintKind,
+    constraint: StructuredConstraint,
+    selector: SelectorDescription,
+    selected_foci: Vec<FocusEvaluation>
+}
+
+FocusEvaluation {
+    focus: Term,
+    status: Pass | Fail,
+    evidence: Satisfaction | Failure,
+    progress: Option<EvaluationProgress>
+}
+```
+
+Adapt names and exact Rust types to the codebase, but preserve this observable structure.
+Do not return only a flat list of focus-node results.
+The statement grouping is necessary because an empty `selected_foci` list records that a statement selected no focus nodes.
+Do not describe a node omitted by all selectors as passing; the validator has no result for that node unless a caller supplies a separate expected population.
+
+Run the validator once
+
+The evidence API must perform stratification, normalization, indexing, target selection, and constraint evaluation once per validation call.
+It must return exactly one `FocusEvaluation` for every selected `(source statement, focus node)` pair.
+For each pair, return exactly one applicable evidence polarity: `Satisfaction` for a pass or `Failure` for a failure.
+Do not implement the API by invoking separate validation and repair-witness entry points and joining their results afterward.
+
+Common provenance
+
+Every statement evaluation must expose enough provenance to relate evidence to the user's schema and to Shifty's execution representation:
+
+- the raw/source statement identifier;
+- the normalized statement identifier, when one exists;
+- the normalized constraint identifier;
+- the constraint kind;
+- a structured representation of the constraint;
+- the selector or target that chose the focus node.
+
+Every evidence node should carry the locally relevant subset of:
+
+- focus node;
+- value node;
+- path;
+- source constraint reference;
+- constraint identifier and kind;
+- observed and expected values;
+- child evidence.
+
+Avoid copying all run-level metadata into every nested node if stable references provide the same traceability.
+Preserve the current raw-to-normalized mapping and deduplicate normalized constraints where the existing repair-witness code already does so.
+Bring pass provenance to parity with failure provenance; the current `FocusSatisfaction` representation may need to be extended.
+
+Satisfaction evidence
+
+Use a closed, serializable enum or equivalent tagged representation.
+It should cover at least these semantic forms:
+
+```text
+Satisfaction =
+    AtomHeld {
+        constraint,
+        observed,
+        support
+    }
+  | AllHeld {
+        children: Vec<Satisfaction>
+    }
+  | AnyHeld {
+        successful_branches: Vec<Satisfaction>
+    }
+  | CountHeld {
+        path,
+        qualifier,
+        min_count,
+        max_count,
+        observed_count,
+        matches: Vec<QualifiedMatch>
+    }
+  | NotHeld {
+        child: Box<Failure>
+    }
+  | Irrefutable {
+        reason
+    }
+  | Blocked {
+        reason
+    }
+  | Coinductive {
+        reference
+    }
+```
+
+`QualifiedMatch` must identify the matched value, include path support from the focus node to that value where applicable, and contain the nested satisfaction evidence showing why the value qualifies.
+Use the recursion states and semantics already adopted by Shifty rather than inventing new recursion behavior.
+
+Failure evidence
+
+Use a closed, serializable enum or equivalent tagged representation.
+It should cover at least these semantic forms:
+
+```text
+Failure =
+    AtomFailed {
+        constraint,
+        observed,
+        expected,
+        offending_values,
+        support
+    }
+  | AllFailed {
+        failed_children: Vec<Failure>
+    }
+  | AnyFailed {
+        failed_branches: Vec<Failure>
+    }
+  | CountLow {
+        path,
+        qualifier,
+        min_count,
+        observed_count,
+        qualifying_matches: Vec<QualifiedMatch>,
+        rejected_candidates: Vec<RejectedCandidate>,
+        missing,
+        sibling_qualifiers
+    }
+  | CountHigh {
+        path,
+        qualifier,
+        max_count,
+        observed_count,
+        qualifying_matches: Vec<QualifiedMatch>,
+        excess_values,
+        sibling_qualifiers
+    }
+  | Relational {
+        relation,
+        left_values,
+        right_values,
+        offending_pairs
+    }
+  | Closed {
+        unexpected_properties
+    }
+  | NotFailed {
+        child: Box<Satisfaction>
+    }
+  | Opaque {
+        reason,
+        diagnostics
+    }
+```
+
+`RejectedCandidate` must identify a candidate value, include its path support where applicable, and contain the nested failure evidence showing why it did not satisfy the qualifier.
+This information is particularly important for a minimum-count failure: `observed_count = 0` alone does not distinguish an absent value from a present near-match that failed one nested constraint.
+Preserve author-provided messages and SPARQL diagnostics where the current `Reason` representation exposes them.
+
+Canonical evidence and evaluation progress
+
+Keep the canonical satisfaction or failure evidence compact.
+For example, a failed conjunction may retain only its failed children as its canonical failure witness.
+That compact witness does not show which sibling constraints succeeded, so add a separate optional `progress` projection to `FocusEvaluation`.
+
+`EvaluationProgress` should record the evaluated immediate components in source-stable order:
+
+```text
+EvaluationProgress {
+    evaluated_children: Vec<ChildEvaluation>
+}
+
+ChildEvaluation {
+    source_constraint_ref,
+    status: Pass | Fail,
+    evidence_ref_or_summary
+}
+```
+
+The exact representation may use references into the evidence tree or small embedded summaries.
+It must not duplicate arbitrarily large subtrees.
+A consumer inspecting a conjunction that failed only its third component must be able to see that the first two components passed and the third failed.
+Do not weaken or replace the existing canonical witness semantics to provide this view.
+
+Negation
+
+Negation crosses the two evidence grammars:
+
+- a satisfied negation contains the failure evidence for its child;
+- a failed negation contains the satisfaction evidence for its child.
+
+Represent this crossing directly with typed nested evidence.
+Do not flatten it into a message string.
+
+Path support
+
+Reuse and extend the existing `PathSupport` representation only as justified by the implementation.
+The public API and documentation must state precisely which guarantee a path-support value provides:
+
+- one concrete certificate establishing reachability;
+- all concrete routes found by the evaluator; or
+- a complete cut describing every route that must be removed to break reachability.
+
+For the initial implementation, it is acceptable and preferable to promise one concrete positive certificate if that is what Shifty computes.
+Support predicate steps, sequences, inverse paths, and closure paths to the extent already implemented.
+Audit `PathSupport::Alt`: current path evaluation may choose the first successful alternative without constructing an `Alt` node.
+Either implement alternative support correctly and test its stated guarantee, or narrow/remove the public promise.
+Do not claim complete deletion cuts or all-route enumeration without implementing and testing them.
+
+Consumer projections
+
+Provide ergonomic, deterministic projections over the structured evidence, in Rust and in the Python API where appropriate:
+
+- `explain()` returns a human-readable explanation derived from the structured evidence;
+- `walk()` traverses typed evidence nodes in a documented stable order;
+- `supporting_triples()` returns graph triples used by positive certificates;
+- `matched_values()` returns values that satisfied a path or qualifier;
+- `missing_obligations()` returns unmet requirements such as a count deficit;
+- `offending_values()` returns values directly implicated in a failure;
+- `source_constraints()` returns referenced source SHACL statements;
+- `to_json()` or an equivalent serialization returns the complete structured object.
+
+These methods may return empty collections where a projection does not apply.
+Define and test their ordering and deduplication behavior.
+The structured object is authoritative; `explain()` and existing message strings are derived presentations.
+
+Python interface
+
+Expose the run, statement, focus, evidence, progress, and path-support objects through the existing Python binding style.
+Python users must be able to inspect tagged evidence without parsing display strings.
+Provide a JSON-compatible conversion with stable field names and explicit tags for all union variants.
+Preserve existing validation and repair-witness APIs unless a backward-compatible extension is sufficient.
+
+Expected examples
+
+Add a small end-to-end example in which a focus node passes a conjunction.
+The result must identify the source statement and selected focus, report `Pass`, and expose satisfaction evidence for every required component.
+If a component is a qualified count, the trace must identify each qualifying value, its path support, and the nested evidence that made it qualify.
+
+Add a corresponding example in which the same conjunction fails one component.
+The canonical failure must identify the failed component and the relevant offending value or missing obligation.
+The progress projection must also show which sibling components passed.
+For a qualified minimum-count failure with near-matching values, expose both the qualifying matches and rejected candidates with their nested reasons.
+
+Tests
+
+Add focused Rust tests and Python tests for:
+
+- a statement that selects zero focus nodes and remains visible with an empty list;
+- multiple statements selecting the same focus node without provenance loss;
+- exactly one result per selected `(statement, focus)` pair;
+- partitioning into `Pass + Satisfaction` and `Fail + Failure` with no inconsistent combinations;
+- raw and normalized statement/constraint provenance on both passes and failures;
+- a passing atomic constraint;
+- a failing atomic constraint;
+- a passing and failing conjunction, including the progress view of successful siblings;
+- a passing and failing disjunction;
+- negation crossing from satisfaction to failure and from failure to satisfaction;
+- qualified minimum-count success with matched values and nested satisfaction;
+- qualified minimum-count failure with qualifying matches, rejected candidates, and the count deficit;
+- maximum-count failure with excess values;
+- nested shape evidence;
+- sequence, inverse, and closure path support;
+- alternative-path behavior matching the documented one-route or all-routes guarantee;
+- recursive shapes under Shifty's existing semantics;
+- SPARQL/opaque failures retaining diagnostics;
+- deterministic traversal, JSON serialization, and projection ordering;
+- compatibility of the existing validation and repair-witness APIs.
+
+Run the existing SHACL Core, SHACL-SPARQL, and SHACL-AF compliance suites after the focused tests.
+The current repository has passing compliance coverage, so this change must not regress it.
+Use the repository's actual test commands discovered from its README, task configuration, and test files rather than guessing command names.
+
+Implementation constraints
+
+- Prefer a thin unifying orchestration layer over duplicate evaluators.
+- Reuse current `Reason`, repair-witness, satisfaction, raw-to-normalized mapping, and path-support types where their semantics fit.
+- Make invalid states difficult to represent, especially `Pass` paired with failure evidence or `Fail` paired with satisfaction evidence.
+- Use stable identifiers or an arena if necessary to avoid exponential duplication in recursive or shared evidence.
+- Preserve deterministic output.
+- Keep display text separate from structured evidence.
+- Do not make proof-theorem infrastructure, minimal-repair search, complete counterfactual cuts, or physical-plan fusion prerequisites for this initial implementation.
+
+Deliverables
+
+1. The Rust implementation and public API.
+2. Python bindings and a JSON-compatible representation.
+3. Focused unit and integration tests covering the cases above.
+4. A concise example showing how a consumer inspects everything that contributed to a pass or failure.
+5. Documentation that states the exact path-support and recursion guarantees without overclaiming.
+6. A short implementation note listing any evidence variants that remain opaque and why.
+
+Before finishing, format the code, run the focused tests, run the existing conformance suites, and report the exact commands and results.

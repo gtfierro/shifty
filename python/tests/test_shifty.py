@@ -66,6 +66,19 @@ def test_version_is_programmatically_available():
     assert shifty.version() == shifty.__version__
 
 
+@pytest.mark.parametrize(
+    ("legacy", "replacement"),
+    [
+        ("FocusWitness", "Failure"),
+        ("FocusSatisfaction", "Satisfaction"),
+    ],
+)
+def test_released_repair_type_aliases_warn(legacy, replacement):
+    with pytest.warns(DeprecationWarning, match=f"use shifty.{replacement}"):
+        value = getattr(shifty, legacy)
+    assert value is getattr(shifty, replacement)
+
+
 # ── validate() — pyshacl-compatible ──────────────────────────────────────────
 
 class TestValidatePyshacl:

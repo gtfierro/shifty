@@ -89,11 +89,11 @@ if(SHIFTY_CPP_BUILD_TESTS)
     add_executable(shifty_cpp_smoke tests/smoke.cpp)
     target_link_libraries(shifty_cpp_smoke PRIVATE Shifty::shifty)
     if(MSVC)
-        target_compile_options(shifty_cpp_smoke PRIVATE /W4 /permissive-)
+        target_compile_options(shifty_cpp_smoke PRIVATE /W4 /permissive- /UNDEBUG)
     else()
         target_compile_options(
             shifty_cpp_smoke
-            PRIVATE -Wall -Wextra -Wpedantic -Wconversion)
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -UNDEBUG)
     endif()
     add_test(NAME shifty_cpp_smoke COMMAND shifty_cpp_smoke)
 endif()

@@ -501,7 +501,7 @@ impl InferResult {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-fn parse_mode(mode: &str) -> Result<ValidationGraphMode, String> {
+pub(crate) fn parse_mode(mode: &str) -> Result<ValidationGraphMode, String> {
     match mode {
         "data" => Ok(ValidationGraphMode::Data),
         "union" => Ok(ValidationGraphMode::Union),
@@ -512,7 +512,7 @@ fn parse_mode(mode: &str) -> Result<ValidationGraphMode, String> {
     }
 }
 
-fn parse_minimum_severity(value: &str) -> Result<shifty_algebra::Severity, String> {
+pub(crate) fn parse_minimum_severity(value: &str) -> Result<shifty_algebra::Severity, String> {
     match value.to_ascii_lowercase().as_str() {
         "info" => Ok(shifty_algebra::Severity::Info),
         "warning" => Ok(shifty_algebra::Severity::Warning),
@@ -776,7 +776,7 @@ pub(crate) fn shape_name_for(
     schema: &shifty_algebra::Schema,
 ) -> Option<String> {
     let shape_id = schema.statements.get(v.statement)?.shape;
-    schema.names.get(&shape_id).cloned()
+    schema.name_of(shape_id).map(str::to_string)
 }
 
 /// Build a Python [`Violation`] from an engine violation (shared by the
@@ -1124,6 +1124,17 @@ fn load_validation_inputs(
     ))
 }
 
+fn check_explicit_shapes_not_empty(shapes: Option<&shifty_parse::Loaded>) -> Result<(), String> {
+    if shapes.is_some_and(|loaded| loaded.graph.is_empty()) {
+        return Err(
+            "explicit shapes graph is empty; omit the shapes argument or pass None to use \
+             shapes embedded in the data graph"
+                .to_string(),
+        );
+    }
+    Ok(())
+}
+
 /// Apply `UnsupportedPolicy` to parse-time diagnostics. Returns `Err` with a
 /// combined message if the policy is `Error` and any `Unsupported` diagnostics
 /// are present; otherwise returns `Ok(())`.
@@ -1214,6 +1225,7 @@ pub fn _validate_algebra(
         .allow_threads(move || {
             let (data_loaded, shapes_loaded, schema, plan, diagnostics) =
                 load_validation_inputs(data, shapes, base.as_deref())?;
+            check_explicit_shapes_not_empty(shapes_loaded.as_ref())?;
             check_unsupported_diagnostics(&diagnostics, options.engine.unsupported)?;
             match shapes_loaded.as_ref() {
                 Some(shapes_loaded) => validate_algebra_loaded(
@@ -1289,6 +1301,7 @@ pub fn _validate_w3c(
     py.allow_threads(move || {
         let (data_loaded, shapes_loaded, schema, _, _) =
             load_validation_inputs(data, shapes, base.as_deref())?;
+        check_explicit_shapes_not_empty(shapes_loaded.as_ref())?;
         match shapes_loaded.as_ref() {
             Some(shapes_loaded) => validate_w3c_loaded(
                 &data_loaded,
@@ -1391,6 +1404,7 @@ impl PreparedValidator {
             let base = base.clone();
             move || {
                 let loaded = input.load(base.as_deref())?;
+                check_explicit_shapes_not_empty(Some(&loaded))?;
                 let (shapes, schema, plan, diagnostics) = prepare_loaded_shapes(loaded);
                 Ok(Self {
                     shapes,

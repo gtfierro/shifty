@@ -5,17 +5,9 @@
    ───────────────────────────────────────────────────────── */
 .sh-hero {
   text-align: center;
-  padding: 2.5rem 1rem 2rem;
+  padding: 1.25rem 1rem 1.5rem;
   border-bottom: 1px solid var(--color-background-border);
   margin-bottom: 2.5rem;
-}
-
-.sh-tagline {
-  font-size: 1.15rem;
-  color: var(--color-foreground-secondary);
-  max-width: 640px;
-  margin: 0 auto 1.6rem;
-  line-height: 1.6;
 }
 
 .sh-badges {
@@ -23,7 +15,7 @@
   gap: 0.5rem;
   justify-content: center;
   flex-wrap: wrap;
-  margin-bottom: 1.8rem;
+  margin-bottom: 1.25rem;
 }
 
 .sh-badges a img {
@@ -47,20 +39,6 @@
   font-family: var(--font-stack--monospace);
   font-size: 0.92rem;
   color: var(--color-foreground-primary);
-}
-
-/* ─────────────────────────────────────────────────────────
-   Section intro blurbs
-   ───────────────────────────────────────────────────────── */
-.sh-section-intro {
-  font-size: 1.05rem;
-  color: var(--color-foreground-secondary);
-  border-left: 3px solid var(--color-brand-primary);
-  padding: 0.6rem 1rem;
-  margin-bottom: 2rem;
-  line-height: 1.6;
-  background: var(--color-background-secondary);
-  border-radius: 0 6px 6px 0;
 }
 
 /* ─────────────────────────────────────────────────────────

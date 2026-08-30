@@ -179,7 +179,7 @@ conforms, report_graph, results_text = shifty.validate(data, shapes)
 # results_text → human-readable summary
 ```
 
-Graph inputs can be a string, `bytes`, `pathlib.Path`, or `rdflib.Graph`. If `shacl_graph` is omitted or passed as `None`, shapes are expected to be embedded in the data graph. Do not pass an empty `rdflib.Graph()` for embedded shapes; that is treated as an explicit empty shapes graph.
+Graph inputs can be a string, `bytes`, `pathlib.Path`, or `rdflib.Graph`. If `shacl_graph` is omitted or passed as `None`, shapes are expected to be embedded in the data graph. An explicitly supplied zero-triple shapes graph raises `ValueError`.
 
 > **Where shapes are read from.** Pass a *single* graph (omit `shacl_graph` or pass `None`) and shifty reads both the shape definitions and the data from that one graph. Pass a *separate* shapes graph and the schema is compiled **only** from it — SHACL vocabulary that happens to sit in the data graph is ignored, never turned into constraints. This keeps validation predictable and matches SHACL's separation of the shapes graph from the data graph. To validate against shapes that live in the data graph, union that graph into the `shacl_graph` argument yourself (it accepts a list, unioned before evaluation); shifty will not read shapes from the data side automatically.
 
@@ -441,7 +441,7 @@ literal bindings stay distinguishable.
 ## Witnesses (symbolic repair)
 
 `RepairSession` exposes the *witnessing* layer: for each statement it reports why
-a focus node fails (a `FocusWitness`) or why it holds (a `FocusSatisfaction`),
+a focus node fails (a `Failure`) or why it holds (a `Satisfaction`),
 the structured input to repair synthesis. The session is immutable; it computes
 and gates but decides nothing.
 
@@ -465,7 +465,7 @@ session = shifty.RepairSession(shapes, data, infer=False)
 
 ### The whole horizon
 
-`witnesses()` returns one `FocusWitness` per `(focus node, failed statement)`
+`witnesses()` returns one `Failure` per `(focus node, failed statement)`
 across the entire schema. Empty ⟺ the graph conforms.
 
 ```python
@@ -478,10 +478,10 @@ for w in session.witnesses():
     print(w.target)       # 'class(<http://example.org/Person>)' — rendered selector
 ```
 
-`FocusWitness.summary()` returns repair atoms, not validation causes. Each atom
+`Failure.summary()` returns repair atoms, not validation causes. Each atom
 also has `constraint_id` and `constraint_kind`, but these describe the repair
 witness leaf that produced the edit alternative. Use the `(focus, statement_id,
-constraint_id)` key on `FocusWitness` itself to correlate a validation violation
+constraint_id)` key on `Failure` itself to correlate a validation violation
 with its repair tree.
 
 ### Structured access (strings *and* objects)
@@ -534,7 +534,7 @@ for w in session.witnesses_for("http://example.org/PersonShape"):
 
 ### Passing nodes and the values that satisfied them
 
-`satisfactions_for(shape_iri)` is the dual: one `FocusSatisfaction` per *passing*
+`satisfactions_for(shape_iri)` is the dual: one `Satisfaction` per *passing*
 focus node for that shape. Each records why the node conforms, including the
 values matched along every checked path — the satisfaction-side mirror of
 `witnesses_for`.

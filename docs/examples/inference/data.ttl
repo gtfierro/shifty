@@ -1,0 +1,3 @@
+@prefix ex: <http://example.org/> .
+
+ex:r1 a ex:Rectangle ; ex:width 3 ; ex:height 2 .

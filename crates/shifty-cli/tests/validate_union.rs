@@ -18,6 +18,31 @@ fn version_subcommand_prints_package_version() {
 }
 
 #[test]
+fn validation_rejects_empty_shapes() {
+    let dir = std::env::temp_dir().join(format!("shifty-cli-empty-shapes-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let shapes = dir.join("shapes.ttl");
+    let data = dir.join("data.ttl");
+    std::fs::write(&shapes, "").unwrap();
+    std::fs::write(&data, "@prefix ex: <http://ex/> . ex:item ex:p ex:v .").unwrap();
+
+    let rejected = Command::new(env!("CARGO_BIN_EXE_shifty"))
+        .args([
+            "validate",
+            "--shapes",
+            shapes.to_str().unwrap(),
+            "--data",
+            data.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(!rejected.status.success());
+    assert!(String::from_utf8_lossy(&rejected.stderr).contains("explicit shapes graph is empty"));
+
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn validation_executes_over_data_and_shapes_union() {
     let dir = std::env::temp_dir().join(format!("shifty-cli-union-class-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();

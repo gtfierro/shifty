@@ -8,7 +8,7 @@
 extern "C" {
 #endif
 
-#define SHIFTY_ABI_VERSION 3u
+#define SHIFTY_ABI_VERSION 5u
 
 typedef uint32_t ShiftyStatus;
 enum {
@@ -58,12 +58,55 @@ typedef struct ShiftyStringView {
     size_t len;
 } ShiftyStringView;
 
+/* A (label, value) string pair, used for `value_paths`. */
+typedef struct ShiftyStringPair {
+    ShiftyStringView first;
+    ShiftyStringView second;
+} ShiftyStringPair;
+
+/* The three RDF term kinds the shape-map ABI reports. */
+typedef uint32_t ShiftyTermKind;
+enum {
+    SHIFTY_TERM_IRI = 0,
+    SHIFTY_TERM_LITERAL = 1,
+    SHIFTY_TERM_BNODE = 2
+};
+
+/* One RDF term, returned by value with the string components pointing into
+ * the owning handle. `datatype` and `language` are set only for literals and
+ * are empty otherwise. */
+typedef struct ShiftyTerm {
+    ShiftyTermKind kind;
+    ShiftyStringView value;
+    ShiftyStringView datatype;
+    ShiftyStringView language;
+} ShiftyTerm;
+
+/* The four qualifier kinds a shape-map key can carry. */
+typedef uint32_t ShiftyQualifierKind;
+enum {
+    SHIFTY_QUALIFIER_CLS = 0,
+    SHIFTY_QUALIFIER_CONST = 1,
+    SHIFTY_QUALIFIER_DATATYPE = 2,
+    SHIFTY_QUALIFIER_SHAPE_REF = 3
+};
+
+/* Whether a shape-map key is bound. */
+typedef uint32_t ShiftyBindingStatus;
+enum {
+    SHIFTY_BINDING_BOUND = 0,
+    SHIFTY_BINDING_UNBOUND = 1
+};
+
+/* Reported for an absent numeric value or an out-of-range index. */
+#define SHIFTY_NO_INDEX ((size_t)-1)
+
 typedef struct ShiftyDataset ShiftyDataset;
 typedef struct ShiftyPreparedValidator ShiftyPreparedValidator;
 typedef struct ShiftyQueryResult ShiftyQueryResult;
 typedef struct ShiftyValidationResult ShiftyValidationResult;
-typedef struct ShiftyPropertyWitnessList ShiftyPropertyWitnessList;
 typedef struct ShiftyAlgebraResult ShiftyAlgebraResult;
+typedef struct ShiftyShapeMap ShiftyShapeMap;
 
 /*
  * Pointer contract:
@@ -160,39 +203,6 @@ ShiftyStringView shifty_validation_result_results_text(
     const ShiftyValidationResult *result);
 
 /*
- * Property witnesses: the observed sh:property bindings at conforming focus
- * nodes (the inverse of a violation report). `key_path` (may be NULL/empty)
- * is a SPARQL 1.1 property path expression (e.g. "zea:roleName",
- * "zea:role/zea:roleName", "^zea:describes/zea:roleName") evaluated from each
- * sh:property shape's own node *over the shapes graph* to produce a stable
- * key (e.g. reaching a "zea:roleName \"outsideAirTemp\"" style annotation);
- * property shapes where it resolves to no value report their own shape node
- * as the key instead. Prefixes are resolved against the shapes document's
- * declared @prefixes.
- */
-ShiftyStatus shifty_prepared_validator_witnesses(
-    const ShiftyPreparedValidator *validator,
-    const ShiftyDataset *dataset,
-    const char *key_path,
-    size_t key_path_len,
-    ShiftyGraphMode graph_mode,
-    uint8_t run_inference,
-    ShiftyPropertyWitnessList **out);
-
-void shifty_property_witness_list_destroy(ShiftyPropertyWitnessList *list);
-size_t shifty_property_witness_list_len(const ShiftyPropertyWitnessList *list);
-ShiftyStringView shifty_property_witness_focus(
-    const ShiftyPropertyWitnessList *list, size_t index);
-ShiftyStringView shifty_property_witness_shape(
-    const ShiftyPropertyWitnessList *list, size_t index);
-ShiftyStringView shifty_property_witness_key(
-    const ShiftyPropertyWitnessList *list, size_t index);
-size_t shifty_property_witness_value_count(
-    const ShiftyPropertyWitnessList *list, size_t index);
-ShiftyStringView shifty_property_witness_value(
-    const ShiftyPropertyWitnessList *list, size_t index, size_t value_index);
-
-/*
  * Algebra-path validation: the engine's own conformance oracle, run directly
  * against the SHACL algebra rather than compiled to a W3C sh:ValidationReport.
  * Produces a structured violation/reason tree instead of an RDF report graph.
@@ -245,6 +255,141 @@ ShiftyStringView shifty_algebra_reason_author_message(
     const ShiftyAlgebraResult *result, size_t index, size_t reason_index);
 ShiftyStringView shifty_algebra_reason_severity(
     const ShiftyAlgebraResult *result, size_t index, size_t reason_index);
+
+/*
+ * Shape map: typed key -> value bindings for every selected (shape, focus)
+ * pair.
+ *
+ * `name_path` is a SPARQL 1.1 property path (non-NULL) evaluated from each
+ * property shape's own node over the shapes graph to carry the author's name
+ * for a slot; an empty path falls back to `sh:name`. Pass a NULL pointer with
+ * length 0 to *skip* name resolution entirely.
+ *
+ * `value_paths` is an array of (label, path) pairs; each path is evaluated
+ * from each bound value over the evaluation graph to annotate it. Pass
+ * NULL with length 0 for none.
+ *
+ * All ShiftyStringView / ShiftyTerm values handed out by the accessors below
+ * point into the returned handle and stay valid until shifty_shape_map_destroy.
+ * Absent min/max/observed are reported as SHIFTY_NO_INDEX.
+ */
+ShiftyStatus shifty_prepared_validator_shape_map(
+    const ShiftyPreparedValidator *validator,
+    const ShiftyDataset *dataset,
+    ShiftyGraphMode graph_mode,
+    uint8_t run_inference,
+    ShiftySeverity minimum_severity,
+    const ShiftyStringView *shape_names,
+    size_t shape_names_len,
+    const char *name_path,
+    size_t name_path_len,
+    const ShiftyStringPair *value_paths,
+    size_t value_paths_len,
+    ShiftyShapeMap **out);
+
+void shifty_shape_map_destroy(ShiftyShapeMap *map);
+uint8_t shifty_shape_map_conforms(const ShiftyShapeMap *map);
+/* The plain-JSON summary ShapeMap.to_dict() would produce. */
+ShiftyStringView shifty_shape_map_to_json(const ShiftyShapeMap *map);
+
+size_t shifty_shape_map_shape_count(const ShiftyShapeMap *map);
+ShiftyStringView shifty_shape_map_shape_name(
+    const ShiftyShapeMap *map, size_t shape_index);
+size_t shifty_shape_map_mapping_count(
+    const ShiftyShapeMap *map, size_t shape_index);
+
+ShiftyStringView shifty_shape_map_mapping_focus(
+    const ShiftyShapeMap *map, size_t shape_index, size_t mapping_index);
+ShiftyStringView shifty_shape_map_mapping_shape_name(
+    const ShiftyShapeMap *map, size_t shape_index, size_t mapping_index);
+ShiftyStringView shifty_shape_map_mapping_target(
+    const ShiftyShapeMap *map, size_t shape_index, size_t mapping_index);
+uint8_t shifty_shape_map_mapping_conforms(
+    const ShiftyShapeMap *map, size_t shape_index, size_t mapping_index);
+size_t shifty_shape_map_mapping_binding_count(
+    const ShiftyShapeMap *map, size_t shape_index, size_t mapping_index);
+
+/* The key's path as the externally-tagged serde encoding of the algebra Path
+ * ("Id" or {"Pred": {"value": ...}} / {"Inverse": ...} / {"Seq": [...]} /
+ * {"Alt": [...]} / {"Star": ...}), or the empty string for a pathless key. */
+ShiftyStringView shifty_shape_map_binding_key_path_json(
+    const ShiftyShapeMap *map, size_t shape_index, size_t mapping_index,
+    size_t binding_index);
+ShiftyStringView shifty_shape_map_binding_key_kind(
+    const ShiftyShapeMap *map, size_t shape_index, size_t mapping_index,
+    size_t binding_index);
+size_t shifty_shape_map_binding_key_ordinal(
+    const ShiftyShapeMap *map, size_t shape_index, size_t mapping_index,
+    size_t binding_index);
+ShiftyBindingStatus shifty_shape_map_binding_status(
+    const ShiftyShapeMap *map, size_t shape_index, size_t mapping_index,
+    size_t binding_index);
+
+size_t shifty_shape_map_binding_name_count(
+    const ShiftyShapeMap *map, size_t shape_index, size_t mapping_index,
+    size_t binding_index);
+ShiftyStringView shifty_shape_map_binding_name(
+    const ShiftyShapeMap *map, size_t shape_index, size_t mapping_index,
+    size_t binding_index, size_t name_index);
+
+size_t shifty_shape_map_binding_min(
+    const ShiftyShapeMap *map, size_t shape_index, size_t mapping_index,
+    size_t binding_index);
+size_t shifty_shape_map_binding_max(
+    const ShiftyShapeMap *map, size_t shape_index, size_t mapping_index,
+    size_t binding_index);
+size_t shifty_shape_map_binding_observed(
+    const ShiftyShapeMap *map, size_t shape_index, size_t mapping_index,
+    size_t binding_index);
+size_t shifty_shape_map_binding_missing(
+    const ShiftyShapeMap *map, size_t shape_index, size_t mapping_index,
+    size_t binding_index);
+
+uint8_t shifty_shape_map_binding_has_qualifier(
+    const ShiftyShapeMap *map, size_t shape_index, size_t mapping_index,
+    size_t binding_index);
+ShiftyQualifierKind shifty_shape_map_binding_qualifier_kind(
+    const ShiftyShapeMap *map, size_t shape_index, size_t mapping_index,
+    size_t binding_index);
+/* The qualifier IRI for Cls/Datatype/ShapeRef; empty for Const. */
+ShiftyStringView shifty_shape_map_binding_qualifier_iri(
+    const ShiftyShapeMap *map, size_t shape_index, size_t mapping_index,
+    size_t binding_index);
+/* The qualifier term for Const; an empty literal otherwise. */
+ShiftyTerm shifty_shape_map_binding_qualifier_term(
+    const ShiftyShapeMap *map, size_t shape_index, size_t mapping_index,
+    size_t binding_index);
+
+size_t shifty_shape_map_binding_value_count(
+    const ShiftyShapeMap *map, size_t shape_index, size_t mapping_index,
+    size_t binding_index);
+ShiftyTerm shifty_shape_map_binding_value(
+    const ShiftyShapeMap *map, size_t shape_index, size_t mapping_index,
+    size_t binding_index, size_t value_index);
+size_t shifty_shape_map_binding_rejected_value_count(
+    const ShiftyShapeMap *map, size_t shape_index, size_t mapping_index,
+    size_t binding_index);
+ShiftyTerm shifty_shape_map_binding_rejected_value(
+    const ShiftyShapeMap *map, size_t shape_index, size_t mapping_index,
+    size_t binding_index, size_t value_index);
+
+/* value_paths annotations, one label per confirmed group. */
+size_t shifty_shape_map_binding_annotation_label_count(
+    const ShiftyShapeMap *map, size_t shape_index, size_t mapping_index,
+    size_t binding_index);
+ShiftyStringView shifty_shape_map_binding_annotation_label(
+    const ShiftyShapeMap *map, size_t shape_index, size_t mapping_index,
+    size_t binding_index, size_t label_index);
+size_t shifty_shape_map_binding_annotation_term_count(
+    const ShiftyShapeMap *map, size_t shape_index, size_t mapping_index,
+    size_t binding_index, size_t label_index);
+size_t shifty_shape_map_binding_annotation_reached_count(
+    const ShiftyShapeMap *map, size_t shape_index, size_t mapping_index,
+    size_t binding_index, size_t label_index, size_t term_index);
+ShiftyTerm shifty_shape_map_binding_annotation_reached(
+    const ShiftyShapeMap *map, size_t shape_index, size_t mapping_index,
+    size_t binding_index, size_t label_index, size_t term_index,
+    size_t reached_index);
 
 #ifdef __cplusplus
 }

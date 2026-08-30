@@ -28,6 +28,13 @@ Read in order:
 8. [`07-repair-drivers.md`](07-repair-drivers.md) — **reference drivers** over
    the 06 API (monomorphism / enumeration / ASP / LLM) and a reference
    fixpoint loop, as worked examples a real integration may use or replace.
+9. [`08-repair-witness-validation-inference-reference.md`](08-repair-witness-validation-inference-reference.md)
+   — implementation reference for the repair, validation, and inference seams.
+10. [`09-evidence.md`](09-evidence.md) — the current unified evidence behavior,
+    compact encoding, guarantees, and blocked cases.
+11. [`10-evidence-architecture.md`](10-evidence-architecture.md) — the
+    publication-oriented architecture contract: vocabulary, polarity duality,
+    identities, executable invariants, and performance boundaries.
 
 > `static-analysis-plan.md` predates this branch (old spec-shaped `shacl-core`
 > approach) and is kept only as historical reference.

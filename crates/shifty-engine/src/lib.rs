@@ -6,7 +6,9 @@
 //! inference engine (Layer 6) and compiled executors (Layer 7) come later; every
 //! execution mode must agree with this oracle.
 
+pub mod compact;
 pub mod enumerate;
+pub mod evidence;
 pub mod frozen;
 pub mod gate;
 pub mod infer;
@@ -15,6 +17,7 @@ pub mod path;
 mod path_plan;
 pub mod profile;
 pub mod report;
+pub mod sharing;
 mod sparql;
 pub use sparql::SparqlDiagnostic;
 pub mod synthesize;
@@ -22,8 +25,19 @@ pub mod validate;
 pub mod value;
 pub mod witness;
 
+pub use compact::{
+    CompactError, Sharing, compact, compact_value, expand, expand_value, expand_with_catalog,
+    sharing, to_compact_json,
+};
 pub use enumerate::{
     EnumOptions, FixpointResult, RepairSolution, candidates, enumerate_repair, repair_to_fixpoint,
+};
+pub use evidence::{
+    ConformanceOptions, ConformanceRun, PreparedEvidenceValidator, SelectedPair,
+    validate_graphs_with_evidence, validate_graphs_with_evidence_and_mode,
+    validate_graphs_with_evidence_and_mode_and_options, validate_with_context_and_evidence,
+    validate_with_context_and_evidence_and_options, validate_with_evidence,
+    validate_with_evidence_and_options,
 };
 pub use gate::{RepairOutcome, apply, gate};
 pub use infer::{
@@ -36,7 +50,11 @@ pub use report::{
     report_to_graph, validate_report, validate_report_graphs, validate_report_graphs_with_mode,
     validate_report_graphs_with_mode_and_options, validate_report_with_options,
 };
-pub use synthesize::{synthesize, synthesize_focus};
+pub use sharing::{ResultSharing, result_sharing};
+pub use synthesize::{
+    EvidenceOrigin, SynthesizedRepair, synthesize, synthesize_focus, synthesize_focus_with_origins,
+    synthesize_with_origins,
+};
 pub use validate::{
     EngineOptions, NonStratifiable, Reason, UnsupportedPolicy, ValidationGraphMode,
     ValidationOptions, ValidationOutcome, Violation, focus_nodes, graph_union, validate,
@@ -47,8 +65,11 @@ pub use validate::{
     validate_with_context_and_options, validate_with_options,
 };
 pub use witness::{
-    BlockReason, FocusSat, FocusWitness, PathSupport, RelKind, SatTrace, Witness, satisfy_shape,
-    shape_id_for_iri, witness_node, witness_shape, witness_violations,
+    BlockReason, ChildEvaluation, ConstraintCatalog, ConstraintRecord, EvaluationProgress,
+    EvaluationStatus, Evidence, EvidenceKind, EvidenceNodeRef, EvidenceRun, EvidenceSummary,
+    Failure, FocusEvaluation, FocusSat, FocusWitness, MissingObligation, PathSupport,
+    QualifiedMatch, RejectedCandidate, RelKind, SatTrace, Satisfaction, StatementEvaluation,
+    Witness, satisfy_shape, shape_id_for_iri, witness_node, witness_shape, witness_violations,
 };
 
 #[cfg(test)]

@@ -13,7 +13,7 @@ members = [
 resolver = "2"
 
 [workspace.package]
-version = "0.3.0"
+version = "0.4.0"
 authors = ["Gabe Fierro <gtfierro@mines.edu>"]
 license = "BSD-3-Clause"
 edition = "2024"
@@ -25,11 +25,11 @@ documentation = "https://github.com/gtfierro/shifty#readme"
 
 [workspace.dependencies]
 # internal crates
-shifty-algebra = { path = "crates/shifty-algebra", version = "0.3.0" }
-shifty-parse = { path = "crates/shifty-parse", version = "0.3.0" }
-shifty-opt = { path = "crates/shifty-opt", version = "0.3.0" }
-shifty-engine = { path = "crates/shifty-engine", version = "0.3.0" }
-shifty-repair = { path = "crates/shifty-repair", version = "0.3.0" }
+shifty-algebra = { path = "crates/shifty-algebra", version = "0.4.0" }
+shifty-parse = { path = "crates/shifty-parse", version = "0.4.0" }
+shifty-opt = { path = "crates/shifty-opt", version = "0.4.0" }
+shifty-engine = { path = "crates/shifty-engine", version = "0.4.0" }
+shifty-repair = { path = "crates/shifty-repair", version = "0.4.0" }
 
 # external
 oxrdf = { version = "=0.3.3", features = ["serde", "oxsdatatypes"] }
@@ -44,6 +44,11 @@ petgraph = "0.6"
 clap = { version = "4.5.39", features = ["derive"] }
 ureq = { version = "2", features = ["tls"] }
 regex = "1"
+# Non-cryptographic hasher for hot internal maps whose keys are already
+# trusted (shape ids, RDF terms from the parsed graph). Nothing here is
+# exposed to adversarial input, so SipHash's collision resistance buys
+# nothing over the cost of hashing every IRI byte with it.
+rustc-hash = "2.1"
 log = "0.4"
 env_logger = "0.11"
 serde = { version = "1.0", features = ["derive", "rc"] }

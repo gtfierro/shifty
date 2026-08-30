@@ -394,6 +394,9 @@ fn validate(args: ValidateArgs) -> Result<(), Box<dyn Error>> {
     }
     let base = args.base.as_deref();
     let shapes_loaded = load_sources(&args.shapes, base)?;
+    if shapes_loaded.graph.is_empty() {
+        return Err("explicit shapes graph is empty".into());
+    }
     let parsed = shifty_parse::parse_loaded(&shapes_loaded);
     let normalized = shifty_opt::normalize(&parsed.schema);
     for d in &parsed.diagnostics {
@@ -872,6 +875,15 @@ fn render_sat(s: &shifty_engine::SatTrace, indent: usize) -> Vec<String> {
         }
         S::CountHeld { matches, .. } => {
             out.push(format!("{pad}CountHeld: {} match(es)", matches.len()))
+        }
+        S::ForAllHeld { values, .. } => {
+            out.push(format!(
+                "{pad}ForAllHeld: {} checked value(s)",
+                values.len()
+            ));
+            for (_, _, trace) in values {
+                out.extend(render_sat(trace, indent + 2));
+            }
         }
         S::NotHeld { inner_fails, .. } => {
             out.push(format!("{pad}NotHeld — make the inner shape hold:"));

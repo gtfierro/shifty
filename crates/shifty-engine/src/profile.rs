@@ -5,7 +5,7 @@
 //! Shape-cache counters are accumulated locally by each evaluator and published
 //! once when it is dropped, avoiding a thread-local operation per lookup.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use web_time::Instant;
 
 /// Per-query performance record.
@@ -33,6 +33,9 @@ pub struct ShapeRecord {
     pub invocations: u64,
     /// Total wall-clock time across all invocations, in microseconds.
     pub total_us: u64,
+    /// Evidence-materialization node visits attributed to this label, when the
+    /// caller reported them. Zero for conformance-only and inference records.
+    pub visits: u64,
 }
 
 /// Aggregate shape-cache telemetry for one profiling session.
@@ -111,14 +114,21 @@ impl ProfileCollector {
     }
 
     pub fn record_shape_invocation(&mut self, label: &str, exec_us: u64) {
+        self.record_shape_work(label, exec_us, 0);
+    }
+
+    /// Record one evaluation together with the evidence nodes it visited.
+    pub fn record_shape_work(&mut self, label: &str, exec_us: u64, visits: u64) {
         if let Some(r) = self.shape_records.iter_mut().find(|r| r.label == label) {
             r.invocations += 1;
             r.total_us += exec_us;
+            r.visits += visits;
         } else {
             self.shape_records.push(ShapeRecord {
                 label: label.to_string(),
                 invocations: 1,
                 total_us: exec_us,
+                visits,
             });
         }
     }
@@ -250,6 +260,57 @@ pub fn record_shape(label: &str, exec_us: u64) {
             col.record_shape_invocation(label, exec_us);
         }
     });
+}
+
+/// Record one evaluation plus its evidence-node visits. No-op when profiling
+/// is disabled.
+pub(crate) fn record_shape_work(label: &str, exec_us: u64, visits: u64) {
+    PROFILER.with(|p| {
+        if let Some(col) = p.borrow_mut().as_mut() {
+            col.record_shape_work(label, exec_us, visits);
+        }
+    });
+}
+
+thread_local! {
+    static EVIDENCE_VISITS: Cell<u64> = const { Cell::new(0) };
+}
+
+/// One evidence-materialization node visit.
+///
+/// Unlike the counters above this is always on: it is a `Cell` increment beside
+/// a function that already clones a `Shape`, and it is the only way to see how
+/// far the shared shape DAG expands into a per-pair evidence tree. Visits count
+/// nodes *entered*, including those later pruned from the retained evidence.
+pub(crate) fn record_evidence_visit() {
+    EVIDENCE_VISITS.with(|visits| visits.set(visits.get().wrapping_add(1)));
+}
+
+/// Read and reset the evidence-visit counter for this thread.
+pub fn take_evidence_visits() -> u64 {
+    EVIDENCE_VISITS.with(|visits| visits.replace(0))
+}
+
+/// Read the evidence-visit counter without resetting it, for deltas around a
+/// region of work.
+pub fn evidence_visits() -> u64 {
+    EVIDENCE_VISITS.with(Cell::get)
+}
+
+thread_local! {
+    static PATH_PROBES: Cell<u64> = const { Cell::new(0) };
+}
+
+/// One `path_support` probe. Each probe re-derives a full successor set from
+/// the backend to answer a single membership question, so probe count is the
+/// multiplier on path work that evidence pays and conformance does not.
+pub(crate) fn record_path_probe() {
+    PATH_PROBES.with(|probes| probes.set(probes.get().wrapping_add(1)));
+}
+
+/// Read and reset the path-probe counter for this thread.
+pub fn take_path_probes() -> u64 {
+    PATH_PROBES.with(|probes| probes.replace(0))
 }
 
 /// Merge one evaluator's shape-cache telemetry. No-op when profiling is

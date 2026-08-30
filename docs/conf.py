@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -55,8 +56,11 @@ def _write_benchmark_js() -> None:
     out_file.write_text(f"window.SHIFTY_BENCHMARK_DATA = {json.dumps(data)};\n")
 
 
-_regenerate_benchmark_json()
-_write_benchmark_js()
+# Building documentation should not rewrite checked-in source files.  Release
+# jobs opt in so their benchmark chart reflects the results in that checkout.
+if os.environ.get("SHIFTY_REGENERATE_BENCHMARKS") == "1":
+    _regenerate_benchmark_json()
+    _write_benchmark_js()
 
 
 project = "Shifty"
@@ -66,7 +70,14 @@ version = release
 
 extensions = [
     "sphinx.ext.intersphinx",
+    "sphinxcontrib.programoutput",
 ]
+
+# Executable documentation examples use the debug CLI built from this checkout.
+# The Pages workflow builds it before invoking Sphinx. This also makes a local
+# build test the current source instead of any globally installed `shifty`.
+cli_dir = ROOT / "target" / "debug"
+os.environ["PATH"] = os.pathsep.join([str(cli_dir), os.environ.get("PATH", "")])
 
 templates_path = ["_templates"]
 exclude_patterns = [
@@ -95,6 +106,9 @@ html_extra_path = ["extra"]
 html_theme_options = {
     "light_logo": None,
     "dark_logo": None,
+    "source_repository": "https://github.com/gtfierro/shifty/",
+    "source_branch": "main",
+    "source_directory": "docs/",
 }
 
 intersphinx_mapping = {

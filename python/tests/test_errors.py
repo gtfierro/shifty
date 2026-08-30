@@ -163,13 +163,29 @@ class TestEmptyInputs:
         assert isinstance(conforms, bool)
 
     def test_validate_empty_bytes_shapes(self):
-        result = shifty.validate(VALID_DATA.encode(), b"")
-        conforms, _, _ = result
-        assert conforms is True  # No shapes means nothing to validate
+        with pytest.raises(ValueError, match="explicit shapes graph is empty"):
+            shifty.validate(VALID_DATA.encode(), b"")
 
     def test_validate_algebra_empty_bytes_shapes(self):
-        result = shifty.validate_algebra(VALID_DATA.encode(), b"")
-        assert result.conforms is True
+        with pytest.raises(ValueError, match="explicit shapes graph is empty"):
+            shifty.validate_algebra(VALID_DATA.encode(), b"")
+
+    @pytest.mark.parametrize("validation", [shifty.validate, shifty.validate_algebra])
+    def test_empty_rdflib_shapes_raise(self, validation):
+        with pytest.raises(ValueError, match="explicit shapes graph is empty"):
+            validation(VALID_DATA.encode(), rdflib.Graph())
+
+    @pytest.mark.parametrize("validation", [shifty.validate, shifty.validate_algebra])
+    def test_empty_shapes_file_raises(self, validation, tmp_path):
+        shapes = tmp_path / "empty.ttl"
+        shapes.write_text("")
+
+        with pytest.raises(ValueError, match="explicit shapes graph is empty"):
+            validation(VALID_DATA.encode(), shapes)
+
+    def test_embedded_empty_graph_remains_valid(self):
+        conforms, _, _ = shifty.validate(b"")
+        assert conforms is True
 
     def test_infer_empty_shapes(self):
         result = shifty.infer(VALID_DATA.encode(), b"")
