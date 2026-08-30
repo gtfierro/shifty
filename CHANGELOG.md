@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+## 0.4.1
+
+### Fixed
+
+- Fixed Python shape-map slot names for node shapes with exactly one property
+  shape. `name_path` now follows the transparent authored wrapper to the
+  property shape instead of losing its `sh:name` when conjunction lowering
+  elides the sole child.
+- Fixed extraction from optional `sh:qualifiedValueShape` slots. Although an
+  unbounded qualified count correctly normalizes to a vacuous constraint for
+  validation, `Binding.values` now returns the property values that satisfy
+  the qualified value shape.
+- Fixed the default `name_path="sh:name"` for `rdflib.Graph` inputs whose
+  N-Triples serialization has no namespace declarations. `sh:` is now a
+  standard fallback for property-path resolution while explicit document
+  bindings continue to take precedence.
+
 ## 0.4.0
 
 ### Added
