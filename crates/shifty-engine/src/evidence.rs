@@ -209,6 +209,24 @@ impl PreparedEvidenceValidator {
         &self.data
     }
 
+    /// Decide one retained authored/raw constraint directly.
+    ///
+    /// Most callers should use normalized constraints and
+    /// [`Self::explain_constraint`]. This is for source-provenance consumers
+    /// that need a child made unreachable when an enclosing constraint was
+    /// normalized away (for example, an unbounded qualified property slot).
+    pub fn raw_constraint_holds(&self, focus: &oxrdf::Term, constraint: ShapeId) -> Option<bool> {
+        if (constraint.0 as usize) >= self.raw_schema.arena.len() {
+            return None;
+        }
+        let backend = self
+            .sparql
+            .frozen()
+            .expect("prepared evidence validator always owns a frozen dataset");
+        let mut evaluator = ShapeEvaluator::new(backend, &self.raw_schema.arena, &self.sparql);
+        Some(evaluator.holds(focus, constraint))
+    }
+
     /// Validate the prepared snapshot for conformance only.
     ///
     /// Preparation, target selection, and the evaluator are exactly those of

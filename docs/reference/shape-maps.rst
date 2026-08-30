@@ -42,7 +42,9 @@ A convenience over ``EvidenceSession(...).validate()`` followed by
    * - ``name_path``
      - Property path naming the *slot*, evaluated from the authored
        property-shape node over the **shapes** graph. Constant per property
-       shape. ``None`` skips slot naming.
+       shape. ``None`` skips slot naming. The standard ``sh:`` prefix remains
+       available for the default ``"sh:name"`` when an ``rdflib.Graph`` input
+       has no serialized prefix declarations.
    * - ``value_paths``
      - ``{label: path}`` annotating each *bound value*, evaluated from the
        value node over the graph validation read. Varies per row. Resolved
@@ -141,7 +143,9 @@ key string, for interactive use.
    * - ``values``
      - The bound values as ``Term`` objects. ``None`` means *unknown* — a
        passing sibling elided from canonical evidence with no session to
-       recover it.
+       recover it. An unbounded ``sh:qualifiedValueShape`` still yields its
+       qualifying values, despite normalizing to a vacuous validation
+       constraint.
    * - ``partial_values``
      - Values that qualified so far, on an unsatisfied obligation.
    * - ``rejected_values``

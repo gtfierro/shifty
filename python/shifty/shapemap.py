@@ -624,6 +624,7 @@ class Binding:
         normalized_constraint_id: Optional[int],
         evidence: Optional[dict],
         resolve: Optional[Callable[[], dict]],
+        resolve_values: Optional[Callable[[], list[Term]]],
         bounds: "tuple[Optional[int], Optional[int]]",
         severity: str,
         names: "Optional[list[str]]",
@@ -638,6 +639,7 @@ class Binding:
         self.names = names
         self._evidence = evidence
         self._resolve = resolve
+        self._resolve_values = resolve_values
         self._min, self._max = bounds
         self._value_resolver: "Optional[_ValueAnnotationResolver]" = None
         self._values: "Optional[list[Term]]" = None
@@ -666,10 +668,17 @@ class Binding:
         """The values the key's path bound. For a failing key these are the
         qualifying near-matches (same as ``partial_values``). ``None`` only
         when the evidence is unavailable — a passing key of a failing focus
-        with no session to consult."""
+        with no session to consult. An unbounded
+        ``sh:qualifiedValueShape`` is vacuous for validation but still
+        extracts every qualifying value when the originating session is
+        available."""
         if self._values is None:
-            evidence = self.evidence
-            self._values = _top_values(evidence) if evidence is not None else None
+            if self._resolve_values is not None:
+                self._values = self._resolve_values()
+                self._resolve_values = None
+            else:
+                evidence = self.evidence
+                self._values = _top_values(evidence) if evidence is not None else None
         return self._values
 
     @property
@@ -1055,10 +1064,45 @@ def _build_mapping(
         severity = _severity_of(
             normalized_catalog, normalized_ref, statement_py.normalized_constraint_id
         )
-        names = names_table.get(source_id)
+        # A singleton node shape has no progress children: its outer
+        # `Annotated` slot directly wraps the property shape's own annotated
+        # slot. Follow that transparent chain so a `sh:name` on the authored
+        # property shape survives conjunction elision.
+        name_source_id = source_id
+        seen = set()
+        names = None
+        while name_source_id not in seen:
+            seen.add(name_source_id)
+            names = names_table.get(name_source_id)
+            if names:
+                break
+            constraint = source_catalog.get(name_source_id)
+            if not (isinstance(constraint, dict) and "Annotated" in constraint):
+                break
+            name_source_id = constraint["Annotated"]["shape"]
+
+        resolve_values = None
+        if (
+            inner is not None
+            and source_catalog.logical(source_id) == "Top"
+            and status == "pass"
+        ):
+            focus_term = focus_py.focus
+            resolve_values = lambda f=focus_term, s=source_id: [
+                _term_parse(value) for value in inner._binding_values(f, s)
+            ]
 
         bindings[key] = Binding(
-            key, status, source_id, normalized_ref, subtree, resolve, bounds, severity, names
+            key,
+            status,
+            source_id,
+            normalized_ref,
+            subtree,
+            resolve,
+            resolve_values,
+            bounds,
+            severity,
+            names,
         )
 
     return Mapping(
@@ -1091,6 +1135,13 @@ def shape_map(
     ``shacl_graph`` is omitted, ``data_graph`` supplies both roles. Keep an
     :class:`~shifty.EvidenceSession` yourself and call :meth:`ShapeMap.from_run`
     to reuse the prepared snapshot across calls.
+
+    ``name_path`` is evaluated from each authored property shape. Its default,
+    ``"sh:name"``, also works when ``shacl_graph`` is an ``rdflib.Graph``
+    whose namespace declarations were lost during serialization. Optional
+    ``sh:qualifiedValueShape`` slots remain extractable: ``Binding.values``
+    contains the values satisfying the qualified shape even though the
+    unbounded validation constraint normalizes to ``Top``.
     """
     from . import EvidenceSession
 

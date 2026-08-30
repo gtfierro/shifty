@@ -273,6 +273,26 @@ property shape's node*. Fix it at the parser:
 - Drop the v1 `key=` callable — structured `Key` plus `name_path` covers its
   uses. (If kept, it must receive the new `Key`.)
 
+### Normalization-elision and vacuous-slot follow-ups
+
+`Schema::sources` is keyed by a shape's outermost authored slot. A singleton
+node shape can therefore be `Annotated(node) → Annotated(property) → ...`
+without an `And` progress child. When resolving a binding name, walk that
+transparent `Annotated` chain until the property-shape source id is reached;
+otherwise a sole property's `sh:name` is lost.
+
+An unbounded `sh:qualifiedValueShape` lowers to `Top`, which is correct for
+validation but erases its witness path. Shape-map extraction treats that as a
+special case: recover the authored property source, evaluate its `sh:path` on
+the validation graph, and filter candidates by directly evaluating each raw
+qualified value shape. This must remain lazy and session-dependent, just like
+materializing an elided passing sibling.
+
+`name_path="sh:name"` is a public default, so `sh:` is a built-in fallback in
+the SPARQL-property-path parser. Explicit document bindings still take
+precedence; the fallback only covers inputs such as `rdflib.Graph` that lose
+their namespace declarations when serialized to N-Triples.
+
 ## 8. `value_paths` (data-graph value annotations)
 
 Names the matched *values* — e.g. a point's timeseries id or BACnet

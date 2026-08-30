@@ -478,6 +478,51 @@ def test_binding_names_resolves_named_and_blank_property_shapes():
     )
 
 
+def test_single_property_shape_keeps_its_sh_name_after_conjunction_elision():
+    shapes = PREFIXES + """
+    ex:S a sh:NodeShape ; sh:targetClass ex:T ;
+        sh:property [
+            sh:path ex:p ; sh:name "only point" ;
+            sh:qualifiedValueShape [ sh:class ex:V ] ;
+            sh:qualifiedMinCount 1
+        ] .
+    """
+    data = PREFIXES + """
+    ex:a a ex:T ; ex:p ex:v .
+    ex:v a ex:V .
+    """
+    (mapping,) = list(shifty.shape_map(data, shapes, infer=False))
+    assert mapping["p→V"].name == "only point"
+
+
+def test_optional_qualified_property_extracts_qualifying_values():
+    shapes = PREFIXES + """
+    ex:S a sh:NodeShape ; sh:targetClass ex:T ;
+        sh:property [ sh:path ex:required ; sh:minCount 1 ] ;
+        sh:property [
+            sh:path ex:optional ; sh:name "optional point" ;
+            sh:qualifiedValueShape [ sh:class ex:V ]
+        ] .
+    """
+    data = PREFIXES + """
+    ex:a a ex:T ; ex:required ex:present ; ex:optional ex:good, ex:other .
+    ex:good a ex:V .
+    ex:other a ex:Other .
+    """
+    (mapping,) = list(shifty.shape_map(data, shapes, infer=False))
+    optional = next(binding for binding in mapping.bindings.values() if binding.name == "optional point")
+    assert optional.values == [Iri("http://ex/good")]
+
+
+def test_default_name_path_works_for_rdflib_graph_input():
+    import rdflib
+
+    shapes = rdflib.Graph()
+    shapes.parse(data=NAME_SHAPES, format="turtle")
+    (mapping,) = list(shifty.shape_map(NAME_DATA, shapes, infer=False))
+    assert mapping["hasPoint→FlowSensor"].name == "the flow point"
+
+
 # ── 5. ShapeRef qualifier ────────────────────────────────────────────────────────
 
 SHAPE_REF_SHAPES = PREFIXES + """

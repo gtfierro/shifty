@@ -131,6 +131,23 @@ Value paths resolve lazily: the first access to ``annotated_values`` or
 Supplying no ``value_paths`` costs nothing, and ``name_path=None`` skips slot
 naming entirely.
 
+Singleton and optional slots
+----------------------------
+
+Slot names are retained even when a node shape has only one property shape.
+The lowering layer may elide that one-child conjunction, but ``name_path``
+still begins at the authored property-shape node.
+
+An unbounded ``sh:qualifiedValueShape`` is vacuous as a validation constraint,
+yet it is useful as an extraction slot. Its binding remains successful and
+``Binding.values`` contains the values that satisfy the qualified value shape.
+This makes an optional profile point available without adding an artificial
+minimum count.
+
+The default ``name_path="sh:name"`` works for Turtle, paths, bytes, and
+``rdflib.Graph`` inputs. The standard ``sh:`` prefix is available for this
+default even when a graph serialization has no prefix declarations.
+
 Use the partial bindings of a failing node
 ------------------------------------------
 

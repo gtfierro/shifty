@@ -268,9 +268,16 @@ fn resolve_prefixed_name(token: &str, prefixes: &[(String, String)]) -> Result<N
     let (prefix, local) = token
         .split_once(':')
         .expect("PrefixedName tokens always contain ':'");
-    let (_, namespace) = prefixes
+    // `sh:` is part of the public shape-map API: its default `name_path` is
+    // `sh:name`. Graph inputs may be serialized as N-Triples by host
+    // bindings, where document prefix declarations no longer exist.
+    let namespace = prefixes
         .iter()
         .find(|(p, _)| p == prefix)
+        .map(|(_, namespace)| namespace.as_str())
+        // `sh:` is a standard fallback, not an override: an explicit
+        // document declaration retains its normal SPARQL meaning.
+        .or_else(|| (prefix == "sh").then_some("http://www.w3.org/ns/shacl#"))
         .ok_or_else(|| format!("undeclared prefix {prefix:?} in property path {token:?}"))?;
     NamedNode::new(format!("{namespace}{local}"))
         .map_err(|e| format!("invalid IRI from {token:?}: {e}"))
