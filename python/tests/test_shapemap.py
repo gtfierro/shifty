@@ -523,6 +523,35 @@ def test_default_name_path_works_for_rdflib_graph_input():
     assert mapping["hasPoint→FlowSensor"].name == "the flow point"
 
 
+def test_custom_name_path_works_for_rdflib_graph_input():
+    import rdflib
+
+    shapes = rdflib.Graph()
+    shapes.parse(data=NAME_SHAPES, format="turtle")
+    (mapping,) = list(
+        shifty.shape_map(
+            NAME_DATA,
+            shapes,
+            infer=False,
+            name_path="zea:role/zea:roleName",
+        )
+    )
+    assert mapping["hasPoint→FlowSensor"].name == "flowRole"
+
+
+def test_custom_witness_key_path_works_for_rdflib_graph_input():
+    import rdflib
+
+    shapes = rdflib.Graph()
+    shapes.parse(data=NAME_SHAPES, format="turtle")
+    witnesses = shifty.PreparedValidator(shapes).witnesses(
+        NAME_DATA,
+        key_path="zea:role/zea:roleName",
+        infer=False,
+    )
+    assert any(witness.key == "flowRole" for witness in witnesses)
+
+
 # ── 5. ShapeRef qualifier ────────────────────────────────────────────────────────
 
 SHAPE_REF_SHAPES = PREFIXES + """

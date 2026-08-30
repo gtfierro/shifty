@@ -29,6 +29,11 @@ than rebuilding it.
 text, ``bytes``, a ``pathlib.Path``, an ``rdflib.Graph``, or a list of those to
 be merged:
 
+``rdflib.Graph`` inputs retain their namespace bindings when converted to a
+shapes graph, so ``sh:sparql`` constraints and SHACL-AF SPARQL rules may use
+the prefixes declared on the graph. An unresolved prefix is an invalid shapes
+graph error; it never silently removes a constraint.
+
 .. code-block:: python
 
    session = shifty.EvidenceSession(

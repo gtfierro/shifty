@@ -47,7 +47,8 @@ Graph inputs
 ~~~~~~~~~~~~
 All three functions accept any of:
 
-* :class:`rdflib.Graph`       — serialized to N-Triples automatically
+* :class:`rdflib.Graph`       — serialized to Turtle, preserving namespace
+                                bindings used by SHACL-SPARQL queries and rules
 * :class:`pathlib.Path`       — parsed directly as Turtle or N-Triples
 * ``str``                     — treated as a file path if the path exists, an
                                 HTTP(S) URL if it has that scheme, otherwise
@@ -317,11 +318,14 @@ def _to_rdf_input(graph: GraphInput) -> _RdfInput:
         return _RdfInput(graph.encode("utf-8"), None, "turtle")
     serialize = getattr(graph, "serialize", None)
     if serialize is not None:
-        result = serialize(format="nt", encoding="utf-8")
+        # N-Triples has no prefix declarations. Those declarations are part
+        # of a shapes graph's meaning when its SHACL-SPARQL queries or rules
+        # use prefixed names, so preserve rdflib's namespace manager in Turtle.
+        result = serialize(format="turtle", encoding="utf-8")
         if isinstance(result, str):
             result = result.encode("utf-8")
         if isinstance(result, bytes):
-            return _RdfInput(result, None, "nt")
+            return _RdfInput(result, None, "turtle")
     raise TypeError(
         f"Cannot convert {type(graph).__name__!r} to RDF data. "
         "Expected rdflib.Graph, pathlib.Path, str (path, HTTP(S) URL, or Turtle), "
@@ -347,6 +351,8 @@ def _as_rdflib_graph(graph: GraphInput) -> "rdflib.Graph":
 
     if isinstance(graph, rdflib.Graph):
         merged = rdflib.Graph()
+        for prefix, namespace in graph.namespaces():
+            merged.bind(prefix, namespace)
         for triple in graph:
             merged.add(triple)
         return merged
@@ -397,7 +403,10 @@ def _coalesce_graph_input(graph: "GraphInputs") -> GraphInput:
 
         merged = rdflib.Graph()
         for item in graph:
-            for triple in _as_rdflib_graph(item):
+            item_graph = _as_rdflib_graph(item)
+            for prefix, namespace in item_graph.namespaces():
+                merged.bind(prefix, namespace)
+            for triple in item_graph:
                 merged.add(triple)
         return merged
     return graph

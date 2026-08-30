@@ -18,6 +18,11 @@
   N-Triples serialization has no namespace declarations. `sh:` is now a
   standard fallback for property-path resolution while explicit document
   bindings continue to take precedence.
+- Fixed SHACL-SPARQL constraints and SPARQL rules supplied as an
+  `rdflib.Graph`. Graph inputs now serialize as Turtle so query prefix
+  declarations survive; malformed or unresolved query prefixes now raise an
+  invalid-shapes-graph error instead of silently dropping the constraint or
+  rule.
 
 ## 0.4.0
 

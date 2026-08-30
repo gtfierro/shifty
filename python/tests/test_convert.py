@@ -5,7 +5,7 @@ This module tests the graph input conversion functions which handle:
 - bytes input (passthrough)
 - pathlib.Path input (file reading)
 - str input (file path or raw Turtle text)
-- rdflib.Graph input (N-Triples serialization)
+- rdflib.Graph input (Turtle serialization with namespaces)
 - Error cases for unsupported types
 """
 
@@ -95,9 +95,9 @@ class TestToTurtleBytes:
         g.add((EX.a, EX.b, EX.c))
         
         result = _to_turtle_bytes(g)
-        # The serialization should be valid N-Triples
+        # The serialization should be valid Turtle.
         g2 = rdflib.Graph()
-        g2.parse(data=result, format="nt")
+        g2.parse(data=result, format="turtle")
         assert (EX.a, EX.b, EX.c) in g2
 
     def test_rdflib_graph_string_serialization(self):
@@ -109,7 +109,7 @@ class TestToTurtleBytes:
         with mock.patch.object(g, 'serialize', return_value="ex:a ex:b ex:c .") as serialize:
             result = _to_turtle_bytes(g)
             assert result == b"ex:a ex:b ex:c ."
-            serialize.assert_called_once_with(format="nt", encoding="utf-8")
+            serialize.assert_called_once_with(format="turtle", encoding="utf-8")
 
     def test_rdflib_graph_bytes_serialization(self):
         g = rdflib.Graph()
@@ -120,7 +120,7 @@ class TestToTurtleBytes:
         with mock.patch.object(g, 'serialize', return_value=b"ex:a ex:b ex:c .") as serialize:
             result = _to_turtle_bytes(g)
             assert result == b"ex:a ex:b ex:c ."
-            serialize.assert_called_once_with(format="nt", encoding="utf-8")
+            serialize.assert_called_once_with(format="turtle", encoding="utf-8")
 
     def test_unsupported_type_int(self):
         with pytest.raises(TypeError, match="Cannot convert"):
