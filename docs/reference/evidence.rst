@@ -92,33 +92,14 @@ Methods
 
 .. code-block:: python
 
-   session.evidence_for(focus, constraint_id) -> dict
+   session.evidence_for(focus, constraint_id) -> EvidenceNode
 
 Evidence for one focus against one **normalized** constraint id — any
-constraint in the run's catalog, not only a statement's top shape. Returns the
-same tagged dict the run uses: ``{"status": "pass"|"fail", "evidence": {...}}``.
-No target selection is involved, so a focus that no statement selects still
-yields well-defined evidence. This is the drill-down for children a canonical
-failure elided.
-
-.. code-block:: python
-
-   session.binding_names(name_path=None) -> dict[int, list[str]]
-
-Maps raw (source) constraint id to the values ``name_path`` reaches from that
-constraint's originating shapes-graph node, evaluated over the shapes graph.
-``None`` means ``sh:name``. Constraints with no source-node provenance, or where
-the path resolves to nothing, are omitted.
-
-.. code-block:: python
-
-   session.shape_name_of(constraint_id) -> str | None
-   session.resolve_path(nodes, path) -> dict[str, list[str]]
-
-``shape_name_of`` gives the IRI of the named RDF node a constraint was lowered
-from, when it has one. ``resolve_path`` batch-evaluates a SPARQL 1.1 property
-path from each of ``nodes`` (N-Triples spellings) over the session's evaluation
-graph.
+constraint in the run's catalog, not only a statement's top shape. The returned
+node exposes ``status``, ``evidence_kind``, ``kind``, ``constraint_id``,
+``to_dict()``, and ``to_json()``. No target selection is involved, so a focus
+that no statement selects still yields well-defined evidence. This is the
+drill-down for children a canonical failure elided.
 
 Objects and fields
 ------------------

@@ -16,8 +16,8 @@ a contract that needs repair. :doc:`../how-to/shape-maps` shows it in use.
 .. code-block:: python
 
    shifty.shape_map(
-       shacl_graph,
-       data_graph=None,
+       data_graph,
+       shacl_graph=None,
        *,
        name_path="sh:name",
        value_paths=None,
@@ -29,8 +29,9 @@ a contract that needs repair. :doc:`../how-to/shape-maps` shows it in use.
    ) -> ShapeMap
 
 A convenience over ``EvidenceSession(...).validate()`` followed by
-``ShapeMap.from_run``. Note the argument order: **shapes first**, unlike
-``validate()``.
+``ShapeMap.from_run``. Its graph arguments follow ``validate()`` and
+``validate_algebra()``: data first, then shapes. If ``shacl_graph`` is omitted,
+``data_graph`` supplies both shapes and data.
 
 .. list-table::
    :widths: 22 78

@@ -28,7 +28,7 @@ ex:sat-2 a ex:SupplyAirTemperatureSensor .
 ex:flow-2 a ex:AirFlowSensor .
 """
 
-smap = shifty.shape_map(shapes, data, infer=False)
+smap = shifty.shape_map(data, shapes, infer=False)
 
 for mapping in smap["http://example.org/VavShape"]:
     print(mapping.focus, "conforms:", mapping.conforms)

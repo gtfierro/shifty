@@ -290,7 +290,7 @@ callers aren't hostage to the shapes doc's prefixes.
 **Python:**
 
 ```python
-smap = shifty.shape_map(shapes, data,
+smap = shifty.shape_map(data, shapes,
     name_path="sh:name",
     value_paths={"ts": "ref:hasTimeseriesReference/ref:hasTimeseriesId"})
 

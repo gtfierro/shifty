@@ -1495,7 +1495,7 @@ impl FocusWitness {
 
     fn __repr__(&self) -> String {
         format!(
-            "FocusWitness(focus={:?}, statement={})",
+            "Failure(focus={:?}, statement={})",
             self.focus, self.statement
         )
     }
@@ -1639,7 +1639,7 @@ impl FocusSatisfaction {
 
     fn __repr__(&self) -> String {
         format!(
-            "FocusSatisfaction(focus={:?}, statement={})",
+            "Satisfaction(focus={:?}, statement={})",
             self.focus, self.statement
         )
     }
@@ -2489,20 +2489,20 @@ impl EvidenceSession {
 
     /// Evidence for one focus against any normalized constraint in the run's
     /// catalog, including constraints below a statement's top-level shape.
-    fn evidence_for(&self, py: Python<'_>, focus: &str, constraint_id: u32) -> PyResult<Py<PyAny>> {
-        self.evidence_for_impl(py, focus, constraint_id)
+    fn _evidence_for(&self, focus: &str, constraint_id: u32) -> PyResult<PyEvidenceNode> {
+        self.evidence_for_impl(focus, constraint_id)
     }
 
     #[pyo3(signature = (name_path=None))]
-    fn binding_names(&self, name_path: Option<&str>) -> PyResult<HashMap<u32, Vec<String>>> {
+    fn _binding_names(&self, name_path: Option<&str>) -> PyResult<HashMap<u32, Vec<String>>> {
         self.binding_names_impl(name_path)
     }
 
-    fn shape_name_of(&self, constraint_id: u32) -> Option<String> {
+    fn _shape_name_of(&self, constraint_id: u32) -> Option<String> {
         self.shape_name_of_impl(constraint_id)
     }
 
-    fn resolve_path(
+    fn _resolve_path(
         &self,
         nodes: Vec<String>,
         path: &str,
@@ -2786,12 +2786,7 @@ impl EvidenceSession {
     ///
     /// No target selection is involved: the pair is taken as given, and a focus
     /// no statement selects still yields well-defined evidence.
-    fn evidence_for_impl(
-        &self,
-        py: Python<'_>,
-        focus: &str,
-        constraint_id: u32,
-    ) -> PyResult<Py<PyAny>> {
+    fn evidence_for_impl(&self, focus: &str, constraint_id: u32) -> PyResult<PyEvidenceNode> {
         let term = parse_term(focus).map_err(py_value_error)?;
         let evidence = self
             .prepared
@@ -2801,9 +2796,10 @@ impl EvidenceSession {
                     "constraint id {constraint_id} is not in the normalized schema"
                 ))
             })?;
-        let json = serde_json::to_string(&evidence)
-            .map_err(|error| py_value_error(format!("cannot serialize evidence: {error}")))?;
-        Ok(py.import("json")?.call_method1("loads", (json,))?.unbind())
+        evidence_nodes(&evidence)
+            .into_iter()
+            .next()
+            .ok_or_else(|| py_value_error("constraint evaluation returned no evidence".to_string()))
     }
 
     /// For every *raw* (source) constraint with shapes-graph provenance

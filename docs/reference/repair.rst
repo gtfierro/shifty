@@ -68,6 +68,11 @@ sides is a net add.
 The same objects the :doc:`evidence` interface returns. A ``Failure`` is the
 lossless witness of why a focus violates; a ``Satisfaction`` is why it holds.
 
+``FocusWitness`` and ``FocusSatisfaction``, which were published in 0.3.0, are
+deprecated aliases for these types. Accessing either alias emits
+``DeprecationWarning``; use ``Failure`` and ``Satisfaction`` in new code. The
+aliases will be removed in 1.0.
+
 .. list-table::
    :widths: 30 70
    :header-rows: 1

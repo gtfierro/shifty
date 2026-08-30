@@ -605,7 +605,7 @@ def test_witnesses_for_scopes_failures_to_one_shape():
     }
     ws = s.witnesses_for("http://example.org/PersonShape")
     assert [w.focus for w in ws] == ["<http://example.org/dan>"]
-    # still a total FocusWitness: it synthesizes a repair tree.
+    # still a total Failure: it synthesizes a repair tree.
     assert not ws[0].repair_tree().is_blocked
 
 

@@ -69,7 +69,7 @@ def mapping_for(smap, focus):
 
 
 def test_shape_names_and_grouping():
-    smap = shifty.shape_map(ZONE_SHAPES, ZONE_DATA, infer=False)
+    smap = shifty.shape_map(ZONE_DATA, ZONE_SHAPES, infer=False)
     assert smap.shape_names == ["http://ex/ZoneShape"]
     assert not smap.conforms
     assert len(smap["http://ex/ZoneShape"]) == 2
@@ -79,7 +79,7 @@ def test_shape_names_and_grouping():
 
 
 def test_conforming_focus_binds_every_key():
-    smap = shifty.shape_map(ZONE_SHAPES, ZONE_DATA, infer=False)
+    smap = shifty.shape_map(ZONE_DATA, ZONE_SHAPES, infer=False)
     m = mapping_for(smap, "<http://ex/z1>")
     assert m.conforms
     assert {str(k) for k in m.bindings} == {"hasPoint→TempSensor", "hasPart→Space", "label"}
@@ -95,7 +95,7 @@ def test_conforming_focus_binds_every_key():
 
 
 def test_partial_focus_keeps_passing_bindings_and_exposes_the_gap():
-    smap = shifty.shape_map(ZONE_SHAPES, ZONE_DATA, infer=False)
+    smap = shifty.shape_map(ZONE_DATA, ZONE_SHAPES, infer=False)
     m = mapping_for(smap, "<http://ex/z2>")
     assert not m.conforms
 
@@ -164,7 +164,7 @@ def test_duplicate_paths_disambiguate_by_qualifier_then_ordinal():
     ex:f1 a ex:FlowSensor .
     ex:t1 a ex:TempSensor .
     """
-    smap = shifty.shape_map(shapes, data, infer=False)
+    smap = shifty.shape_map(data, shapes, infer=False)
     (m,) = list(smap)
     assert m.conforms
     assert {str(k) for k in m.bindings} == {
@@ -191,7 +191,7 @@ def test_atomic_statement_yields_single_binding():
     data = PREFIXES + """
     ex:good a ex:T .
     """
-    smap = shifty.shape_map(shapes, data, infer=False)
+    smap = shifty.shape_map(data, shapes, infer=False)
     (m,) = list(smap)
     assert m.conforms
     assert len(m.bindings) == 1
@@ -206,7 +206,7 @@ def test_empty_selection_keeps_shape_with_no_mappings():
     data = PREFIXES + """
     ex:z a ex:Zone ; ex:p ex:v .
     """
-    smap = shifty.shape_map(shapes, data, infer=False)
+    smap = shifty.shape_map(data, shapes, infer=False)
     assert set(smap.shape_names) == {"http://ex/ZoneShape", "http://ex/Unused"}
     assert smap["http://ex/Unused"] == []
 
@@ -214,7 +214,7 @@ def test_empty_selection_keeps_shape_with_no_mappings():
 def test_to_dict_round_trips_to_json():
     import json
 
-    smap = shifty.shape_map(ZONE_SHAPES, ZONE_DATA, infer=False)
+    smap = shifty.shape_map(ZONE_DATA, ZONE_SHAPES, infer=False)
     summary = json.loads(json.dumps(smap.to_dict()))
     zone = summary["shapes"]["http://ex/ZoneShape"]
     by_focus = {entry["focus"]: entry for entry in zone}
@@ -234,8 +234,9 @@ def test_evidence_for_contract():
 
     for child in failing.progress.evaluated_children:
         evidence = session.evidence_for(failing.focus, child.normalized_constraint_ref)
-        assert evidence["status"] == child.status
-        assert "evidence" in evidence
+        assert evidence.status == child.status
+        assert evidence.evidence_kind.status == child.status
+        assert "evidence" in evidence.to_dict()
 
     with pytest.raises(ValueError):
         session.evidence_for(failing.focus, 10_000_000)
@@ -250,7 +251,7 @@ def test_or_statement_stays_whole():
     ex:hasA a ex:T ; ex:a ex:v .
     ex:hasNone a ex:T .
     """
-    smap = shifty.shape_map(shapes, data, infer=False)
+    smap = shifty.shape_map(data, shapes, infer=False)
     good = mapping_for(smap, "<http://ex/hasA>")
     bad = mapping_for(smap, "<http://ex/hasNone>")
     assert good.conforms and not bad.conforms
@@ -394,7 +395,7 @@ ex:t1 a ex:TempSensor .
 
 
 def test_name_path_direct_sh_name():
-    smap = shifty.shape_map(NAME_SHAPES, NAME_DATA, infer=False)
+    smap = shifty.shape_map(NAME_DATA, NAME_SHAPES, infer=False)
     (m,) = list(smap)
     assert m["hasPoint→FlowSensor"].name == "the flow point"
     assert m["hasPoint→FlowSensor"].names == ["the flow point"]
@@ -402,8 +403,8 @@ def test_name_path_direct_sh_name():
 
 def test_name_path_multi_hop():
     smap = shifty.shape_map(
-        NAME_SHAPES,
         NAME_DATA,
+        NAME_SHAPES,
         infer=False,
         name_path="<http://ex/zea#role>/<http://ex/zea#roleName>",
     )
@@ -412,7 +413,7 @@ def test_name_path_multi_hop():
 
 
 def test_name_path_absent_annotation_is_none():
-    smap = shifty.shape_map(NAME_SHAPES, NAME_DATA, infer=False)
+    smap = shifty.shape_map(NAME_DATA, NAME_SHAPES, infer=False)
     (m,) = list(smap)
     binding = m["hasPoint→TempSensor"]
     assert binding.name is None
@@ -420,7 +421,7 @@ def test_name_path_absent_annotation_is_none():
 
 
 def test_by_name_lookup_and_value_map_fallback():
-    smap = shifty.shape_map(NAME_SHAPES, NAME_DATA, infer=False)
+    smap = shifty.shape_map(NAME_DATA, NAME_SHAPES, infer=False)
     (m,) = list(smap)
     assert m.by_name("the flow point") is m["hasPoint→FlowSensor"]
     with pytest.raises(KeyError):
@@ -441,7 +442,7 @@ def test_value_map_python_coercion():
         sh:property [ sh:path ex:label ; sh:minCount 1 ] .
     """
     data = PREFIXES + 'ex:a a ex:T ; ex:n 42 ; ex:label "x" .'
-    smap = shifty.shape_map(shapes, data, infer=False)
+    smap = shifty.shape_map(data, shapes, infer=False)
     (m,) = list(smap)
     projected = m.value_map(python=True)
     n_key = next(k for k in projected if str(k) == "n→integer")
@@ -450,22 +451,28 @@ def test_value_map_python_coercion():
 
 
 def test_name_path_none_skips_resolution():
-    smap = shifty.shape_map(NAME_SHAPES, NAME_DATA, infer=False, name_path=None)
+    smap = shifty.shape_map(NAME_DATA, NAME_SHAPES, infer=False, name_path=None)
     (m,) = list(smap)
     assert m["hasPoint→FlowSensor"].name is None
 
 
-# ── 4. sources provenance via binding_names ──────────────────────────────────────
+def test_shape_map_uses_embedded_shapes_when_second_argument_is_omitted():
+    smap = shifty.shape_map(NAME_SHAPES + NAME_DATA, infer=False)
+    (mapping,) = list(smap)
+    assert mapping.conforms
+
+
+# ── 4. source provenance used by shape-map naming ────────────────────────────────
 
 
 def test_binding_names_resolves_named_and_blank_property_shapes():
     session = shifty.EvidenceSession(NAME_SHAPES, NAME_DATA, infer=False)
-    names = session.binding_names()
+    names = session._inner._binding_names()
     assert "the flow point" in {v for values in names.values() for v in values}
 
     # Deterministic across two parses of the same document.
     session2 = shifty.EvidenceSession(NAME_SHAPES, NAME_DATA, infer=False)
-    names2 = session2.binding_names()
+    names2 = session2._inner._binding_names()
     assert sorted(v for values in names.values() for v in values) == sorted(
         v for values in names2.values() for v in values
     )
@@ -490,7 +497,7 @@ ex:coil1 a ex:HeatingCoil .
 
 
 def test_shape_ref_qualifier_from_qualified_value_shape():
-    smap = shifty.shape_map(SHAPE_REF_SHAPES, SHAPE_REF_DATA, infer=False)
+    smap = shifty.shape_map(SHAPE_REF_DATA, SHAPE_REF_SHAPES, infer=False)
     (m,) = smap["http://ex/ZoneShape"]
     ((key, binding),) = m.successful
     assert key == Key(Pred("http://ex/hasPart"), ShapeRef("http://ex/HeatingCoilShape"))
@@ -504,7 +511,7 @@ def test_shape_ref_qualifier_from_plain_sh_node():
         sh:property [ sh:path ex:hasPart ; sh:node ex:HeatingCoilShape ] .
     ex:HeatingCoilShape a sh:NodeShape ; sh:targetClass ex:HeatingCoil .
     """
-    smap = shifty.shape_map(shapes, SHAPE_REF_DATA, infer=False)
+    smap = shifty.shape_map(SHAPE_REF_DATA, shapes, infer=False)
     (m,) = smap["http://ex/ZoneShape"]
     ((key, binding),) = m.successful
     assert key.qualifier == ShapeRef("http://ex/HeatingCoilShape")
@@ -535,9 +542,9 @@ class _CountingSessionProxy:
         self._raw = raw
         self.resolve_path_calls = 0
 
-    def resolve_path(self, nodes, path):
+    def _resolve_path(self, nodes, path):
         self.resolve_path_calls += 1
-        return self._raw.resolve_path(nodes, path)
+        return self._raw._resolve_path(nodes, path)
 
     def __getattr__(self, name):
         return getattr(self._raw, name)
@@ -573,7 +580,7 @@ def test_value_paths_no_annotation_is_empty_list():
         sh:property [ sh:path ex:hasPoint ; sh:minCount 1 ] .
     """
     data = PREFIXES + "ex:z a ex:Zone ; ex:hasPoint ex:t1 ."
-    smap = shifty.shape_map(shapes, data, infer=False, value_paths={"ts": "ex:hasRef/ex:hasId"})
+    smap = shifty.shape_map(data, shapes, infer=False, value_paths={"ts": "ex:hasRef/ex:hasId"})
     (m,) = list(smap)
     binding = m["hasPoint"]
     (bound,) = binding.annotated_values
@@ -581,7 +588,7 @@ def test_value_paths_no_annotation_is_empty_list():
 
 
 def test_value_paths_absent_is_free():
-    smap = shifty.shape_map(VALUE_PATH_SHAPES, VALUE_PATH_DATA, infer=False)
+    smap = shifty.shape_map(VALUE_PATH_DATA, VALUE_PATH_SHAPES, infer=False)
     (m,) = list(smap)
     binding = m["hasPoint"]
     assert binding.annotations == {}
@@ -597,7 +604,7 @@ def test_cardinality_min_count():
         sh:property [ sh:path ex:p ; sh:minCount 2 ] .
     """
     data = PREFIXES + "ex:a a ex:T ; ex:p ex:v1, ex:v2, ex:v3 ."
-    smap = shifty.shape_map(shapes, data, infer=False)
+    smap = shifty.shape_map(data, shapes, infer=False)
     (m,) = list(smap)
     binding = m["p"]
     assert binding.min == 2
@@ -612,7 +619,7 @@ def test_cardinality_max_count_and_expects_single():
         sh:property [ sh:path ex:p ; sh:minCount 1 ; sh:maxCount 1 ] .
     """
     data = PREFIXES + "ex:a a ex:T ; ex:p ex:v1 ."
-    smap = shifty.shape_map(shapes, data, infer=False)
+    smap = shifty.shape_map(data, shapes, infer=False)
     (m,) = list(smap)
     binding = m["p"]
     assert binding.min == 1
@@ -622,7 +629,7 @@ def test_cardinality_max_count_and_expects_single():
 
 
 def test_cardinality_qualified_count():
-    smap = shifty.shape_map(ZONE_SHAPES, ZONE_DATA, infer=False)
+    smap = shifty.shape_map(ZONE_DATA, ZONE_SHAPES, infer=False)
     m = mapping_for(smap, "<http://ex/z1>")
     binding = m["hasPoint→TempSensor"]
     assert binding.min == 1
@@ -640,7 +647,7 @@ def test_cardinality_collapsed_datatype_plus_min_count():
         sh:property [ sh:path ex:other ; sh:minCount 1 ] .
     """
     data = PREFIXES + 'ex:a a ex:T ; ex:label "hi" ; ex:other ex:v .'
-    smap = shifty.shape_map(shapes, data, infer=False)
+    smap = shifty.shape_map(data, shapes, infer=False)
     (m,) = list(smap)
     binding = m["label→string"]
     # The datatype forall's synthetic `max=0` (from the `∃≤0 π.¬φ` encoding)
@@ -658,7 +665,7 @@ def test_severity_from_sh_severity():
         ] .
     """
     data = PREFIXES + "ex:a a ex:T ."
-    smap = shifty.shape_map(shapes, data, infer=False, minimum_severity="warning")
+    smap = shifty.shape_map(data, shapes, infer=False, minimum_severity="warning")
     (m,) = list(smap)
     binding = m["p"]
     assert binding.severity == "warning"
@@ -671,7 +678,7 @@ def test_severity_defaults_to_violation():
         sh:property [ sh:path ex:p ; sh:minCount 1 ] .
     """
     data = PREFIXES + "ex:a a ex:T ; ex:p ex:v ."
-    smap = shifty.shape_map(shapes, data, infer=False)
+    smap = shifty.shape_map(data, shapes, infer=False)
     (m,) = list(smap)
     assert m["p"].severity == "violation"
 
@@ -689,7 +696,7 @@ def test_for_focus_across_shapes():
     data = PREFIXES + """
     ex:z a ex:Zone, ex:NamedThing ; ex:label "zone" ; ex:name "shared" .
     """
-    smap = shifty.shape_map(shapes, data, infer=False)
+    smap = shifty.shape_map(data, shapes, infer=False)
     mappings = smap.for_focus("<http://ex/z>")
     assert {m.shape_name for m in mappings} == {
         "http://ex/ZoneShape",

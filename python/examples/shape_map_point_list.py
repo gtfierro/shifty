@@ -19,7 +19,7 @@ import shifty
 shape_graph = POINT_LIST_SHAPES.encode()
 data_graph = [BRICK_ONTOLOGY, BRICK_MODEL, DEMO_OVERLAY.encode()]
 
-shape_map = shifty.shape_map(shape_graph, data_graph, graph_mode="union")
+shape_map = shifty.shape_map(data_graph, shape_graph, graph_mode="union")
 
 for mapping in shape_map:
     status = "ok" if mapping.conforms else "incomplete"

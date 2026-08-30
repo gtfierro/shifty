@@ -11,7 +11,7 @@ unbound.
 
 ::
 
-    smap = shifty.shape_map(shapes, data, name_path="sh:name",
+    smap = shifty.shape_map(data, shapes, name_path="sh:name",
                              value_paths={"ts": "ref:hasTimeseriesId"})
     smap.shape_names
     for mapping in smap["urn:zonepac-app/zonepac-zone"]:
@@ -569,9 +569,9 @@ class BoundValue:
 
 
 class _ValueAnnotationResolver:
-    """Batches ``EvidenceSession.resolve_path`` calls across a whole
+    """Batches internal path-resolution calls across a whole
     :class:`ShapeMap`: on first use, collects every bound value term across
-    every mapping and issues one ``resolve_path`` call per label, caching the
+    every mapping and issues one graph traversal per label, caching the
     result. ``value_paths`` is entirely optional; nothing here runs until a
     binding's ``annotations``/``annotated_values`` is actually read."""
 
@@ -592,7 +592,7 @@ class _ValueAnnotationResolver:
         node_list = sorted(nodes)
         cache: "dict[str, dict[str, list[Term]]]" = {}
         for label, path in self._value_paths.items():
-            reached = self._inner.resolve_path(node_list, path) if node_list else {}
+            reached = self._inner._resolve_path(node_list, path) if node_list else {}
             cache[label] = {
                 node: [_term_parse(t) for t in values] for node, values in reached.items()
             }
@@ -951,9 +951,9 @@ class ShapeMap:
         names_table: "dict[int, list[str]]" = {}
         shape_name_of = None
         if inner is not None:
-            shape_name_of = inner.shape_name_of
+            shape_name_of = inner._shape_name_of
             if name_path is not None:
-                names_table = inner.binding_names(name_path)
+                names_table = inner._binding_names(name_path)
 
         mappings: "dict[str, list[Mapping]]" = {}
         all_mappings: "list[Mapping]" = []
@@ -1047,7 +1047,9 @@ def _build_mapping(
             elif inner is not None:
                 focus_term = focus_py.focus
                 ref = normalized_ref
-                resolve = lambda f=focus_term, r=ref: inner.evidence_for(f, r)["evidence"]
+                resolve = lambda f=focus_term, r=ref: inner._evidence_for(f, r).to_dict()[
+                    "evidence"
+                ]
 
         bounds = _collect_bounds(source_catalog, source_id)
         severity = _severity_of(
@@ -1070,8 +1072,8 @@ def _build_mapping(
 
 
 def shape_map(
-    shacl_graph,
-    data_graph=None,
+    data_graph,
+    shacl_graph=None,
     *,
     name_path: Optional[str] = "sh:name",
     value_paths: "Optional[dict[str, str]]" = None,
@@ -1085,14 +1087,16 @@ def shape_map(
 
     A convenience over ``EvidenceSession(...).validate()`` +
     :meth:`ShapeMap.from_run`; accepts the same graph inputs as every other
-    entry point. Keep an :class:`~shifty.EvidenceSession` yourself and call
-    :meth:`ShapeMap.from_run` to reuse the prepared snapshot across calls.
+    one-shot entry point, with data first and shapes second. When
+    ``shacl_graph`` is omitted, ``data_graph`` supplies both roles. Keep an
+    :class:`~shifty.EvidenceSession` yourself and call :meth:`ShapeMap.from_run`
+    to reuse the prepared snapshot across calls.
     """
     from . import EvidenceSession
 
     session = EvidenceSession(
-        shacl_graph,
-        data_graph,
+        shacl_graph if shacl_graph is not None else data_graph,
+        data_graph if shacl_graph is not None else None,
         infer=infer,
         graph_mode=graph_mode,
         base=base,

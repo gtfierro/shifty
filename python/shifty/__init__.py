@@ -21,7 +21,7 @@ Two validation interfaces:
     plus the pairs that failed, and ``explain(pair)`` for evidence about one of
     them. ``revalidate(delta)`` answers ``validate()`` for a proposed edit.
 
-``shape_map(shacl_graph, data_graph, ...)``
+``shape_map(data_graph, shacl_graph=None, ...)``
     One level above the evidence trees: a ShEx-shapemap-style view with one
     :class:`Mapping` per selected ``(shape, focus)`` pair, each a typed
     :class:`Key` -> :class:`Binding` record of the shape's property
@@ -79,6 +79,7 @@ evaluating referenced helper shapes normally.
 from __future__ import annotations
 
 import pathlib
+import warnings
 from typing import TYPE_CHECKING, NamedTuple, Optional, Sequence, Union
 
 from ._shifty import (
@@ -152,6 +153,9 @@ from .terms import BNode, Iri, Literal, Term
 if TYPE_CHECKING:
     import rdflib
 
+    FocusWitness = Failure
+    FocusSatisfaction = Satisfaction
+
 __all__ = [
     "validate",
     "validate_algebra",
@@ -204,6 +208,8 @@ __all__ = [
     "RepairPlan",
     "Failure",
     "Satisfaction",
+    "FocusWitness",
+    "FocusSatisfaction",
     "Target",
     "TargetKind",
     "WitnessAtom",
@@ -220,6 +226,31 @@ __all__ = [
     "RepairOutcome",
     "delta_from_graph",
 ]
+
+_DEPRECATED_TYPE_ALIASES = {
+    "FocusWitness": (Failure, "Failure"),
+    "FocusSatisfaction": (Satisfaction, "Satisfaction"),
+}
+_WARNED_DEPRECATED_TYPE_ALIASES: set[str] = set()
+
+
+def __getattr__(name: str):
+    alias = _DEPRECATED_TYPE_ALIASES.get(name)
+    if alias is None:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    value, replacement = alias
+    if name not in _WARNED_DEPRECATED_TYPE_ALIASES:
+        warnings.warn(
+            f"shifty.{name} is deprecated; use shifty.{replacement}",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        _WARNED_DEPRECATED_TYPE_ALIASES.add(name)
+    return value
+
+
+def __dir__() -> list[str]:
+    return sorted([*globals(), *_DEPRECATED_TYPE_ALIASES])
 
 GraphInput = Union[str, bytes, pathlib.Path, "rdflib.Graph"]
 # Any single `GraphInput`, or a list/tuple of them to be unioned (merged at
@@ -769,7 +800,8 @@ class EvidenceSession:
         once, out of band.
         """
         return self._inner.constraints()
-    def evidence_for(self, focus: str, constraint_id: int) -> dict:
+
+    def evidence_for(self, focus: str, constraint_id: int) -> EvidenceNode:
         """Evidence for *focus* against one *normalized* constraint id — any
         constraint in the run's catalog, not just a statement's top shape.
 
@@ -778,36 +810,13 @@ class EvidenceSession:
         without materializing why. This is the drill-down for those elided
         passes: pass the focus (N-Triples syntax, as
         ``FocusEvaluation.focus`` renders it) and a child's
-        ``normalized_constraint_ref``, and get back the same tagged dict a
-        run's evidence entries use (``{"status": "pass"|"fail", "evidence":
-        {...}}``). No target selection is involved: the pair is taken as
-        given, and a focus no statement selects still yields well-defined
-        evidence.
+        ``normalized_constraint_ref``, and get back the corresponding typed
+        :class:`EvidenceNode`. Its ``status`` and ``evidence_kind`` identify
+        the result; ``to_dict()`` and ``to_json()`` provide serialized forms.
+        No target selection is involved: the pair is taken as given, and a
+        focus no statement selects still yields well-defined evidence.
         """
-        return self._inner.evidence_for(focus, constraint_id)
-
-    def binding_names(self, name_path: Optional[str] = None) -> dict[int, list[str]]:
-        """Map raw (source) constraint id to the values ``name_path`` reaches
-        from that constraint's originating shapes-graph node, evaluated over
-        the shapes graph. ``name_path=None`` means ``sh:name``. Constraints
-        with no source-node provenance, or where ``name_path`` resolves to
-        nothing, are omitted.
-        """
-        return self._inner.binding_names(name_path)
-
-    def shape_name_of(self, constraint_id: int) -> Optional[str]:
-        """The raw schema's shape name for *constraint_id* — the IRI of the
-        named (non-blank) RDF node it was lowered from, when it has one."""
-        return self._inner.shape_name_of(constraint_id)
-
-    def resolve_path(self, nodes: Sequence[str], path: str) -> dict[str, list[str]]:
-        """Batch-evaluate *path* (a SPARQL 1.1 property path) from each of
-        *nodes* (N-Triples spellings) over this session's evaluation graph —
-        the data graph, unioned with the shapes graph to match this
-        session's own ``graph_mode``. Returns each input node's N-Triples
-        spelling mapped to the N-Triples spellings it reaches.
-        """
-        return self._inner.resolve_path(list(nodes), path)
+        return self._inner._evidence_for(focus, constraint_id)
 
 
 class RepairSession:

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.4.0
+
 ### Added
 
 - Added `EvidenceNodeRef::children()`, the common immediate-child relation for
@@ -42,10 +44,9 @@
   `ShapeMap.for_focus()` looks up every mapping for a focus node across
   shapes; `Mapping.value_map()` projects bound keys for application
   configuration. Added `Schema::sources` (`shifty-algebra`) to record the
-  originating shapes-graph node for arena slots lowered from an RDF node, and
-  `EvidenceSession.binding_names()` / `.shape_name_of()` / `.resolve_path()`
-  (Python and the underlying Rust primitives) to support `name_path` and
-  `value_paths`.
+  originating shapes-graph node for arena slots lowered from an RDF node.
+  Shape maps use internal evidence-session operations to support `name_path`
+  and `value_paths` without exposing that plumbing on the public session API.
 - Added `PreparedEvidenceValidator::explain_constraint()`: evidence for one
   focus against any *normalized* constraint id, not just a statement's top
   shape. Exposed in Python as `EvidenceSession.evidence_for()`. This is the
@@ -108,6 +109,13 @@
 - Added `benchmark/bench_evidence.sh`, `benchmark/summarize_evidence.py`, and
   `benchmark/analyze_evidence_size.py` covering evidence latency and size across
   the Brick and 223P corpora.
+
+### Deprecated
+
+- Python `FocusWitness` and `FocusSatisfaction` remain available as
+  warning-producing aliases for `Failure` and `Satisfaction`. The old names
+  were part of the 0.3.0 release and will be removed in 1.0.
+
 ### Fixed
 
 - Fixed scoped on-demand explanation fanning a normalized failure back out to
@@ -137,10 +145,12 @@
 
 ### Changed
 
-- Validation now rejects an explicitly supplied zero-triple shapes graph
-  instead of reporting vacuous conformance. Omitting the Python shapes argument
-  or passing `None` still selects embedded shapes, and inference still accepts
-  an empty rules graph.
+- The Python `shape_map` convenience function now follows the other one-shot
+  operations and takes data first: `shape_map(data_graph, shacl_graph=None)`.
+  Omitting the shapes argument uses one combined graph for both roles.
+- `EvidenceSession.evidence_for` now returns a typed `EvidenceNode` instead
+  of a raw dictionary. Shape-map-only graph traversal and source-provenance
+  helpers are no longer part of the public `EvidenceSession` interface.
 - Conformance-only `validate_conformance` and `find_failures` now take
   `ConformanceOptions`, which exposes only entry-shape selection. The old
   `ValidationOptions` parameter suggested that severity and result sorting were
@@ -151,6 +161,13 @@
 - The C ABI version is now 4. Its surface only grew, but a `SHIFTY_ABI_VERSION`
   of 3 no longer matches: the C++ header checks for equality, so headers and the
   static library must be updated together.
+
+### Breaking
+
+- Validation rejects an explicitly supplied zero-triple shapes graph instead
+  of reporting vacuous conformance. Omit the Python shapes argument or pass
+  `None` to use shapes embedded in the data graph. Inference continues to
+  accept an empty rules graph.
 
 ## 0.3.0
 

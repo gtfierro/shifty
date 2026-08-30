@@ -193,7 +193,7 @@ them, ask the session directly:
 .. code-block:: python
 
    detail = session.evidence_for(focus.focus, child.normalized_constraint_ref)
-   # {"status": "pass", "evidence": {...}}
+   print(detail.status, detail.evidence_kind)
 
 Canonical evidence explains why a result holds. Progress reports the status of
 the immediate authored children. ``evidence_for`` materializes the derivation

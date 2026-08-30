@@ -114,7 +114,7 @@ runs over the graph validation read, so its result differs row by row.
 .. code-block:: python
 
    smap = shifty.shape_map(
-       shapes, data, infer=False,
+       data, shapes, infer=False,
        name_path="sh:name",
        value_paths={"timeseries": "ex:hasReference/ex:hasId"},
    )

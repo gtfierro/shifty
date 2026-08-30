@@ -121,7 +121,7 @@ elided passes, ask the session for it directly:
 .. code-block:: python
 
    detail = session.evidence_for(focus.focus, child.normalized_constraint_ref)
-   # {"status": "pass", "evidence": {...}}
+   print(detail.status, detail.evidence_kind)
 
 ``evidence_for`` takes the pair as given — no target selection happens — so it
 also works for a focus node no statement selects.
