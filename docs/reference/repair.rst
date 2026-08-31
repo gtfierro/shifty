@@ -57,7 +57,8 @@ default. ``data_graph=None`` means the shapes graph embeds the data.
      - A fully expanded, human-readable definition of that shape, every child
        inlined and no ``@id`` indirection.
    * - ``diagnostics``
-     - Warnings from lowering the shapes graph.
+     - Non-fatal lowering warnings and unsupported features. Invalid shapes
+       diagnostics raise while constructing the session.
 
 ``G ⊕ ΔG`` applies **deletes first, then adds**, so a triple present on both
 sides is a net add.

@@ -130,6 +130,11 @@ Python:
 
    conforms, report, text = shifty.validate(data, shapes, on_unsupported="error")
 
+Invalid shapes diagnostics are separate from this policy. A malformed SHACL
+constraint or rule, including malformed SPARQL or an unresolved query prefix,
+is always rejected before validation or inference starts; it is never lowered
+as an absent feature.
+
 The default is ``"ignore"`` for compatibility with existing pipelines, but if
 you are going to act on the result, ``"error"`` is the setting you want: it
 converts an unreliable answer into a visible one.

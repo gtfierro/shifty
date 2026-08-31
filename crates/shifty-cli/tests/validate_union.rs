@@ -43,6 +43,44 @@ fn validation_rejects_empty_shapes() {
 }
 
 #[test]
+fn validation_rejects_invalid_shapes_diagnostics() {
+    let dir =
+        std::env::temp_dir().join(format!("shifty-cli-invalid-shapes-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let shapes = dir.join("shapes.ttl");
+    let data = dir.join("data.ttl");
+    std::fs::write(
+        &shapes,
+        r#"
+            @prefix sh: <http://www.w3.org/ns/shacl#> .
+            @prefix ex: <http://ex/> .
+            ex:S a sh:NodeShape ;
+                sh:targetNode ex:item ;
+                sh:sparql [
+                    sh:select "SELECT $this WHERE { $this missing:p ?value }"
+                ] .
+        "#,
+    )
+    .unwrap();
+    std::fs::write(&data, "@prefix ex: <http://ex/> . ex:item ex:p ex:value .").unwrap();
+
+    let rejected = Command::new(env!("CARGO_BIN_EXE_shifty"))
+        .args([
+            "validate",
+            "--shapes",
+            shapes.to_str().unwrap(),
+            "--data",
+            data.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(!rejected.status.success());
+    assert!(String::from_utf8_lossy(&rejected.stderr).contains("invalid SPARQL query"));
+
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn validation_executes_over_data_and_shapes_union() {
     let dir = std::env::temp_dir().join(format!("shifty-cli-union-class-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();

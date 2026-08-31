@@ -18,6 +18,9 @@ dependencies also use response content type and URL extension hints.
 
 `dataRdf` may be `null`/`""` to treat `shapesRdf` as a single combined
 shapes+data graph (matching the embedded mode of the Python/CLI bindings).
+An invalid shapes graph, including a malformed or unresolved SPARQL prefix,
+rejects the call; it is never treated as though the affected constraint or rule
+were absent. Non-fatal unsupported-feature diagnostics remain on `infer()`.
 
 ### `options`
 

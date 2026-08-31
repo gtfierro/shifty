@@ -192,6 +192,11 @@ answer; ``"error"`` refuses, so the problem surfaces instead of being silently
 absorbed. If you are validating anything you will act on, ``"error"`` is the
 safer default and the one to start with.
 
+Invalid shapes are separate from ``on_unsupported``. A malformed SHACL
+constraint or rule — including malformed SPARQL or an unresolved query prefix
+— raises an error before validation starts. It is never treated as an omitted
+unsupported feature.
+
 See also
 --------
 

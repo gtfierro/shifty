@@ -20,7 +20,7 @@ use sparesults::{QueryResultsFormat, QueryResultsSerializer};
 use spareval::{QueryEvaluator, QueryResults};
 use spargebra::SparqlParser;
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::ffi::{CString, c_char};
 use std::fmt::Write as _;
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -600,19 +600,22 @@ fn parse_file(
     }
 }
 
-fn prepare(loaded: shifty_parse::Loaded) -> ShiftyPreparedValidator {
+fn prepare(loaded: shifty_parse::Loaded) -> Result<ShiftyPreparedValidator, ApiError> {
     let parsed = shifty_parse::parse_loaded(&loaded);
+    parsed
+        .require_valid()
+        .map_err(|error| ApiError::new(ShiftyStatus::ParseError, error.to_string()))?;
     let diagnostics: Vec<String> = parsed.diagnostics.iter().map(ToString::to_string).collect();
     let schema = shifty_opt::normalize(&parsed.schema);
     let plan = shifty_opt::plan(&schema);
-    ShiftyPreparedValidator {
+    Ok(ShiftyPreparedValidator {
         shapes: loaded,
         raw_schema: parsed.schema,
         schema,
         plan,
         diagnostics_json: serde_json::to_string(&diagnostics)
             .expect("serializing strings to JSON cannot fail"),
-    }
+    })
 }
 
 fn validate_dataset(
@@ -856,6 +859,78 @@ impl ShapeMapSession {
         Ok(out)
     }
 
+    /// Recover values for a property constraint that lowered to `Top`.
+    ///
+    /// An unbounded qualified value shape is vacuous for validation but still
+    /// carries useful extraction semantics for a shape map.
+    fn binding_values(
+        &self,
+        focus: &str,
+        constraint_id: u32,
+    ) -> Result<Vec<shapemap::TermInfo>, ApiError> {
+        let focus = parse_term(focus)?;
+        let mut current = ShapeId(constraint_id);
+        let mut seen = HashSet::new();
+        let property = loop {
+            if !seen.insert(current) {
+                return Ok(Vec::new());
+            }
+            if let Some(source) = self.raw_schema.sources.get(&current)
+                && let Some(node) = shifty_parse::graph::term_to_node(source)
+                && self
+                    .shapes
+                    .object(&node, shifty_parse::vocab::SH_PATH)
+                    .is_some()
+            {
+                break node;
+            }
+            match self.raw_schema.arena.get(current) {
+                shifty_algebra::Shape::Annotated { shape, .. } => current = *shape,
+                _ => return Ok(Vec::new()),
+            }
+        };
+
+        let Some(path_term) = self.shapes.object(&property, shifty_parse::vocab::SH_PATH) else {
+            return Ok(Vec::new());
+        };
+        let path = shifty_parse::path::parse_path(&self.shapes, &path_term)
+            .map_err(|error| ApiError::new(ShiftyStatus::InvalidArgument, error))?;
+
+        let qualifying: Vec<ShapeId> = self
+            .shapes
+            .objects(&property, shifty_parse::vocab::SH_QUALIFIED_VALUE_SHAPE)
+            .into_iter()
+            .filter_map(|term| {
+                shifty_parse::graph::term_to_node(&term)?;
+                self.raw_schema
+                    .sources
+                    .iter()
+                    .find_map(|(id, source)| (source == &term).then_some(*id))
+            })
+            .collect();
+
+        let union_graph;
+        let graph: &Graph = match self.graph_mode {
+            ValidationGraphMode::Data => self.prepared.data(),
+            ValidationGraphMode::Union | ValidationGraphMode::UnionAll => {
+                union_graph = graph_union(self.prepared.data(), &self.shapes.graph);
+                &union_graph
+            }
+        };
+        let mut values: Vec<_> = shifty_engine::path::succ(graph, &focus, &path)
+            .into_iter()
+            .filter(|value| {
+                qualifying
+                    .iter()
+                    .all(|shape| self.prepared.raw_constraint_holds(value, *shape) == Some(true))
+            })
+            .map(|value| shapemap::term_from_oxrdf(&value))
+            .collect();
+        values.sort_by_key(shapemap::TermInfo::n3);
+        values.dedup();
+        Ok(values)
+    }
+
     /// The raw schema's shape name for `constraint_id` — the IRI of the named
     /// (non-blank) RDF node it was lowered from, when it has one.
     fn shape_name_of(&self, constraint_id: u32) -> Option<String> {
@@ -935,6 +1010,10 @@ impl ShapeMapSession {
             shape_name_of: &|id| self.shape_name_of(id),
             binding_names: &|name_path| {
                 self.binding_names(name_path).map_err(|error| error.message)
+            },
+            binding_values: &|focus, constraint_id| {
+                self.binding_values(focus, constraint_id)
+                    .map_err(|error| error.message)
             },
             materialize_constraint: &|focus, ref_id| {
                 let term = parse_term(focus).map_err(|error| error.message)?;
@@ -1456,7 +1535,7 @@ pub unsafe extern "C" fn shifty_prepared_validator_create_memory(
         unsafe { out.write(ptr::null_mut()) };
         let data = unsafe { bytes_from_raw(data, len) }?;
         let base = unsafe { optional_str_from_raw(base, base_len, "base IRI") }?;
-        let validator = prepare(parse_bytes(data, format, base)?);
+        let validator = prepare(parse_bytes(data, format, base)?)?;
         unsafe { out.write(Box::into_raw(Box::new(validator))) };
         Ok(())
     })
@@ -1481,7 +1560,7 @@ pub unsafe extern "C" fn shifty_prepared_validator_create_file(
         unsafe { out.write(ptr::null_mut()) };
         let path = unsafe { str_from_raw(path, path_len, "path") }?;
         let base = unsafe { optional_str_from_raw(base, base_len, "base IRI") }?;
-        let validator = prepare(parse_file(path, format, base)?);
+        let validator = prepare(parse_file(path, format, base)?)?;
         unsafe { out.write(Box::into_raw(Box::new(validator))) };
         Ok(())
     })

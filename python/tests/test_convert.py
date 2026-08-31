@@ -16,7 +16,7 @@ import pytest
 import rdflib
 
 import shifty
-from shifty import _to_rdf_input, _to_turtle_bytes
+from shifty import _coalesce_graph_input, _to_rdf_input, _to_turtle_bytes
 
 
 # ── _to_turtle_bytes() tests ─────────────────────────────────────────────────
@@ -42,11 +42,10 @@ class TestToTurtleBytes:
         assert result == original_content.encode("utf-8")
         assert isinstance(result, bytes)
 
-    def test_pathlib_path_file_not_exists(self, tmp_path):
+    def test_missing_rdf_filename_raises_file_not_found(self, tmp_path):
         nonexistent = tmp_path / "nonexistent.ttl"
-        # When path doesn't exist, str path is treated as raw Turtle text
-        result = _to_turtle_bytes(str(nonexistent))
-        assert result == str(nonexistent).encode("utf-8")
+        with pytest.raises(FileNotFoundError):
+            _to_turtle_bytes(str(nonexistent))
 
     def test_string_path_exists(self, tmp_path):
         test_file = tmp_path / "data.ttl"
@@ -56,12 +55,42 @@ class TestToTurtleBytes:
         result = _to_turtle_bytes(str(test_file))
         assert result == original_content.encode("utf-8")
 
+    def test_string_directory_raises_is_a_directory(self, tmp_path):
+        with pytest.raises(IsADirectoryError):
+            _to_turtle_bytes(str(tmp_path))
+
+    def test_coalesced_string_directory_raises_is_a_directory(self, tmp_path):
+        turtle = "<urn:a> <urn:b> <urn:c> ."
+        with pytest.raises(IsADirectoryError):
+            _coalesce_graph_input([turtle, str(tmp_path)])
+
+    def test_coalesced_missing_rdf_filename_raises_file_not_found(self, tmp_path):
+        turtle = "<urn:a> <urn:b> <urn:c> ."
+        with pytest.raises(FileNotFoundError):
+            _coalesce_graph_input([turtle, str(tmp_path / "missing.ttl")])
+
     def test_string_raw_ttl_text(self):
         ttl_text = "@prefix ex: <http://example.org/> . ex:a ex:b ex:c ."
         result = _to_turtle_bytes(ttl_text)
         assert result == ttl_text.encode("utf-8")
         result = _to_turtle_bytes(ttl_text)
         assert result == ttl_text.encode("utf-8")
+
+    def test_long_turtle_string_is_never_probed_as_a_path(self):
+        turtle = "@prefix ex: <http://example.org/> .\n" + "# comment\n" * 500
+        result = _to_rdf_input(turtle)
+        assert result.data == turtle.encode("utf-8")
+        assert result.format == "turtle"
+
+    def test_overlong_single_line_turtle_is_never_probed_as_a_path(self):
+        turtle = '<urn:a> <urn:b> "' + "x" * 4096 + '" .'
+        assert _to_rdf_input(turtle).data == turtle.encode("utf-8")
+
+    def test_short_inline_turtle_survives_an_oserror_from_path_probe(self):
+        turtle = "<urn:a> <urn:b> <urn:c> ."
+        with mock.patch.object(pathlib.Path, "is_file", side_effect=OSError):
+            result = _to_rdf_input(turtle)
+        assert result.data == turtle.encode("utf-8")
 
     def test_string_empty_graph(self):
         assert _to_turtle_bytes("") == b""

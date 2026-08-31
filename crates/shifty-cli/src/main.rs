@@ -277,6 +277,7 @@ fn infer(args: InferArgs) -> Result<(), Box<dyn Error>> {
     let base = args.base.as_deref();
     let shapes = load_sources(&args.shapes, base)?;
     let parsed = shifty_parse::parse_loaded(&shapes);
+    parsed.require_valid()?;
     let normalized = shifty_opt::normalize(&parsed.schema);
     for d in &parsed.diagnostics {
         eprintln!("{d}");
@@ -398,6 +399,7 @@ fn validate(args: ValidateArgs) -> Result<(), Box<dyn Error>> {
         return Err("explicit shapes graph is empty".into());
     }
     let parsed = shifty_parse::parse_loaded(&shapes_loaded);
+    parsed.require_valid()?;
     let normalized = shifty_opt::normalize(&parsed.schema);
     for d in &parsed.diagnostics {
         eprintln!("{d}");
@@ -574,6 +576,7 @@ fn repair(args: RepairArgs) -> Result<(), Box<dyn Error>> {
     let base = args.base.as_deref();
     let shapes_loaded = load_sources(&args.shapes, base)?;
     let parsed = shifty_parse::parse_loaded(&shapes_loaded);
+    parsed.require_valid()?;
     for d in &parsed.diagnostics {
         eprintln!("{d}");
     }

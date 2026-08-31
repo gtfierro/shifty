@@ -91,6 +91,11 @@ analysis for a shapes file:
 
    shifty inspect --stage strata rules.ttl
 
+Likewise, malformed shapes (including malformed SPARQL or an unresolved query
+prefix) raise an error before inference starts. A malformed rule is never
+silently skipped; non-fatal unsupported features remain available through the
+result's ``diagnostics``.
+
 ``sh:order`` and ``sh:condition`` on a rule are honoured within this scheme.
 
 Note that ``infer()`` takes no ``graph_mode``. Graph modes describe what

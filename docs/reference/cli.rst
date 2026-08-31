@@ -36,6 +36,11 @@ serve as both. When both are given, the schema is compiled **only** from
 
 ``--base`` sets the base IRI used while parsing relative IRIs.
 
+Invalid shapes diagnostics, such as malformed SPARQL or an unresolved query
+prefix, make ``validate``, ``infer``, and ``repair`` exit with an error. They
+are not treated as unsupported features and cannot silently remove a constraint
+or rule. ``inspect`` remains diagnostic-oriented and shows lowering output.
+
 ``shifty validate``
 -------------------
 

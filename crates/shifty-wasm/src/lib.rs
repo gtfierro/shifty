@@ -177,6 +177,8 @@ pub fn version() -> String {
 /// shapes+data graph. `options.shapeNames` limits validation to those named
 /// shapes as top-level entry points while referenced helper shapes are still
 /// evaluated normally; `options.entryShapeNames` is accepted as an alias.
+/// Invalid shapes diagnostics reject the call instead of omitting a malformed
+/// constraint or rule.
 #[wasm_bindgen(js_name = validate)]
 pub fn validate(
     shapes_ttl: &str,
@@ -188,8 +190,7 @@ pub fn validate(
     let mode = opts.graph_mode()?;
 
     let shapes = load(shapes_ttl, "shapes")?;
-    let parsed = shifty_parse::parse_loaded(&shapes);
-    let schema = shifty_opt::normalize(&parsed.schema);
+    let schema = parse_shapes(&shapes).map_err(|error| JsError::new(&error))?;
 
     let outcome = match data_text(&data_ttl) {
         Some(data_ttl) => {
@@ -223,7 +224,8 @@ pub fn validate(
 ///
 /// `options.shapeNames` limits validation to those named shapes as top-level
 /// entry points while referenced helper shapes are still evaluated normally;
-/// `options.entryShapeNames` is accepted as an alias.
+/// `options.entryShapeNames` is accepted as an alias. Invalid shapes
+/// diagnostics reject the call instead of producing a partial report.
 #[wasm_bindgen(js_name = validateW3c)]
 pub fn validate_w3c(
     shapes_ttl: &str,
@@ -235,8 +237,7 @@ pub fn validate_w3c(
     let mode = opts.graph_mode()?;
 
     let shapes = load(shapes_ttl, "shapes")?;
-    let parsed = shifty_parse::parse_loaded(&shapes);
-    let schema = shifty_opt::normalize(&parsed.schema);
+    let schema = parse_shapes(&shapes).map_err(|error| JsError::new(&error))?;
 
     let report = match data_text(&data_ttl) {
         Some(data_ttl) => {
@@ -263,11 +264,11 @@ pub fn validate_w3c(
 
 /// Run SHACL-AF rule inference and return the resulting graph as N-Triples,
 /// plus the number of newly inferred triples: `{ inferredCount, graphNtriples }`.
+/// Invalid shapes diagnostics reject the call instead of dropping a rule.
 #[wasm_bindgen(js_name = infer)]
 pub fn infer_js(shapes_ttl: &str, data_ttl: Option<String>) -> Result<JsValue, JsError> {
     let shapes = load(shapes_ttl, "shapes")?;
-    let parsed = shifty_parse::parse_loaded(&shapes);
-    let schema = shifty_opt::normalize(&parsed.schema);
+    let schema = parse_shapes(&shapes).map_err(|error| JsError::new(&error))?;
 
     let outcome: InferenceOutcome = match data_text(&data_ttl) {
         Some(data_ttl) => {
@@ -328,6 +329,12 @@ fn data_text(data_ttl: &Option<String>) -> Option<&str> {
 fn load(ttl: &str, label: &str) -> Result<Loaded, JsError> {
     shifty_parse::load_rdf_auto(ttl.as_bytes(), None, None, None)
         .map_err(|e| JsError::new(&format!("failed to parse {label} graph: {e}")))
+}
+
+fn parse_shapes(shapes: &Loaded) -> Result<Schema, String> {
+    let parsed = shifty_parse::parse_loaded(shapes);
+    parsed.require_valid().map_err(|error| error.to_string())?;
+    Ok(shifty_opt::normalize(&parsed.schema))
 }
 
 fn maybe_infer(graph: &Graph, schema: &Schema, run_infer: bool) -> Result<Option<Graph>, JsError> {
@@ -546,4 +553,26 @@ fn local_name(iri: &str) -> &str {
         .or_else(|| iri.rsplit_once('/'))
         .map(|(_, local)| local)
         .unwrap_or(iri)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn invalid_shapes_diagnostics_reject_wasm_entry_points() {
+        let shapes = load(
+            r#"
+                @prefix sh: <http://www.w3.org/ns/shacl#> .
+                @prefix ex: <http://ex/> .
+                ex:S a sh:NodeShape ;
+                    sh:sparql [
+                        sh:select "SELECT $this WHERE { $this missing:p ?value }"
+                    ] .
+            "#,
+            "shapes",
+        )
+        .unwrap();
+        assert!(parse_shapes(&shapes).is_err());
+    }
 }

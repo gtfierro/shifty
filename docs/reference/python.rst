@@ -31,9 +31,13 @@ Every entry point accepts the same input type, written ``GraphInput`` below:
 A ``list`` or ``tuple`` of these is merged at the triple level first.
 
 ``pathlib.Path`` is the fastest file form, because the file never crosses the
-Python/Rust boundary as text. HTTP(S) URLs are fetched once and passed as
-bytes. ``rdflib.Graph`` inputs are transferred as N-Triples, avoiding rdflib's
-slower Turtle serializer. URL formats are inferred from the response content
+Python/Rust boundary as text. Existing string paths use the same behavior: a
+directory raises ``IsADirectoryError``, and a missing RDF-looking filename
+such as ``shapes.ttl`` raises ``FileNotFoundError``. Long or multiline strings
+are Turtle and are never probed as paths. This policy applies to every list or
+tuple member. HTTP(S) URLs are fetched once and passed as bytes. ``rdflib.Graph``
+inputs are serialized as Turtle so namespace bindings required by SHACL-SPARQL
+queries and rules survive. URL formats are inferred from the response content
 type or the final URL suffix; Turtle is the fallback.
 
 .. note::
@@ -242,7 +246,7 @@ Runs SHACL-AF ``sh:rule`` entries to a fixed point. Note it takes no
    result = shifty.infer(data, rules)
 
    result.inferred_count      # number of newly derived triples
-   result.diagnostics         # warnings raised while lowering
+   result.diagnostics         # non-fatal lowering warnings / unsupported features
    result.graph_ntriples      # original + inferred, as N-Triples text
    result.graph()             # the same, as an rdflib.Graph
 
@@ -262,7 +266,7 @@ An explicitly empty shapes graph raises ``ValueError``.
 .. code-block:: python
 
    validator = shifty.PreparedValidator(shapes)
-   validator.diagnostics                       # lowering warnings
+   validator.diagnostics                       # non-fatal lowering diagnostics
 
    conforms, report, text = validator.validate(data)
    result = validator.validate_algebra(data, infer=False)
@@ -347,6 +351,8 @@ Diagnostics
 -----------
 
 ``PreparedValidator``, ``EvidenceSession``, ``RepairSession``, and
-``InferResult`` all expose ``.diagnostics``: warnings raised while lowering the
-shapes graph. Constructs that were not understood show up here, and it is worth
-checking once when a constraint seems to be doing nothing.
+``InferResult`` all expose ``.diagnostics`` for **non-fatal** lowering warnings
+and unsupported features. Invalid shapes diagnostics — for example, a malformed
+SPARQL query or an unresolved query prefix — raise ``ValueError`` while the
+operation is prepared. They never leave an API call running with that
+constraint or rule omitted.

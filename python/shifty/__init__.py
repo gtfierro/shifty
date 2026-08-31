@@ -50,9 +50,10 @@ All three functions accept any of:
 * :class:`rdflib.Graph`       — serialized to Turtle, preserving namespace
                                 bindings used by SHACL-SPARQL queries and rules
 * :class:`pathlib.Path`       — parsed directly as Turtle or N-Triples
-* ``str``                     — treated as a file path if the path exists, an
-                                HTTP(S) URL if it has that scheme, otherwise
-                                as raw Turtle text
+* ``str``                     — treated as an existing file path, an HTTP(S)
+                                URL, or raw Turtle text. A missing recognized
+                                RDF filename raises :class:`FileNotFoundError`;
+                                a directory raises :class:`IsADirectoryError`.
 * ``bytes``                   — raw Turtle bytes passed directly to the parser
 
 A ``list`` or ``tuple`` of any of the above is also accepted for every
@@ -269,6 +270,15 @@ class _RdfInput(NamedTuple):
     format: str
 
 
+# Strings are intentionally dual-purpose: an existing path is read from disk;
+# everything else is Turtle text. Only these suffixes make a missing string
+# unambiguously look like an RDF filename rather than inline RDF.
+_RDF_FILE_SUFFIXES = frozenset(
+    {".ttl", ".nt", ".ntriples", ".n3", ".rdf", ".xml", ".jsonld", ".trig"}
+)
+_MAX_PATH_LENGTH = 4096
+
+
 def _path_format(path: pathlib.Path) -> str:
     return "nt" if path.suffix.lower() in {".nt", ".ntriples"} else "turtle"
 
@@ -288,6 +298,11 @@ def _is_http_url(value: str) -> bool:
     return parsed.scheme in {"http", "https"} and bool(parsed.netloc)
 
 
+def _might_be_path(value: str) -> bool:
+    """Whether *value* is nonempty, short, single-line text worth probing as a path."""
+    return bool(value) and "\n" not in value and len(value) < _MAX_PATH_LENGTH
+
+
 def _fetch_url(url: str) -> _RdfInput:
     try:
         with urllib.request.urlopen(url, timeout=30) as response:
@@ -300,7 +315,13 @@ def _fetch_url(url: str) -> _RdfInput:
 
 
 def _to_rdf_input(graph: GraphInput) -> _RdfInput:
-    """Convert a public graph input into the native binding's input descriptor."""
+    """Convert one public graph input into the native binding's descriptor.
+
+    Strings have one deliberate policy: HTTP(S) URLs are fetched, short
+    single-line strings may name local files, and all other strings are Turtle.
+    Missing RDF-looking filenames and directories report filesystem errors;
+    long or multiline Turtle is never probed as a path.
+    """
     if isinstance(graph, bytes):
         return _RdfInput(graph, None, "turtle")
     if isinstance(graph, pathlib.Path):
@@ -310,11 +331,20 @@ def _to_rdf_input(graph: GraphInput) -> _RdfInput:
             raise IsADirectoryError(graph)
         return _RdfInput(None, str(graph), _path_format(graph))
     if isinstance(graph, str):
-        path = pathlib.Path(graph)
-        if path.is_file():
-            return _RdfInput(None, str(path), _path_format(path))
         if _is_http_url(graph):
             return _fetch_url(graph)
+        if _might_be_path(graph):
+            path = pathlib.Path(graph)
+            try:
+                is_file = path.is_file()
+            except OSError:
+                is_file = False
+            if is_file:
+                return _RdfInput(None, str(path), _path_format(path))
+            if path.is_dir():
+                raise IsADirectoryError(graph)
+            if path.suffix.lower() in _RDF_FILE_SUFFIXES:
+                raise FileNotFoundError(graph)
         return _RdfInput(graph.encode("utf-8"), None, "turtle")
     serialize = getattr(graph, "serialize", None)
     if serialize is not None:
@@ -346,7 +376,9 @@ def _as_rdflib_graph(graph: GraphInput) -> "rdflib.Graph":
     """Materialize a single graph input as a fresh :class:`rdflib.Graph`.
 
     Used by :func:`_coalesce_graph_input` to union several inputs. The caller's
-    :class:`rdflib.Graph` is copied rather than mutated."""
+    :class:`rdflib.Graph` is copied rather than mutated; every other input is
+    first classified by :func:`_to_rdf_input`, keeping list members consistent
+    with a single graph argument."""
     import rdflib
 
     if isinstance(graph, rdflib.Graph):
@@ -356,34 +388,14 @@ def _as_rdflib_graph(graph: GraphInput) -> "rdflib.Graph":
         for triple in graph:
             merged.add(triple)
         return merged
-    if isinstance(graph, bytes):
-        g = rdflib.Graph()
-        g.parse(data=graph, format="turtle")
-        return g
-    if isinstance(graph, pathlib.Path):
-        g = rdflib.Graph()
-        g.parse(source=str(graph), format=_path_format(graph))
-        return g
-    if isinstance(graph, str):
-        path = pathlib.Path(graph)
-        if path.is_file():
-            g = rdflib.Graph()
-            g.parse(source=graph, format=_path_format(path))
-            return g
-        if _is_http_url(graph):
-            source = _fetch_url(graph)
-            assert source.data is not None
-            g = rdflib.Graph()
-            g.parse(data=source.data, format=source.format)
-            return g
-        g = rdflib.Graph()
-        g.parse(data=graph, format="turtle")
-        return g
-    raise TypeError(
-        f"Cannot convert {type(graph).__name__!r} to RDF data. "
-        "Expected rdflib.Graph, pathlib.Path, str (path, HTTP(S) URL, or Turtle), "
-        "or bytes."
-    )
+    source = _to_rdf_input(graph)
+    g = rdflib.Graph()
+    if source.path is not None:
+        g.parse(source=source.path, format=source.format)
+    else:
+        assert source.data is not None
+        g.parse(data=source.data, format=source.format)
+    return g
 
 
 def _coalesce_graph_input(graph: "GraphInputs") -> GraphInput:
@@ -425,7 +437,11 @@ class InferResult:
 
     @property
     def diagnostics(self) -> list[str]:
-        """Warnings about unsupported rule features."""
+        """Non-fatal lowering warnings and unsupported rule features.
+
+        Invalid shapes diagnostics raise during construction instead of
+        producing an inference result.
+        """
         return self._inner.diagnostics
 
     @property
@@ -459,7 +475,10 @@ class PreparedValidator:
 
     @property
     def diagnostics(self) -> list[str]:
-        """Warnings produced while lowering the shapes graph."""
+        """Non-fatal diagnostics produced while lowering the shapes graph.
+
+        Invalid shapes diagnostics raise while preparing the validator.
+        """
         return self._inner.diagnostics
 
     def validate(
@@ -744,6 +763,10 @@ class EvidenceSession:
 
     @property
     def diagnostics(self) -> list[str]:
+        """Non-fatal lowering warnings and unsupported features.
+
+        Invalid shapes diagnostics raise while constructing the session.
+        """
         return self._inner.diagnostics
 
     def validate(
@@ -945,7 +968,10 @@ class RepairSession:
 
     @property
     def diagnostics(self) -> list[str]:
-        """Warnings produced while lowering the shapes graph."""
+        """Non-fatal lowering warnings and unsupported features.
+
+        Invalid shapes diagnostics raise while constructing the session.
+        """
         return self._inner.diagnostics
 
     def witnesses(self) -> list[Failure]:

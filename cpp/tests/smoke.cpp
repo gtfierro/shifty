@@ -65,6 +65,25 @@ int main() {
     shifty::PreparedValidator validator(shapes);
     assert(validator.diagnostics_json() == "[]");
 
+    // Invalid lowering diagnostics are parse errors, not a partial schema that
+    // validation may silently treat as conforming.
+    bool invalid_shapes_rejected = false;
+    try {
+        shifty::PreparedValidator invalid(R"(
+            @prefix sh: <http://www.w3.org/ns/shacl#> .
+            @prefix ex: <http://example.com/> .
+            ex:Invalid a sh:NodeShape ;
+                sh:sparql [
+                    sh:select "SELECT $this WHERE { $this missing:p ?value }"
+                ] .
+        )");
+    } catch (const shifty::Error &error) {
+        invalid_shapes_rejected = true;
+        assert(error.status() == SHIFTY_STATUS_PARSE_ERROR);
+        assert(std::string(error.what()).find("invalid SPARQL query") != std::string::npos);
+    }
+    assert(invalid_shapes_rejected);
+
     const auto validation = validator.validate(dataset);
     assert(!validation.conforms());
     assert(validation.report_turtle().find("ValidationReport") != std::string::npos);
@@ -274,6 +293,13 @@ int main() {
                 sh:qualifiedValueShape [ sh:class brick:Position_Command ] ;
                 sh:qualifiedMinCount 1
             ] .
+        demo:OptionalShape a sh:NodeShape ;
+            sh:targetClass brick:Optional_Host ;
+            sh:property [
+                sh:path brick:hasPoint ;
+                sh:name "optional point" ;
+                sh:qualifiedValueShape [ sh:class brick:Zone_Air_Temperature_Sensor ]
+            ] .
     )";
     constexpr std::string_view smap_data = R"(
         @prefix brick: <https://brickschema.org/schema/Brick#> .
@@ -289,6 +315,9 @@ int main() {
         demo:coil a brick:Heating_Coil ;
             brick:hasPoint demo:cmd .
         demo:cmd a brick:Position_Command .
+        demo:optional_host a brick:Optional_Host ;
+            brick:hasPoint demo:optional_sensor .
+        demo:optional_sensor a brick:Zone_Air_Temperature_Sensor .
     )";
 
     shifty::Dataset smap_dataset;
@@ -301,12 +330,13 @@ int main() {
     smap_options.shape_names = {
         "urn:shifty-smoke/ZoneShape",
         "urn:shifty-smoke/VavShape",
+        "urn:shifty-smoke/OptionalShape",
     };
     const auto smap = smap_validator.shape_map(smap_dataset, smap_options);
 
     assert(smap.conforms());
-    assert(smap.total_mappings() == 2);  // zone1 + vav1
-    assert(smap.shape_names().size() == 2);
+    assert(smap.total_mappings() == 3);  // zone1 + vav1 + optional_host
+    assert(smap.shape_names().size() == 3);
 
     const auto &zone_mappings =
         smap.mappings("urn:shifty-smoke/ZoneShape");
@@ -355,6 +385,18 @@ int main() {
     assert(space_binding.key().path().has_value());
     assert(space_binding.key().path()->str(false) ==
            "<https://brickschema.org/schema/Brick#hasPart>");
+
+    // A singleton optional qualified slot still carries its sh:name and
+    // extracts its qualifying values after validation normalizes it to Top.
+    const auto &optional_mappings =
+        smap.mappings("urn:shifty-smoke/OptionalShape");
+    assert(optional_mappings.size() == 1);
+    const auto &optional = optional_mappings.front();
+    const auto &optional_point = optional.by_name("optional point");
+    assert(optional_point.ok());
+    assert(optional_point.values().size() == 1);
+    assert(optional_point.values().front().value() ==
+           "urn:shifty-smoke/optional_sensor");
 
     // The vav mapping: a ShapeRef qualifier (sh:node demo:heating-coil).
     const auto &vav_mappings =

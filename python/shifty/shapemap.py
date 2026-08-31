@@ -1137,8 +1137,8 @@ def shape_map(
     to reuse the prepared snapshot across calls.
 
     ``name_path`` is evaluated from each authored property shape. Its default,
-    ``"sh:name"``, also works when ``shacl_graph`` is an ``rdflib.Graph``
-    whose namespace declarations were lost during serialization. Optional
+    ``"sh:name"``, remains available even when the shapes input has no prefix
+    declarations. Optional
     ``sh:qualifiedValueShape`` slots remain extractable: ``Binding.values``
     contains the values satisfying the qualified shape even though the
     unbounded validation constraint normalizes to ``Top``.

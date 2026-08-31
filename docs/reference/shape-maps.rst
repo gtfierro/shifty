@@ -43,8 +43,8 @@ A convenience over ``EvidenceSession(...).validate()`` followed by
      - Property path naming the *slot*, evaluated from the authored
        property-shape node over the **shapes** graph. Constant per property
        shape. ``None`` skips slot naming. The standard ``sh:`` prefix remains
-       available for the default ``"sh:name"`` when an ``rdflib.Graph`` input
-       has no serialized prefix declarations.
+       available for the default ``"sh:name"`` even when the shapes input has
+       no prefix declarations.
    * - ``value_paths``
      - ``{label: path}`` annotating each *bound value*, evaluated from the
        value node over the graph validation read. Varies per row. Resolved

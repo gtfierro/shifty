@@ -269,8 +269,8 @@ fn resolve_prefixed_name(token: &str, prefixes: &[(String, String)]) -> Result<N
         .split_once(':')
         .expect("PrefixedName tokens always contain ':'");
     // `sh:` is part of the public shape-map API: its default `name_path` is
-    // `sh:name`. Graph inputs may be serialized as N-Triples by host
-    // bindings, where document prefix declarations no longer exist.
+    // `sh:name`. Shapes may be supplied without prefix declarations (for
+    // example, as N-Triples), where the public default must still resolve.
     let namespace = prefixes
         .iter()
         .find(|(p, _)| p == prefix)

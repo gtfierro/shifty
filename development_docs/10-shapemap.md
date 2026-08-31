@@ -286,12 +286,12 @@ validation but erases its witness path. Shape-map extraction treats that as a
 special case: recover the authored property source, evaluate its `sh:path` on
 the validation graph, and filter candidates by directly evaluating each raw
 qualified value shape. This must remain lazy and session-dependent, just like
-materializing an elided passing sibling.
+materializing an elided passing sibling in Python. The C++ projection is eager,
+but must use the same authored-source recovery before discarding its session.
 
 `name_path="sh:name"` is a public default, so `sh:` is a built-in fallback in
 the SPARQL-property-path parser. Explicit document bindings still take
-precedence; the fallback only covers inputs such as `rdflib.Graph` that lose
-their namespace declarations when serialized to N-Triples.
+precedence; the fallback covers prefix-free shapes inputs such as N-Triples.
 
 ## 8. `value_paths` (data-graph value annotations)
 

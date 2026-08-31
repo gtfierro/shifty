@@ -57,6 +57,10 @@ repeatedly, or pass several documents where a single graph is accepted.
 ---------------------
 
 Parses and normalizes shapes once and validates any dataset against them.
+Invalid shapes diagnostics, including malformed SPARQL or unresolved query
+prefixes, raise ``shifty::Error`` with ``SHIFTY_STATUS_PARSE_ERROR`` while a
+validator is constructed. ``diagnostics_json()`` therefore contains only
+non-fatal warnings and unsupported-feature diagnostics.
 
 .. list-table::
    :widths: 30 70
@@ -94,7 +98,9 @@ selected ``(shape, focus)`` pair it
 produces a ``Mapping`` of the shape's property obligations: bound keys carry the
 values the data supplied as typed ``Term``\ s (exact even on
 partially-conforming foci), unbound keys carry the shortfall count and
-near-misses.
+near-misses. A one-property node shape retains that property's ``name_path``
+value, and an unbounded ``sh:qualifiedValueShape`` still exposes the values
+that satisfy its qualifier.
 
 .. code-block:: cpp
 

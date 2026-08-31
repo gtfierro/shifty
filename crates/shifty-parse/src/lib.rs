@@ -25,6 +25,31 @@ pub struct ParseOutput {
     pub diagnostics: Vec<Diagnostic>,
 }
 
+impl ParseOutput {
+    /// Reject a shapes graph whose lowering reported an error.
+    ///
+    /// Unsupported features remain a caller policy choice, but an invalid
+    /// constraint or rule must not be normalized away and treated as absent.
+    pub fn require_valid(&self) -> Result<(), ParseError> {
+        let errors: Vec<_> = self
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.level == DiagLevel::Error)
+            .collect();
+        if errors.is_empty() {
+            return Ok(());
+        }
+        Err(ParseError(format!(
+            "invalid shapes graph: {}",
+            errors
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+                .join("; ")
+        )))
+    }
+}
+
 /// Load a Turtle shapes graph (for inspecting the raw RDF stage).
 pub fn load_turtle(data: &[u8], base: Option<&str>) -> Result<Loaded, ParseError> {
     Loaded::from_turtle(data, base)
@@ -102,6 +127,21 @@ mod tests {
         assert!(text.contains("^<http://ex/child>"), "text:\n{text}");
         // datatype facet present
         assert!(text.contains("datatype(xsd:string)"), "text:\n{text}");
+    }
+
+    #[test]
+    fn invalid_lowering_diagnostics_are_fatal() {
+        let shapes = br#"
+            @prefix sh: <http://www.w3.org/ns/shacl#> .
+            @prefix ex: <http://ex/> .
+            ex:S a sh:NodeShape ;
+                sh:sparql [
+                    sh:select "SELECT $this WHERE { $this missing:p ?value }"
+                ] .
+        "#;
+        let out = parse_turtle(shapes, None).unwrap();
+        let error = out.require_valid().unwrap_err();
+        assert!(error.to_string().contains("invalid SPARQL query"));
     }
 
     #[test]

@@ -52,8 +52,10 @@ Guiding principles:
   `Lt`/`Le` (**O1**), `LangIn`/`UniqueLang` (**L1**).
 - Parse AF rules + node expressions (**AF-R/AF-E**); mark SPARQL/JS leaves opaque
   (**AF-C/AF-T/AF-CC/AF-F**) with diagnostics, never silent.
-- **Deliverable:** shapes-graph → `Schema`; diagnostics for unsupported; golden
-  round-trip tests on hand-written shapes covering each gap-analysis row.
+- **Deliverable:** shapes-graph → `Schema`; diagnostics for unsupported; error
+  diagnostics are fatal at public validation/inference/preparation boundaries,
+  so malformed constraints never become absent; golden round-trip tests on
+  hand-written shapes covering each gap-analysis row.
 
 ## Layer 3 — Reference semantics & conformance oracle  (`shifty-algebra` + `shifty-engine`)
 

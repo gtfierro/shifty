@@ -268,6 +268,8 @@ ShiftyStringView shifty_algebra_reason_severity(
  * `value_paths` is an array of (label, path) pairs; each path is evaluated
  * from each bound value over the evaluation graph to annotate it. Pass
  * NULL with length 0 for none.
+ * Singleton property slots retain their `name_path` result, and an optional
+ * qualified property still exposes the values satisfying its qualifier.
  *
  * All ShiftyStringView / ShiftyTerm values handed out by the accessors below
  * point into the returned handle and stay valid until shifty_shape_map_destroy.

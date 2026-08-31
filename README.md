@@ -68,6 +68,11 @@ Partially supported features are handled per an `on_unsupported` setting
 - `"error"` — fail loudly: the unsupported construct is refused so the failure
   surfaces (e.g. as a constraint error) instead of a silent wrong answer.
 
+Malformed shapes are separate from `on_unsupported`: invalid lowering
+diagnostics, including malformed SPARQL or an unresolved query prefix, always
+raise an error before validation or inference. They never remove a constraint
+or rule from the schema.
+
 ```python
 conforms, report, text = shifty.validate(data, shapes, on_unsupported="error")
 ```
@@ -296,7 +301,7 @@ conforms, report_graph, results_text = shifty.validate(data, shapes)
 # results_text → human-readable summary
 ```
 
-Graph inputs can be a string (Turtle text, local path, or HTTP(S) URL), `bytes`, `pathlib.Path`, or `rdflib.Graph`. HTTP(S) URLs are fetched once; their format is inferred from the response content type or URL suffix. If `shacl_graph` is omitted or passed as `None`, shapes are expected to be embedded in the data graph. An explicitly supplied zero-triple shapes graph raises `ValueError`.
+Graph inputs can be a string (Turtle text, local path, or HTTP(S) URL), `bytes`, `pathlib.Path`, or `rdflib.Graph`. Existing string paths are read from disk; a directory raises `IsADirectoryError`, and a missing RDF-looking filename such as `shapes.ttl` raises `FileNotFoundError`. Long or multiline strings are Turtle and are never probed as paths. The same policy applies to each list/tuple member. HTTP(S) URLs are fetched once; their format is inferred from the response content type or URL suffix. If `shacl_graph` is omitted or passed as `None`, shapes are expected to be embedded in the data graph. An explicitly supplied zero-triple shapes graph raises `ValueError`.
 
 To validate a shapes graph against itself, pass it once. The embedded path
 parses and plans one graph without constructing separate data and shapes
@@ -315,9 +320,9 @@ result = validator.validate_algebra(data, infer=False)
 conforms, report_graph, results_text = validator.validate(data)
 ```
 
-`pathlib.Path` inputs are parsed directly by Rust. `rdflib.Graph` inputs use
-N-Triples for the Python-to-Rust transfer to avoid rdflib's slower Turtle
-serializer.
+`pathlib.Path` inputs are parsed directly by Rust. `rdflib.Graph` inputs are
+serialized as Turtle so namespace bindings required by SHACL-SPARQL queries
+and rules are preserved.
 
 ### Validate with structured result
 

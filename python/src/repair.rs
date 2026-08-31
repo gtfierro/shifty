@@ -8,9 +8,9 @@
 //! shipped here — the driver is yours to write in Python.
 
 use crate::{
-    Constraint, ConstraintKind, InputSpec, Violation, check_error_diagnostics,
-    constraint_kind_to_py, constraint_to_py, graph_to_ntriples, parse_minimum_severity, parse_mode,
-    py_value_error, term_text, violation_to_py,
+    Constraint, ConstraintKind, InputSpec, Violation, constraint_kind_to_py, constraint_to_py,
+    graph_to_ntriples, parse_minimum_severity, parse_mode, py_value_error, term_text,
+    violation_to_py,
 };
 use oxrdf::{Graph, Term};
 use pyo3::prelude::*;
@@ -787,7 +787,9 @@ impl RepairSession {
         py.allow_threads(move || {
             let shapes_loaded = shapes_spec.load(base.as_deref())?;
             let parse_out = shifty_parse::parse_loaded(&shapes_loaded);
-            check_error_diagnostics(&parse_out.diagnostics)?;
+            parse_out
+                .require_valid()
+                .map_err(|error| error.to_string())?;
             let diagnostics = parse_out
                 .diagnostics
                 .iter()
@@ -2262,7 +2264,9 @@ impl EvidenceSession {
         let mode = parse_mode(graph_mode).map_err(py_value_error)?;
         let shapes_loaded = shapes_spec.load(base.as_deref()).map_err(py_value_error)?;
         let parsed = shifty_parse::parse_loaded(&shapes_loaded);
-        check_error_diagnostics(&parsed.diagnostics).map_err(py_value_error)?;
+        parsed
+            .require_valid()
+            .map_err(|error| py_value_error(error.to_string()))?;
         let diagnostics = parsed.diagnostics.iter().map(ToString::to_string).collect();
         let raw_schema = parsed.schema;
         let data_loaded = data_spec

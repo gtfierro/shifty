@@ -23,6 +23,16 @@
   declarations survive; malformed or unresolved query prefixes now raise an
   invalid-shapes-graph error instead of silently dropping the constraint or
   rule.
+- Fixed ambiguous string graph inputs. Long or multiline Turtle is no longer
+  probed as a filesystem path, and a missing filename with a recognized RDF
+  suffix now raises `FileNotFoundError` instead of a misleading Turtle syntax
+  error.
+- Made the same string-input policy apply to every list/tuple member, including
+  directories, missing RDF filenames, URLs, and inline Turtle.
+- Made invalid shapes-graph diagnostics fatal in the Python, CLI, C++, and
+  WASM APIs; malformed SPARQL can no longer be lowered as an absent constraint.
+- Brought C++ shape maps in line with Python for singleton-property names and
+  optional qualified-slot value extraction.
 
 ## 0.4.0
 

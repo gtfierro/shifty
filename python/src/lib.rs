@@ -633,16 +633,22 @@ pub(crate) fn py_value_error(message: String) -> PyErr {
 /// Parse, normalize, and plan a shapes graph; return (Loaded, Schema, PhysicalPlan, diagnostics).
 fn prepare_loaded_shapes(
     loaded: shifty_parse::Loaded,
-) -> (
-    shifty_parse::Loaded,
-    shifty_algebra::Schema,
-    shifty_opt::PhysicalPlan,
-    Vec<shifty_parse::Diagnostic>,
-) {
+) -> Result<
+    (
+        shifty_parse::Loaded,
+        shifty_algebra::Schema,
+        shifty_opt::PhysicalPlan,
+        Vec<shifty_parse::Diagnostic>,
+    ),
+    String,
+> {
     let parse_out = shifty_parse::parse_loaded(&loaded);
+    parse_out
+        .require_valid()
+        .map_err(|error| error.to_string())?;
     let schema = shifty_opt::normalize(&parse_out.schema);
     let plan = shifty_opt::plan(&schema);
-    (loaded, schema, plan, parse_out.diagnostics)
+    Ok((loaded, schema, plan, parse_out.diagnostics))
 }
 
 /// Optionally run SHACL-AF inference; returns the graph to validate against.
@@ -1113,7 +1119,9 @@ fn load_validation_inputs(
     let shapes_loaded = shapes.map(|spec| spec.load(base)).transpose()?;
     let shapes_ref = shapes_loaded.as_ref().unwrap_or(&data_loaded);
     let parse_out = shifty_parse::parse_loaded(shapes_ref);
-    check_error_diagnostics(&parse_out.diagnostics)?;
+    parse_out
+        .require_valid()
+        .map_err(|error| error.to_string())?;
     let schema = shifty_opt::normalize(&parse_out.schema);
     let plan = shifty_opt::plan(&schema);
     Ok((
@@ -1160,31 +1168,6 @@ fn check_unsupported_diagnostics(
         .join("; ");
     Err(format!(
         "unsupported features with on_unsupported='error': {msgs}"
-    ))
-}
-
-/// Parse errors are never safe to ignore: lowering a malformed constraint or
-/// rule would otherwise turn it into an absent constraint and can produce a
-/// false conformance result. Unsupported-feature handling remains controlled
-/// by `on_unsupported`; this check covers diagnostics the lowerer classified
-/// as invalid input.
-pub(crate) fn check_error_diagnostics(
-    diagnostics: &[shifty_parse::Diagnostic],
-) -> Result<(), String> {
-    let errors: Vec<_> = diagnostics
-        .iter()
-        .filter(|d| d.level == shifty_parse::DiagLevel::Error)
-        .collect();
-    if errors.is_empty() {
-        return Ok(());
-    }
-    Err(format!(
-        "invalid shapes graph: {}",
-        errors
-            .iter()
-            .map(|d| d.to_string())
-            .collect::<Vec<_>>()
-            .join("; ")
     ))
 }
 
@@ -1431,8 +1414,7 @@ impl PreparedValidator {
             move || {
                 let loaded = input.load(base.as_deref())?;
                 check_explicit_shapes_not_empty(Some(&loaded))?;
-                let (shapes, schema, plan, diagnostics) = prepare_loaded_shapes(loaded);
-                check_error_diagnostics(&diagnostics)?;
+                let (shapes, schema, plan, diagnostics) = prepare_loaded_shapes(loaded)?;
                 Ok(Self {
                     shapes,
                     schema,

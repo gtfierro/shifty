@@ -773,6 +773,7 @@ fn irrefutable_node() -> Value {
 
 /// The session-backed pieces the builder cannot derive from the run alone.
 type BindingNamesFn<'a> = dyn Fn(Option<&str>) -> Result<HashMap<u32, Vec<String>>, String> + 'a;
+type BindingValuesFn<'a> = dyn Fn(&str, u32) -> Result<Vec<TermInfo>, String> + 'a;
 type MaterializeConstraintFn<'a> = dyn Fn(&str, u32) -> Result<Option<Value>, String> + 'a;
 type ResolvePathFn<'a> =
     dyn Fn(&[String], &str) -> Result<HashMap<String, Vec<String>>, String> + 'a;
@@ -782,6 +783,8 @@ pub struct ShapeMapBuildInputs<'a> {
     pub shape_name_of: &'a dyn Fn(u32) -> Option<String>,
     /// `name_path` -> constraint id -> reached names over the shapes graph.
     pub binding_names: &'a BindingNamesFn<'a>,
+    /// Values for an authored property constraint normalized away as `Top`.
+    pub binding_values: &'a BindingValuesFn<'a>,
     /// Materialize evidence for one `(focus, normalized constraint)` pair;
     /// returns the satisfaction trace as JSON (`None` when the constraint is
     /// not a normalized arena id).
@@ -1019,8 +1022,14 @@ fn build_mapping(
         };
 
         let (min, max) = collect_bounds(source_catalog, Some(source_id));
-        let names = names_table.get(&source_id).cloned().unwrap_or_default();
-        let values = top_values(owned_subtree.as_ref());
+        let names = binding_names(source_catalog, names_table, source_id);
+        let values = if status == "pass"
+            && source_catalog.logical(Some(source_id)) == Some(&Value::String("Top".to_string()))
+        {
+            (inputs.binding_values)(&focus_meta.focus, source_id)?
+        } else {
+            top_values(owned_subtree.as_ref())
+        };
         let missing = if status == "fail" {
             missing_count(owned_subtree.as_ref())
         } else {
@@ -1059,6 +1068,34 @@ fn build_mapping(
         conforms,
         bindings,
     })
+}
+
+/// Names from a property's own source node, following transparent authored
+/// wrappers left when a singleton conjunction is normalized away.
+fn binding_names(
+    catalog: &Catalog,
+    names_table: &HashMap<u32, Vec<String>>,
+    source_id: u32,
+) -> Vec<String> {
+    let mut current = Some(source_id);
+    let mut seen = HashSet::new();
+    while let Some(id) = current {
+        if !seen.insert(id) {
+            break;
+        }
+        if let Some(names) = names_table.get(&id)
+            && !names.is_empty()
+        {
+            return names.clone();
+        }
+        current = catalog
+            .get(Some(id))
+            .and_then(|constraint| constraint.get("Annotated"))
+            .and_then(|annotated| annotated.get("shape"))
+            .and_then(Value::as_u64)
+            .map(|id| id as u32);
+    }
+    Vec::new()
 }
 
 /// One batched `resolve_path` call per label, over every distinct bound value
@@ -1170,7 +1207,7 @@ fn parse_n3_term(text: &str) -> TermInfo {
     }
 }
 
-fn term_from_oxrdf(term: &oxrdf::Term) -> TermInfo {
+pub(crate) fn term_from_oxrdf(term: &oxrdf::Term) -> TermInfo {
     match term {
         oxrdf::Term::NamedNode(node) => TermInfo {
             kind: TermKind::Iri,

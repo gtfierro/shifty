@@ -865,11 +865,13 @@ struct ShapeMapOptions {
 
     /// A SPARQL 1.1 property path evaluated from each property shape's own
     /// node over the shapes graph to carry the author's name for a slot.
-    /// Defaults to `sh:name`; set to empty to skip name resolution.
+    /// Defaults to `sh:name`; set to empty to skip name resolution. A
+    /// singleton property slot retains this name after normalization.
     std::string name_path = "sh:name";
 
     /// `label -> path` pairs evaluated from each bound value over the data
-    /// graph, annotating it (`Binding::annotated_values()`).
+    /// graph, annotating it (`Binding::annotated_values()`). An optional
+    /// qualified property still contributes its qualifying bound values.
     std::vector<std::pair<std::string, std::string>> value_paths;
 };
 
@@ -1646,7 +1648,10 @@ public:
     PreparedValidator &operator=(PreparedValidator &&) noexcept = default;
     ~PreparedValidator() = default;
 
-    /// Returns parser/lowering diagnostics encoded as a JSON string array.
+    /// Returns non-fatal parser/lowering diagnostics as a JSON string array.
+    ///
+    /// Invalid shapes diagnostics fail construction with ``Error`` instead of
+    /// creating a validator that might omit a malformed constraint.
     [[nodiscard]] std::string diagnostics_json() const {
         return detail::copy(
             shifty_prepared_validator_diagnostics_json(handle_.get()));
