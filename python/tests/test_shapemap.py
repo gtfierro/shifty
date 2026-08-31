@@ -731,6 +731,98 @@ def test_cardinality_collapsed_datatype_plus_min_count():
     assert binding.observed == 1
 
 
+@pytest.mark.parametrize(
+    ("constraint", "good_value", "bad_value", "key"),
+    [
+        ("sh:datatype xsd:string", '"good"', "3", "label→string"),
+        ("sh:class ex:Wanted", "ex:good", "ex:bad", "label→Wanted"),
+    ],
+)
+def test_lone_typed_property_with_min_count_is_one_named_binding(
+    constraint, good_value, bad_value, key
+):
+    shapes = PREFIXES + f"""
+    ex:S a sh:NodeShape ; sh:targetClass ex:T ;
+        sh:property [ sh:name "label" ; sh:path ex:label ;
+            {constraint} ; sh:minCount 1 ] .
+    """
+    good_extra = "ex:good a ex:Wanted ." if "class" in constraint else ""
+    bad_extra = "ex:bad a ex:Other ." if "class" in constraint else ""
+
+    good = shifty.shape_map(
+        PREFIXES + f"ex:a a ex:T ; ex:label {good_value} . {good_extra}",
+        shapes,
+        infer=False,
+    )
+    (mapping,) = list(good)
+    assert list(map(str, mapping.bindings)) == [key]
+    binding = mapping[key]
+    assert binding.name == "label"
+    assert binding.values == [
+        Iri("http://ex/good") if "class" in constraint else Literal("good")
+    ]
+
+    bad = shifty.shape_map(
+        PREFIXES + f"ex:a a ex:T ; ex:label {bad_value} . {bad_extra}",
+        shapes,
+        infer=False,
+    )
+    (mapping,) = list(bad)
+    binding = mapping[key]
+    assert not binding.ok
+    assert binding.values == []
+    assert binding.rejected_values == [
+        Iri("http://ex/bad")
+        if "class" in constraint
+        else Literal("3", "http://www.w3.org/2001/XMLSchema#integer")
+    ]
+
+
+def test_lone_qualified_property_with_unqualified_min_keeps_only_qualified_values():
+    shapes = PREFIXES + """
+    ex:S a sh:NodeShape ; sh:targetClass ex:T ;
+        sh:property [ sh:name "point" ; sh:path ex:p ;
+            sh:qualifiedValueShape [ sh:class ex:V ] ;
+            sh:qualifiedMinCount 1 ; sh:minCount 2 ] .
+    """
+    data = PREFIXES + """
+    ex:a a ex:T ; ex:p ex:v, ex:other .
+    ex:v a ex:V .
+    ex:other a ex:Other .
+    """
+    (mapping,) = list(shifty.shape_map(data, shapes, infer=False))
+    binding = mapping["p→V"]
+    assert binding.name == "point"
+    assert binding.values == [Iri("http://ex/v")]
+    assert binding.min == 2
+
+
+def test_lone_typed_property_with_max_count_keeps_cardinality_values():
+    shapes = PREFIXES + """
+    ex:S a sh:NodeShape ; sh:targetClass ex:T ;
+        sh:property [ sh:name "label" ; sh:path ex:label ;
+            sh:datatype xsd:string ; sh:maxCount 1 ] .
+    """
+    data = PREFIXES + 'ex:a a ex:T ; ex:label "one", "two" .'
+    (mapping,) = list(shifty.shape_map(data, shapes, infer=False))
+    binding = mapping["label→string"]
+    assert not binding.ok
+    assert binding.values == [Literal("one"), Literal("two")]
+    assert binding.rejected_values == []
+
+
+def test_from_run_without_session_keeps_lone_property_boundary():
+    shapes = PREFIXES + """
+    ex:S a sh:NodeShape ; sh:targetClass ex:T ;
+        sh:property [ sh:path ex:label ; sh:datatype xsd:string ; sh:minCount 1 ] .
+    """
+    data = PREFIXES + 'ex:a a ex:T ; ex:label "good" .'
+    run = shifty.EvidenceSession(shapes, data, infer=False).validate()
+    (mapping,) = list(shifty.ShapeMap.from_run(run))
+    assert list(map(str, mapping.bindings)) == ["label→string"]
+    assert mapping["label→string"].values == [Literal("good")]
+
+
 def test_severity_from_sh_severity():
     shapes = PREFIXES + """
     ex:S a sh:NodeShape ; sh:targetClass ex:T ;

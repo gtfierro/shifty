@@ -426,6 +426,26 @@ def _collect_bounds(catalog: _Catalog, constraint_id: Optional[int]):
     return None, None
 
 
+def _has_universal_value_constraint(catalog: _Catalog, constraint_id: Optional[int]) -> bool:
+    """Whether this property contains a lowered ``forall path . value-check``.
+
+    Such checks are represented as ``Count(max=0, Not(...))``. A CountHigh
+    witness then means the path value was rejected by the value check, not that
+    it successfully bound this property slot.
+    """
+    constraint = catalog.logical(constraint_id)
+    if isinstance(constraint, dict) and "Count" in constraint:
+        count = constraint["Count"]
+        qualifier = catalog.get(count.get("qualifier"))
+        return count.get("max") == 0 and isinstance(qualifier, dict) and "Not" in qualifier
+    if isinstance(constraint, dict) and "And" in constraint:
+        return any(
+            _has_universal_value_constraint(catalog, child)
+            for child in constraint["And"]
+        )
+    return False
+
+
 def _severity_of(
     normalized_catalog: _Catalog,
     normalized_ref: Optional[int],
@@ -470,7 +490,9 @@ def _direct_children(node: dict) -> list[dict]:
     return []
 
 
-def _top_values(node: Optional[dict]) -> "list[Term]":
+def _top_values(
+    node: Optional[dict], *, rejected_count_high: bool = False
+) -> "list[Term]":
     """The values bound at the *top level* of an evidence subtree: what the
     property's own path matched, without descending into nested qualifier
     checks (whose matches are class/type terms, not bindings)."""
@@ -484,10 +506,16 @@ def _top_values(node: Optional[dict]) -> "list[Term]":
         found = [_term_from_json(v[0]) for v in d.get("values", [])]
     elif kind == "count_low":
         found = [_term_from_json(m["value"]) for m in d.get("qualifying_matches", [])]
-    elif kind == "count_high":
+    elif kind == "count_high" and not (
+        rejected_count_high and d.get("max") == 0
+    ):
         found = [_term_from_json(m[0]) for m in d.get("matched", [])]
     elif kind in _TRANSPARENT:
-        found = [v for child in _direct_children(node) for v in _top_values(child)]
+        found = [
+            v
+            for child in _direct_children(node)
+            for v in _top_values(child, rejected_count_high=rejected_count_high)
+        ]
     else:
         found = []
     out: "list[Term]" = []
@@ -528,13 +556,26 @@ def _observed_count(node: Optional[dict]) -> Optional[int]:
     return None
 
 
-def _rejected_values(node: Optional[dict]) -> "list[Term]":
+def _rejected_values(
+    node: Optional[dict], *, rejected_count_high: bool = False
+) -> "list[Term]":
     out: "list[Term]" = []
     for n in _top_counts(node):
         for rc in _details(n).get("rejected_candidates", []):
             term = _term_from_json(rc["value"])
             if term not in out:
                 out.append(term)
+        # `forall path . constraint` lowers to `Count(max=0, Not(constraint))`.
+        # Its CountHigh witness carries per-value failures, so these are
+        # rejected candidates, not values accepted by the property binding.
+        if n.get("type") == "count_high" and (
+            (rejected_count_high and _details(n).get("max") == 0)
+            or _details(n).get("per_value")
+        ):
+            for value in _details(n).get("excess_values", []):
+                term = _term_from_json(value[0])
+                if term not in out:
+                    out.append(term)
     return out
 
 
@@ -628,6 +669,7 @@ class Binding:
         bounds: "tuple[Optional[int], Optional[int]]",
         severity: str,
         names: "Optional[list[str]]",
+        rejected_count_high: bool = False,
     ) -> None:
         self.key = key
         self.status = status
@@ -637,6 +679,7 @@ class Binding:
         self.qualifier = key.qualifier
         self.severity = severity
         self.names = names
+        self._rejected_count_high = rejected_count_high
         self._evidence = evidence
         self._resolve = resolve
         self._resolve_values = resolve_values
@@ -678,7 +721,11 @@ class Binding:
                 self._resolve_values = None
             else:
                 evidence = self.evidence
-                self._values = _top_values(evidence) if evidence is not None else None
+                self._values = (
+                    _top_values(evidence, rejected_count_high=self._rejected_count_high)
+                    if evidence is not None
+                    else None
+                )
         return self._values
 
     @property
@@ -689,7 +736,13 @@ class Binding:
     @property
     def rejected_values(self) -> "list[Term]":
         """Near-miss candidates the path reached but the qualifier rejected."""
-        return _rejected_values(self._evidence) if not self.ok else []
+        return (
+            _rejected_values(
+                self._evidence, rejected_count_high=self._rejected_count_high
+            )
+            if not self.ok
+            else []
+        )
 
     @property
     def missing(self) -> int:
@@ -959,10 +1012,14 @@ class ShapeMap:
 
         names_table: "dict[int, list[str]]" = {}
         shape_name_of = None
+        source_owners: "dict[int, int]" = {}
         if inner is not None:
             shape_name_of = inner._shape_name_of
+            source_owners = inner._binding_source_ids()
             if name_path is not None:
                 names_table = inner._binding_names(name_path)
+        else:
+            source_owners = run._binding_source_ids()
 
         mappings: "dict[str, list[Mapping]]" = {}
         all_mappings: "list[Mapping]" = []
@@ -983,6 +1040,7 @@ class ShapeMap:
                     inner,
                     names_table,
                     shape_name_of,
+                    source_owners,
                 )
                 group.append(mapping)
                 all_mappings.append(mapping)
@@ -1006,6 +1064,7 @@ def _build_mapping(
     inner,
     names_table: "dict[int, list[str]]",
     shape_name_of: "Optional[Callable[[int], Optional[str]]]",
+    source_owners: "dict[int, int]",
 ) -> Mapping:
     conforms = focus["evidence"]["status"] == "pass"
     root = focus["evidence"]["evidence"]
@@ -1041,9 +1100,31 @@ def _build_mapping(
             )
         )
 
+    # A single source property shape may lower to several sibling constraints.
+    # If its enclosing NodeShape has only that property, lowering elides the
+    # property's wrapper and progress exposes those siblings directly. Group
+    # them back under their shared authored property source.
+    groups: "dict[int, list[tuple[_KeyInfo, str, int, Optional[int], Optional[dict]]]]" = {}
+    group_order: "list[int]" = []
+    for entry in entries:
+        owner = source_owners.get(entry[2], entry[2])
+        if owner not in groups:
+            groups[owner] = []
+            group_order.append(owner)
+        groups[owner].append(entry)
+
     bindings: "dict[Key, Binding]" = {}
     ordinals: "dict[tuple, int]" = {}
-    for info, status, source_id, normalized_ref, subtree in entries:
+    for owner in group_order:
+        group = groups[owner]
+        info, status, source_id, normalized_ref, subtree = group[0]
+        if len(group) > 1:
+            source_id = owner
+            info = _derive_key_info(source_catalog, shape_name_of, source_id)
+            status = "fail" if any(entry[1] == "fail" for entry in group) else "pass"
+            # Shared ownership only arises after the property's own wrapper
+            # was elided, making this root its complete combined evidence.
+            subtree = root
         dedup_key = (info.path, info.qualifier, info.kind)
         ordinals[dedup_key] = ordinals.get(dedup_key, 0) + 1
         key = Key(info.path, info.qualifier, ordinal=ordinals[dedup_key], kind=info.kind)
@@ -1084,8 +1165,8 @@ def _build_mapping(
         resolve_values = None
         if (
             inner is not None
-            and source_catalog.logical(source_id) == "Top"
             and status == "pass"
+            and source_owners.get(source_id) == source_id
         ):
             focus_term = focus_py.focus
             resolve_values = lambda f=focus_term, s=source_id: [
@@ -1103,6 +1184,7 @@ def _build_mapping(
             bounds,
             severity,
             names,
+            _has_universal_value_constraint(source_catalog, source_id),
         )
 
     return Mapping(

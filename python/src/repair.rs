@@ -15,7 +15,7 @@ use crate::{
 use oxrdf::{Graph, Term};
 use pyo3::prelude::*;
 use pyo3::pybacked::PyBackedBytes;
-use shifty_algebra::{Schema, Selector, ShapeArena, ShapeId};
+use shifty_algebra::{Schema, Selector, Shape, ShapeArena, ShapeId};
 use shifty_engine::{
     ConformanceOptions, Evidence as IrEvidence, EvidenceKind as IrEvidenceKind,
     EvidenceOrigin as IrEvidenceOrigin, FocusSat as IrSat, FocusWitness as IrFocus,
@@ -1959,6 +1959,10 @@ pub struct EvidenceValidationOutcome {
     /// Every shape the schema names, so an IRI that names no shape at all can be
     /// told apart from one this run simply has no statements for.
     known_shapes: HashSet<String>,
+    /// Lowered raw constraint id → authored property-shape source id. Kept on
+    /// the run so `ShapeMap.from_run(run)` preserves property boundaries even
+    /// when the originating EvidenceSession is not supplied.
+    source_owners: HashMap<u32, u32>,
     json: String,
 }
 
@@ -1995,6 +1999,10 @@ impl EvidenceValidationOutcome {
 
 #[pymethods]
 impl EvidenceValidationOutcome {
+    fn _binding_source_ids(&self) -> HashMap<u32, u32> {
+        self.source_owners.clone()
+    }
+
     #[getter]
     fn statements(&self, py: Python<'_>) -> Vec<Py<PyStatementEvaluation>> {
         self.statements
@@ -2504,6 +2512,10 @@ impl EvidenceSession {
         self.binding_names_impl(name_path)
     }
 
+    fn _binding_source_ids(&self) -> HashMap<u32, u32> {
+        self.binding_source_ids_impl()
+    }
+
     fn _binding_values(&self, focus: &str, constraint_id: u32) -> PyResult<Vec<String>> {
         self.binding_values_impl(focus, constraint_id)
     }
@@ -2777,6 +2789,7 @@ impl EvidenceSession {
             shape_index,
             covered_shapes,
             known_shapes,
+            source_owners: self.binding_source_ids_impl(),
             json,
         })
     }
@@ -2812,10 +2825,57 @@ impl EvidenceSession {
             .ok_or_else(|| py_value_error("constraint evaluation returned no evidence".to_string()))
     }
 
-    /// For every *raw* (source) constraint with shapes-graph provenance
-    /// (`Schema::sources` — every node shape, `sh:property` shape, and
-    /// `sh:qualifiedValueShape`/`sh:node` target lowering populates), the
-    /// values `name_path` reaches from that constraint's originating node,
+    /// The authored property-shape owner for each raw constraint nested in
+    /// that property shape. Lowering expands one property shape into several
+    /// internal constraints (for example a universal datatype check plus a
+    /// `minCount`); this table restores that boundary for shape-map consumers.
+    fn binding_source_ids_impl(&self) -> HashMap<u32, u32> {
+        let property_sources: Vec<ShapeId> = self
+            .raw_schema
+            .sources
+            .iter()
+            .filter_map(|(id, source)| {
+                shifty_parse::graph::term_to_node(source)
+                    .filter(|node| {
+                        self.shapes
+                            .object(node, shifty_parse::vocab::SH_PATH)
+                            .is_some()
+                    })
+                    .map(|_| *id)
+            })
+            .collect();
+        let source_ids: HashSet<ShapeId> = self.raw_schema.sources.keys().copied().collect();
+        let mut owners = HashMap::new();
+
+        for owner in property_sources {
+            let mut pending = vec![owner];
+            let mut seen = HashSet::new();
+            while let Some(id) = pending.pop() {
+                if !seen.insert(id) {
+                    continue;
+                }
+                // A nested authored shape starts a distinct binding. Do not
+                // let its internals become siblings of the enclosing property.
+                if id != owner && source_ids.contains(&id) {
+                    continue;
+                }
+                owners.entry(id.0).or_insert(owner.0);
+                match self.raw_schema.arena.get(id) {
+                    Shape::Annotated { shape, .. } | Shape::Not(shape) => pending.push(*shape),
+                    Shape::And(children) | Shape::Or(children) => {
+                        pending.extend(children.iter().copied())
+                    }
+                    Shape::Count { qualifier, .. } => pending.push(*qualifier),
+                    _ => {}
+                }
+            }
+        }
+        owners
+    }
+
+    /// For every *raw* (source) constraint with shapes-graph provenance, and
+    /// every lowered child of an authored property shape, the values
+    /// `name_path` reaches from that originating property/source node,
     /// evaluated over the shapes graph. `name_path=None` means `sh:name`.
     /// Constraints with no source-node provenance, or where `name_path`
     /// resolves to nothing, are omitted. Literal values render as their bare
@@ -2825,7 +2885,12 @@ impl EvidenceSession {
         let path = shifty_parse::parse_property_path(expr, &self.shapes)
             .map_err(|e| py_value_error(format!("invalid name_path: {e}")))?;
         let mut out = HashMap::new();
-        for (id, source) in &self.raw_schema.sources {
+        let owners = self.binding_source_ids_impl();
+        for id in 0..self.raw_schema.arena.len() as u32 {
+            let owner = ShapeId(*owners.get(&id).unwrap_or(&id));
+            let Some(source) = self.raw_schema.sources.get(&owner) else {
+                continue;
+            };
             let mut matches: Vec<String> =
                 shifty_engine::path::succ(&self.shapes.graph, source, &path)
                     .into_iter()
@@ -2835,7 +2900,7 @@ impl EvidenceSession {
                 continue;
             }
             matches.sort();
-            out.insert(id.0, matches);
+            out.insert(id, matches);
         }
         Ok(out)
     }
@@ -2908,7 +2973,10 @@ impl EvidenceSession {
                     .iter()
                     .all(|shape| self.prepared.raw_constraint_holds(value, *shape) == Some(true))
             })
-            .map(|value| term_text(&value))
+            // Shape-map values are parsed back into typed Python terms, so
+            // retain the full N-Triples spelling rather than the display form
+            // `term_text` uses for plain literals.
+            .map(|value| value.to_string())
             .collect();
         values.sort();
         values.dedup();
