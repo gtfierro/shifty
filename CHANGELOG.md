@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+## 0.4.2
+
+### Fixed
+
+- Fixed Python shape-map projection for a lone property shape that combines
+  `sh:class` or `sh:datatype` with cardinality. It now emits one named binding,
+  places conforming values on that binding, and reports type-rejected values in
+  `rejected_values`.
+- Preserved authored property boundaries in `ShapeMap.from_run(run)` without an
+  accompanying session, and corrected mixed qualified/unqualified-count value
+  projection and recovered literal rendering.
+
 ## 0.4.1
 
 ### Fixed
