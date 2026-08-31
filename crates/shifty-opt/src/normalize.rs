@@ -10,6 +10,16 @@
 //! All rewrites are per-node truth-functional, hence sound under the gfp
 //! validation semantics; the W3C harness cross-checks `validate(normalize(S))
 //! ≡ validate(S)` on every core test.
+//!
+//! Normalization is one demand-driven rebuild, not a sequence of mutable
+//! whole-arena passes. `Interner::intern` either canonicalizes an acyclic body
+//! through `cons` or reserves a destination slot for a recursive SCC before it
+//! visits children. The same mechanism therefore supplies CSE, orphan removal,
+//! and recursion safety.
+//!
+//! The returned maps are part of this module's contract: execution uses the
+//! compact schema, while evidence uses the maps to recover every contributing
+//! source statement and constraint without reverse-engineering CSE decisions.
 
 use crate::strata::analyze;
 use shifty_algebra::{
@@ -174,13 +184,21 @@ fn tighter_upper(a: Option<u64>, b: Option<u64>) -> Option<u64> {
 struct Interner<'a> {
     src: &'a ShapeArena,
     dst: ShapeArena,
-    /// src id → dst id
+    /// Source id → its normalized representative. This map is both the CSE
+    /// provenance map returned to evidence callers and the recursion guard:
+    /// writing a reserved destination id before rebuilding a cyclic source
+    /// node closes the graph edge without recursive expansion.
     memo: HashMap<ShapeId, ShapeId>,
-    /// canonical dst node → its id (hash-consing)
+    /// Canonical destination node → id (hash-consing). This is intentionally
+    /// separate from `memo`: two *different* source nodes may become one
+    /// normalized node, but a source node is always mapped exactly once.
     cons: HashMap<Shape, ShapeId>,
-    /// src ids inside a recursive SCC (rebuilt, not CSE'd/collapsed)
+    /// Source ids inside a recursive SCC. They are rebuilt, but never collapsed
+    /// through `cons`: collapsing a cycle based on an unfinished body can alter
+    /// the graph that defines its fixpoint.
     cyclic: HashSet<ShapeId>,
-    /// dst ids that are recursive; NNF must not push negation into these
+    /// Destination ids that are recursive; NNF must not push negation into
+    /// these because doing so would require unfolding the cycle.
     cyclic_dst: HashSet<ShapeId>,
 }
 
@@ -234,6 +252,9 @@ impl<'a> Interner<'a> {
             return d;
         }
         if self.cyclic.contains(&id) {
+            // Publish the identity before following children. Any back-edge
+            // now returns this slot, then `set` completes it after the finite
+            // rebuild. This is the arena equivalent of tying a lazy knot.
             let d = self.dst.reserve();
             self.memo.insert(id, d);
             self.cyclic_dst.insert(d);
@@ -309,6 +330,12 @@ impl<'a> Interner<'a> {
 
     /// Light rebuild for a node inside a recursive SCC: intern children and keep
     /// the variant (dedup `And`/`Or` members) but never collapse.
+    ///
+    /// This deliberately leaves some local simplifications on the table. The
+    /// normalization boundary promises an equivalent *recursive graph*, not
+    /// only an equivalent snapshot of its current syntax; preserving the SCC
+    /// makes that promise simple to audit and keeps fixpoint semantics local to
+    /// the evaluator.
     fn rebuild_cyclic(&mut self, id: ShapeId) -> Shape {
         match self.src.get(id).clone() {
             Shape::Annotated {

@@ -1,10 +1,29 @@
 //! Lower a loaded shapes graph into the formalism [`Schema`].
 //!
+//! This is the semantic boundary of the implementation. Above it, SHACL is an
+//! RDF graph: the meaning of one shape may be spread across many triples and
+//! RDF lists, and references may form cycles. Below it, every later phase sees
+//! a small graph of focus-node predicates. Keeping that translation here makes
+//! the evaluator, normalizer, planner, and evidence system independent of the
+//! accidental layout of the source graph.
+//!
 //! Every SHACL Core construct collapses into the small IR, applying the sugar
 //! rules from the gap analysis (`class → path`, `minCount/maxCount → Count`,
 //! per-value constraints wrapped in `∀π = ∃≤0 π.¬φ`, `xone → ∧∨¬`, …). Each
 //! shape lowers to a **focus-node predicate** `φ`, so `sh:property`/`sh:node`
-//! compose by conjunction. Unsupported AF constructs emit diagnostics.
+//! compose by conjunction. Unsupported AF constructs emit diagnostics rather
+//! than becoming an implicit, weaker constraint.
+//!
+//! The lowering pass first discovers deterministic roots and then lowers helper
+//! shapes on demand. It reserves a slot before reading a shape body, which is
+//! sufficient to represent recursive references without a special recursive
+//! AST. The body is assembled as a conjunction, source metadata is attached,
+//! and targets/rules/custom components are derived from the same source map.
+//!
+//! The result keeps two identities: `ShapeId` is the compact execution identity,
+//! while `Schema::sources` points back to the authored RDF resource. Provenance
+//! stays outside the evaluator so the execution IR can remain small and
+//! canonical.
 
 use crate::diagnostics::{DiagLevel, Diagnostic};
 use crate::graph::{Loaded, term_to_node};
@@ -20,7 +39,13 @@ use spargebra::{Query, SparqlParser, algebra::GraphPattern};
 use std::collections::{BTreeSet, HashMap, HashSet};
 
 pub struct Lowered {
+    /// The self-contained algebraic schema. It contains only finalized arena
+    /// slots: callers never need to understand the temporary recursion markers
+    /// used while lowering.
     pub schema: Schema,
+    /// Non-fatal information about the source graph. Keeping diagnostics beside
+    /// the usable schema lets command-line users choose a best-effort workflow
+    /// while bindings can enforce a stricter policy at their API boundary.
     pub diagnostics: Vec<Diagnostic>,
 }
 
@@ -34,6 +59,9 @@ pub fn lower(g: &Loaded) -> Lowered {
         rules: Vec::new(),
         diags: Vec::new(),
     };
+    // Discover roots first, then lower references on demand. This avoids a
+    // whole-graph "is this shape reachable?" pre-pass while still ensuring that
+    // a shape mentioned only by `sh:node` or `sh:property` receives a slot.
     let shapes = l.discover_shapes();
     for s in &shapes {
         l.lower_shape(s);
@@ -55,7 +83,9 @@ pub fn lower(g: &Loaded) -> Lowered {
     // Every shape lowered from an RDF node (named or blank) is keyed by that
     // node in `cache`; `id` is the node's outermost slot (the `Annotated`
     // wrapper `lower_shape` sets last), which is what progress children and
-    // catalog entries reference.
+    // catalog entries reference. Source identity deliberately lives alongside
+    // the optimized algebra rather than in `Shape`: normalization is free to
+    // merge equal bodies without losing the authored node a UI needs to name.
     let sources = l
         .cache
         .iter()
@@ -83,6 +113,11 @@ pub fn lower(g: &Loaded) -> Lowered {
 struct Lowerer<'a> {
     g: &'a Loaded,
     arena: ShapeArena,
+    /// Source RDF node → *outer* arena slot. Inserting a reserved slot before
+    /// reading the body is the recursion knot: a recursive reference observes
+    /// the same id immediately, and the caller fills it exactly once at the
+    /// end. This keeps cyclic SHACL shapes a graph rather than forcing a
+    /// special recursive AST throughout the rest of the program.
     cache: HashMap<NamedOrBlankNode, ShapeId>,
     statements: Vec<Statement>,
     rules: Vec<Rule>,
@@ -148,6 +183,14 @@ impl Lowerer<'_> {
         shapes
     }
 
+    /// Lower one source shape to its outer `Annotated` slot.
+    ///
+    /// The method has two layers on purpose: the outer wrapper preserves source
+    /// severity/messages and stable identity, while `body` holds the logical
+    /// predicate. Optimizers may reason about the body without having to know
+    /// SHACL reporting metadata, yet the metadata survives all the way to a
+    /// violation. Reserving `id` before descending also gives the recursive
+    /// case the same interface as the non-recursive case.
     fn lower_shape(&mut self, s: &NamedOrBlankNode) -> ShapeId {
         if let Some(id) = self.cache.get(s) {
             return *id;
@@ -164,7 +207,11 @@ impl Lowerer<'_> {
         let mut conjuncts: Vec<ShapeId> = Vec::new();
 
         // Value-scoped constraints: each applies to every value node along the
-        // path (or to the focus node directly when there is no path).
+        // path (or to the focus node directly when there is no path). The
+        // universal is represented using Count rather than introducing a second
+        // evaluator operator. That is the key abstraction: one qualified-count
+        // implementation covers cardinality, nested property shapes, and every
+        // per-value SHACL constraint.
         let value = self.collect_value_constraints(s);
         if !value.is_empty() {
             let value_phi = self.arena.and(value);
@@ -268,6 +315,11 @@ impl Lowerer<'_> {
             }
         }
 
+        // Do not leave a self-reference exposed as a one-child body. A shape
+        // that contains only a recursive reference is a valid cycle; a shape
+        // that accidentally reaches its own reserved id while otherwise empty
+        // is equivalent to Top at this layer. `Pending` must not escape, since
+        // later passes intentionally treat a finalized arena as immutable.
         let body = if conjuncts.is_empty() {
             self.arena.top()
         } else if conjuncts.len() == 1 {
@@ -302,6 +354,13 @@ impl Lowerer<'_> {
         self.g.objects(shape, vocab::SH_MESSAGE).into()
     }
 
+    /// Collect constraints whose subject is the current value node.
+    ///
+    /// A property shape uses this exact function too. Its caller supplies the
+    /// `∀path` wrapper, so the constraint definitions below do not branch on
+    /// "node shape versus property shape". That separation is important: it
+    /// makes a referenced property shape behave identically whether it appears
+    /// as a top-level statement or underneath another property shape.
     fn collect_value_constraints(&mut self, s: &NamedOrBlankNode) -> Vec<ShapeId> {
         let mut value: Vec<ShapeId> = Vec::new();
 
@@ -330,7 +389,9 @@ impl Lowerer<'_> {
             }
         }
 
-        // numeric range (combine the four bounds into one facet)
+        // Numeric bounds are combined into one leaf. Besides avoiding four
+        // repeated literal comparisons at evaluation time, this gives
+        // normalization a single place to detect an empty interval.
         let lo = self
             .lit(s, vocab::SH_MIN_INCLUSIVE)
             .map(|value| Bound {
@@ -403,7 +464,9 @@ impl Lowerer<'_> {
             value.push(id);
         }
 
-        // sh:in  ≡  ⋁ test(member)
+        // `sh:in` is a finite disjunction. Keeping each member a normal
+        // TestConst leaf means it composes with `sh:not` and CSE without a
+        // bespoke membership operator in the evaluator.
         for inl in self.g.objects(s, vocab::SH_IN) {
             let alts: Vec<ShapeId> = self
                 .g
@@ -415,7 +478,9 @@ impl Lowerer<'_> {
             value.push(or);
         }
 
-        // sh:node — each value node must conform to the referenced shape
+        // `sh:node` — each value node must conform to the referenced shape.
+        // `lower_shape` returns a slot immediately even for a cycle, so no
+        // special recursion case leaks into the lowering rules.
         for n in self.g.objects(s, vocab::SH_NODE) {
             if let Some(nn) = term_to_node(&n) {
                 let id = self.lower_shape(&nn);

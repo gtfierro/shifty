@@ -7,8 +7,6 @@
 //! query it runs — `sparql.rs` cross-checks that with a differential assertion
 //! under `debug_assertions` (`docs/05-sparql-execution.md §254`).
 //!
-//! ## Model
-//!
 //! Operators are evaluated bottom-up into `Vec<Solution>`. `InputFocus` emits one
 //! seed per focus node (binding `$this`); every solution carries a `FocusId` so a
 //! single batched run keeps each focus node's results separate — `DISTINCT`,
@@ -17,6 +15,21 @@
 //! nested-loop matching: positions already bound (constants or bound variables)
 //! are pushed into the index lookup; free variables are bound from each matching
 //! triple, with repeated variables checked for consistency.
+//!
+//! A caller supplies a lowered operator DAG and a batch of focus nodes. The
+//! executor converts the focus nodes to `TermId` seeds once, recursively
+//! evaluates each operator into tagged partial solutions, then buckets the
+//! final bindings by their originating focus. Operators keep RDF values encoded
+//! throughout; `execute` externalizes only at the API edge, while `execute_ids`
+//! serves the inference path that can stay encoded.
+//!
+//! The simple `Vec<Solution>` boundary is deliberate. It makes SPARQL bag
+//! semantics visible—only `Distinct` removes duplicates—and keeps every operator
+//! independent of the storage layout below it. `Scan` delegates selectivity to
+//! the frozen dataset's indexes; `PathScan` reuses compiled direction-resolved
+//! steps; expression operators only transform/filter a solution they received.
+//! The separately conservative delta routine is an optimization with a proof
+//! boundary: it returns `None` for any plan it cannot safely narrow.
 
 use crate::frozen::{FrozenIndexedDataset, GraphSel, TermId};
 use crate::path_plan::{ReachStep, apply_closure, compile_bwd, compile_fwd};

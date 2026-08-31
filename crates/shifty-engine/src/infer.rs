@@ -12,6 +12,20 @@
 //!
 //! Function node expressions are not executed yet; they are reported as
 //! diagnostics rather than silently skipped.
+//!
+//! The outer loop represents one least-fixpoint pass. Within a pass, rules with
+//! the same `sh:order` read the same snapshot and contribute a deduplicated
+//! candidate batch; committing that batch makes it visible to the next order
+//! group. The next pass begins only after all groups have run, so an earlier
+//! group can observe a later group's output without giving tied rules accidental
+//! order dependence.
+//!
+//! The first pass evaluates every active rule. Later passes use predicate read
+//! dependencies to schedule only rules that could observe the previous delta;
+//! focus selections are also cached and invalidated by their own read surface.
+//! These are scheduling reductions, not alternate semantics: every candidate is
+//! still tested against the current context before commit, and no triple leaves
+//! a pass until its whole order group has finished reading its snapshot.
 
 use crate::frozen::FrozenIndexedDataset;
 use crate::path::{node_of, succ};

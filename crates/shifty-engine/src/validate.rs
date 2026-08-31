@@ -2,12 +2,26 @@
 //! (doc 00 §3–§4, Table 2). This is the conformance *oracle*: the optimized
 //! engines in later layers must agree with it.
 //!
-//! Two evaluators share the logic: [`holds`] returns a bare bool (used for
-//! target selection and counting), while [`explain`] returns the specific
+//! Two evaluators share the logic: `holds` returns a bare bool (used for
+//! target selection and counting), while `explain` returns the specific
 //! atomic constraints that failed, with the value node and path at which they
 //! failed — enough for per-constraint reporting. The `∀π = ∃≤0 π.¬φ` encoding
 //! lets a failed universal drill straight into the offending value node's inner
 //! constraint.
+//!
+//! `ShapeEvaluator` is the deep module behind every validation-facing API. Its
+//! callers provide a graph/path backend, one finalized arena, and a SPARQL
+//! executor; they ask only whether a `(focus, ShapeId)` holds. The evaluator
+//! centralizes path traversal, qualified counting, short-circuit Boolean logic,
+//! class/value comparisons, opaque SPARQL leaves, and recursion semantics so
+//! these concerns are not reimplemented in reporting, inference, or evidence.
+//!
+//! Completed judgments are memoized across a whole graph snapshot. The active
+//! set is different: encountering an active positive recursive judgment returns
+//! the coinductive provisional truth needed for the greatest fixpoint, and that
+//! context-dependent answer is deliberately not memoized. This separation is
+//! the crucial invariant—cache only conclusions independent of the current
+//! recursion proof, while making the recursion rule explicit in one place.
 
 use crate::frozen::FrozenIndexedDataset;
 use crate::path::{PathBackend, node_of, pred, succ};
@@ -354,7 +368,7 @@ impl std::error::Error for NonStratifiable {}
 /// Honors the decided recursion semantics (`docs/03-recursion-semantics.md`):
 /// the schema must be **stratifiable** (no recursion through net negation), else
 /// we return [`NonStratifiable`]. For a stratifiable schema all recursion is
-/// net-positive (monotone), and [`explain`]/[`holds`]'s "assume conforming on a
+/// net-positive (monotone), and `explain`/`holds`'s "assume conforming on a
 /// back-edge" cycle guard computes exactly the **greatest fixpoint** — the
 /// coinductive validation reading we chose.
 pub fn validate(data: &Graph, schema: &Schema) -> Result<ValidationOutcome, NonStratifiable> {

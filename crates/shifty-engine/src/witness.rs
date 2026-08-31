@@ -1,5 +1,5 @@
 //! The witnessing evaluator (`docs/06-repair.md` §5) — the structured, lossless
-//! sibling of [`explain`](crate::validate). For a focus node that fails a
+//! sibling of `explain`. For a focus node that fails a
 //! statement it returns a [`Failure`]: the failed sub-DAG of `φ`, pruned to
 //! exactly what did not hold, with the structural gap at each node. Its dual,
 //! [`Satisfaction`], records *why* a shape currently holds, so a `Not(φ)` failure can
@@ -7,8 +7,22 @@
 //! they are mutually recursive only in their data grammar through `Not`.
 //!
 //! This is the input to repair synthesis; it makes no repair decisions. It reuses
-//! the [`ShapeEvaluator`] satisfaction oracle (`holds`) and its gfp back-edge
+//! the `ShapeEvaluator` satisfaction oracle (`holds`) and its gfp back-edge
 //! guard verbatim, so witnessing agrees with validation by construction.
+//!
+//! `evaluate_node` is the single polarity dispatcher. A failed conjunction
+//! retains its failing children, a failed disjunction retains every branch that
+//! failed, and qualified counts partition reached values into matches and
+//! rejected candidates. `Not` crosses between [`Failure`] and [`Satisfaction`],
+//! which is why both forms are represented explicitly instead of encoding one
+//! as an inverted Boolean annotation.
+//!
+//! The result is intentionally a derivation tree over a shared shape graph, not
+//! a general-purpose proof of every possible path. Each reached value carries a
+//! concrete [`PathSupport`] certificate sufficient to explain why it was seen.
+//! This makes an evidence run deterministic and useful to repair synthesis while
+//! keeping the expensive "all alternative routes" problem outside this module's
+//! contract.
 
 use crate::frozen::FrozenIndexedDataset;
 use crate::path::{PathBackend, node_of, pred, succ};

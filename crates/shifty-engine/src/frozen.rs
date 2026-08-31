@@ -3,6 +3,18 @@
 //! SPARQL evaluator can execute queries against it without a mutable Store.
 //!
 //! Stage 2 of `docs/05-sparql-execution.md`.
+//!
+//! This file is the read-mostly dataset boundary used after inference. Loading
+//! assigns compact `TermId`s once, then builds three sorted triple permutations
+//! for the prefix scans that paths and native SPARQL need. Evaluation stays in
+//! ids until a result crosses back into RDF terms; avoiding repeated `Term`
+//! hashing and cloning is the point of the representation.
+//!
+//! Query-only terms and reachability results may be cached behind interior
+//! mutability, but neither changes the RDF snapshot. The only real mutation,
+//! `extend_triples`, updates every index/statistic and discards derived closures.
+//! Thus every scan sees one coherent snapshot and every cached closure belongs
+//! to that snapshot.
 
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
@@ -77,6 +89,12 @@ impl TermDictionary {
 /// Three sorted arrays giving the six access patterns documented in §161:
 /// `spo` covers S-first and membership; `pos` covers P-first lookups;
 /// `osp` covers O-first lookups.
+///
+/// This is deliberately not six hash indexes. All query and path operations
+/// need a contiguous prefix range, and three permutations cover their useful
+/// leading pairs while keeping triples compact (three `u32`s per copy). The
+/// resulting scans borrow a slice directly; no iterator allocates a matching
+/// triple list just to traverse it once.
 struct TripleIndex {
     spo: Vec<[TermId; 3]>, // elements are [s, p, o]
     pos: Vec<[TermId; 3]>, // elements are [p, o, s]
@@ -214,6 +232,11 @@ pub struct FrozenIndexedDataset {
     pub stats: DatasetStatistics,
 }
 
+/// A closure cache is an acceleration, never part of query semantics. Bound it
+/// by the number of retained result ids rather than by entry count: one large
+/// `p*` closure is the memory risk, while many empty/small closures are cheap.
+/// On saturation we simply stop admitting new entries, retaining predictable
+/// memory use and the same indexed evaluation behavior for later requests.
 const MAX_CACHED_REACH_IDS: usize = 1_000_000;
 
 #[derive(PartialEq, Eq, Hash)]
@@ -226,6 +249,9 @@ struct ReachCacheKey {
 
 #[derive(Default)]
 struct ReachCache {
+    /// Shared so callers can cheaply keep a result while the cache remains
+    /// borrowable for another query. Results are immutable sets, making this
+    /// aliasing safe and avoiding a clone proportional to the closure size.
     entries: HashMap<ReachCacheKey, Rc<HashSet<TermId>>>,
     cached_ids: usize,
 }
@@ -345,6 +371,9 @@ impl FrozenIndexedDataset {
         result: Rc<HashSet<TermId>>,
     ) {
         let mut cache = self.reach_cache.borrow_mut();
+        // No eviction policy is needed: this snapshot is short-lived and an
+        // admission-only cap avoids turning a hot closure into repeated
+        // allocate-and-evict churn. A miss remains correct and index-backed.
         if cache.cached_ids.saturating_add(result.len()) > MAX_CACHED_REACH_IDS {
             return;
         }

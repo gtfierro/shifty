@@ -2,9 +2,20 @@
 //!
 //! Layer 3 lives here: the naive denotational evaluator that is the conformance
 //! oracle — relational path evaluation ([`path`]), value-type checks
-//! ([`value`]), and shape/schema satisfaction ([`validate`]). The rule/fixpoint
+//! ([`value`]), and shape/schema satisfaction ([`mod@validate`]). The rule/fixpoint
 //! inference engine (Layer 6) and compiled executors (Layer 7) come later; every
 //! execution mode must agree with this oracle.
+//!
+//! [`mod@validate`] owns semantic satisfaction and is the correctness oracle.
+//! [`mod@infer`] owns least-fixpoint rule execution over a mutable context.
+//! [`frozen`], the private native executor, and private SPARQL façade form the
+//! indexed/read-only fast path used after inference. [`evidence`] and [`witness`]
+//! turn oracle conclusions into source-oriented coverage and repair-oriented
+//! derivations. [`mod@synthesize`], [`enumerate`], and [`mod@gate`] keep repair
+//! construction, choice, and validation of a proposed edit separate.
+//!
+//! Public APIs expose shallow operations; the caches and semantic translations
+//! that make them fast and correct remain in their owning modules.
 
 pub mod compact;
 pub mod enumerate;

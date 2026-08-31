@@ -7,6 +7,27 @@ SHACL fragment of *Common Foundations for SHACL, ShEx, and PG-Schema*
 These are internal design and implementation notes.  The public documentation
 lives in `docs/`.
 
+## Implementation-comment convention
+
+The source is meant to be readable as an implementation, not merely as a
+translation of the formalism. Keep comments at the boundaries where a reader
+would otherwise have to reconstruct intent from several functions:
+
+- Start a deep module with its contract: the representation it owns, the work
+  it deliberately centralizes, and the semantics its callers may rely on.
+- Explain invariants, semantic translations, ownership/provenance, cache
+  invalidation, and performance tradeoffs. Do not narrate syntax the code
+  already states.
+- At an algorithmic branch, record why it is correct and why that shape of
+  algorithm was selected (especially when it protects allocation, ordering,
+  or fixpoint behavior).
+- Keep the public interface small; put the detailed explanation beside the
+  private data structure or algorithm that makes the interface deep.
+
+When a comment makes a semantic claim, retain a focused test or a link to the
+corresponding design note. Comments are the guide to the decision; tests remain
+the executable guarantee.
+
 Read in order:
 
 1. [`00-formalism.md`](00-formalism.md) — the formal core: path algebra `π`,

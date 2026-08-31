@@ -3,6 +3,21 @@
 //! Queries are parsed and canonicalized by `shifty-parse`. This layer caches
 //! Oxigraph's prepared form, applies SHACL prebindings, and executes against a
 //! store that is kept in sync with rule inference.
+//!
+//! During inference, the executor owns a mutable Oxigraph `Store`: rules add
+//! triples between firings, so the store is the authoritative query dataset.
+//! During validation, it instead owns a [`FrozenIndexedDataset`], allowing the
+//! supported relational subset to run over Shifty's compact indexes without
+//! allocating a second mutable store. The public methods hide that split; their
+//! result semantics are the same in either mode.
+//!
+//! A constraint query first receives its static SHACL bindings (`$PATH`, shape,
+//! component parameters, and `$shapesGraph`) and is cached under that rewritten
+//! form. `$this` stays dynamic so one compiled query can serve a focus batch.
+//! The cached query either lowers to `NativeQueryPlan` or falls back to Spareval;
+//! debug builds compare the native result with the fallback oracle. This keeps
+//! the fast path a replaceable implementation detail rather than a separate
+//! dialect of SPARQL.
 
 use crate::frozen::{FrozenIndexedDataset, TermId};
 use crate::native_exec;
@@ -139,7 +154,7 @@ pub struct SparqlDiagnostic {
     /// Why native lowering did not apply, when known: the first unsupported
     /// construct `lower_query` hit. `None` when the query ran natively, or
     /// when it's a custom constraint component (always opaque today — see
-    /// [`SparqlExecutor::eval_ask`]/[`SparqlExecutor::eval_select`]).
+    /// `SparqlExecutor::eval_ask` / `SparqlExecutor::eval_select`).
     pub fallback_reason: Option<String>,
 }
 

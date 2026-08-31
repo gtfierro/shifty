@@ -2,14 +2,27 @@
 //!
 //! Two mutually-recursive folds turn the failed sub-DAG of `φ` into the inspectable
 //! repair space a driver fills:
-//! - [`Synth::repair`] (additive) walks a failure, emitting adds.
-//! - [`Synth::break_`] (deletive) walks a satisfaction, emitting deletes.
+//! - `Synth::repair` (additive) walks a failure, emitting adds.
+//! - `Synth::break_` (deletive) walks a satisfaction, emitting deletes.
 //!
 //! They cross at `Not`. The third design direction — a structural `build` that
 //! expands a fresh value's qualifier shape — is represented in this first cut by a
 //! single `ConformsTo` hole (value-type leaves get the precise `Typed`/`Kind`
 //! constraint), deferring structural expansion to the driver. So this cut needs no
 //! fuel: the recursion bottoms out at the witness/trace leaves.
+//!
+//! Evidence describes what is true or false in the existing graph; a repair tree
+//! describes a *space of edits* a driver may choose from. `Synth` is the narrow
+//! boundary between them. It maps logical `And`/`Or` to the corresponding repair
+//! composition, turns missing cardinality into additive materialization, and
+//! turns a holding fact under negation into one of the deletions that can break
+//! it. It never chooses an edit or mutates a graph.
+//!
+//! Keeping choice out of this module is what makes the interface deep: an enum,
+//! ASP solver, UI, or LLM can consume the same symbolic tree, while [`crate::gate()`]
+//! remains the one place that checks a chosen plan against full validation. The
+//! optional origin map adds traceability at this boundary without coupling the
+//! reusable `shifty-repair` IR to engine evidence types.
 
 use crate::witness::{
     BlockReason as WBlock, EvaluationStatus, EvidenceKind, EvidenceNodeRef, FocusWitness,

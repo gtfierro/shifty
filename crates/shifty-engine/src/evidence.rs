@@ -1,9 +1,22 @@
 //! Unified evidence-carrying validation.
 //!
 //! Each selected `(authored statement, focus)` pair produces exactly one
-//! [`Evidence`](crate::Evidence) polarity. The logical algebra evaluator remains
+//! [`Evidence`] polarity. The logical algebra evaluator remains
 //! the oracle; this driver only owns preparation, target enumeration, and
 //! provenance fan-out.
+//!
+//! Preparation turns the input into a reusable snapshot: it normalizes the
+//! schema, checks stratification, freezes/indexes the evaluation graph, and
+//! records the source-to-normalized mappings. A normal conformance scan then
+//! uses one memoizing `ShapeEvaluator` and materializes no evidence at all.
+//! Callers can either ask for a complete evidence run or first obtain failing
+//! [`SelectedPair`] handles and explain only those pairs later.
+//!
+//! This split is intentional. Conformance is a shared Boolean computation;
+//! evidence is a potentially much larger derivation tree whose source-facing
+//! presentation can fan one normalized conclusion back out to several authored
+//! statements. Keeping the fan-out here, after canonical evaluation, preserves
+//! authored provenance without making the evaluator or optimizer pay for it.
 
 use crate::frozen::FrozenIndexedDataset;
 use crate::sparql::SparqlExecutor;
@@ -27,12 +40,27 @@ use std::collections::HashSet;
 /// Parsing and inference happen before construction. Normalization,
 /// stratification, dataset indexing, and SPARQL-executor construction happen
 /// once here; each [`validate`](Self::validate) call creates one reusable
-/// [`ShapeEvaluator`] over those retained resources.
+/// `ShapeEvaluator` over those retained resources.
 pub struct PreparedEvidenceValidator {
+    /// The graph used for focus selection. It is retained separately from the
+    /// frozen context inside `sparql`: graph mode may deliberately use data-only
+    /// targets while paths and SPARQL read data ∪ shapes.
     data: Graph,
+    /// The authored schema is not an execution duplicate. It is the provenance
+    /// layer that lets progress explain a constraint normalization removed or
+    /// merged, while `schema` remains the small canonical graph to evaluate.
     raw_schema: Schema,
+    /// The normalized execution schema. Every cache and evidence conclusion is
+    /// keyed by ids from this arena, so one logical judgment is computed once
+    /// even when several source statements expressed it independently.
     schema: Schema,
+    /// Inverse statement provenance. `normalize_with_mapping` naturally emits
+    /// raw → normalized; evidence fans a computed result back to its authored
+    /// statements, so retaining the inverse makes that operation linear and
+    /// keeps the public interface source-oriented.
     raw_by_normalized: Vec<Vec<usize>>,
+    /// Raw arena id → normalized representative, used only for source progress.
+    /// `None` means the authored node was unreachable from any execution root.
     shape_map: Vec<Option<ShapeId>>,
     sparql: SparqlExecutor,
 }
@@ -173,6 +201,10 @@ impl PreparedEvidenceValidator {
         frozen: FrozenIndexedDataset,
         has_shapes_graph: bool,
     ) -> Result<Self, NonStratifiable> {
+        // Normalize exactly once per snapshot. This is where the API chooses a
+        // deep module boundary: callers supply authored SHACL, but all repeated
+        // work below runs against a compact, CSE'd schema. The two explicit maps
+        // are the narrow bridge back to source provenance for evidence output.
         let normalized = normalize_with_mapping(raw_schema);
         let stratification = analyze(&normalized.schema.arena);
         if !stratification.stratifiable {
@@ -185,6 +217,10 @@ impl PreparedEvidenceValidator {
             return Err(NonStratifiable { components });
         }
 
+        // Preserve source order in each fan-out bucket. Apart from being stable
+        // for reports, this lets `explain` reconstruct the same authored view
+        // as a full run without rerunning target selection or materializing a
+        // second copy of the canonical evidence tree.
         let mut raw_by_normalized = vec![Vec::new(); normalized.schema.statements.len()];
         for (raw, normalized_id) in normalized.statement_map.iter().copied().enumerate() {
             raw_by_normalized[normalized_id].push(raw);
@@ -303,6 +339,9 @@ impl PreparedEvidenceValidator {
             failed: 0,
         };
 
+        // One evaluator serves the whole scan. Its completed-judgment cache is
+        // therefore shared across statements and focus nodes, whereas evidence
+        // remains opt-in and is built only for a selected failure by `explain`.
         for (statement_id, statement) in self.schema.statements.iter().enumerate() {
             if !entry_shape_any_name_selected(
                 &options.entry_shape_names,
@@ -695,6 +734,11 @@ fn source_progress(
     if children.is_empty() {
         return None;
     }
+    // Progress is deliberately a shallow, source-shaped view. It does not
+    // duplicate the normalized evidence tree: each child says whether it held
+    // and names the normalized conclusion a caller can expand on demand. This
+    // keeps authored UI structure without paying to materialize successes that
+    // a failure witness normally prunes.
     let evaluated_children = children
         .into_iter()
         .map(|source_constraint_ref| {
