@@ -234,10 +234,7 @@ impl Lowerer<'_> {
             conjuncts.push(c);
         }
 
-        let mut sparql_prebound = vec!["this", "shapesGraph", "currentShape"];
-        if path.is_some() {
-            sparql_prebound.push("PATH");
-        }
+        let sparql_prebound = vec!["this", "shapesGraph", "currentShape"];
         for constraint_term in self.g.objects(s, vocab::SH_SPARQL) {
             let Some(constraint_node) = term_to_node(&constraint_term) else {
                 self.diag(DiagLevel::Error, "sh:sparql must reference a resource", s);
@@ -753,7 +750,14 @@ impl Lowerer<'_> {
                 let constraint = SparqlConstraint {
                     kind: validator.kind,
                     query: validator.query.clone(),
-                    path: path.clone(),
+                    // SHACL §6.3 substitutes `$PATH` only for SELECT
+                    // validators applied to property shapes. ASK validators
+                    // receive their value node through the `$value` binding.
+                    path: if validator.kind == SparqlQueryKind::Select {
+                        path.clone()
+                    } else {
+                        None
+                    },
                     shape: shape_term.clone(),
                     messages: validator.messages.clone(),
                     extra_bindings,
@@ -835,10 +839,8 @@ impl Lowerer<'_> {
             }
             let mut prebound = vec![
                 "this".to_string(),
-                "value".to_string(),
                 "shapesGraph".to_string(),
                 "currentShape".to_string(),
-                "PATH".to_string(),
             ];
             prebound.extend(params.iter().map(|p| p.var.clone()));
             let node_validator = self
@@ -884,7 +886,14 @@ impl Lowerer<'_> {
             return None; // no query body — not a SPARQL validator
         };
         let canonical = match canonical_sparql_query(self.g, &node, &raw).and_then(|(query, c)| {
-            validate_shacl_prebinding(&query, prebound.iter().map(String::as_str))?;
+            // SHACL §6.3 pre-binds `$value` only for ASK validators.  SELECT
+            // validators may legitimately bind/project `?value` as a result
+            // variable (for example, `SELECT $this ($this AS ?value)`).
+            let mut validator_prebound = prebound.to_vec();
+            if kind == SparqlQueryKind::Ask {
+                validator_prebound.push("value".to_string());
+            }
+            validate_shacl_prebinding(&query, validator_prebound.iter().map(String::as_str))?;
             Ok(c)
         }) {
             Ok(c) => c,

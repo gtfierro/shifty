@@ -40,7 +40,7 @@ fn w3c_node_sparql_constraint() {
 }
 
 #[test]
-fn w3c_property_sparql_constraint_prebinds_path() {
+fn w3c_property_sparql_constraint_substitutes_path() {
     let (loaded, parsed) =
         load("data-shapes/data-shapes-test-suite/tests/sparql/property/sparql-001.ttl");
     let outcome = validate(&loaded.graph, &parsed.schema).expect("stratifiable");
@@ -87,11 +87,11 @@ fn w3c_sparql_construct_rule() {
     )));
 }
 
-/// SHACL `$PATH` prebinding for complex (non-predicate) property shapes.
+/// SHACL `$PATH` substitution for complex (non-predicate) property shapes.
 /// Each sub-test uses `validate_report` so that `collect_sparql` on the
 /// report path exercises the same `compile_constraint` code that the
 /// algebra path uses.
-mod complex_path_prebinding {
+mod complex_path_substitution {
     use super::*;
 
     fn shapes_data(shapes_ttl: &str) -> shifty_parse::Loaded {

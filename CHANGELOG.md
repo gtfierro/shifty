@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+## 0.4.3
+
+### Fixed
+
+- Fixed SHACL-SPARQL custom SELECT validators so `?value` is a result variable,
+  rather than being incorrectly treated as pre-bound. This accepts DASH property
+  validators such as `SELECT $this ($this AS ?value)` and reports that binding
+  as `sh:value`.
+- Aligned `$PATH` handling with SHACL: it is substituted for SELECT property
+  validators, while `$value` is pre-bound only for ASK validators.
+
 ## 0.4.2
 
 ### Fixed

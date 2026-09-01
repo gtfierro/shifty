@@ -1062,10 +1062,12 @@ impl Reporter<'_> {
 
     /// SPARQL-based custom constraint components (SHACL §6.3). A component is
     /// *activated* for `shape` iff the shape supplies a value for each of its
-    /// mandatory parameters; those values (plus `$this`, `$value`, `$PATH`,
-    /// `$currentShape`) are pre-bound into the validator query. ASK validators
-    /// run per value node (violation iff they return `false`); SELECT validators
-    /// run once per focus (each solution row is a violation).
+    /// mandatory parameters; those values (plus `$this` and `$currentShape`)
+    /// are pre-bound into the validator query. `$value` is additionally
+    /// pre-bound only for ASK validators. For SELECT property validators,
+    /// `$PATH` is substituted with the shape's path. ASK validators run per
+    /// value node (violation iff they return `false`); SELECT validators run
+    /// once per focus (each solution row is a violation).
     #[allow(clippy::too_many_arguments)]
     fn collect_components(
         &self,
@@ -1111,8 +1113,9 @@ impl Reporter<'_> {
             let Some(validator) = validator else { continue };
 
             // Bindings shared across value nodes: parameters and $currentShape.
-            // For property shapes, `$PATH` is pre-bound to the shape's path
-            // (simple predicate or complex property path) inside the executor.
+            // For SELECT property validators, `$PATH` is substituted with the
+            // shape's path (simple predicate or complex property path) inside
+            // the executor.
             let mut base = params;
             base.push(("currentShape".to_string(), node_term_ref(shape)));
             let path = parsed_path.as_ref();
@@ -1124,8 +1127,7 @@ impl Reporter<'_> {
                         bindings.push(("this".to_string(), focus.clone()));
                         bindings.push(("value".to_string(), value.clone()));
                         // Conform iff ASK is true; a runtime error fails closed.
-                        let violates = match self.sparql.eval_ask(&validator.query, path, &bindings)
-                        {
+                        let violates = match self.sparql.eval_ask(&validator.query, &bindings) {
                             Ok(conforms) => !conforms,
                             Err(_) => true,
                         };
@@ -1481,7 +1483,7 @@ impl Reporter<'_> {
                     }
                 }
                 // Runtime failure (e.g. an unsupported graph-reading function
-                // under UnsupportedPolicy::Error, or complex-path prebinding):
+                // under UnsupportedPolicy::Error, or complex-path substitution):
                 // fail closed, surfacing the error so it is not a silent miss.
                 Err(error) => {
                     let mut messages = raw_messages;

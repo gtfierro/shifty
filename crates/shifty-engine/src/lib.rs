@@ -1067,7 +1067,7 @@ mod tests {
     #[test]
     fn custom_component_property_validator_complex_path() {
         // A property shape with a *sequence* path activates a SELECT property
-        // validator: `$PATH` is pre-bound to ex:a/ex:b, so the validator reaches
+        // validator: `$PATH` is substituted with ex:a/ex:b, so it reaches
         // the value nodes two hops away and flags the forbidden one.
         let ttl = br#"
             @prefix sh: <http://www.w3.org/ns/shacl#> .
@@ -1099,10 +1099,62 @@ mod tests {
     }
 
     #[test]
+    fn custom_component_select_property_validator_can_project_value() {
+        // SHACL pre-binds `$value` only for ASK validators. A property SELECT
+        // validator may therefore create ?value as its result variable; DASH
+        // uses this exact `($this AS ?value)` form.
+        let ttl = br#"
+            @prefix sh: <http://www.w3.org/ns/shacl#> .
+            @prefix ex: <http://ex/> .
+            ex:C a sh:ConstraintComponent ;
+                sh:parameter [ sh:path ex:nonRecursive ] ;
+                sh:propertyValidator [ a sh:SPARQLSelectValidator ;
+                    sh:select """SELECT DISTINCT $this ($this AS ?value)
+                        WHERE {
+                            FILTER (?nonRecursive)
+                            $this $PATH $this .
+                        }""" ] .
+            ex:S a sh:NodeShape ;
+                sh:targetNode ex:x ;
+                sh:property [ sh:path ex:p ; ex:nonRecursive true ] .
+            ex:x ex:p ex:x .
+        "#;
+        let loaded = shifty_parse::load_turtle(ttl, None).unwrap();
+
+        let report = validate_report(&loaded, &loaded.graph);
+        assert!(!report.conforms, "results: {:?}", report.results);
+        assert_eq!(report.results.len(), 1);
+        assert_eq!(
+            report.results[0].value.as_ref().map(ToString::to_string),
+            Some("<http://ex/x>".to_string())
+        );
+
+        // The lowered algebra previously skipped the validator because its
+        // pre-binding check incorrectly treated ?value as reserved for SELECT.
+        let parsed = parse_turtle(ttl, None).unwrap();
+        assert!(
+            !parsed
+                .diagnostics
+                .iter()
+                .any(|d| d.message.contains("potentially pre-bound variable ?value")),
+            "diagnostics: {:?}",
+            parsed.diagnostics
+        );
+        let schema = shifty_opt::normalize(&parsed.schema);
+        let plan = shifty_opt::plan(&schema);
+        let outcome = validate_plan_graphs(&loaded.graph, &loaded.graph, &plan).unwrap();
+        assert!(
+            !outcome.conforms,
+            "algebra must retain the SELECT validator"
+        );
+        assert_eq!(outcome.violations.len(), 1, "{:#?}", outcome.violations);
+    }
+
+    #[test]
     fn custom_component_property_validator_inverse_path() {
         // An inverse path `^ex:parent`: the value nodes are the subjects that
-        // point at the focus via ex:parent. The ASK validator runs per value node
-        // with `$PATH` pre-bound, flagging values whose label is not "ok".
+        // point at the focus via ex:parent. The ASK validator runs per value
+        // node, flagging values whose label is not "ok".
         let ttl = br#"
             @prefix sh: <http://www.w3.org/ns/shacl#> .
             @prefix ex: <http://ex/> .
