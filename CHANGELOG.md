@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+## 0.4.4
+
+### Added
+
+- Added complete type declarations for the native Python extension, so the
+  existing `py.typed` marker now provides useful validation, evidence,
+  inference, and repair types to editors and static type checkers.
+- Added locked Ruff formatting/linting and `ty` type-checking gates for Python
+  development, pull requests, and releases.
+
+### Changed
+
+- Stripped debug symbols from Python extension artifacts while retaining them
+  in the workspace release profile for Rust profiling. The Linux wheel is now
+  approximately 3.7 MB instead of 197 MB.
+- Applied Ruff formatting and import cleanup across the Python package, tests,
+  examples, and benchmarks.
+
 ## 0.4.3
 
 ### Fixed
