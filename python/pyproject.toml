@@ -39,6 +39,9 @@ Documentation = "https://github.com/gtfierro/shifty#readme"
 features = ["pyo3/extension-module"]
 module-name = "shifty._shifty"
 python-source = "."
+# The workspace release profile retains symbols for Rust profiling. Python
+# wheels do not need them, and PyPI users should not pay their size cost.
+strip = true
 
 [dependency-groups]
 dev = [
