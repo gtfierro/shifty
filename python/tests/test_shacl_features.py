@@ -15,9 +15,6 @@ This module tests various SHACL constraint components:
 Note: Some SHACL features may not be fully implemented yet.
 """
 
-import pytest
-import rdflib
-
 import shifty
 
 PREFIXES = """\
@@ -30,9 +27,12 @@ PREFIXES = """\
 
 # ── datatype constraint ──────────────────────────────────────────────────────
 
+
 class TestDatatypeConstraint:
     def test_valid_datatype_passes(self):
-        shapes = PREFIXES + """\
+        shapes = (
+            PREFIXES
+            + """\
         ex:PersonShape a sh:NodeShape ;
             sh:targetClass ex:Person ;
             sh:property [
@@ -40,12 +40,15 @@ class TestDatatypeConstraint:
                 sh:datatype xsd:integer ;
             ] .
         """
+        )
         data = PREFIXES + "ex:Alice a ex:Person ; ex:age 30 ."
         result = shifty.validate_algebra(data.encode(), shapes.encode())
         assert result.conforms is True
 
     def test_invalid_datatype_fails(self):
-        shapes = PREFIXES + """\
+        shapes = (
+            PREFIXES
+            + """\
         ex:PersonShape a sh:NodeShape ;
             sh:targetClass ex:Person ;
             sh:property [
@@ -53,16 +56,20 @@ class TestDatatypeConstraint:
                 sh:datatype xsd:integer ;
             ] .
         """
-        data = PREFIXES + "ex:Alice a ex:Person ; ex:age \"thirty\" ."
+        )
+        data = PREFIXES + 'ex:Alice a ex:Person ; ex:age "thirty" .'
         result = shifty.validate_algebra(data.encode(), shapes.encode())
         assert not result.conforms
 
 
 # ── minCount/maxCount constraints ────────────────────────────────────────────
 
+
 class TestMinMaxCount:
     def test_mincount_violation(self):
-        shapes = PREFIXES + """\
+        shapes = (
+            PREFIXES
+            + """\
         ex:PersonShape a sh:NodeShape ;
             sh:targetClass ex:Person ;
             sh:property [
@@ -70,12 +77,15 @@ class TestMinMaxCount:
                 sh:minCount 2 ;
             ] .
         """
-        data = PREFIXES + "ex:Alice a ex:Person ; ex:name \"Alice\" ."
+        )
+        data = PREFIXES + 'ex:Alice a ex:Person ; ex:name "Alice" .'
         result = shifty.validate_algebra(data.encode(), shapes.encode())
         assert not result.conforms
 
     def test_maxcount_violation(self):
-        shapes = PREFIXES + """\
+        shapes = (
+            PREFIXES
+            + """\
         ex:PersonShape a sh:NodeShape ;
             sh:targetClass ex:Person ;
             sh:property [
@@ -83,6 +93,7 @@ class TestMinMaxCount:
                 sh:maxCount 1 ;
             ] .
         """
+        )
         data = PREFIXES + "ex:Alice a ex:Person ; ex:age 30 ; ex:age 40 ."
         result = shifty.validate_algebra(data.encode(), shapes.encode())
         assert not result.conforms
@@ -90,9 +101,12 @@ class TestMinMaxCount:
 
 # ── nodeKind constraint ──────────────────────────────────────────────────────
 
+
 class TestNodeKind:
     def test_nodekind_literal(self):
-        shapes = PREFIXES + """\
+        shapes = (
+            PREFIXES
+            + """\
         ex:PersonShape a sh:NodeShape ;
             sh:targetClass ex:Person ;
             sh:property [
@@ -100,12 +114,15 @@ class TestNodeKind:
                 sh:nodeKind sh:Literal ;
             ] .
         """
-        data = PREFIXES + "ex:Alice a ex:Person ; ex:name \"Alice\" ."
+        )
+        data = PREFIXES + 'ex:Alice a ex:Person ; ex:name "Alice" .'
         result = shifty.validate_algebra(data.encode(), shapes.encode())
         assert result.conforms
 
     def test_nodekind_uri_fails_for_literal(self):
-        shapes = PREFIXES + """\
+        shapes = (
+            PREFIXES
+            + """\
         ex:PersonShape a sh:NodeShape ;
             sh:targetClass ex:Person ;
             sh:property [
@@ -113,6 +130,7 @@ class TestNodeKind:
                 sh:nodeKind sh:Literal ;
             ] .
         """
+        )
         data = PREFIXES + "ex:Alice a ex:Person ; ex:name ex:NameNode ."
         result = shifty.validate_algebra(data.encode(), shapes.encode())
         assert not result.conforms
@@ -120,9 +138,12 @@ class TestNodeKind:
 
 # ── in/notIn constraints ─────────────────────────────────────────────────────
 
+
 class TestInNotIn:
     def test_in_constraint_passes(self):
-        shapes = PREFIXES + """\
+        shapes = (
+            PREFIXES
+            + """\
         ex:PersonShape a sh:NodeShape ;
             sh:targetClass ex:Person ;
             sh:property [
@@ -130,12 +151,15 @@ class TestInNotIn:
                 sh:in ( ex:Active ex:Inactive ) ;
             ] .
         """
+        )
         data = PREFIXES + "ex:Alice a ex:Person ; ex:status ex:Active ."
         result = shifty.validate_algebra(data.encode(), shapes.encode())
         assert result.conforms
 
     def test_in_constraint_fails(self):
-        shapes = PREFIXES + """\
+        shapes = (
+            PREFIXES
+            + """\
         ex:PersonShape a sh:NodeShape ;
             sh:targetClass ex:Person ;
             sh:property [
@@ -143,6 +167,7 @@ class TestInNotIn:
                 sh:in ( ex:Active ex:Inactive ) ;
             ] .
         """
+        )
         data = PREFIXES + "ex:Alice a ex:Person ; ex:status ex:Pending ."
         result = shifty.validate_algebra(data.encode(), shapes.encode())
         assert not result.conforms
@@ -150,9 +175,12 @@ class TestInNotIn:
 
 # ── pattern constraint ───────────────────────────────────────────────────────
 
+
 class TestPattern:
     def test_pattern_passes(self):
-        shapes = PREFIXES + """\
+        shapes = (
+            PREFIXES
+            + """\
         ex:PersonShape a sh:NodeShape ;
             sh:targetClass ex:Person ;
             sh:property [
@@ -160,12 +188,15 @@ class TestPattern:
                 sh:pattern \"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\\\.[a-zA-Z]{2,}$\" ;
             ] .
         """
+        )
         data = PREFIXES + 'ex:Alice a ex:Person ; ex:email "alice@example.com" .'
         result = shifty.validate_algebra(data.encode(), shapes.encode())
         assert result.conforms
 
     def test_pattern_fails(self):
-        shapes = PREFIXES + """\
+        shapes = (
+            PREFIXES
+            + """\
         ex:PersonShape a sh:NodeShape ;
             sh:targetClass ex:Person ;
             sh:property [
@@ -173,6 +204,7 @@ class TestPattern:
                 sh:pattern \"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\\\.[a-zA-Z]{2,}$\" ;
             ] .
         """
+        )
         data = PREFIXES + 'ex:Alice a ex:Person ; ex:email "not-an-email" .'
         result = shifty.validate_algebra(data.encode(), shapes.encode())
         assert not result.conforms
@@ -180,9 +212,12 @@ class TestPattern:
 
 # ── closed constraint (partial implementation) ───────────────────────────────
 
+
 class TestClosed:
     def test_closed_fails_with_extra_property(self):
-        shapes = PREFIXES + """\
+        shapes = (
+            PREFIXES
+            + """\
         ex:PersonShape a sh:NodeShape ;
             sh:targetClass ex:Person ;
             sh:property [
@@ -190,16 +225,22 @@ class TestClosed:
             ] ;
             sh:closed true .
         """
-        data = PREFIXES + "ex:Alice a ex:Person ; ex:name \"Alice\" ; ex:extra \"Property\" ."
+        )
+        data = (
+            PREFIXES + 'ex:Alice a ex:Person ; ex:name "Alice" ; ex:extra "Property" .'
+        )
         result = shifty.validate_algebra(data.encode(), shapes.encode())
         assert not result.conforms
 
 
 # ── targetClass vs targetNode ────────────────────────────────────────────────
 
+
 class TestTargetTypes:
     def test_target_class(self):
-        shapes = PREFIXES + """\
+        shapes = (
+            PREFIXES
+            + """\
         ex:PersonShape a sh:NodeShape ;
             sh:targetClass ex:Person ;
             sh:property [
@@ -207,12 +248,15 @@ class TestTargetTypes:
                 sh:minCount 1 ;
             ] .
         """
-        data = PREFIXES + "ex:Alice a ex:Person ; ex:name \"Alice\" ."
+        )
+        data = PREFIXES + 'ex:Alice a ex:Person ; ex:name "Alice" .'
         result = shifty.validate_algebra(data.encode(), shapes.encode())
         assert result.conforms
 
     def test_target_node(self):
-        shapes = PREFIXES + """\
+        shapes = (
+            PREFIXES
+            + """\
         ex:PersonShape a sh:NodeShape ;
             sh:targetNode ex:Alice ;
             sh:property [
@@ -220,16 +264,20 @@ class TestTargetTypes:
                 sh:minCount 1 ;
             ] .
         """
-        data = PREFIXES + "ex:Alice a ex:Person ; ex:name \"Alice\" ."
+        )
+        data = PREFIXES + 'ex:Alice a ex:Person ; ex:name "Alice" .'
         result = shifty.validate_algebra(data.encode(), shapes.encode())
         assert result.conforms
 
 
 # ── sh:and, sh:or, sh:not ────────────────────────────────────────────────────
 
+
 class TestLogicalOperators:
     def test_sh_and(self):
-        shapes = PREFIXES + """\
+        shapes = (
+            PREFIXES
+            + """\
         ex:PersonShape a sh:NodeShape ;
             sh:targetClass ex:Person ;
             sh:and (
@@ -237,12 +285,15 @@ class TestLogicalOperators:
                 [ sh:property [ sh:path ex:age ; sh:maxCount 1 ] ]
             ) .
         """
-        data = PREFIXES + "ex:Alice a ex:Person ; ex:name \"Alice\" ; ex:age 30 ."
+        )
+        data = PREFIXES + 'ex:Alice a ex:Person ; ex:name "Alice" ; ex:age 30 .'
         result = shifty.validate_algebra(data.encode(), shapes.encode())
         assert result.conforms
 
     def test_sh_and_fails(self):
-        shapes = PREFIXES + """\
+        shapes = (
+            PREFIXES
+            + """\
         ex:PersonShape a sh:NodeShape ;
             sh:targetClass ex:Person ;
             sh:and (
@@ -250,7 +301,11 @@ class TestLogicalOperators:
                 [ sh:property [ sh:path ex:age ; sh:maxCount 1 ] ]
             ) .
         """
-        data = PREFIXES + "ex:Alice a ex:Person ; ex:name \"Alice\" ; ex:age 30 ; ex:age 40 ."
+        )
+        data = (
+            PREFIXES
+            + 'ex:Alice a ex:Person ; ex:name "Alice" ; ex:age 30 ; ex:age 40 .'
+        )
         result = shifty.validate_algebra(data.encode(), shapes.encode())
         assert not result.conforms
 
@@ -330,7 +385,9 @@ class TestCustomConstraintComponent:
             data,
             _EXACT_COUNT_SHAPES.encode(),
         )
-        assert not result.conforms, "zero instances of ex:Thing with exactCount=1 must fail"
+        assert not result.conforms, (
+            "zero instances of ex:Thing with exactCount=1 must fail"
+        )
 
     def test_algebra_exact_count_conforms(self):
         data = b"@prefix ex: <urn:ex/> . ex:sentinel a ex:Sentinel . ex:t1 a ex:Thing ."
@@ -346,14 +403,19 @@ class TestCustomConstraintComponent:
             data,
             _EXACT_COUNT_SHAPES.encode(),
         )
-        assert not result.conforms, "two instances of ex:Thing with exactCount=1 must fail"
+        assert not result.conforms, (
+            "two instances of ex:Thing with exactCount=1 must fail"
+        )
 
 
 # ── Nested property paths ────────────────────────────────────────────────────
 
+
 class TestNestedPaths:
     def test_nested_path(self):
-        shapes = PREFIXES + """\
+        shapes = (
+            PREFIXES
+            + """\
         ex:AddressShape a sh:NodeShape ;
             sh:property [
                 sh:path ex:street ;
@@ -366,6 +428,7 @@ class TestNestedPaths:
                 sh:node ex:AddressShape ;
             ] .
         """
-        data = PREFIXES + "ex:Alice a ex:Person ; ex:address [ ex:street \"Main St\" ] ."
+        )
+        data = PREFIXES + 'ex:Alice a ex:Person ; ex:address [ ex:street "Main St" ] .'
         result = shifty.validate_algebra(data.encode(), shapes.encode())
         assert result.conforms

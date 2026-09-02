@@ -6,8 +6,6 @@ import shifty
 from shifty import (
     BNode,
     Cls,
-    Const,
-    Datatype,
     Id,
     Inv,
     Iri,
@@ -22,14 +20,15 @@ from shifty import (
 from shifty.shapemap import _local, _path_from_json
 from shifty.terms import parse as term_parse
 
-
 PREFIXES = """
 @prefix sh: <http://www.w3.org/ns/shacl#> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
 @prefix ex: <http://ex/> .
 """
 
-ZONE_SHAPES = PREFIXES + """
+ZONE_SHAPES = (
+    PREFIXES
+    + """
 ex:ZoneShape a sh:NodeShape ;
     sh:targetClass ex:Zone ;
     sh:property [
@@ -44,8 +43,11 @@ ex:ZoneShape a sh:NodeShape ;
     ] ;
     sh:property [ sh:path ex:label ; sh:minCount 1 ] .
 """
+)
 
-ZONE_DATA = PREFIXES + """
+ZONE_DATA = (
+    PREFIXES
+    + """
 ex:z1 a ex:Zone ; ex:hasPoint ex:t1 ; ex:hasPart ex:sp1 ; ex:label "zone one" .
 ex:t1 a ex:TempSensor .
 ex:sp1 a ex:Space .
@@ -56,6 +58,7 @@ ex:z2 a ex:Zone ; ex:hasPoint ex:t2 ; ex:hasPart ex:notaspace ; ex:label "zone t
 ex:t2 a ex:TempSensor .
 ex:notaspace a ex:Thing .
 """
+)
 
 
 def mapping_for(smap, focus):
@@ -74,15 +77,23 @@ def test_shape_names_and_grouping():
     assert not smap.conforms
     assert len(smap["http://ex/ZoneShape"]) == 2
     assert {m.focus for m in smap} == {Iri("http://ex/z1"), Iri("http://ex/z2")}
-    assert [m.focus for m in smap.conforming("http://ex/ZoneShape")] == [Iri("http://ex/z1")]
-    assert [m.focus for m in smap.nonconforming("http://ex/ZoneShape")] == [Iri("http://ex/z2")]
+    assert [m.focus for m in smap.conforming("http://ex/ZoneShape")] == [
+        Iri("http://ex/z1")
+    ]
+    assert [m.focus for m in smap.nonconforming("http://ex/ZoneShape")] == [
+        Iri("http://ex/z2")
+    ]
 
 
 def test_conforming_focus_binds_every_key():
     smap = shifty.shape_map(ZONE_DATA, ZONE_SHAPES, infer=False)
     m = mapping_for(smap, "<http://ex/z1>")
     assert m.conforms
-    assert {str(k) for k in m.bindings} == {"hasPoint→TempSensor", "hasPart→Space", "label"}
+    assert {str(k) for k in m.bindings} == {
+        "hasPoint→TempSensor",
+        "hasPart→Space",
+        "label",
+    }
     assert {str(k): b.values for k, b in m.successful} == {
         "hasPoint→TempSensor": [Iri("http://ex/t1")],
         "hasPart→Space": [Iri("http://ex/sp1")],
@@ -143,7 +154,9 @@ def test_from_run_without_session_leaves_elided_values_unknown():
 
 
 def test_duplicate_paths_disambiguate_by_qualifier_then_ordinal():
-    shapes = PREFIXES + """
+    shapes = (
+        PREFIXES
+        + """
     ex:VavShape a sh:NodeShape ;
         sh:targetClass ex:Vav ;
         sh:property [
@@ -159,11 +172,15 @@ def test_duplicate_paths_disambiguate_by_qualifier_then_ordinal():
         sh:property [ sh:path ex:label ; sh:minCount 1 ] ;
         sh:property [ sh:path ex:label ; sh:maxCount 5 ] .
     """
-    data = PREFIXES + """
+    )
+    data = (
+        PREFIXES
+        + """
     ex:v1 a ex:Vav ; ex:hasPoint ex:f1 , ex:t1 ; ex:label "vav" .
     ex:f1 a ex:FlowSensor .
     ex:t1 a ex:TempSensor .
     """
+    )
     smap = shifty.shape_map(data, shapes, infer=False)
     (m,) = list(smap)
     assert m.conforms
@@ -177,20 +194,28 @@ def test_duplicate_paths_disambiguate_by_qualifier_then_ordinal():
     assert m["hasPoint→TempSensor"].values == [Iri("http://ex/t1")]
     # The two `label` keys share (path=Pred(label), qualifier=None); ordinal
     # disambiguates them in authored/lowering order.
-    label_keys = sorted((k for k in m.bindings if k.path == Pred("http://ex/label")),
-                        key=lambda k: k.ordinal)
+    label_keys = sorted(
+        (k for k in m.bindings if k.path == Pred("http://ex/label")),
+        key=lambda k: k.ordinal,
+    )
     assert [k.ordinal for k in label_keys] == [1, 2]
     assert str(label_keys[0]) == "label"
     assert str(label_keys[1]) == "label#2"
 
 
 def test_atomic_statement_yields_single_binding():
-    shapes = PREFIXES + """
+    shapes = (
+        PREFIXES
+        + """
     ex:IriShape a sh:NodeShape ; sh:targetClass ex:T ; sh:nodeKind sh:IRI .
     """
-    data = PREFIXES + """
+    )
+    data = (
+        PREFIXES
+        + """
     ex:good a ex:T .
     """
+    )
     smap = shifty.shape_map(data, shapes, infer=False)
     (m,) = list(smap)
     assert m.conforms
@@ -198,14 +223,20 @@ def test_atomic_statement_yields_single_binding():
 
 
 def test_empty_selection_keeps_shape_with_no_mappings():
-    shapes = PREFIXES + """
+    shapes = (
+        PREFIXES
+        + """
     ex:ZoneShape a sh:NodeShape ; sh:targetClass ex:Zone ;
         sh:property [ sh:path ex:p ; sh:minCount 1 ] .
     ex:Unused a sh:NodeShape ; sh:targetClass ex:NeverPresent ; sh:nodeKind sh:IRI .
     """
-    data = PREFIXES + """
+    )
+    data = (
+        PREFIXES
+        + """
     ex:z a ex:Zone ; ex:p ex:v .
     """
+    )
     smap = shifty.shape_map(data, shapes, infer=False)
     assert set(smap.shape_names) == {"http://ex/ZoneShape", "http://ex/Unused"}
     assert smap["http://ex/Unused"] == []
@@ -243,14 +274,20 @@ def test_evidence_for_contract():
 
 
 def test_or_statement_stays_whole():
-    shapes = PREFIXES + """
+    shapes = (
+        PREFIXES
+        + """
     ex:EitherShape a sh:NodeShape ; sh:targetClass ex:T ;
         sh:or ( [ sh:path ex:a ; sh:minCount 1 ] [ sh:path ex:b ; sh:minCount 1 ] ) .
     """
-    data = PREFIXES + """
+    )
+    data = (
+        PREFIXES
+        + """
     ex:hasA a ex:T ; ex:a ex:v .
     ex:hasNone a ex:T .
     """
+    )
     smap = shifty.shape_map(data, shapes, infer=False)
     good = mapping_for(smap, "<http://ex/hasA>")
     bad = mapping_for(smap, "<http://ex/hasNone>")
@@ -311,9 +348,9 @@ def test_key_and_term_match_statements():
 
     assert describe_term(Iri("http://ex/a")) == "iri:http://ex/a"
     assert describe_term(Literal("hi")) == "plain-literal:hi"
-    assert describe_term(Literal("1", "http://www.w3.org/2001/XMLSchema#integer", None)) == (
-        "literal:1:http://www.w3.org/2001/XMLSchema#integer:None"
-    )
+    assert describe_term(
+        Literal("1", "http://www.w3.org/2001/XMLSchema#integer", None)
+    ) == ("literal:1:http://www.w3.org/2001/XMLSchema#integer:None")
     assert describe_term(BNode("b0")) == "bnode:b0"
 
 
@@ -342,10 +379,12 @@ def test_literal_to_python_and_str():
     assert str(Literal("hi")) == "hi"
     assert Literal("42", "http://www.w3.org/2001/XMLSchema#integer").to_python() == 42
     assert Literal("3.5", "http://www.w3.org/2001/XMLSchema#double").to_python() == 3.5
-    assert Literal("true", "http://www.w3.org/2001/XMLSchema#boolean").to_python() is True
-    assert Literal("not-a-number", "http://www.w3.org/2001/XMLSchema#integer").to_python() == (
-        "not-a-number"
+    assert (
+        Literal("true", "http://www.w3.org/2001/XMLSchema#boolean").to_python() is True
     )
+    assert Literal(
+        "not-a-number", "http://www.w3.org/2001/XMLSchema#integer"
+    ).to_python() == ("not-a-number")
 
 
 def test_term_from_json():
@@ -354,9 +393,9 @@ def test_term_from_json():
     assert from_json({"type": "uri", "value": "http://ex/a"}) == Iri("http://ex/a")
     assert from_json({"type": "bnode", "value": "b0"}) == BNode("b0")
     assert from_json({"type": "literal", "value": "hi"}) == Literal("hi")
-    assert from_json(
-        {"type": "literal", "value": "hi", "xml:lang": "en"}
-    ) == Literal("hi", None, "en")
+    assert from_json({"type": "literal", "value": "hi", "xml:lang": "en"}) == Literal(
+        "hi", None, "en"
+    )
     assert from_json(
         {
             "type": "literal",
@@ -368,7 +407,9 @@ def test_term_from_json():
 
 # ── 3. name_path ─────────────────────────────────────────────────────────────────
 
-NAME_SHAPES = PREFIXES + """
+NAME_SHAPES = (
+    PREFIXES
+    + """
 @prefix zea: <http://ex/zea#> .
 ex:VavShape a sh:NodeShape ;
     sh:targetClass ex:Vav ;
@@ -386,12 +427,16 @@ ex:VavShape a sh:NodeShape ;
     ] .
 ex:FlowRole zea:roleName "flowRole" .
 """
+)
 
-NAME_DATA = PREFIXES + """
+NAME_DATA = (
+    PREFIXES
+    + """
 ex:v1 a ex:Vav ; ex:hasPoint ex:f1, ex:t1 .
 ex:f1 a ex:FlowSensor .
 ex:t1 a ex:TempSensor .
 """
+)
 
 
 def test_name_path_direct_sh_name():
@@ -436,11 +481,14 @@ def test_by_name_lookup_and_value_map_fallback():
 def test_value_map_python_coercion():
     # Two properties, so the datatype+minCount pair on `ex:n` stays one
     # collapsed binding rather than the NodeShape itself collapsing away.
-    shapes = PREFIXES + """
+    shapes = (
+        PREFIXES
+        + """
     ex:S a sh:NodeShape ; sh:targetClass ex:T ;
         sh:property [ sh:path ex:n ; sh:datatype xsd:integer ; sh:minCount 1 ] ;
         sh:property [ sh:path ex:label ; sh:minCount 1 ] .
     """
+    )
     data = PREFIXES + 'ex:a a ex:T ; ex:n 42 ; ex:label "x" .'
     smap = shifty.shape_map(data, shapes, infer=False)
     (m,) = list(smap)
@@ -479,7 +527,9 @@ def test_binding_names_resolves_named_and_blank_property_shapes():
 
 
 def test_single_property_shape_keeps_its_sh_name_after_conjunction_elision():
-    shapes = PREFIXES + """
+    shapes = (
+        PREFIXES
+        + """
     ex:S a sh:NodeShape ; sh:targetClass ex:T ;
         sh:property [
             sh:path ex:p ; sh:name "only point" ;
@@ -487,16 +537,22 @@ def test_single_property_shape_keeps_its_sh_name_after_conjunction_elision():
             sh:qualifiedMinCount 1
         ] .
     """
-    data = PREFIXES + """
+    )
+    data = (
+        PREFIXES
+        + """
     ex:a a ex:T ; ex:p ex:v .
     ex:v a ex:V .
     """
+    )
     (mapping,) = list(shifty.shape_map(data, shapes, infer=False))
     assert mapping["p→V"].name == "only point"
 
 
 def test_optional_qualified_property_extracts_qualifying_values():
-    shapes = PREFIXES + """
+    shapes = (
+        PREFIXES
+        + """
     ex:S a sh:NodeShape ; sh:targetClass ex:T ;
         sh:property [ sh:path ex:required ; sh:minCount 1 ] ;
         sh:property [
@@ -504,13 +560,21 @@ def test_optional_qualified_property_extracts_qualifying_values():
             sh:qualifiedValueShape [ sh:class ex:V ]
         ] .
     """
-    data = PREFIXES + """
+    )
+    data = (
+        PREFIXES
+        + """
     ex:a a ex:T ; ex:required ex:present ; ex:optional ex:good, ex:other .
     ex:good a ex:V .
     ex:other a ex:Other .
     """
+    )
     (mapping,) = list(shifty.shape_map(data, shapes, infer=False))
-    optional = next(binding for binding in mapping.bindings.values() if binding.name == "optional point")
+    optional = next(
+        binding
+        for binding in mapping.bindings.values()
+        if binding.name == "optional point"
+    )
     assert optional.values == [Iri("http://ex/good")]
 
 
@@ -554,7 +618,9 @@ def test_custom_witness_key_path_works_for_rdflib_graph_input():
 
 # ── 5. ShapeRef qualifier ────────────────────────────────────────────────────────
 
-SHAPE_REF_SHAPES = PREFIXES + """
+SHAPE_REF_SHAPES = (
+    PREFIXES
+    + """
 ex:ZoneShape a sh:NodeShape ; sh:targetClass ex:Zone ;
     sh:property [
         sh:path ex:hasPart ;
@@ -563,11 +629,15 @@ ex:ZoneShape a sh:NodeShape ; sh:targetClass ex:Zone ;
     ] .
 ex:HeatingCoilShape a sh:NodeShape ; sh:targetClass ex:HeatingCoil .
 """
+)
 
-SHAPE_REF_DATA = PREFIXES + """
+SHAPE_REF_DATA = (
+    PREFIXES
+    + """
 ex:z a ex:Zone ; ex:hasPart ex:coil1 .
 ex:coil1 a ex:HeatingCoil .
 """
+)
 
 
 def test_shape_ref_qualifier_from_qualified_value_shape():
@@ -580,11 +650,14 @@ def test_shape_ref_qualifier_from_qualified_value_shape():
 
 
 def test_shape_ref_qualifier_from_plain_sh_node():
-    shapes = PREFIXES + """
+    shapes = (
+        PREFIXES
+        + """
     ex:ZoneShape a sh:NodeShape ; sh:targetClass ex:Zone ;
         sh:property [ sh:path ex:hasPart ; sh:node ex:HeatingCoilShape ] .
     ex:HeatingCoilShape a sh:NodeShape ; sh:targetClass ex:HeatingCoil .
     """
+    )
     smap = shifty.shape_map(SHAPE_REF_DATA, shapes, infer=False)
     (m,) = smap["http://ex/ZoneShape"]
     ((key, binding),) = m.successful
@@ -593,18 +666,24 @@ def test_shape_ref_qualifier_from_plain_sh_node():
 
 # ── 6. value_paths ────────────────────────────────────────────────────────────────
 
-VALUE_PATH_SHAPES = PREFIXES + """
+VALUE_PATH_SHAPES = (
+    PREFIXES
+    + """
 ex:ZoneShape a sh:NodeShape ; sh:targetClass ex:Zone ;
     sh:property [ sh:path ex:hasPoint ; sh:minCount 1 ] .
 """
+)
 
-VALUE_PATH_DATA = PREFIXES + """
+VALUE_PATH_DATA = (
+    PREFIXES
+    + """
 ex:z a ex:Zone ; ex:hasPoint ex:t1, ex:t2 .
 ex:t1 ex:hasRef ex:r1 .
 ex:r1 ex:hasId "TS-1" .
 ex:t2 ex:hasRef ex:r2 .
 ex:r2 ex:hasId "TS-2" .
 """
+)
 
 
 class _CountingSessionProxy:
@@ -629,7 +708,9 @@ def test_value_paths_two_hop_and_batching():
     run = session.validate()
     proxy = _CountingSessionProxy(session._inner)
 
-    smap = shifty.ShapeMap.from_run(run, proxy, value_paths={"ts": "ex:hasRef/ex:hasId"})
+    smap = shifty.ShapeMap.from_run(
+        run, proxy, value_paths={"ts": "ex:hasRef/ex:hasId"}
+    )
     (m,) = list(smap)
     binding = m["hasPoint"]
 
@@ -649,12 +730,17 @@ def test_value_paths_two_hop_and_batching():
 
 
 def test_value_paths_no_annotation_is_empty_list():
-    shapes = PREFIXES + """
+    shapes = (
+        PREFIXES
+        + """
     ex:ZoneShape a sh:NodeShape ; sh:targetClass ex:Zone ;
         sh:property [ sh:path ex:hasPoint ; sh:minCount 1 ] .
     """
+    )
     data = PREFIXES + "ex:z a ex:Zone ; ex:hasPoint ex:t1 ."
-    smap = shifty.shape_map(data, shapes, infer=False, value_paths={"ts": "ex:hasRef/ex:hasId"})
+    smap = shifty.shape_map(
+        data, shapes, infer=False, value_paths={"ts": "ex:hasRef/ex:hasId"}
+    )
     (m,) = list(smap)
     binding = m["hasPoint"]
     (bound,) = binding.annotated_values
@@ -673,10 +759,13 @@ def test_value_paths_absent_is_free():
 
 
 def test_cardinality_min_count():
-    shapes = PREFIXES + """
+    shapes = (
+        PREFIXES
+        + """
     ex:S a sh:NodeShape ; sh:targetClass ex:T ;
         sh:property [ sh:path ex:p ; sh:minCount 2 ] .
     """
+    )
     data = PREFIXES + "ex:a a ex:T ; ex:p ex:v1, ex:v2, ex:v3 ."
     smap = shifty.shape_map(data, shapes, infer=False)
     (m,) = list(smap)
@@ -688,10 +777,13 @@ def test_cardinality_min_count():
 
 
 def test_cardinality_max_count_and_expects_single():
-    shapes = PREFIXES + """
+    shapes = (
+        PREFIXES
+        + """
     ex:S a sh:NodeShape ; sh:targetClass ex:T ;
         sh:property [ sh:path ex:p ; sh:minCount 1 ; sh:maxCount 1 ] .
     """
+    )
     data = PREFIXES + "ex:a a ex:T ; ex:p ex:v1 ."
     smap = shifty.shape_map(data, shapes, infer=False)
     (m,) = list(smap)
@@ -715,11 +807,14 @@ def test_cardinality_collapsed_datatype_plus_min_count():
     # Two properties, so the datatype+minCount pair stays one collapsed
     # binding rather than the NodeShape itself collapsing away (which would
     # split them into two independent progress children).
-    shapes = PREFIXES + """
+    shapes = (
+        PREFIXES
+        + """
     ex:S a sh:NodeShape ; sh:targetClass ex:T ;
         sh:property [ sh:path ex:label ; sh:datatype xsd:string ; sh:minCount 1 ] ;
         sh:property [ sh:path ex:other ; sh:minCount 1 ] .
     """
+    )
     data = PREFIXES + 'ex:a a ex:T ; ex:label "hi" ; ex:other ex:v .'
     smap = shifty.shape_map(data, shapes, infer=False)
     (m,) = list(smap)
@@ -741,11 +836,14 @@ def test_cardinality_collapsed_datatype_plus_min_count():
 def test_lone_typed_property_with_min_count_is_one_named_binding(
     constraint, good_value, bad_value, key
 ):
-    shapes = PREFIXES + f"""
+    shapes = (
+        PREFIXES
+        + f"""
     ex:S a sh:NodeShape ; sh:targetClass ex:T ;
         sh:property [ sh:name "label" ; sh:path ex:label ;
             {constraint} ; sh:minCount 1 ] .
     """
+    )
     good_extra = "ex:good a ex:Wanted ." if "class" in constraint else ""
     bad_extra = "ex:bad a ex:Other ." if "class" in constraint else ""
 
@@ -779,17 +877,23 @@ def test_lone_typed_property_with_min_count_is_one_named_binding(
 
 
 def test_lone_qualified_property_with_unqualified_min_keeps_only_qualified_values():
-    shapes = PREFIXES + """
+    shapes = (
+        PREFIXES
+        + """
     ex:S a sh:NodeShape ; sh:targetClass ex:T ;
         sh:property [ sh:name "point" ; sh:path ex:p ;
             sh:qualifiedValueShape [ sh:class ex:V ] ;
             sh:qualifiedMinCount 1 ; sh:minCount 2 ] .
     """
-    data = PREFIXES + """
+    )
+    data = (
+        PREFIXES
+        + """
     ex:a a ex:T ; ex:p ex:v, ex:other .
     ex:v a ex:V .
     ex:other a ex:Other .
     """
+    )
     (mapping,) = list(shifty.shape_map(data, shapes, infer=False))
     binding = mapping["p→V"]
     assert binding.name == "point"
@@ -798,11 +902,14 @@ def test_lone_qualified_property_with_unqualified_min_keeps_only_qualified_value
 
 
 def test_lone_typed_property_with_max_count_keeps_cardinality_values():
-    shapes = PREFIXES + """
+    shapes = (
+        PREFIXES
+        + """
     ex:S a sh:NodeShape ; sh:targetClass ex:T ;
         sh:property [ sh:name "label" ; sh:path ex:label ;
             sh:datatype xsd:string ; sh:maxCount 1 ] .
     """
+    )
     data = PREFIXES + 'ex:a a ex:T ; ex:label "one", "two" .'
     (mapping,) = list(shifty.shape_map(data, shapes, infer=False))
     binding = mapping["label→string"]
@@ -812,10 +919,13 @@ def test_lone_typed_property_with_max_count_keeps_cardinality_values():
 
 
 def test_from_run_without_session_keeps_lone_property_boundary():
-    shapes = PREFIXES + """
+    shapes = (
+        PREFIXES
+        + """
     ex:S a sh:NodeShape ; sh:targetClass ex:T ;
         sh:property [ sh:path ex:label ; sh:datatype xsd:string ; sh:minCount 1 ] .
     """
+    )
     data = PREFIXES + 'ex:a a ex:T ; ex:label "good" .'
     run = shifty.EvidenceSession(shapes, data, infer=False).validate()
     (mapping,) = list(shifty.ShapeMap.from_run(run))
@@ -824,12 +934,15 @@ def test_from_run_without_session_keeps_lone_property_boundary():
 
 
 def test_severity_from_sh_severity():
-    shapes = PREFIXES + """
+    shapes = (
+        PREFIXES
+        + """
     ex:S a sh:NodeShape ; sh:targetClass ex:T ;
         sh:property [
             sh:path ex:p ; sh:minCount 1 ; sh:severity sh:Warning
         ] .
     """
+    )
     data = PREFIXES + "ex:a a ex:T ."
     smap = shifty.shape_map(data, shapes, infer=False, minimum_severity="warning")
     (m,) = list(smap)
@@ -839,10 +952,13 @@ def test_severity_from_sh_severity():
 
 
 def test_severity_defaults_to_violation():
-    shapes = PREFIXES + """
+    shapes = (
+        PREFIXES
+        + """
     ex:S a sh:NodeShape ; sh:targetClass ex:T ;
         sh:property [ sh:path ex:p ; sh:minCount 1 ] .
     """
+    )
     data = PREFIXES + "ex:a a ex:T ; ex:p ex:v ."
     smap = shifty.shape_map(data, shapes, infer=False)
     (m,) = list(smap)
@@ -853,15 +969,21 @@ def test_severity_defaults_to_violation():
 
 
 def test_for_focus_across_shapes():
-    shapes = PREFIXES + """
+    shapes = (
+        PREFIXES
+        + """
     ex:ZoneShape a sh:NodeShape ; sh:targetClass ex:Zone ;
         sh:property [ sh:path ex:label ; sh:minCount 1 ] .
     ex:NamedThingShape a sh:NodeShape ; sh:targetClass ex:NamedThing ;
         sh:property [ sh:path ex:name ; sh:minCount 1 ] .
     """
-    data = PREFIXES + """
+    )
+    data = (
+        PREFIXES
+        + """
     ex:z a ex:Zone, ex:NamedThing ; ex:label "zone" ; ex:name "shared" .
     """
+    )
     smap = shifty.shape_map(data, shapes, infer=False)
     mappings = smap.for_focus("<http://ex/z>")
     assert {m.shape_name for m in mappings} == {
@@ -885,7 +1007,12 @@ def test_path_from_json_variants():
         Pred("http://ex/p")
     )
     assert _path_from_json(
-        {"Seq": [{"Pred": {"value": "http://ex/a"}}, {"Pred": {"value": "http://ex/b"}}]}
+        {
+            "Seq": [
+                {"Pred": {"value": "http://ex/a"}},
+                {"Pred": {"value": "http://ex/b"}},
+            ]
+        }
     ) == Seq((Pred("http://ex/a"), Pred("http://ex/b")))
     assert _path_from_json({"Star": {"Pred": {"value": "http://ex/p"}}}) == Star(
         Pred("http://ex/p")

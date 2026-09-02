@@ -15,7 +15,6 @@ from evidence_point_list import (
 
 import shifty
 
-
 shape_graph = POINT_LIST_SHAPES.encode()
 data_graph = [BRICK_ONTOLOGY, BRICK_MODEL, DEMO_OVERLAY.encode()]
 

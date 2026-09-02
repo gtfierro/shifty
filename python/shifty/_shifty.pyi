@@ -4,7 +4,6 @@ from typing import Any, ClassVar, Dict, List, Optional, Tuple, Union
 
 __version__: str
 
-
 class ConstraintKind:
     Unknown: ClassVar[ConstraintKind]
     Top: ClassVar[ConstraintKind]
@@ -26,7 +25,6 @@ class ConstraintKind:
     Expression: ClassVar[ConstraintKind]
     def __str__(self) -> str: ...
 
-
 class SparqlDiagnostic:
     @property
     def query(self) -> str: ...
@@ -36,7 +34,6 @@ class SparqlDiagnostic:
     def results(self) -> List[List[Tuple[str, str]]]: ...
     @property
     def fallback_reason(self) -> Optional[str]: ...
-
 
 class Constraint:
     @property
@@ -50,7 +47,6 @@ class Constraint:
     @property
     def json(self) -> str: ...
     def __str__(self) -> str: ...
-
 
 class Reason:
     @property
@@ -74,7 +70,6 @@ class Reason:
     @property
     def sparql_diagnostic(self) -> Optional[SparqlDiagnostic]: ...
 
-
 class Violation:
     @property
     def focus_node(self) -> str: ...
@@ -89,7 +84,6 @@ class Violation:
     @property
     def reasons(self) -> List[Reason]: ...
 
-
 class AlgebraResult:
     @property
     def conforms(self) -> bool: ...
@@ -99,7 +93,6 @@ class AlgebraResult:
     def results_text(self) -> str: ...
     def __bool__(self) -> bool: ...
 
-
 class W3cResult:
     @property
     def conforms(self) -> bool: ...
@@ -108,7 +101,6 @@ class W3cResult:
     @property
     def results_text(self) -> str: ...
     def __bool__(self) -> bool: ...
-
 
 class PropertyWitness:
     @property
@@ -120,7 +112,6 @@ class PropertyWitness:
     @property
     def values(self) -> List[str]: ...
 
-
 class InferResult:
     @property
     def inferred_count(self) -> int: ...
@@ -128,7 +119,6 @@ class InferResult:
     def diagnostics(self) -> List[str]: ...
     @property
     def graph_ntriples(self) -> str: ...
-
 
 class PreparedValidator:
     def __init__(
@@ -175,7 +165,6 @@ class PreparedValidator:
         on_unsupported: str = ...,
     ) -> List[PropertyWitness]: ...
 
-
 class EvidenceKind:
     Irrefutable: ClassVar[EvidenceKind]
     AtomHeld: ClassVar[EvidenceKind]
@@ -199,7 +188,6 @@ class EvidenceKind:
     def status(self) -> str: ...
     def __str__(self) -> str: ...
 
-
 class WitnessKind:
     Atom: ClassVar[WitnessKind]
     Relational: ClassVar[WitnessKind]
@@ -208,7 +196,6 @@ class WitnessKind:
     CountHigh: ClassVar[WitnessKind]
     Not: ClassVar[WitnessKind]
     Opaque: ClassVar[WitnessKind]
-
 
 class WitnessAtom:
     @property
@@ -226,14 +213,12 @@ class WitnessAtom:
     @property
     def detail(self) -> str: ...
 
-
 class SatKind:
     Atom: ClassVar[SatKind]
     Match: ClassVar[SatKind]
     Not: ClassVar[SatKind]
     Blocked: ClassVar[SatKind]
     Coinductive: ClassVar[SatKind]
-
 
 class SatAtom:
     @property
@@ -247,7 +232,6 @@ class SatAtom:
     @property
     def detail(self) -> str: ...
 
-
 class TargetKind:
     Class: ClassVar[TargetKind]
     SubjectsOf: ClassVar[TargetKind]
@@ -255,7 +239,6 @@ class TargetKind:
     Node: ClassVar[TargetKind]
     Path: ClassVar[TargetKind]
     Sparql: ClassVar[TargetKind]
-
 
 class Target:
     @property
@@ -267,7 +250,6 @@ class Target:
     @property
     def render(self) -> str: ...
     def __str__(self) -> str: ...
-
 
 class EvidenceNode:
     @property
@@ -283,7 +265,6 @@ class EvidenceNode:
     def to_json(self) -> str: ...
     def to_dict(self) -> Dict[str, Any]: ...
 
-
 class PathSupport:
     @property
     def kind(self) -> str: ...
@@ -293,7 +274,6 @@ class PathSupport:
     def children(self) -> List[PathSupport]: ...
     def to_json(self) -> str: ...
     def to_dict(self) -> Dict[str, Any]: ...
-
 
 class MissingObligation:
     @property
@@ -310,7 +290,6 @@ class MissingObligation:
     def missing(self) -> int: ...
     @property
     def qualifier(self) -> Constraint: ...
-
 
 class Failure:
     @property
@@ -347,7 +326,6 @@ class Failure:
     def to_dict(self) -> Dict[str, Any]: ...
     def repair_tree(self) -> RepairTree: ...
 
-
 class Satisfaction:
     @property
     def focus(self) -> str: ...
@@ -382,7 +360,6 @@ class Satisfaction:
     def to_json(self) -> str: ...
     def to_dict(self) -> Dict[str, Any]: ...
 
-
 class FocusEvaluation:
     @property
     def focus(self) -> str: ...
@@ -397,7 +374,6 @@ class FocusEvaluation:
     @property
     def progress(self) -> Optional[EvaluationProgress]: ...
 
-
 class ChildEvaluation:
     @property
     def source_constraint_ref(self) -> int: ...
@@ -408,11 +384,9 @@ class ChildEvaluation:
     @property
     def constraint_kind(self) -> ConstraintKind: ...
 
-
 class EvaluationProgress:
     @property
     def evaluated_children(self) -> List[ChildEvaluation]: ...
-
 
 class StatementEvaluation:
     @property
@@ -438,7 +412,6 @@ class StatementEvaluation:
     @property
     def selected_foci(self) -> List[FocusEvaluation]: ...
 
-
 class ConformanceRun:
     @property
     def conforms(self) -> bool: ...
@@ -450,7 +423,6 @@ class ConformanceRun:
     def failed(self) -> int: ...
     def __bool__(self) -> bool: ...
 
-
 class SelectedPair:
     @property
     def focus(self) -> str: ...
@@ -458,7 +430,6 @@ class SelectedPair:
     def normalized_statement(self) -> int: ...
     @property
     def source_statements(self) -> List[int]: ...
-
 
 class EvidenceRun:
     @property
@@ -481,7 +452,7 @@ class EvidenceRun:
     def to_compact_json(self, include_catalog: bool = ...) -> str: ...
     def to_compact_dict(self, include_catalog: bool = ...) -> Dict[str, Any]: ...
     def __bool__(self) -> bool: ...
-
+    def _binding_source_ids(self) -> Dict[int, int]: ...
 
 class EvidenceSession:
     def __init__(
@@ -521,7 +492,14 @@ class EvidenceSession:
     def explain(self, pair: SelectedPair) -> EvidenceRun: ...
     def explain_canonical(self, pair: SelectedPair) -> EvidenceRun: ...
     def constraints(self) -> Dict[str, Any]: ...
-
+    def _binding_names(
+        self, name_path: Optional[str] = ...
+    ) -> Dict[int, List[str]]: ...
+    def _binding_source_ids(self) -> Dict[int, int]: ...
+    def _binding_values(self, focus: str, constraint_id: int) -> List[str]: ...
+    def _evidence_for(self, focus: str, constraint_id: int) -> EvidenceNode: ...
+    def _resolve_path(self, nodes: List[str], path: str) -> Dict[str, List[str]]: ...
+    def _shape_name_of(self, constraint_id: int) -> Optional[str]: ...
 
 class RepairSession:
     def __init__(
@@ -547,7 +525,6 @@ class RepairSession:
     def describe_shape(self, shape_id: int) -> str: ...
     def advance(self, delta: RepairDelta) -> RepairSession: ...
 
-
 class RepairOrigin:
     @property
     def statement_id(self) -> Optional[int]: ...
@@ -564,7 +541,6 @@ class RepairOrigin:
     @property
     def kind(self) -> str: ...
 
-
 class RepairTree:
     @property
     def root_id(self) -> int: ...
@@ -575,7 +551,6 @@ class RepairTree:
     def holes(self) -> List[Hole]: ...
     def choices(self) -> List[Choice]: ...
     def instantiate(self, plan: RepairPlan) -> Instantiated: ...
-
 
 class Hole:
     @property
@@ -589,11 +564,9 @@ class Hole:
     def conforms_to_shapes(self) -> List[int]: ...
     def sub_shapes(self) -> List[Tuple[int, str]]: ...
 
-
 class ChoiceKind:
     Any: ClassVar[ChoiceKind]
     Repeat: ClassVar[ChoiceKind]
-
 
 class Choice:
     @property
@@ -607,14 +580,12 @@ class Choice:
     @property
     def max(self) -> Optional[int]: ...
 
-
 class RepairPlan:
     def __init__(self) -> None: ...
     def choose(self, node_id: int, branch_index: int) -> None: ...
     def count(self, node_id: int, n: int) -> None: ...
     def bind(self, hole_id: int, value: str) -> None: ...
     def clear(self, id: int) -> None: ...
-
 
 class Instantiated:
     @property
@@ -626,7 +597,6 @@ class Instantiated:
     @property
     def is_complete(self) -> bool: ...
 
-
 class RepairDelta:
     @staticmethod
     def from_ntriples(add: str = ..., delete: str = ...) -> RepairDelta: ...
@@ -636,7 +606,6 @@ class RepairDelta:
     def delete(self) -> List[Tuple[str, str, str]]: ...
     @property
     def is_empty(self) -> bool: ...
-
 
 class RepairOutcome:
     @property
@@ -649,7 +618,6 @@ class RepairOutcome:
     def introduced(self) -> List[Violation]: ...
     @property
     def remaining(self) -> List[Violation]: ...
-
 
 def version() -> str: ...
 def _validate_algebra(

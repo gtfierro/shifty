@@ -3,7 +3,6 @@
 
 import shifty
 
-
 SHAPES = """
 @prefix sh:  <http://www.w3.org/ns/shacl#> .
 @prefix ex:  <http://example.org/> .
@@ -30,8 +29,7 @@ def main() -> None:
     session = shifty.RepairSession(SHAPES, DATA, infer=False)
 
     witnesses = {
-        (w.focus, w.statement_id, w.constraint_id): w
-        for w in session.witnesses()
+        (w.focus, w.statement_id, w.constraint_id): w for w in session.witnesses()
     }
 
     for violation in result.violations:

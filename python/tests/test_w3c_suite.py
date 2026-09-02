@@ -26,9 +26,7 @@ MF = rdflib.Namespace("http://www.w3.org/2001/sw/DataAccess/tests/test-manifest#
 SHT = rdflib.Namespace("http://www.w3.org/ns/shacl-test#")
 SH = rdflib.Namespace("http://www.w3.org/ns/shacl#")
 
-TEST_SUITE_DIR = (
-    pathlib.Path(__file__).parent.parent.parent / "testdata" / "test-suite"
-)
+TEST_SUITE_DIR = pathlib.Path(__file__).parent.parent.parent / "testdata" / "test-suite"
 
 _URN_BASE_RE = re.compile(r"^@base\s+<urn:[^>]*>\s*\.\s*$", re.MULTILINE)
 
@@ -71,7 +69,9 @@ def _build_urn_map():
     return urn_map
 
 
-def _resolve_graph_uri(uri, test_file: pathlib.Path, urn_map: dict) -> pathlib.Path | None:
+def _resolve_graph_uri(
+    uri, test_file: pathlib.Path, urn_map: dict
+) -> pathlib.Path | None:
     uri_str = str(uri)
     if uri_str.startswith("urn:"):
         return urn_map.get(uri_str)

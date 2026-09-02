@@ -1,11 +1,9 @@
 import threading
-import time
 
 import pytest
 import rdflib
 
 import shifty
-
 
 SHAPES = b"""
 @prefix sh: <http://www.w3.org/ns/shacl#> .
@@ -63,10 +61,7 @@ def test_prepared_validator_rejects_empty_shapes():
 def test_validation_releases_gil():
     data = [
         "@prefix ex: <http://example.org/> .",
-        *(
-            f'ex:p{i} a ex:Person ; ex:name "Person {i}" .'
-            for i in range(20_000)
-        ),
+        *(f'ex:p{i} a ex:Person ; ex:name "Person {i}" .' for i in range(20_000)),
     ]
     started = threading.Event()
     finished = threading.Event()

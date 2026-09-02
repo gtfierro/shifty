@@ -90,38 +90,34 @@ from typing import TYPE_CHECKING, NamedTuple, Optional, Sequence, Union
 
 from ._shifty import (
     AlgebraResult,
+    ChildEvaluation,
     Choice,
     ChoiceKind,
+    ConformanceRun,
     Constraint,
     ConstraintKind,
-    EvidenceSession as _RustEvidenceSession,
-    ChildEvaluation,
     EvaluationProgress,
-    EvidenceNode,
     EvidenceKind,
+    EvidenceNode,
     EvidenceRun,
     Failure,
     FocusEvaluation,
-    Satisfaction,
-    StatementEvaluation,
     Hole,
-    SatAtom,
-    SatKind,
-    InferResult as _RustInferResult,
     Instantiated,
-    ConformanceRun,
     MissingObligation,
-    SelectedPair,
     PathSupport,
-    PreparedValidator as _RustPreparedValidator,
     PropertyWitness,
     Reason,
     RepairDelta,
-    RepairOutcome,
     RepairOrigin,
+    RepairOutcome,
     RepairPlan,
-    RepairSession as _RustRepairSession,
     RepairTree,
+    SatAtom,
+    Satisfaction,
+    SatKind,
+    SelectedPair,
+    StatementEvaluation,
     Target,
     TargetKind,
     Violation,
@@ -132,10 +128,23 @@ from ._shifty import (
     _infer,
     _validate_algebra,
     _validate_w3c,
-    expand_evidence_json as _expand_evidence_json,
     version,
 )
-
+from ._shifty import (
+    EvidenceSession as _RustEvidenceSession,
+)
+from ._shifty import (
+    InferResult as _RustInferResult,
+)
+from ._shifty import (
+    PreparedValidator as _RustPreparedValidator,
+)
+from ._shifty import (
+    RepairSession as _RustRepairSession,
+)
+from ._shifty import (
+    expand_evidence_json as _expand_evidence_json,
+)
 from .shapemap import (
     Alt,
     Binding,
@@ -257,6 +266,7 @@ def __getattr__(name: str):
 
 def __dir__() -> list[str]:
     return sorted([*globals(), *_DEPRECATED_TYPE_ALIASES])
+
 
 GraphInput = Union[str, bytes, pathlib.Path, "rdflib.Graph"]
 # Any single `GraphInput`, or a list/tuple of them to be unioned (merged at
@@ -713,9 +723,7 @@ def expand_evidence(
 
     compact_text = compact if isinstance(compact, str) else _json.dumps(compact)
     catalog_text = (
-        catalog
-        if catalog is None or isinstance(catalog, str)
-        else _json.dumps(catalog)
+        catalog if catalog is None or isinstance(catalog, str) else _json.dumps(catalog)
     )
     expanded = _expand_evidence_json(compact_text, catalog_text)
     return _json.loads(expanded) if as_dict else expanded
@@ -1100,7 +1108,11 @@ def validate(
     import rdflib
 
     data = _to_rdf_input(_coalesce_graph_input(data_graph))
-    shapes = _to_rdf_input(_coalesce_graph_input(shacl_graph)) if shacl_graph is not None else _RdfInput(None, None, "turtle")
+    shapes = (
+        _to_rdf_input(_coalesce_graph_input(shacl_graph))
+        if shacl_graph is not None
+        else _RdfInput(None, None, "turtle")
+    )
     result: W3cResult = _validate_w3c(
         data.data,
         data.path,
@@ -1159,7 +1171,11 @@ def validate_algebra(
         ``.violations`` lists each failing focus node with reasons.
     """
     data = _to_rdf_input(_coalesce_graph_input(data_graph))
-    shapes = _to_rdf_input(_coalesce_graph_input(shacl_graph)) if shacl_graph is not None else _RdfInput(None, None, "turtle")
+    shapes = (
+        _to_rdf_input(_coalesce_graph_input(shacl_graph))
+        if shacl_graph is not None
+        else _RdfInput(None, None, "turtle")
+    )
     return _validate_algebra(
         data.data,
         data.path,
@@ -1204,7 +1220,11 @@ def infer(
         or read ``.graph_ntriples`` for the raw N-Triples string.
     """
     data = _to_rdf_input(_coalesce_graph_input(data_graph))
-    shapes = _to_rdf_input(_coalesce_graph_input(shapes_graph)) if shapes_graph is not None else _RdfInput(None, None, "turtle")
+    shapes = (
+        _to_rdf_input(_coalesce_graph_input(shapes_graph))
+        if shapes_graph is not None
+        else _RdfInput(None, None, "turtle")
+    )
     inner = _infer(
         data.data,
         data.path,

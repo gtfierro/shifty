@@ -41,7 +41,6 @@ shapes.ir
 /report.json
 
 # AI-generated internal docs and scratch files
-/AGENTS.md
 /AOT-TODO.md
 /BRICK_VS_S223_MEMOIZATION.md
 /COST_MODEL_DESIGN.md

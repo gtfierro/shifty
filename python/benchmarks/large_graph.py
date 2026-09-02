@@ -17,7 +17,6 @@ import rdflib
 
 import shifty
 
-
 SHAPES = b"""
 @prefix sh: <http://www.w3.org/ns/shacl#> .
 @prefix ex: <http://example.org/> .

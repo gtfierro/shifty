@@ -6,7 +6,6 @@ import pytest
 
 import shifty
 
-
 PREFIXES = """
 @prefix sh: <http://www.w3.org/ns/shacl#> .
 @prefix ex: <http://ex/> .
@@ -18,21 +17,30 @@ def selected_foci(run):
 
 
 def test_statement_grouping_partition_and_empty_selection():
-    shapes = PREFIXES + """
+    shapes = (
+        PREFIXES
+        + """
     ex:S a sh:NodeShape ; sh:targetClass ex:T ;
         sh:property [ sh:path ex:p ; sh:minCount 1 ] .
     ex:Empty a sh:NodeShape ; sh:targetClass ex:Missing ; sh:nodeKind sh:IRI .
     """
-    data = PREFIXES + """
+    )
+    data = (
+        PREFIXES
+        + """
     ex:good a ex:T ; ex:p ex:value .
     ex:bad a ex:T .
     ex:unselected ex:p ex:value .
     """
+    )
     run = shifty.EvidenceSession(shapes, data, infer=False).validate()
 
     assert not run.conforms
     assert len(run.statements) == 2
-    assert sorted(len(statement.selected_foci) for statement in run.statements) == [0, 2]
+    assert sorted(len(statement.selected_foci) for statement in run.statements) == [
+        0,
+        2,
+    ]
     foci = selected_foci(run)
     assert {focus.status for focus in foci} == {"pass", "fail"}
     assert all(
@@ -45,37 +53,54 @@ def test_statement_grouping_partition_and_empty_selection():
 
 
 def test_duplicate_source_statements_keep_provenance_and_share_normalized_identity():
-    shapes = PREFIXES + """
+    shapes = (
+        PREFIXES
+        + """
     ex:S1 a sh:NodeShape ; sh:targetNode ex:x ; sh:nodeKind sh:IRI .
     ex:S2 a sh:NodeShape ; sh:targetNode ex:x ; sh:nodeKind sh:IRI .
     """
+    )
     run = shifty.EvidenceSession(shapes, infer=False).validate()
 
     assert [statement.source_statement_id for statement in run.statements] == [0, 1]
-    assert run.statements[0].normalized_statement_id == run.statements[1].normalized_statement_id
-    assert run.statements[0].normalized_constraint_id == run.statements[1].normalized_constraint_id
+    assert (
+        run.statements[0].normalized_statement_id
+        == run.statements[1].normalized_statement_id
+    )
+    assert (
+        run.statements[0].normalized_constraint_id
+        == run.statements[1].normalized_constraint_id
+    )
     assert all(len(statement.selected_foci) == 1 for statement in run.statements)
 
 
 def test_failed_conjunction_has_compact_failure_and_sibling_progress():
-    shapes = PREFIXES + """
+    shapes = (
+        PREFIXES
+        + """
     ex:S a sh:NodeShape ; sh:targetNode ex:x ;
         sh:nodeKind sh:IRI ;
         sh:property [ sh:path ex:p ; sh:minCount 1 ] .
     """
+    )
     run = shifty.EvidenceSession(shapes, PREFIXES, infer=False).validate()
     focus = run.statements[0].selected_foci[0]
 
     assert focus.status == "fail"
     assert isinstance(focus.evidence, shifty.Failure)
     assert focus.progress is not None
-    assert [child.status for child in focus.progress.evaluated_children] == ["pass", "fail"]
+    assert [child.status for child in focus.progress.evaluated_children] == [
+        "pass",
+        "fail",
+    ]
     assert [node.status for node in focus.evidence.walk()][0] == "fail"
     assert focus.evidence.missing_obligations()[0].missing == 1
 
 
 def test_qualified_count_retains_matches_rejections_support_and_nested_evidence():
-    shapes = PREFIXES + """
+    shapes = (
+        PREFIXES
+        + """
     ex:S a sh:NodeShape ; sh:targetNode ex:x ;
         sh:property [
             sh:path ex:p ;
@@ -83,8 +108,15 @@ def test_qualified_count_retains_matches_rejections_support_and_nested_evidence(
             sh:qualifiedMinCount 2
         ] .
     """
+    )
     data = PREFIXES + "ex:x ex:p ex:good, ex:near . ex:good a ex:C ."
-    failure = shifty.EvidenceSession(shapes, data, infer=False).validate().statements[0].selected_foci[0].evidence
+    failure = (
+        shifty.EvidenceSession(shapes, data, infer=False)
+        .validate()
+        .statements[0]
+        .selected_foci[0]
+        .evidence
+    )
 
     assert isinstance(failure, shifty.Failure)
     assert failure.matched_values()[0] == "<http://ex/good>"
@@ -97,9 +129,12 @@ def test_qualified_count_retains_matches_rejections_support_and_nested_evidence(
 
 
 def test_negation_crossing_and_tagged_json_are_structured():
-    shapes = PREFIXES + """
+    shapes = (
+        PREFIXES
+        + """
     ex:S a sh:NodeShape ; sh:targetClass ex:T ; sh:not [ sh:class ex:C ] .
     """
+    )
     data = PREFIXES + "ex:pass a ex:T . ex:fail a ex:T, ex:C ."
     run = shifty.EvidenceSession(shapes, data, infer=False).validate()
     foci = selected_foci(run)
@@ -112,9 +147,7 @@ def test_negation_crossing_and_tagged_json_are_structured():
         assert isinstance(node.evidence_kind, shifty.EvidenceKind)
         assert node.kind == str(node.evidence_kind)
         assert node.status == node.evidence_kind.status
-    assert shifty.EvidenceKind.NotHeld in {
-        node.evidence_kind for node in passed.walk()
-    }
+    assert shifty.EvidenceKind.NotHeld in {node.evidence_kind for node in passed.walk()}
     assert shifty.EvidenceKind.NotFailed in {
         node.evidence_kind for node in failed.walk()
     }
@@ -158,36 +191,38 @@ def test_evidence_kind_is_the_complete_typed_polarity_vocabulary():
 
 
 def test_disjunction_evidence_obeys_the_boolean_duality_law():
-    shapes = PREFIXES + """
+    shapes = (
+        PREFIXES
+        + """
     ex:S a sh:NodeShape ; sh:targetNode ex:x, ex:y ;
         sh:or ( [ sh:class ex:A ] [ sh:class ex:B ] ) .
     """
+    )
     data = PREFIXES + "ex:x a ex:A . ex:y a ex:C ."
     run = shifty.EvidenceSession(shapes, data, infer=False).validate()
     results = {result.focus: result for result in selected_foci(run)}
 
     passing = results["<http://ex/x>"].evidence.walk()
     failing = results["<http://ex/y>"].evidence.walk()
-    assert shifty.EvidenceKind.AnyHeld in {
-        node.evidence_kind for node in passing
-    }
-    assert shifty.EvidenceKind.AnyFailed in {
-        node.evidence_kind for node in failing
-    }
+    assert shifty.EvidenceKind.AnyHeld in {node.evidence_kind for node in passing}
+    assert shifty.EvidenceKind.AnyFailed in {node.evidence_kind for node in failing}
     # A holding disjunction retains only holding branches, all on the positive
     # side. A failed disjunction retains every branch, all on the negative side.
     assert {node.status for node in passing} == {"pass"}
     assert {node.status for node in failing} == {"fail"}
-    assert sum(
-        node.evidence_kind == shifty.EvidenceKind.CountLow for node in failing
-    ) >= 2
+    assert (
+        sum(node.evidence_kind == shifty.EvidenceKind.CountLow for node in failing) >= 2
+    )
 
 
 def test_repeated_validate_is_stable_and_matches_ordinary_validation():
-    shapes = PREFIXES + """
+    shapes = (
+        PREFIXES
+        + """
     ex:S a sh:NodeShape ; sh:targetNode ex:x ;
         sh:property [ sh:path (ex:p ex:q) ; sh:minCount 1 ] .
     """
+    )
     data = PREFIXES + "ex:x ex:p ex:y . ex:y ex:q ex:z ."
     session = shifty.EvidenceSession(shapes, data, infer=False)
     first = session.validate()
@@ -202,27 +237,36 @@ def test_repeated_validate_is_stable_and_matches_ordinary_validation():
 
 
 def test_negative_recursive_cycle_is_rejected():
-    shapes = PREFIXES + """
+    shapes = (
+        PREFIXES
+        + """
     ex:S a sh:NodeShape ; sh:targetNode ex:x ;
         sh:not [ sh:path ex:p ; sh:qualifiedValueShape ex:S ;
                  sh:qualifiedMinCount 1 ] .
     ex:x ex:p ex:x .
     """
+    )
     with pytest.raises(ValueError, match="non-stratifiable"):
         shifty.EvidenceSession(shapes, infer=False)
 
 
 def projection_fixture():
     """One focus that passes one statement and fails another, plus a second focus."""
-    shapes = PREFIXES + """
+    shapes = (
+        PREFIXES
+        + """
     ex:S a sh:NodeShape ; sh:targetClass ex:T ;
         sh:property [ sh:path ex:p ; sh:minCount 3 ] .
     ex:S2 a sh:NodeShape ; sh:targetClass ex:T ; sh:nodeKind sh:IRI .
     """
-    data = PREFIXES + """
+    )
+    data = (
+        PREFIXES
+        + """
     ex:a a ex:T ; ex:p ex:v1, ex:v2 .
     ex:b a ex:T ; ex:p ex:v1, ex:v2, ex:v3 .
     """
+    )
     return shifty.EvidenceSession(shapes, data, infer=False).validate()
 
 
@@ -303,7 +347,9 @@ def test_strict_lookups_resolve_one_or_refuse_to_guess():
 def shape_fixture():
     """Named shapes that pass, fail, select nothing, and head no statement at
     all, plus one statement rooted at a blank shape."""
-    shapes = PREFIXES + """
+    shapes = (
+        PREFIXES
+        + """
     ex:AHUShape a sh:NodeShape ; sh:targetClass ex:AHU ;
         sh:property [ sh:path ex:p ; sh:minCount 1 ] .
     ex:VavShape a sh:NodeShape ; sh:targetClass ex:Vav ; sh:nodeKind sh:IRI .
@@ -311,12 +357,16 @@ def shape_fixture():
     ex:EmptyShape a sh:NodeShape ; sh:targetClass ex:Nobody ; sh:nodeKind sh:IRI .
     [] a sh:NodeShape ; sh:targetClass ex:Anon ; sh:nodeKind sh:IRI .
     """
-    data = PREFIXES + """
+    )
+    data = (
+        PREFIXES
+        + """
     ex:a1 a ex:AHU ; ex:p ex:x .
     ex:a2 a ex:AHU .
     ex:v1 a ex:Vav .
     ex:n1 a ex:Anon .
     """
+    )
     return shapes, data, shifty.EvidenceSession(shapes, data, infer=False).validate()
 
 
@@ -345,7 +395,11 @@ def test_covered_shapes_lists_named_statement_shapes_in_statement_order():
     _, _, run = shape_fixture()
 
     covered = run.covered_shapes()
-    assert covered == ["http://ex/AHUShape", "http://ex/EmptyShape", "http://ex/VavShape"]
+    assert covered == [
+        "http://ex/AHUShape",
+        "http://ex/EmptyShape",
+        "http://ex/VavShape",
+    ]
     # Exactly the named shapes the statements head — no blank-rooted shape, and
     # not ex:UnusedShape, which heads no statement.
     assert covered == [
@@ -416,13 +470,16 @@ def test_an_unknown_shape_raises_while_an_uncovered_one_projects_empty():
 
 
 def test_values_for_path_projects_matched_values_without_parsing_text():
-    shapes = PREFIXES + """
+    shapes = (
+        PREFIXES
+        + """
     ex:S a sh:NodeShape ; sh:targetNode ex:x ;
         sh:property [ sh:path ex:p ; sh:minCount 3 ] ;
         sh:property [ sh:path ex:q ; sh:minCount 1 ] .
     ex:S2 a sh:NodeShape ; sh:targetNode ex:x ;
         sh:property [ sh:path ex:q ; sh:minCount 1 ] .
     """
+    )
     data = PREFIXES + "ex:x ex:p ex:v1, ex:v2 ; ex:q ex:w ."
     run = shifty.EvidenceSession(shapes, data, infer=False).validate()
 
@@ -448,17 +505,23 @@ def test_values_for_path_projects_matched_values_without_parsing_text():
 
 def obligation_fixture():
     """A qualified count that is short, with one reached-but-rejected candidate."""
-    shapes = PREFIXES + """
+    shapes = (
+        PREFIXES
+        + """
     ex:AHUShape a sh:NodeShape ; sh:targetClass ex:AHU ;
         sh:property [ sh:path ex:hasPoint ;
                       sh:qualifiedValueShape [ sh:class ex:Temp ] ;
                       sh:qualifiedMinCount 2 ] .
     """
-    data = PREFIXES + """
+    )
+    data = (
+        PREFIXES
+        + """
     ex:ahu1 a ex:AHU ; ex:hasPoint ex:t1, ex:other .
     ex:t1 a ex:Temp .
     ex:other a ex:Flow .
     """
+    )
     run = shifty.EvidenceSession(shapes, data, infer=False).validate()
     return run.failure_for("http://ex/ahu1")
 
@@ -506,10 +569,13 @@ def test_an_obligation_path_round_trips_into_values_for_path():
 
 
 def test_values_for_path_addresses_a_sequence_path_by_its_rendered_form():
-    shapes = PREFIXES + """
+    shapes = (
+        PREFIXES
+        + """
     ex:S a sh:NodeShape ; sh:targetNode ex:x ;
         sh:property [ sh:path (ex:p ex:q) ; sh:minCount 1 ] .
     """
+    )
     data = PREFIXES + "ex:x ex:p ex:y . ex:y ex:q ex:z ."
     run = shifty.EvidenceSession(shapes, data, infer=False).validate()
     satisfaction = run.satisfaction_for("http://ex/x")
@@ -522,7 +588,9 @@ def test_values_for_path_addresses_a_sequence_path_by_its_rendered_form():
     assert satisfaction.values_for_path("<http://ex/p>") == []
 
 
-RULE_SHAPES = PREFIXES + """
+RULE_SHAPES = (
+    PREFIXES
+    + """
 @prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
 ex:SensorRule a sh:NodeShape ; sh:targetClass ex:Sensor ;
     sh:rule [ a sh:TripleRule ;
@@ -534,6 +602,7 @@ ex:AHUShape a sh:NodeShape ; sh:targetClass ex:AHU ;
                   sh:qualifiedValueShape [ sh:class ex:Point ] ;
                   sh:qualifiedMinCount 1 ] .
 """
+)
 
 RDF_TYPE = "<http://www.w3.org/1999/02/22-rdf-syntax-ns#type>"
 
@@ -545,10 +614,13 @@ ADD_SENSOR = (
 
 
 def test_revalidate_returns_the_run_the_edit_would_produce():
-    shapes = PREFIXES + """
+    shapes = (
+        PREFIXES
+        + """
     ex:AHUShape a sh:NodeShape ; sh:targetClass ex:AHU ;
         sh:property [ sh:path ex:hasPoint ; sh:minCount 2 ] .
     """
+    )
     data = PREFIXES + "ex:ahu1 a ex:AHU ; ex:hasPoint ex:t1 ."
     session = shifty.EvidenceSession(shapes, data, infer=False)
     before = session.validate()
@@ -619,9 +691,12 @@ def test_revalidate_defaults_to_the_sessions_own_inference_setting():
 
 def test_revalidate_takes_the_same_options_as_validate():
     data = PREFIXES + "ex:ahu1 a ex:AHU . ex:v1 a ex:Vav ."
-    shapes = RULE_SHAPES + """
+    shapes = (
+        RULE_SHAPES
+        + """
     ex:VavShape a sh:NodeShape ; sh:targetClass ex:Vav ; sh:nodeKind sh:BlankNode .
     """
+    )
     session = shifty.EvidenceSession(shapes, data)
     delta = shifty.RepairDelta.from_ntriples(add=ADD_SENSOR)
 
@@ -632,12 +707,15 @@ def test_revalidate_takes_the_same_options_as_validate():
 
 def ondemand_fixture():
     """Two authored statements that normalize to one, over three foci."""
-    shapes = PREFIXES + """
+    shapes = (
+        PREFIXES
+        + """
     ex:S1 a sh:NodeShape ; sh:targetClass ex:T ;
         sh:property [ sh:path ex:p ; sh:minCount 1 ] .
     ex:S2 a sh:NodeShape ; sh:targetClass ex:T ;
         sh:property [ sh:path ex:p ; sh:minCount 1 ] .
     """
+    )
     data = PREFIXES + "ex:good a ex:T ; ex:p ex:v . ex:bad a ex:T . ex:bad2 a ex:T ."
     return shifty.EvidenceSession(shapes, data, infer=False)
 
@@ -654,7 +732,11 @@ def test_conformance_counts_agree_with_a_full_run():
     # The counts are over normalized statements — a merged statement is decided
     # once — while the run reports a focus row per *authored* statement. Here
     # ex:S1 and ex:S2 state the same constraint, so 6 rows are 3 decisions.
-    rows = [(st.normalized_statement_id, f) for st in run.statements for f in st.selected_foci]
+    rows = [
+        (st.normalized_statement_id, f)
+        for st in run.statements
+        for f in st.selected_foci
+    ]
     assert len(rows) == 6
     decided = {(sid, f.focus) for sid, f in rows}
     assert counts.selected_pairs == len(decided) == 3
@@ -725,8 +807,12 @@ def test_explain_canonical_drops_the_progress_view():
         None,
     ]
     # The evidence itself is unchanged; only the progress view is dropped.
-    assert [f.evidence.to_dict() for st in without.statements for f in st.selected_foci] == [
-        f.evidence.to_dict() for st in with_progress.statements for f in st.selected_foci
+    assert [
+        f.evidence.to_dict() for st in without.statements for f in st.selected_foci
+    ] == [
+        f.evidence.to_dict()
+        for st in with_progress.statements
+        for f in st.selected_foci
     ]
 
 
@@ -754,12 +840,15 @@ def test_explain_omits_the_catalog_and_constraints_serves_it_once():
 
 def test_the_cheap_entry_points_take_shape_names():
     # Distinct constraints, so nothing merges and scoping is unambiguous.
-    shapes = PREFIXES + """
+    shapes = (
+        PREFIXES
+        + """
     ex:AHUShape a sh:NodeShape ; sh:targetClass ex:AHU ;
         sh:property [ sh:path ex:p ; sh:minCount 1 ] .
     ex:VavShape a sh:NodeShape ; sh:targetClass ex:Vav ;
         sh:property [ sh:path ex:q ; sh:minCount 1 ] .
     """
+    )
     data = PREFIXES + "ex:a1 a ex:AHU . ex:v1 a ex:Vav ."
     session = shifty.EvidenceSession(shapes, data, infer=False)
 
@@ -771,12 +860,15 @@ def test_the_cheap_entry_points_take_shape_names():
     assert [p.focus for p in pairs] == ["<http://ex/a1>"]
 
 
-COLLAPSING_SHAPES = PREFIXES + """
+COLLAPSING_SHAPES = (
+    PREFIXES
+    + """
 ex:S1 a sh:NodeShape ; sh:targetClass ex:T ;
     sh:property [ sh:path ex:p ; sh:minCount 1 ] .
 ex:S2 a sh:NodeShape ; sh:targetClass ex:T ;
     sh:property [ sh:path ex:p ; sh:minCount 1 ] .
 """
+)
 COLLAPSING_DATA = PREFIXES + "ex:bad a ex:T ."
 
 
@@ -819,7 +911,9 @@ def test_a_collapsed_shape_is_still_addressable_by_either_name():
 
 def compaction_fixture():
     """A run with repeated subtrees: two shapes stating the same constraint."""
-    shapes = PREFIXES + """
+    shapes = (
+        PREFIXES
+        + """
     @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
     ex:S a sh:NodeShape ; sh:targetClass ex:T ;
         sh:property [ sh:path ex:p ; sh:minCount 1 ; sh:class ex:C ] ;
@@ -827,11 +921,15 @@ def compaction_fixture():
     ex:S2 a sh:NodeShape ; sh:targetClass ex:T ;
         sh:property [ sh:path ex:p ; sh:minCount 1 ; sh:class ex:C ] .
     """
-    data = PREFIXES + """
+    )
+    data = (
+        PREFIXES
+        + """
     ex:good a ex:T ; ex:p ex:c1 ; ex:n 3 ; ex:label "hi"@en .
     ex:bad a ex:T ; ex:n "not a number" .
     ex:c1 a ex:C .
     """
+    )
     return shifty.EvidenceSession(shapes, data, infer=False).validate()
 
 

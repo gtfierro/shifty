@@ -78,7 +78,9 @@ def test_witness_summary_and_explain():
 
 
 def test_validation_and_repair_share_statement_constraint_identity():
-    validation = shifty.validate_algebra(DATA_MAXCOUNT.encode(), SHAPES.encode(), infer=False)
+    validation = shifty.validate_algebra(
+        DATA_MAXCOUNT.encode(), SHAPES.encode(), infer=False
+    )
     violation = validation.violations[0]
     witness = session(DATA_MAXCOUNT).witnesses()[0]
 
@@ -275,7 +277,7 @@ def test_subgraph_patch_with_conforming_node_is_accepted():
     assert len(s.witnesses()) == 1
     # a subgraph that adds the part AND makes it conform (it has an ex:kind).
     delta = shifty.delta_from_graph(
-        '@prefix ex: <http://example.org/> .\n'
+        "@prefix ex: <http://example.org/> .\n"
         'ex:x ex:part ex:p1 . ex:p1 ex:kind "valve" .'
     )
     outcome = s.gate(delta)
@@ -288,7 +290,7 @@ def test_subgraph_patch_without_conforming_structure_is_rejected():
     s = shifty.RepairSession(QUAL_SHAPES, QUAL_DATA, infer=False)
     # adds the part but not its required ex:kind → the qualified count stays unmet.
     delta = shifty.delta_from_graph(
-        '@prefix ex: <http://example.org/> .\nex:x ex:part ex:p1 .'
+        "@prefix ex: <http://example.org/> .\nex:x ex:part ex:p1 ."
     )
     outcome = s.gate(delta)
     assert outcome.is_sound  # introduces no new top-level violation
@@ -309,7 +311,7 @@ def test_delta_from_graph_accepts_rdflib_graph():
 
 
 def test_delta_from_graph_unions_list_of_adds():
-    add_a = '@prefix ex: <http://example.org/> .\nex:x ex:part ex:p1 .'
+    add_a = "@prefix ex: <http://example.org/> .\nex:x ex:part ex:p1 ."
     add_b = '@prefix ex: <http://example.org/> .\nex:p1 ex:kind "valve" .'
     delta = shifty.delta_from_graph([add_a, add_b])
     assert len(delta.add) == 2
@@ -320,8 +322,8 @@ def test_delta_from_graph_unions_list_of_adds():
 
 
 def test_delta_from_graph_unions_list_of_deletes():
-    del_a = '@prefix ex: <http://example.org/> .\nex:x ex:part ex:p1 .'
-    del_b = '@prefix ex: <http://example.org/> .\nex:x ex:part ex:p2 .'
+    del_a = "@prefix ex: <http://example.org/> .\nex:x ex:part ex:p1 ."
+    del_b = "@prefix ex: <http://example.org/> .\nex:x ex:part ex:p2 ."
     delta = shifty.delta_from_graph(delete=[del_a, del_b])
     assert not delta.add
     assert len(delta.delete) == 2
@@ -341,7 +343,7 @@ def test_delta_from_graph_mixed_rdflib_and_turtle_in_list():
 
     g = rdflib.Graph()
     g.parse(
-        data='@prefix ex: <http://example.org/> .\nex:x ex:part ex:p1 .',
+        data="@prefix ex: <http://example.org/> .\nex:x ex:part ex:p1 .",
         format="turtle",
     )
     turtle = '@prefix ex: <http://example.org/> .\nex:p1 ex:kind "valve" .'
@@ -354,13 +356,14 @@ def test_delta_from_graph_delete_then_add_is_net_add():
     # applied first, then adds, so the re-add wins and the triple survives in
     # the materialized graph. Lists make it easy to hit this across sources.
     s = shifty.RepairSession(QUAL_SHAPES, QUAL_DATA, infer=False)
-    triple = '@prefix ex: <http://example.org/> .\nex:x ex:part ex:p1 .'
+    triple = "@prefix ex: <http://example.org/> .\nex:x ex:part ex:p1 ."
     delta = shifty.delta_from_graph(add=[triple], delete=[triple])
     # The triple is in both sides...
     assert any(t[2] == "<http://example.org/p1>" for t in delta.add)
     assert any(t[2] == "<http://example.org/p1>" for t in delta.delete)
     # ...and survives in the patched graph (net-add).
     import rdflib
+
     patched = s.apply(delta)
     ex = rdflib.Namespace("http://example.org/")
     assert (ex.x, ex.part, ex.p1) in patched
@@ -369,9 +372,8 @@ def test_delta_from_graph_delete_then_add_is_net_add():
 def test_delta_from_graph_replaces_via_delete_then_add():
     # Standard "replace" pattern: delete the old value, add the new one. The
     # old value is gone and the new value is present after apply.
-    s = shifty.RepairSession(QUAL_SHAPES, QUAL_DATA, infer=False)
     base = (
-        '@prefix ex: <http://example.org/> .\n'
+        "@prefix ex: <http://example.org/> .\n"
         'ex:x ex:part ex:old . ex:old ex:kind "v" .'
     )
     session = shifty.RepairSession(QUAL_SHAPES, base, infer=False)
@@ -381,13 +383,16 @@ def test_delta_from_graph_replaces_via_delete_then_add():
     )
     patched = session.apply(delta)
     import rdflib
+
     ex = rdflib.Namespace("http://example.org/")
     assert (ex.x, ex.part, ex.new) in patched
     assert (ex.x, ex.part, ex.old) not in patched
 
 
 def test_repair_delta_from_ntriples_add_and_delete():
-    nt_add = '<http://example.org/x> <http://example.org/part> <http://example.org/p1> .\n'
+    nt_add = (
+        "<http://example.org/x> <http://example.org/part> <http://example.org/p1> .\n"
+    )
     nt_del = '<http://example.org/x> <http://example.org/old> "gone" .\n'
     delta = shifty.RepairDelta.from_ntriples(nt_add, nt_del)
     assert len(delta.add) == 1
@@ -419,7 +424,7 @@ def test_repair_node_against_builds_the_subshape():
     assert all(origin.statement_id is None for origin in sub.origins())
     # building it out + linking it makes sound progress:
     delta = shifty.delta_from_graph(
-        '@prefix ex: <http://example.org/> .'
+        "@prefix ex: <http://example.org/> ."
         ' ex:x ex:part <urn:f1> . <urn:f1> ex:kind "k" .'
     )
     assert s.gate(delta).is_progress
@@ -454,8 +459,8 @@ def test_class_qualified_build_is_not_blocked_and_types_the_node():
     assert any(h.constraint.startswith("= ") for h in sub.holes())
     # typing the node + linking it fixes the violation:
     delta = shifty.delta_from_graph(
-        '@prefix ex: <http://example.org/> .'
-        ' ex:x ex:part <urn:p1> . <urn:p1> a ex:Widget .'
+        "@prefix ex: <http://example.org/> ."
+        " ex:x ex:part <urn:p1> . <urn:p1> a ex:Widget ."
     )
     assert s.gate(delta).is_progress
 
@@ -646,7 +651,9 @@ def test_satisfactions_for_lists_passing_foci_with_matched_values():
     assert fs.selector.kind == shifty.TargetKind.Class
     assert fs.selector.value == "<http://example.org/Person>"
     # the matched value for the checked property surfaces in the flat summary.
-    matched = [(a.path, a.value) for a in fs.summary() if a.kind == shifty.SatKind.Match]
+    matched = [
+        (a.path, a.value) for a in fs.summary() if a.kind == shifty.SatKind.Match
+    ]
     assert ("<http://example.org/name>", '"Carol"') in matched
     assert all(
         atom.evidence_kind

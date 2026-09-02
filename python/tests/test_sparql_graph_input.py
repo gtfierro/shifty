@@ -5,7 +5,6 @@ import rdflib
 
 import shifty
 
-
 PREFIXES = """\
 @prefix sh: <http://www.w3.org/ns/shacl#> .
 @prefix ex: <http://example.org/> .
@@ -13,15 +12,20 @@ PREFIXES = """\
 
 DATA = PREFIXES + "ex:focus a ex:Thing ."
 
-SPARQL_CONSTRAINT = PREFIXES + """\
+SPARQL_CONSTRAINT = (
+    PREFIXES
+    + """\
 ex:S a sh:NodeShape ;
     sh:targetClass ex:Thing ;
     sh:sparql [
         sh:select "SELECT $this WHERE { $this a ex:Thing }"
     ] .
 """
+)
 
-SPARQL_RULE = PREFIXES + """\
+SPARQL_RULE = (
+    PREFIXES
+    + """\
 ex:S a sh:NodeShape ;
     sh:targetClass ex:Thing ;
     sh:rule [
@@ -29,14 +33,18 @@ ex:S a sh:NodeShape ;
         sh:construct "CONSTRUCT { $this ex:inferred ex:Value } WHERE {}"
     ] .
 """
+)
 
-SPARQL_TARGET = PREFIXES + """\
+SPARQL_TARGET = (
+    PREFIXES
+    + """\
 ex:S a sh:NodeShape ;
     sh:target [
         sh:select "SELECT ?this WHERE { ?this a ex:Thing }"
     ] ;
     sh:nodeKind sh:BlankNode .
 """
+)
 
 
 def graph(turtle: str) -> rdflib.Graph:

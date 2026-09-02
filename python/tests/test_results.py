@@ -22,7 +22,6 @@ import pytest
 import rdflib
 
 import shifty
-from shifty import AlgebraResult, InferResult
 
 PREFIXES = """\
 @prefix sh:  <http://www.w3.org/ns/shacl#> .
@@ -32,7 +31,9 @@ PREFIXES = """\
 @prefix ex:  <http://example.org/> .
 """
 
-SHAPES = PREFIXES + """\
+SHAPES = (
+    PREFIXES
+    + """\
 ex:PersonShape a sh:NodeShape ;
     sh:targetClass ex:Person ;
     sh:property [
@@ -46,21 +47,31 @@ ex:PersonShape a sh:NodeShape ;
         sh:datatype xsd:integer ;
     ] .
 """
+)
 
-VALID_DATA = PREFIXES + """\
+VALID_DATA = (
+    PREFIXES
+    + """\
 ex:Alice a ex:Person ; ex:name "Alice" ; ex:age 30 .
 """
+)
 
-VIOLATION_DATA = PREFIXES + """\
+VIOLATION_DATA = (
+    PREFIXES
+    + """\
 ex:Bob a ex:Person .
 """
+)
 
 
 # ── InferResult tests ────────────────────────────────────────────────────────
 
+
 class TestInferResult:
     def test_inferred_count_property(self):
-        infer_shapes = PREFIXES + """\
+        infer_shapes = (
+            PREFIXES
+            + """\
         ex:S a sh:NodeShape ;
             sh:targetClass ex:Thing ;
             sh:rule [
@@ -70,13 +81,16 @@ class TestInferResult:
                 sh:object ex:Thing ;
             ] .
         """
+        )
         data = PREFIXES + "ex:a a ex:Thing ."
         result = shifty.infer(data.encode(), infer_shapes.encode())
         assert isinstance(result.inferred_count, int)
         assert result.inferred_count == 1
 
     def test_inferred_count_zero_no_inferences(self):
-        infer_shapes = PREFIXES + """\
+        infer_shapes = (
+            PREFIXES
+            + """\
         ex:S a sh:NodeShape ;
             sh:targetClass ex:NonExistent ;
             sh:rule [
@@ -86,12 +100,15 @@ class TestInferResult:
                 sh:object ex:Thing ;
             ] .
         """
+        )
         data = PREFIXES + "ex:a a ex:Thing ."
         result = shifty.infer(data.encode(), infer_shapes.encode())
         assert result.inferred_count == 0
 
     def test_diagnostics_property(self):
-        infer_shapes = PREFIXES + """\
+        infer_shapes = (
+            PREFIXES
+            + """\
         ex:S a sh:NodeShape ;
             sh:targetClass ex:Thing ;
             sh:rule [
@@ -101,6 +118,7 @@ class TestInferResult:
                 sh:object ex:Thing ;
             ] .
         """
+        )
         data = PREFIXES + "ex:a a ex:Thing ."
         result = shifty.infer(data.encode(), infer_shapes.encode())
         assert isinstance(result.diagnostics, list)
@@ -108,7 +126,9 @@ class TestInferResult:
         assert all(isinstance(d, str) for d in result.diagnostics)
 
     def test_graph_ntriples_property(self):
-        infer_shapes = PREFIXES + """\
+        infer_shapes = (
+            PREFIXES
+            + """\
         ex:S a sh:NodeShape ;
             sh:targetClass ex:Thing ;
             sh:rule [
@@ -118,13 +138,16 @@ class TestInferResult:
                 sh:object ex:Thing ;
             ] .
         """
+        )
         data = PREFIXES + "ex:a a ex:Thing ."
         result = shifty.infer(data.encode(), infer_shapes.encode())
         assert isinstance(result.graph_ntriples, str)
         assert "derived" in result.graph_ntriples
 
     def test_graph_ntriples_valid_ntriples(self):
-        infer_shapes = PREFIXES + """\
+        infer_shapes = (
+            PREFIXES
+            + """\
         ex:S a sh:NodeShape ;
             sh:targetClass ex:Thing ;
             sh:rule [
@@ -134,6 +157,7 @@ class TestInferResult:
                 sh:object ex:Thing ;
             ] .
         """
+        )
         data = PREFIXES + "ex:a a ex:Thing ."
         result = shifty.infer(data.encode(), infer_shapes.encode())
         # Parse the ntriples to verify it's valid
@@ -143,7 +167,9 @@ class TestInferResult:
         assert (EX.a, EX.derived, EX.Thing) in g  # Note: Thing with capital T
 
     def test_graph_method(self):
-        infer_shapes = PREFIXES + """\
+        infer_shapes = (
+            PREFIXES
+            + """\
         ex:S a sh:NodeShape ;
             sh:targetClass ex:Thing ;
             sh:rule [
@@ -153,6 +179,7 @@ class TestInferResult:
                 sh:object ex:Thing ;
             ] .
         """
+        )
         data = PREFIXES + "ex:a a ex:Thing ."
         result = shifty.infer(data.encode(), infer_shapes.encode())
         graph = result.graph()
@@ -161,7 +188,9 @@ class TestInferResult:
         assert (EX.a, EX.derived, EX.Thing) in graph  # Note: Thing with capital T
 
     def test_graph_method_returns_original_plus_inferred(self):
-        infer_shapes = PREFIXES + """\
+        infer_shapes = (
+            PREFIXES
+            + """\
         ex:S a sh:NodeShape ;
             sh:targetClass ex:Thing ;
             sh:rule [
@@ -171,6 +200,7 @@ class TestInferResult:
                 sh:object ex:Thing ;
             ] .
         """
+        )
         data = PREFIXES + "ex:a a ex:Thing . ex:a ex:original ex:value ."
         result = shifty.infer(data.encode(), infer_shapes.encode())
         graph = result.graph()
@@ -180,7 +210,9 @@ class TestInferResult:
         assert (EX.a, EX.derived, EX.Thing) in graph  # Note: Thing with capital T
 
     def test_repr_method(self):
-        infer_shapes = PREFIXES + """\
+        infer_shapes = (
+            PREFIXES
+            + """\
         ex:S a sh:NodeShape ;
             sh:targetClass ex:Thing ;
             sh:rule [
@@ -190,6 +222,7 @@ class TestInferResult:
                 sh:object ex:Thing ;
             ] .
         """
+        )
         data = PREFIXES + "ex:a a ex:Thing ."
         result = shifty.infer(data.encode(), infer_shapes.encode())
         repr_str = repr(result)
@@ -197,7 +230,9 @@ class TestInferResult:
         assert "1" in repr_str
 
     def test_repr_zero_inferences(self):
-        infer_shapes = PREFIXES + """\
+        infer_shapes = (
+            PREFIXES
+            + """\
         ex:S a sh:NodeShape ;
             sh:targetClass ex:NonExistent ;
             sh:rule [
@@ -207,6 +242,7 @@ class TestInferResult:
                 sh:object ex:Thing ;
             ] .
         """
+        )
         data = PREFIXES + "ex:a a ex:Thing ."
         result = shifty.infer(data.encode(), infer_shapes.encode())
         repr_str = repr(result)
@@ -215,6 +251,7 @@ class TestInferResult:
 
 
 # ── AlgebraResult tests ──────────────────────────────────────────────────────
+
 
 class TestAlgebraResult:
     def test_conforms_true(self):
@@ -243,24 +280,26 @@ class TestAlgebraResult:
     def test_violation_has_focus_node(self):
         result = shifty.validate_algebra(VIOLATION_DATA.encode(), SHAPES.encode())
         for v in result.violations:
-            assert hasattr(v, 'focus_node')
+            assert hasattr(v, "focus_node")
             assert isinstance(v.focus_node, str)
 
     def test_violation_has_reasons(self):
         result = shifty.validate_algebra(VIOLATION_DATA.encode(), SHAPES.encode())
         for v in result.violations:
-            assert hasattr(v, 'reasons')
+            assert hasattr(v, "reasons")
             assert isinstance(v.reasons, list)
 
     def test_reason_has_message(self):
         result = shifty.validate_algebra(VIOLATION_DATA.encode(), SHAPES.encode())
         for v in result.violations:
             for r in v.reasons:
-                assert hasattr(r, 'message')
+                assert hasattr(r, "message")
                 assert isinstance(r.message, str)
 
     def test_reason_exposes_algebraic_constraint_provenance(self):
-        result = shifty.validate_algebra(VIOLATION_DATA.encode(), SHAPES.encode(), infer=False)
+        result = shifty.validate_algebra(
+            VIOLATION_DATA.encode(), SHAPES.encode(), infer=False
+        )
         reason = result.violations[0].reasons[0]
 
         assert isinstance(reason.constraint, shifty.Constraint)
@@ -275,23 +314,27 @@ class TestAlgebraResult:
         result = shifty.validate_algebra(VIOLATION_DATA.encode(), SHAPES.encode())
         for v in result.violations:
             for r in v.reasons:
-                assert hasattr(r, 'path')
+                assert hasattr(r, "path")
                 # path can be None or a string/IRI
-                assert r.path is None or isinstance(r.path, (str, type(rdflib.URIRef(''))))
+                assert r.path is None or isinstance(
+                    r.path, (str, type(rdflib.URIRef("")))
+                )
 
     def test_reason_has_value(self):
         result = shifty.validate_algebra(VIOLATION_DATA.encode(), SHAPES.encode())
         for v in result.violations:
             for r in v.reasons:
-                assert hasattr(r, 'value')
+                assert hasattr(r, "value")
                 # value can be None, string, or URIRef
-                assert r.value is None or isinstance(r.value, (str, type(rdflib.URIRef(''))))
+                assert r.value is None or isinstance(
+                    r.value, (str, type(rdflib.URIRef("")))
+                )
 
     def test_reason_has_author_message(self):
         result = shifty.validate_algebra(VIOLATION_DATA.encode(), SHAPES.encode())
         for v in result.violations:
             for r in v.reasons:
-                assert hasattr(r, 'author_message')
+                assert hasattr(r, "author_message")
                 # None unless the source shape supplied an sh:message.
                 assert r.author_message is None or isinstance(r.author_message, str)
 
@@ -342,10 +385,13 @@ class TestAlgebraResult:
 
 # ── Multiple violations tests ────────────────────────────────────────────────
 
-MULTI_VIOLATION_DATA = PREFIXES + """\
+MULTI_VIOLATION_DATA = (
+    PREFIXES
+    + """\
 ex:Bob   a ex:Person .
 ex:Carol a ex:Person ; ex:name "Carol" ; ex:age 1 ; ex:age 2 .
 """
+)
 
 
 class TestMultipleViolations:
@@ -366,13 +412,18 @@ class TestMultipleViolations:
         # Check that reasons contain expected error messages
         all_messages = [r.message for v in result.violations for r in v.reasons]
         # Should have messages about minCount (Bob) and maxCount (Carol)
-        has_mincount_issue = any("minCount" in m or "name" in m.lower() for m in all_messages)
-        has_maxcount_issue = any("maxCount" in m or "age" in m.lower() for m in all_messages)
+        has_mincount_issue = any(
+            "minCount" in m or "name" in m.lower() for m in all_messages
+        )
+        has_maxcount_issue = any(
+            "maxCount" in m or "age" in m.lower() for m in all_messages
+        )
         assert has_mincount_issue
         assert has_maxcount_issue
 
 
 # ── Edge cases for result objects ────────────────────────────────────────────
+
 
 class TestResultEdgeCases:
     def test_empty_shapes_validation_requires_opt_in(self):
@@ -382,19 +433,23 @@ class TestResultEdgeCases:
         with pytest.raises(ValueError, match="explicit shapes graph is empty"):
             shifty.validate_algebra(data.encode(), shapes.encode())
 
-
     def test_empty_data_validation(self):
-        shapes = PREFIXES + """\
+        shapes = (
+            PREFIXES
+            + """\
         ex:S a sh:NodeShape ;
             sh:targetClass ex:Thing ;
             sh:property [ sh:path ex:name ; sh:minCount 1 ] .
         """
+        )
         result = shifty.validate_algebra(b"", shapes.encode())
         # Empty data with targets should not conform (no focus nodes match)
         assert result.conforms is True  # No data means nothing to validate
 
     def test_complex_path_violation(self):
-        shapes = PREFIXES + """\
+        shapes = (
+            PREFIXES
+            + """\
         ex:PersonShape a sh:NodeShape ;
             sh:targetClass ex:Person ;
             sh:property [
@@ -402,6 +457,7 @@ class TestResultEdgeCases:
                 sh:minCount 1 ;
             ] .
         """
+        )
         data = PREFIXES + "ex:Person a ex:Person ."
         result = shifty.validate_algebra(data.encode(), shapes.encode())
         # Should have violation for missing street

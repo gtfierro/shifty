@@ -21,7 +21,6 @@ from pathlib import Path
 
 import shifty
 
-
 REPO = Path(__file__).resolve().parents[2]
 BRICK_ONTOLOGY = REPO / "benchmark/brick/Brick.ttl"
 BRICK_MODEL = REPO / "benchmark/brick/models/bldg1.ttl"
@@ -125,7 +124,9 @@ def main() -> None:
     )
     outcome = session.validate()
 
-    foci = [focus for statement in outcome.statements for focus in statement.selected_foci]
+    foci = [
+        focus for statement in outcome.statements for focus in statement.selected_foci
+    ]
     counts = Counter(focus.status for focus in foci)
     print(f"conforms: {outcome.conforms}")
     print(
@@ -150,21 +151,20 @@ def main() -> None:
             print(f"\n  [{result.status.upper()}] {compact(result.focus)}")
             print("    canonical evidence:")
             for node in result.evidence.walk():
-                print(
-                    f"      {node.status:4} {node.kind} "
-                    f"(@{node.constraint_id})"
-                )
+                print(f"      {node.status:4} {node.kind} (@{node.constraint_id})")
             if result.progress is not None:
                 print("    immediate progress:")
                 for child in result.progress.evaluated_children:
                     print(
-                        f"      source @{child.source_constraint_ref}: "
-                        f"{child.status}"
+                        f"      source @{child.source_constraint_ref}: {child.status}"
                     )
             if values := result.evidence.matched_values():
                 print("    matched values:", ", ".join(compact(v) for v in values))
             if missing := result.evidence.missing_obligations():
-                print("    missing obligations:", ", ".join(str(v.missing) for v in missing))
+                print(
+                    "    missing obligations:",
+                    ", ".join(str(v.missing) for v in missing),
+                )
             if offenders := result.evidence.offending_values():
                 print("    offending values:", ", ".join(compact(v) for v in offenders))
             if triples := result.evidence.supporting_triples():

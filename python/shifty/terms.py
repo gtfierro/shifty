@@ -60,7 +60,14 @@ def _unescape(value: str) -> str:
         c = value[i]
         if c == "\\" and i + 1 < n:
             nxt = value[i + 1]
-            mapped = {"n": "\n", "t": "\t", "r": "\r", '"': '"', "\\": "\\", "'": "'"}.get(nxt)
+            mapped = {
+                "n": "\n",
+                "t": "\t",
+                "r": "\r",
+                '"': '"',
+                "\\": "\\",
+                "'": "'",
+            }.get(nxt)
             if mapped is not None:
                 out.append(mapped)
                 i += 2

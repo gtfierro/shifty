@@ -81,6 +81,7 @@ def test_released_repair_type_aliases_warn(legacy, replacement):
 
 # ── validate() — pyshacl-compatible ──────────────────────────────────────────
 
+
 class TestValidatePyshacl:
     def test_returns_tuple(self):
         result = validate(CONFORMS_DATA.encode(), SHAPES.encode())
@@ -107,9 +108,7 @@ class TestValidatePyshacl:
     def test_report_graph_conforms_false(self):
         SH = rdflib.Namespace("http://www.w3.org/ns/shacl#")
         _, report_graph, _ = validate(VIOLATION_DATA.encode(), SHAPES.encode())
-        conforms_vals = list(
-            report_graph.objects(None, SH.conforms)
-        )
+        conforms_vals = list(report_graph.objects(None, SH.conforms))
         assert any(str(v) == "false" for v in conforms_vals)
 
     def test_results_text_contains_summary(self):
@@ -231,6 +230,7 @@ class TestValidatePyshacl:
 
 # ── validate_algebra() — structured violations ───────────────────────────────
 
+
 class TestValidateAlgebra:
     def test_returns_algebra_result(self):
         result = validate_algebra(CONFORMS_DATA.encode(), SHAPES.encode())
@@ -258,8 +258,9 @@ class TestValidateAlgebra:
     def test_reason_has_message(self):
         result = validate_algebra(VIOLATION_DATA.encode(), SHAPES.encode())
         all_messages = [r.message for v in result.violations for r in v.reasons]
-        assert any("name" in m.lower() or "minCount" in m or "1" in m
-                   for m in all_messages)
+        assert any(
+            "name" in m.lower() or "minCount" in m or "1" in m for m in all_messages
+        )
 
     def test_multi_violation(self):
         result = validate_algebra(MULTI_VIOLATION_DATA.encode(), SHAPES.encode())
@@ -291,16 +292,17 @@ class TestValidateAlgebra:
 
         assert result.conforms is False
         assert [
-            (finding.severity, finding.focus_node)
-            for finding in result.violations
+            (finding.severity, finding.focus_node) for finding in result.violations
         ] == [
             ("Violation", "<http://example.org/m>"),
             ("Warning", "<http://example.org/z>"),
             ("Info", "<http://example.org/a>"),
         ]
-        assert all(reason.severity in {"Violation", "Warning", "Info"}
-                   for finding in result.violations
-                   for reason in finding.reasons)
+        assert all(
+            reason.severity in {"Violation", "Warning", "Info"}
+            for finding in result.violations
+            for reason in finding.reasons
+        )
 
         advisories = validate_algebra(
             b"",
@@ -424,15 +426,18 @@ class TestInfer:
 
 # ── graph_mode variants ───────────────────────────────────────────────────────
 
+
 class TestGraphMode:
     def test_union_mode(self):
-        conforms, _, _ = validate(CONFORMS_DATA.encode(), SHAPES.encode(),
-                                  graph_mode="union")
+        conforms, _, _ = validate(
+            CONFORMS_DATA.encode(), SHAPES.encode(), graph_mode="union"
+        )
         assert conforms
 
     def test_data_mode(self):
-        conforms, _, _ = validate(CONFORMS_DATA.encode(), SHAPES.encode(),
-                                  graph_mode="data")
+        conforms, _, _ = validate(
+            CONFORMS_DATA.encode(), SHAPES.encode(), graph_mode="data"
+        )
         assert conforms
 
     def test_unknown_mode_raises(self):
@@ -532,9 +537,7 @@ class TestMultipleGraphsUnion:
 
     def test_prepared_validator_multiple_shapes(self):
         pv = shifty.PreparedValidator([SHAPES.encode(), EXTRA_SHAPES.encode()])
-        conforms, _, _ = pv.validate(
-            [CONFORMS_DATA.encode(), EXTRA_DATA.encode()]
-        )
+        conforms, _, _ = pv.validate([CONFORMS_DATA.encode(), EXTRA_DATA.encode()])
         assert conforms
 
     def test_validate_algebra_multiple_graphs(self):

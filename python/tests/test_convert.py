@@ -18,8 +18,8 @@ import rdflib
 import shifty
 from shifty import _coalesce_graph_input, _to_rdf_input, _to_turtle_bytes
 
-
 # ── _to_turtle_bytes() tests ─────────────────────────────────────────────────
+
 
 class TestToTurtleBytes:
     def test_bytes_input(self):
@@ -37,7 +37,7 @@ class TestToTurtleBytes:
         test_file = tmp_path / "data.ttl"
         original_content = "@prefix ex: <http://example.org/> . ex:a ex:b ex:c ."
         test_file.write_text(original_content)
-        
+
         result = _to_turtle_bytes(pathlib.Path(test_file))
         assert result == original_content.encode("utf-8")
         assert isinstance(result, bytes)
@@ -51,7 +51,7 @@ class TestToTurtleBytes:
         test_file = tmp_path / "data.ttl"
         original_content = "@prefix ex: <http://example.org/> . ex:a ex:b ex:c ."
         test_file.write_text(original_content)
-        
+
         result = _to_turtle_bytes(str(test_file))
         assert result == original_content.encode("utf-8")
 
@@ -112,7 +112,7 @@ class TestToTurtleBytes:
         g = rdflib.Graph()
         EX = rdflib.Namespace("http://example.org/")
         g.add((EX.a, EX.b, EX.c))
-        
+
         result = _to_turtle_bytes(g)
         assert isinstance(result, bytes)
         # Should contain an N-Triples serialization of the graph
@@ -122,7 +122,7 @@ class TestToTurtleBytes:
         g = rdflib.Graph()
         EX = rdflib.Namespace("http://example.org/")
         g.add((EX.a, EX.b, EX.c))
-        
+
         result = _to_turtle_bytes(g)
         # The serialization should be valid Turtle.
         g2 = rdflib.Graph()
@@ -133,9 +133,11 @@ class TestToTurtleBytes:
         g = rdflib.Graph()
         EX = rdflib.Namespace("http://example.org/")
         g.add((EX.a, EX.b, EX.c))
-        
+
         # Mock a graph that returns string from serialize
-        with mock.patch.object(g, 'serialize', return_value="ex:a ex:b ex:c .") as serialize:
+        with mock.patch.object(
+            g, "serialize", return_value="ex:a ex:b ex:c ."
+        ) as serialize:
             result = _to_turtle_bytes(g)
             assert result == b"ex:a ex:b ex:c ."
             serialize.assert_called_once_with(format="turtle", encoding="utf-8")
@@ -144,9 +146,11 @@ class TestToTurtleBytes:
         g = rdflib.Graph()
         EX = rdflib.Namespace("http://example.org/")
         g.add((EX.a, EX.b, EX.c))
-        
+
         # Mock a graph that returns bytes from serialize
-        with mock.patch.object(g, 'serialize', return_value=b"ex:a ex:b ex:c .") as serialize:
+        with mock.patch.object(
+            g, "serialize", return_value=b"ex:a ex:b ex:c ."
+        ) as serialize:
             result = _to_turtle_bytes(g)
             assert result == b"ex:a ex:b ex:c ."
             serialize.assert_called_once_with(format="turtle", encoding="utf-8")
@@ -190,16 +194,17 @@ class TestToTurtleBytes:
 
 # ── Integration tests with _to_turtle_bytes ──────────────────────────────────
 
+
 class TestToTurtleBytesIntegration:
     def test_validate_with_bytes(self):
         shapes = "@prefix sh: <http://www.w3.org/ns/shacl#> . @prefix ex: <http://example.org/> . [] a sh:NodeShape ; sh:targetClass ex:Person ; sh:property [ sh:path ex:name ; sh:minCount 1 ] ."
-        data = "@prefix ex: <http://example.org/> . ex:a a ex:Person ; ex:name \"Test\" ."
+        data = '@prefix ex: <http://example.org/> . ex:a a ex:Person ; ex:name "Test" .'
         conforms, _, _ = shifty.validate(data.encode(), shapes.encode())
         assert conforms is True
 
     def test_validate_algebra_with_bytes(self):
         shapes = "@prefix sh: <http://www.w3.org/ns/shacl#> . @prefix ex: <http://example.org/> . [] a sh:NodeShape ; sh:targetClass ex:Person ; sh:property [ sh:path ex:name ; sh:minCount 1 ] ."
-        data = "@prefix ex: <http://example.org/> . ex:a a ex:Person ; ex:name \"Test\" ."
+        data = '@prefix ex: <http://example.org/> . ex:a a ex:Person ; ex:name "Test" .'
         result = shifty.validate_algebra(data.encode(), shapes.encode())
         assert result.conforms is True
 

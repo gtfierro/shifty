@@ -26,7 +26,10 @@ def main():
     parser = argparse.ArgumentParser(
         description="Print conforming sh:property bindings (the inverse of validation)"
     )
-    parser.add_argument("shapes", help="Shapes graph (Turtle file or HTTP(S) URL) — the application profile(s)")
+    parser.add_argument(
+        "shapes",
+        help="Shapes graph (Turtle file or HTTP(S) URL) — the application profile(s)",
+    )
     parser.add_argument("data", help="Data graph to check (Turtle file or HTTP(S) URL)")
     parser.add_argument(
         "--key-path",

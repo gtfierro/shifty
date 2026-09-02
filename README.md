@@ -594,6 +594,35 @@ conforms, report, text = shifty.validate(
 
 ## Development
 
+### Python quality checks
+
+The Python project uses a locked [uv](https://docs.astral.sh/uv/) development
+environment. From `python/`, install it with:
+
+```sh
+uv sync --dev --frozen
+```
+
+Run Ruff's mutating formatter while editing:
+
+```sh
+uv run ruff format .
+```
+
+Before committing, run the same non-mutating quality gate enforced by pull
+request CI and again before release artifacts are built:
+
+```sh
+uv run ruff check .
+uv run ruff format --check .
+uv run ty check shifty
+uv run pytest -q
+```
+
+Ruff covers the package, tests, examples, and benchmarks. `ty` checks the
+shipped `shifty` package, and pytest exercises the Python and native-extension
+behavior.
+
 ### 3-way implementation comparison
 
 `scripts/compare_implementations.py` runs shifty, [TopQuadrant SHACL](https://github.com/topquadrant/shacl), and [pySHACL](https://github.com/RDFLib/pySHACL) against the same shapes + data graphs and produces a 3-way diff of their `sh:ValidationResult` sets.

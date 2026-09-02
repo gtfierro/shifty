@@ -36,7 +36,15 @@ jobs:
         run: uv python install 3.12
       - name: Install project and dependencies
         working-directory: python
-        run: uv sync --dev
+        run: uv sync --dev --frozen
+      - name: Lint and check formatting
+        working-directory: python
+        run: |
+          uv run ruff check .
+          uv run ruff format --check .
+      - name: Type-check Python package
+        working-directory: python
+        run: uv run ty check shifty
       - name: Run Python binding tests with coverage
         working-directory: python
         run: uv run pytest tests/ -v --cov=shifty --cov-report=term-missing --cov-report=xml

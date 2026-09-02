@@ -11,7 +11,7 @@ one is missing its coil.
 """
 
 import shifty
-from shifty import Cls, Iri, Key, Literal, ShapeRef
+from shifty import Cls, Iri, Literal, ShapeRef
 
 SHAPES = """
 @prefix sh:  <http://www.w3.org/ns/shacl#> .
@@ -78,8 +78,10 @@ for mapping in smap["http://example.org/ZoneShape"]:
 
     for key, binding in mapping.items():
         label = f"{key} ({binding.name})" if binding.name else str(key)
-        print(f"  {label:35s} severity={binding.severity:9s} "
-              f"min={binding.min} max={binding.max} observed={binding.observed}")
+        print(
+            f"  {label:35s} severity={binding.severity:9s} "
+            f"min={binding.min} max={binding.max} observed={binding.observed}"
+        )
 
         if binding.ok:
             for bound in binding.annotated_values:
@@ -105,4 +107,3 @@ for mapping in smap["http://example.org/ZoneShape"]:
 zone1 = smap.for_focus("<http://example.org/zone1>")[0]
 print("\nvalue_map(by='name', python=True) for zone1:")
 print(" ", zone1.value_map(by="name", python=True))
-

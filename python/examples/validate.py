@@ -17,9 +17,13 @@ import shifty
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Validate RDF data against SHACL shapes")
+    parser = argparse.ArgumentParser(
+        description="Validate RDF data against SHACL shapes"
+    )
     parser.add_argument("shapes", help="Shapes graph (Turtle file or HTTP(S) URL)")
-    parser.add_argument("data", help="Data graph to validate (Turtle file or HTTP(S) URL)")
+    parser.add_argument(
+        "data", help="Data graph to validate (Turtle file or HTTP(S) URL)"
+    )
     parser.add_argument(
         "--mode",
         default="union",

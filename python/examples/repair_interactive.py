@@ -68,7 +68,7 @@ def coerce_value(raw: str) -> str:
     raw = raw.strip()
     if not raw:
         return f"_:fresh{next(_FRESH)}"
-    if raw[0] in "<_\"":
+    if raw[0] in '<_"':
         return raw
     if re.fullmatch(r"[+-]?\d+", raw):
         return f'"{raw}"^^<{XSD_INTEGER}>'
@@ -260,7 +260,8 @@ def build_tree(session, tree, fuel, indent=""):
         print(
             indent + "✗ blocked — synthesis can't build this sub-shape "
             "(e.g. it constrains values reached by an inverse/complex path).\n"
-            + indent + "  use 'g' to author the node's subgraph by hand instead."
+            + indent
+            + "  use 'g' to author the node's subgraph by hand instead."
         )
         return None
     plan = shifty.RepairPlan()
@@ -340,7 +341,11 @@ def prompt_choice(n: int) -> str:
     sel = f"select [1-{n}], " if n else ""
     while True:
         try:
-            raw = input(f"{sel}(v)alue, (g)raph, (b)uild, (s)kip, (q)uit > ").strip().lower()
+            raw = (
+                input(f"{sel}(v)alue, (g)raph, (b)uild, (s)kip, (q)uit > ")
+                .strip()
+                .lower()
+            )
         except EOFError:
             return "q"
         if raw in ("v", "g", "b", "s", "q"):
@@ -353,9 +358,15 @@ def prompt_choice(n: int) -> str:
 def main():
     parser = argparse.ArgumentParser(description="Interactive SHACL repair driver")
     parser.add_argument("shapes", help="Shapes graph (Turtle file or HTTP(S) URL)")
-    parser.add_argument("data", help="Data graph to repair (Turtle file or HTTP(S) URL)")
-    parser.add_argument("--no-infer", action="store_true", help="Skip SHACL-AF inference")
-    parser.add_argument("--apply", metavar="OUT", help="Write the repaired graph (N-Triples) on exit")
+    parser.add_argument(
+        "data", help="Data graph to repair (Turtle file or HTTP(S) URL)"
+    )
+    parser.add_argument(
+        "--no-infer", action="store_true", help="Skip SHACL-AF inference"
+    )
+    parser.add_argument(
+        "--apply", metavar="OUT", help="Write the repaired graph (N-Triples) on exit"
+    )
     args = parser.parse_args()
 
     session = shifty.RepairSession(args.shapes, args.data, infer=not args.no_infer)
@@ -452,7 +463,9 @@ def main():
     )
 
     if args.apply:
-        session.to_graph().serialize(destination=args.apply, format="nt", encoding="utf-8")
+        session.to_graph().serialize(
+            destination=args.apply, format="nt", encoding="utf-8"
+        )
         print(f"wrote graph to {args.apply}")
 
     sys.exit(0 if remaining == 0 else 1)

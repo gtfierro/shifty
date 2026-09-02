@@ -57,9 +57,15 @@ def solve_one(session, fw):
 def main():
     parser = argparse.ArgumentParser(description="Drive symbolic repair of RDF data")
     parser.add_argument("shapes", help="Shapes graph (Turtle file or HTTP(S) URL)")
-    parser.add_argument("data", help="Data graph to repair (Turtle file or HTTP(S) URL)")
-    parser.add_argument("--no-infer", action="store_true", help="Skip SHACL-AF inference")
-    parser.add_argument("--apply", metavar="OUT", help="Write the repaired graph (N-Triples) here")
+    parser.add_argument(
+        "data", help="Data graph to repair (Turtle file or HTTP(S) URL)"
+    )
+    parser.add_argument(
+        "--no-infer", action="store_true", help="Skip SHACL-AF inference"
+    )
+    parser.add_argument(
+        "--apply", metavar="OUT", help="Write the repaired graph (N-Triples) here"
+    )
     args = parser.parse_args()
 
     session = shifty.RepairSession(args.shapes, args.data, infer=not args.no_infer)
@@ -91,10 +97,14 @@ def main():
         applied += 1
 
     remaining = len(session.witnesses())
-    print(f"\napplied {applied} repair(s) over {iterations} iteration(s); {remaining} remain")
+    print(
+        f"\napplied {applied} repair(s) over {iterations} iteration(s); {remaining} remain"
+    )
 
     if args.apply:
-        session.to_graph().serialize(destination=args.apply, format="nt", encoding="utf-8")
+        session.to_graph().serialize(
+            destination=args.apply, format="nt", encoding="utf-8"
+        )
         print(f"wrote repaired graph to {args.apply}")
 
     sys.exit(0 if remaining == 0 else 1)

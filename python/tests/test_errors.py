@@ -14,7 +14,6 @@ This module tests error scenarios including:
 """
 
 import pathlib
-import tempfile
 
 import pytest
 import rdflib
@@ -29,7 +28,9 @@ PREFIXES = """\
 @prefix ex:  <http://example.org/> .
 """
 
-SHAPES = PREFIXES + """\
+SHAPES = (
+    PREFIXES
+    + """\
 ex:PersonShape a sh:NodeShape ;
     sh:targetClass ex:Person ;
     sh:property [
@@ -38,13 +39,18 @@ ex:PersonShape a sh:NodeShape ;
         sh:datatype xsd:string ;
     ] .
 """
+)
 
-VALID_DATA = PREFIXES + """\
+VALID_DATA = (
+    PREFIXES
+    + """\
 ex:Alice a ex:Person ; ex:name "Alice" .
 """
+)
 
 
 # ── Invalid graph_mode ───────────────────────────────────────────────────────
+
 
 class TestInvalidGraphMode:
     """Tests for invalid graph_mode parameter values."""
@@ -57,7 +63,9 @@ class TestInvalidGraphMode:
     def test_validate_algebra_invalid_graph_mode(self):
         """validate_algebra() raises ValueError for invalid graph_mode."""
         with pytest.raises(ValueError, match="graph_mode"):
-            shifty.validate_algebra(VALID_DATA.encode(), SHAPES.encode(), graph_mode="bad")
+            shifty.validate_algebra(
+                VALID_DATA.encode(), SHAPES.encode(), graph_mode="bad"
+            )
 
     def test_embedded_validate_invalid_graph_mode(self):
         """Embedded validate() still validates graph_mode."""
@@ -76,6 +84,7 @@ class TestInvalidGraphMode:
 
 
 # ── Parse errors ─────────────────────────────────────────────────────────────
+
 
 class TestParseErrors:
     def test_validate_invalid_rdf_syntax(self):
@@ -101,6 +110,7 @@ class TestParseErrors:
 
 # ── Unsupported input types ──────────────────────────────────────────────────
 
+
 class TestUnsupportedInputTypes:
     def test_validate_unsupported_type(self):
         with pytest.raises(TypeError):
@@ -117,6 +127,7 @@ class TestUnsupportedInputTypes:
 
 # ── File path errors ─────────────────────────────────────────────────────────
 
+
 class TestFilePathErrors:
     def test_validate_nonexistent_file(self):
         with pytest.raises(FileNotFoundError):
@@ -124,7 +135,9 @@ class TestFilePathErrors:
 
     def test_validate_algebra_nonexistent_file(self):
         with pytest.raises(FileNotFoundError):
-            shifty.validate_algebra(pathlib.Path("/nonexistent/path/data.ttl"), SHAPES.encode())
+            shifty.validate_algebra(
+                pathlib.Path("/nonexistent/path/data.ttl"), SHAPES.encode()
+            )
 
     def test_infer_nonexistent_file(self):
         with pytest.raises(FileNotFoundError):
@@ -132,27 +145,37 @@ class TestFilePathErrors:
 
     def test_validate_shapes_file_not_found(self):
         with pytest.raises(FileNotFoundError):
-            shifty.validate(VALID_DATA.encode(), pathlib.Path("/nonexistent/shapes.ttl"))
+            shifty.validate(
+                VALID_DATA.encode(), pathlib.Path("/nonexistent/shapes.ttl")
+            )
 
     def test_validate_algebra_shapes_file_not_found(self):
         with pytest.raises(FileNotFoundError):
-            shifty.validate_algebra(VALID_DATA.encode(), pathlib.Path("/nonexistent/shapes.ttl"))
+            shifty.validate_algebra(
+                VALID_DATA.encode(), pathlib.Path("/nonexistent/shapes.ttl")
+            )
 
 
 # ── Invalid base IRI ─────────────────────────────────────────────────────────
 
+
 class TestBaseIRI:
     def test_validate_invalid_base_uri(self):
         # Should handle invalid base URI gracefully
-        result = shifty.validate(VALID_DATA.encode(), SHAPES.encode(), base="http://example.org/")
+        result = shifty.validate(
+            VALID_DATA.encode(), SHAPES.encode(), base="http://example.org/"
+        )
         assert isinstance(result, tuple)
 
     def test_validate_algebra_invalid_base_uri(self):
-        result = shifty.validate_algebra(VALID_DATA.encode(), SHAPES.encode(), base="http://example.org/")
+        result = shifty.validate_algebra(
+            VALID_DATA.encode(), SHAPES.encode(), base="http://example.org/"
+        )
         assert result.conforms is True
 
 
 # ── Empty/None inputs ────────────────────────────────────────────────────────
+
 
 class TestEmptyInputs:
     def test_validate_empty_bytes_data(self):
@@ -194,33 +217,46 @@ class TestEmptyInputs:
 
 # ── Graph mode specific errors ───────────────────────────────────────────────
 
+
 class TestGraphModeErrors:
     def test_graph_mode_union(self):
-        conforms, _, _ = shifty.validate(VALID_DATA.encode(), SHAPES.encode(), graph_mode="union")
+        conforms, _, _ = shifty.validate(
+            VALID_DATA.encode(), SHAPES.encode(), graph_mode="union"
+        )
         assert conforms is True
 
     def test_graph_mode_data(self):
-        conforms, _, _ = shifty.validate(VALID_DATA.encode(), SHAPES.encode(), graph_mode="data")
+        conforms, _, _ = shifty.validate(
+            VALID_DATA.encode(), SHAPES.encode(), graph_mode="data"
+        )
         assert conforms is True
 
     def test_graph_mode_union_all(self):
-        conforms, _, _ = shifty.validate(VALID_DATA.encode(), SHAPES.encode(), graph_mode="union-all")
+        conforms, _, _ = shifty.validate(
+            VALID_DATA.encode(), SHAPES.encode(), graph_mode="union-all"
+        )
         assert conforms is True
 
 
 # ── Blank node handling ──────────────────────────────────────────────────────
 
+
 class TestBlankNodes:
     def test_validate_with_blank_nodes_in_data(self):
-        data_with_bnodes = PREFIXES + """\
+        data_with_bnodes = (
+            PREFIXES
+            + """\
         [] a ex:Person ; ex:name "Anonymous" .
         """
+        )
         conforms, _, _ = shifty.validate(data_with_bnodes.encode(), SHAPES.encode())
         # Blank nodes with class target should be validated
         assert isinstance(conforms, bool)
 
     def test_validate_with_blank_nodes_in_shapes(self):
-        shapes_with_bnodes = PREFIXES + """\
+        shapes_with_bnodes = (
+            PREFIXES
+            + """\
         [] a sh:NodeShape ;
             sh:targetClass ex:Person ;
             sh:property [
@@ -228,18 +264,26 @@ class TestBlankNodes:
                 sh:minCount 1 ;
             ] .
         """
-        conforms, _, _ = shifty.validate(VALID_DATA.encode(), shapes_with_bnodes.encode())
+        )
+        conforms, _, _ = shifty.validate(
+            VALID_DATA.encode(), shapes_with_bnodes.encode()
+        )
         assert conforms is True
 
     def test_validate_algebra_with_blank_nodes(self):
-        data_with_bnodes = PREFIXES + """\
+        data_with_bnodes = (
+            PREFIXES
+            + """\
         [] a ex:Person ; ex:name "Anonymous" .
         """
+        )
         result = shifty.validate_algebra(data_with_bnodes.encode(), SHAPES.encode())
         assert isinstance(result.conforms, bool)
 
     def test_infer_with_blank_nodes(self):
-        infer_shapes = PREFIXES + """\
+        infer_shapes = (
+            PREFIXES
+            + """\
         ex:S a sh:NodeShape ;
             sh:targetClass ex:Thing ;
             sh:rule [
@@ -249,35 +293,41 @@ class TestBlankNodes:
                 sh:object ex:Person ;
             ] .
         """
-        data_with_bnodes = PREFIXES + """\
+        )
+        data_with_bnodes = (
+            PREFIXES
+            + """\
         [] a ex:Thing .
         """
+        )
         result = shifty.infer(data_with_bnodes.encode(), infer_shapes.encode())
         assert result.inferred_count >= 0
 
 
 # ── Large inputs ─────────────────────────────────────────────────────────────
 
+
 class TestLargeInputs:
     def test_validate_large_data(self):
         # Create a large data graph
         large_data = PREFIXES
         for i in range(100):
-            large_data += f"\nex:Person{i} a ex:Person ; ex:name \"Person{i}\" ."
-        
+            large_data += f'\nex:Person{i} a ex:Person ; ex:name "Person{i}" .'
+
         conforms, _, _ = shifty.validate(large_data.encode(), SHAPES.encode())
         assert conforms is True
 
     def test_validate_algebra_large_data(self):
         large_data = PREFIXES
         for i in range(100):
-            large_data += f"\nex:Person{i} a ex:Person ; ex:name \"Person{i}\" ."
-        
+            large_data += f'\nex:Person{i} a ex:Person ; ex:name "Person{i}" .'
+
         result = shifty.validate_algebra(large_data.encode(), SHAPES.encode())
         assert result.conforms is True
 
 
 # ── Temporary file tests ─────────────────────────────────────────────────────
+
 
 class TestTemporaryFiles:
     def test_validate_temp_file(self, tmp_path):
@@ -297,7 +347,9 @@ class TestTemporaryFiles:
         assert result.conforms is True
 
     def test_infer_temp_file(self, tmp_path):
-        infer_shapes = PREFIXES + """\
+        infer_shapes = (
+            PREFIXES
+            + """\
         ex:S a sh:NodeShape ;
             sh:targetClass ex:Thing ;
             sh:rule [
@@ -307,6 +359,7 @@ class TestTemporaryFiles:
                 sh:object ex:Thing ;
             ] .
         """
+        )
         data_file = tmp_path / "data.ttl"
         shapes_file = tmp_path / "shapes.ttl"
         data_file.write_text(PREFIXES + "ex:a a ex:Thing .")

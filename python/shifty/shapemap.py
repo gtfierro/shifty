@@ -47,7 +47,7 @@ from __future__ import annotations
 
 import collections.abc
 import dataclasses
-from typing import TYPE_CHECKING, Callable, Iterator, Optional, Sequence, Union
+from typing import TYPE_CHECKING, Any, Callable, Iterator, Optional, Sequence, Union
 
 from .terms import BNode, Iri, Literal, Term
 from .terms import from_json as _term_from_json
@@ -143,14 +143,22 @@ def _path_from_json(path) -> Optional[Path]:
     if tag == "Pred":
         return Pred(body["value"])
     if tag == "Inverse":
-        return Inv(_path_from_json(body))
+        return Inv(_nested_path_from_json(body))
     if tag == "Seq":
-        return Seq(tuple(_path_from_json(p) for p in body))
+        return Seq(tuple(_nested_path_from_json(p) for p in body))
     if tag == "Alt":
-        return Alt(tuple(_path_from_json(p) for p in body))
+        return Alt(tuple(_nested_path_from_json(p) for p in body))
     if tag == "Star":
-        return Star(_path_from_json(body))
+        return Star(_nested_path_from_json(body))
     raise ValueError(f"unrecognized path tag: {tag!r}")
+
+
+def _nested_path_from_json(path) -> Path:
+    """Decode a path where the algebra grammar does not permit identity."""
+    decoded = _path_from_json(path)
+    if decoded is None:
+        raise ValueError("nested path must not be null")
+    return decoded
 
 
 def _is_class_path(path: Optional[Path]) -> bool:
@@ -229,7 +237,9 @@ class Key:
     __match_args__ = ("path", "qualifier")
     path: Optional[Path]  # None for pathless constraints (nodeKind…)
     qualifier: Optional[Qualifier]
-    ordinal: int = 1  # disambiguates identical (path, qualifier); n-th in lowering order
+    ordinal: int = (
+        1  # disambiguates identical (path, qualifier); n-th in lowering order
+    )
     kind: str = "count"  # constraint tag fallback for pathless keys
 
     def __str__(self) -> str:
@@ -426,7 +436,9 @@ def _collect_bounds(catalog: _Catalog, constraint_id: Optional[int]):
     return None, None
 
 
-def _has_universal_value_constraint(catalog: _Catalog, constraint_id: Optional[int]) -> bool:
+def _has_universal_value_constraint(
+    catalog: _Catalog, constraint_id: Optional[int]
+) -> bool:
     """Whether this property contains a lowered ``forall path . value-check``.
 
     Such checks are represented as ``Count(max=0, Not(...))``. A CountHigh
@@ -437,7 +449,9 @@ def _has_universal_value_constraint(catalog: _Catalog, constraint_id: Optional[i
     if isinstance(constraint, dict) and "Count" in constraint:
         count = constraint["Count"]
         qualifier = catalog.get(count.get("qualifier"))
-        return count.get("max") == 0 and isinstance(qualifier, dict) and "Not" in qualifier
+        return (
+            count.get("max") == 0 and isinstance(qualifier, dict) and "Not" in qualifier
+        )
     if isinstance(constraint, dict) and "And" in constraint:
         return any(
             _has_universal_value_constraint(catalog, child)
@@ -469,7 +483,9 @@ def _severity_of(
             ref = constraint["Annotated"]["shape"]
         return found
 
-    severity = deepest_severity(normalized_ref) or deepest_severity(statement_normalized_ref)
+    severity = deepest_severity(normalized_ref) or deepest_severity(
+        statement_normalized_ref
+    )
     return (severity or "Violation").lower()
 
 
@@ -506,9 +522,7 @@ def _top_values(
         found = [_term_from_json(v[0]) for v in d.get("values", [])]
     elif kind == "count_low":
         found = [_term_from_json(m["value"]) for m in d.get("qualifying_matches", [])]
-    elif kind == "count_high" and not (
-        rejected_count_high and d.get("max") == 0
-    ):
+    elif kind == "count_high" and not (rejected_count_high and d.get("max") == 0):
         found = [_term_from_json(m[0]) for m in d.get("matched", [])]
     elif kind in _TRANSPARENT:
         found = [
@@ -584,7 +598,7 @@ def _explain(node: dict, depth: int = 0) -> list[str]:
     d = _details(node)
     line = "  " * depth + kind
     if "path" in d:
-        line += f" {_path_str(_path_from_json(d['path']), compact=True)}"
+        line += f" {_path_str(_nested_path_from_json(d['path']), compact=True)}"
     if kind == "count_low":
         line += f" (have {d.get('have')}, need ≥{d.get('min')})"
     if kind == "count_held" and d.get("observed_count") is not None:
@@ -616,7 +630,9 @@ class _ValueAnnotationResolver:
     result. ``value_paths`` is entirely optional; nothing here runs until a
     binding's ``annotations``/``annotated_values`` is actually read."""
 
-    def __init__(self, inner, value_paths: "dict[str, str]", mappings: "list[Mapping]") -> None:
+    def __init__(
+        self, inner, value_paths: "dict[str, str]", mappings: "list[Mapping]"
+    ) -> None:
         self._inner = inner
         self._value_paths = value_paths
         self._mappings = mappings
@@ -635,16 +651,20 @@ class _ValueAnnotationResolver:
         for label, path in self._value_paths.items():
             reached = self._inner._resolve_path(node_list, path) if node_list else {}
             cache[label] = {
-                node: [_term_parse(t) for t in values] for node, values in reached.items()
+                node: [_term_parse(t) for t in values]
+                for node, values in reached.items()
             }
         self._cache = cache
 
     def annotate(self, values: "list[Term]") -> "list[BoundValue]":
         self._ensure()
+        assert self._cache is not None
         out = []
         for value in values:
             n3 = value.n3()
-            annotations = {label: table.get(n3, []) for label, table in self._cache.items()}
+            annotations = {
+                label: table.get(n3, []) for label, table in self._cache.items()
+            }
             out.append(BoundValue(value, annotations))
         return out
 
@@ -846,9 +866,7 @@ class Mapping(collections.abc.Mapping):
         witness subtree, shortfall counts, and near-misses."""
         return [(k, b) for k, b in self.bindings.items() if not b.ok]
 
-    def value_map(
-        self, *, by: str = "key", python: bool = False
-    ) -> "dict":
+    def value_map(self, *, by: str = "key", python: bool = False) -> "dict":
         """Bound keys only, projected for application configuration.
 
         ``by="key"`` (default) keys the result by :class:`Key`; ``by="name"``
@@ -865,7 +883,9 @@ class Mapping(collections.abc.Mapping):
                 continue
             out_key = key if by == "key" else (binding.name or str(key))
             values = binding.values
-            out[out_key] = [_to_python_value(v) for v in values] if python else list(values)
+            out[out_key] = (
+                [_to_python_value(v) for v in values] if python else list(values)
+            )
         return out
 
     def by_name(self, name: str) -> Binding:
@@ -961,7 +981,9 @@ class ShapeMap:
                             str(key): {
                                 "status": b.status,
                                 "values": (
-                                    [v.n3() for v in b.values] if b.values is not None else None
+                                    [v.n3() for v in b.values]
+                                    if b.values is not None
+                                    else None
                                 ),
                                 "missing": b.missing,
                                 "name": b.name,
@@ -1008,7 +1030,9 @@ class ShapeMap:
         data = run.to_dict()
         source_catalog = _Catalog(data["constraints"]["source"])
         normalized_catalog = _Catalog(data["constraints"]["normalized"])
-        inner = getattr(session, "_inner", session)
+        # Accept the public wrapper, the native session, and lightweight
+        # session proxies used by instrumentation callers.
+        inner: Any = getattr(session, "_inner", session)
 
         names_table: "dict[int, list[str]]" = {}
         shape_name_of = None
@@ -1085,7 +1109,13 @@ def _build_mapping(
             normalized_ref = child.get("normalized_constraint_ref")
             logical = normalized_catalog.unwrap(normalized_ref)
             entries.append(
-                (info, child["status"], source_id, normalized_ref, subtrees.get(logical))
+                (
+                    info,
+                    child["status"],
+                    source_id,
+                    normalized_ref,
+                    subtrees.get(logical),
+                )
             )
     else:
         source_id = statement_py.source_constraint_id
@@ -1127,7 +1157,9 @@ def _build_mapping(
             subtree = root
         dedup_key = (info.path, info.qualifier, info.kind)
         ordinals[dedup_key] = ordinals.get(dedup_key, 0) + 1
-        key = Key(info.path, info.qualifier, ordinal=ordinals[dedup_key], kind=info.kind)
+        key = Key(
+            info.path, info.qualifier, ordinal=ordinals[dedup_key], kind=info.kind
+        )
 
         resolve = None
         if subtree is None and status == "pass":
@@ -1137,9 +1169,9 @@ def _build_mapping(
             elif inner is not None:
                 focus_term = focus_py.focus
                 ref = normalized_ref
-                resolve = lambda f=focus_term, r=ref: inner._evidence_for(f, r).to_dict()[
-                    "evidence"
-                ]
+
+                def resolve(f=focus_term, r=ref, validator=inner):
+                    return validator._evidence_for(f, r).to_dict()["evidence"]
 
         bounds = _collect_bounds(source_catalog, source_id)
         severity = _severity_of(
@@ -1169,9 +1201,9 @@ def _build_mapping(
             and source_owners.get(source_id) == source_id
         ):
             focus_term = focus_py.focus
-            resolve_values = lambda f=focus_term, s=source_id: [
-                _term_parse(value) for value in inner._binding_values(f, s)
-            ]
+
+            def resolve_values(f=focus_term, s=source_id, validator=inner):
+                return [_term_parse(value) for value in validator._binding_values(f, s)]
 
         bindings[key] = Binding(
             key,
@@ -1234,7 +1266,5 @@ def shape_map(
         graph_mode=graph_mode,
         base=base,
     )
-    run = session.validate(
-        shape_names=shape_names, minimum_severity=minimum_severity
-    )
+    run = session.validate(shape_names=shape_names, minimum_severity=minimum_severity)
     return ShapeMap.from_run(run, session, name_path=name_path, value_paths=value_paths)
