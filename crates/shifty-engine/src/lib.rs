@@ -142,7 +142,7 @@ mod tests {
             .collect();
 
         assert!(
-            messages.contains(&"must be an instance of <http://ex/QuantityKind>"),
+            messages.contains(&"must be an instance of ex:QuantityKind"),
             "expected an intuitive class message, got: {messages:?}"
         );
         // The old double-negated structural phrasing must not surface.
@@ -159,7 +159,60 @@ mod tests {
             .find(|r| r.message.starts_with("must be an instance of"))
             .expect("class reason present");
         assert_eq!(reason.value.to_string(), "<http://ex/Temperature>");
-        assert_eq!(reason.path.as_deref(), Some("<http://ex/hasKind>"));
+        // The document declares `ex:`, so the message-side path renders in the
+        // vocabulary the shapes were authored in.
+        assert_eq!(reason.path.as_deref(), Some("ex:hasKind"));
+    }
+
+    /// A report message is read by a person, so it must never carry an arena
+    /// slot label: `@257` names nothing the reader can look up. This is the
+    /// shape of the s223 constraint that surfaced the leak — a qualified count
+    /// whose qualifier is a conjunction containing a negated conjunction, deep
+    /// enough that the old fixed depth budget ran out mid-description and
+    /// swallowed the one term that told the two conjuncts apart.
+    #[test]
+    fn messages_never_carry_an_arena_slot_label() {
+        let ttl = format!(
+            "{PREFIXES}
+            ex:Inlet a sh:NodeShape ;
+                sh:class ex:InletPoint ;
+                sh:property [ sh:path ex:hasMedium ; sh:class ex:Signal ] .
+            ex:OtherInlet a sh:NodeShape ;
+                sh:class ex:InletPoint ;
+                sh:property [ sh:path ex:hasMedium ; sh:class ex:Power ] .
+
+            ex:S a sh:NodeShape ;
+                sh:targetClass ex:Display ;
+                sh:property [
+                    sh:path ex:hasPoint ;
+                    sh:qualifiedMinCount 1 ;
+                    sh:qualifiedValueShape [ sh:and ( ex:Inlet [ sh:not ex:OtherInlet ] ) ] ;
+                ] .
+
+            ex:d a ex:Display .
+            "
+        );
+
+        let outcome = run_normalized(&ttl);
+        let messages: Vec<&str> = outcome
+            .violations
+            .iter()
+            .flat_map(|v| v.reasons.iter())
+            .map(|r| r.message.as_str())
+            .collect();
+        assert!(!messages.is_empty(), "expected the count to fail");
+        assert!(
+            !messages.iter().any(|m| m.contains('@')),
+            "an internal slot label reached a message: {messages:?}"
+        );
+        // Both branches are described in full, so the reader can see what
+        // actually distinguishes them.
+        assert!(
+            messages
+                .iter()
+                .any(|m| m.contains("ex:Signal") && m.contains("ex:Power")),
+            "the description was truncated: {messages:?}"
+        );
     }
 
     /// A universal whose `¬φ` normalizes to a non-`Not`, non-class form — here a
@@ -225,10 +278,7 @@ mod tests {
             reason.author_message.as_deref(),
             Some("<http://ex/a> needs a known QuantityKind")
         );
-        assert_eq!(
-            reason.message,
-            "must be an instance of <http://ex/QuantityKind>"
-        );
+        assert_eq!(reason.message, "must be an instance of ex:QuantityKind");
     }
 
     /// Without `sh:message`, `author_message` stays `None` (generated only).

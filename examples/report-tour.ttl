@@ -1,0 +1,148 @@
+# A single graph — shapes and data together — that exercises every part of the
+# `shifty validate` text report. Run it with:
+#
+#     shifty validate --shapes examples/report-tour.ttl
+#     shifty validate --shapes examples/report-tour.ttl --format json
+#
+# Each shape below is annotated with the report feature it is there to show.
+
+@prefix ex:   <http://example.org/building#> .
+@prefix unit: <http://example.org/unit#> .
+@prefix sh:   <http://www.w3.org/ns/shacl#> .
+@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+@prefix rdf:  <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 1. Two constraints on one shape, failing on overlapping sets of nodes.
+#    Shows: grouping, `also fails` cross-references with a partial overlap,
+#    an author `sh:message`, a value-node column, and a node-only finding.
+# ─────────────────────────────────────────────────────────────────────────────
+ex:SensorShape a sh:NodeShape ;
+    sh:targetClass ex:Sensor ;
+    sh:message "Every sensor reports a known unit and sits in a location." ;
+    sh:property [ sh:path ex:unit ; sh:class ex:Unit ] ;
+    sh:property [ sh:path ex:location ; sh:minCount 1 ] .
+
+ex:Celsius a ex:Unit .
+ex:Fahrenheit a ex:Unit .
+
+# bad unit *and* no location — fails both constraints
+ex:sensor1 a ex:Sensor ; ex:unit unit:Bogus .
+ex:sensor2 a ex:Sensor ; ex:unit unit:Nonsense .
+# bad unit only
+ex:sensor3 a ex:Sensor ; ex:unit unit:Bogus ; ex:location ex:room2 .
+# missing location only
+ex:sensor4 a ex:Sensor ; ex:unit ex:Celsius .
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 2. A deeply nested qualified count.
+#    Shows: the indented `requirement` block, `found`, and ∃/∀ notation.
+# ─────────────────────────────────────────────────────────────────────────────
+ex:RoomShape a sh:NodeShape ;
+    sh:targetClass ex:Room ;
+    sh:message "A room needs at least one Celsius temperature sensor." ;
+    sh:property [
+        sh:path ex:contains ;
+        sh:qualifiedMinCount 1 ;
+        sh:qualifiedValueShape [
+            sh:class ex:Sensor ;
+            sh:property [ sh:path ex:unit ; sh:class ex:TemperatureUnit ] ;
+            sh:not [ sh:property [ sh:path ex:unit ; sh:class ex:PressureUnit ] ] ;
+        ] ;
+    ] .
+
+ex:room1 a ex:Room ; ex:contains ex:sensor1 .
+ex:room2 a ex:Room ; ex:contains ex:sensor3 .
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 3. sh:xone, failed both ways.
+#    Shows: `exactly one of (…)`, and both "too many hold" and "none hold".
+# ─────────────────────────────────────────────────────────────────────────────
+ex:PowerShape a sh:NodeShape ;
+    sh:targetClass ex:Meter ;
+    sh:xone ( [ sh:class ex:Electric ] [ sh:class ex:Gas ] [ sh:class ex:Water ] ) .
+
+ex:meter1 a ex:Meter, ex:Electric, ex:Water .   # two alternatives hold
+ex:meter2 a ex:Meter .                          # none hold
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 4. sh:not over a negative shape, and over a disjunction.
+#    Shows: the positive requirement (∃[1..]), and `not (a or b)` left intact.
+# ─────────────────────────────────────────────────────────────────────────────
+ex:WiredShape a sh:NodeShape ;
+    sh:targetClass ex:Panel ;
+    sh:not [ sh:property [ sh:path ex:circuit ; sh:maxCount 0 ] ] .
+
+ex:UnclassifiedShape a sh:NodeShape ;
+    sh:targetClass ex:Panel ;
+    sh:not [ sh:or ( [ sh:class ex:Electric ] [ sh:class ex:Gas ] ) ] .
+
+ex:panel1 a ex:Panel, ex:Electric .
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 5. sh:or over value constraints.
+#    Shows: or-branch sub-reasons and a typed literal with a compacted datatype.
+# ─────────────────────────────────────────────────────────────────────────────
+ex:ReadingShape a sh:NodeShape ;
+    sh:targetClass ex:Reading ;
+    sh:property [
+        sh:path ex:value ;
+        sh:or ( [ sh:datatype xsd:integer ; sh:minInclusive 10 ]
+                [ sh:datatype xsd:string ; sh:minLength 5 ] ) ;
+    ] .
+
+ex:reading1 a ex:Reading ; ex:value 3 .
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 6. A non-default severity and a node target.
+#    Shows: the `severity` line varying, and `target node(…)`.
+# ─────────────────────────────────────────────────────────────────────────────
+ex:LabelShape a sh:NodeShape ;
+    sh:targetNode ex:room1 ;
+    sh:message "Rooms should carry a human-readable label." ;
+    sh:property [ sh:path ex:label ; sh:minCount 1 ; sh:severity sh:Warning ] .
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 7. An inverse path and a zero-or-more path.
+#    Shows: the `^p` and `p*` entries in the notation key.
+# ─────────────────────────────────────────────────────────────────────────────
+ex:OrphanShape a sh:NodeShape ;
+    sh:targetClass ex:Reading ;
+    sh:property [ sh:path [ sh:inversePath ex:produced ] ; sh:minCount 1 ] .
+
+ex:ReachShape a sh:NodeShape ;
+    sh:targetClass ex:Meter ;
+    sh:property [ sh:path ( ex:feeds [ sh:zeroOrMorePath ex:feeds ] ) ; sh:maxCount 0 ] .
+
+ex:meter1 ex:feeds ex:panel1 .
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 8. A SPARQL-based constraint.
+#    Shows: the `SPARQL:` diagnostic block — the query that ran, what it was
+#    bound to, and the rows it returned.
+# ─────────────────────────────────────────────────────────────────────────────
+ex:SelfFeedShape a sh:NodeShape ;
+    sh:targetClass ex:Meter ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "A meter must not feed itself." ;
+        sh:select """
+            SELECT $this WHERE {
+                $this <http://example.org/building#feeds> $this .
+            }
+        """ ;
+    ] .
+
+ex:meter2 ex:feeds ex:meter2 .
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 9. sh:closed.
+#    Shows: the `closed: unexpected predicate(s)` failure.
+# ─────────────────────────────────────────────────────────────────────────────
+ex:GaugeShape a sh:NodeShape ;
+    sh:targetClass ex:Gauge ;
+    sh:closed true ;
+    sh:ignoredProperties ( rdf:type ) ;
+    sh:property [ sh:path ex:value ] .
+
+ex:gauge1 a ex:Gauge ; ex:value 5 ; ex:vendor "Acme" .

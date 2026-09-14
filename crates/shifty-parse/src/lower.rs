@@ -31,8 +31,8 @@ use crate::path::parse_path;
 use crate::vocab;
 use oxrdf::{Literal, NamedNode, NamedOrBlankNode, Term};
 use shifty_algebra::{
-    Bound, NodeExpr, NodeKindSet, Path, Rule, RuleHead, Schema, Selector, Severity, Shape,
-    ShapeArena, ShapeId, SparqlConstraint, SparqlConstruct, SparqlQueryKind, SparqlTarget,
+    Bound, NodeExpr, NodeKindSet, Path, Prefixes, Rule, RuleHead, Schema, Selector, Severity,
+    Shape, ShapeArena, ShapeId, SparqlConstraint, SparqlConstruct, SparqlQueryKind, SparqlTarget,
     Statement, ValueType,
 };
 use spargebra::{Query, SparqlParser, algebra::GraphPattern};
@@ -97,6 +97,9 @@ pub fn lower(g: &Loaded) -> Lowered {
         rules: l.rules,
         names: Default::default(),
         sources,
+        // The document's own vocabulary, carried along so reports can compact
+        // IRIs the way the author wrote them.
+        prefixes: Prefixes::new(g.prefixes.iter().cloned()),
     };
     for (node, id) in &l.cache {
         if let NamedOrBlankNode::NamedNode(n) = node {

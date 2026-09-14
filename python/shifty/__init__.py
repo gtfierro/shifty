@@ -1052,6 +1052,13 @@ class RepairSession:
         understanding exactly what a ``conforms to`` hole demands."""
         return self._inner.describe_shape(shape_id)
 
+    def describe_shape_pretty(self, shape_id: int, width: int = 100) -> str:
+        """:meth:`describe_shape`, laid out over several lines and indented by
+        nesting depth, breaking only where a subtree does not fit in ``width``.
+        A description that already fits comes back unchanged, so this is safe to
+        call unconditionally."""
+        return self._inner.describe_shape_pretty(shape_id, width)
+
     def __repr__(self) -> str:
         return repr(self._inner)
 

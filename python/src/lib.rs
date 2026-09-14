@@ -218,8 +218,13 @@ pub struct Constraint {
     pub kind: ConstraintKind,
     /// One-level algebra rendering. Child constraints appear as `@id`.
     pub render: String,
-    /// Fully-expanded human description, depth-limited for recursive shapes.
+    /// Fully-expanded human description, on one line.
     pub definition: String,
+    /// The same description laid out over several lines and indented by nesting
+    /// depth. Identical to `definition` whenever that already fits on a line, so
+    /// a caller can render this unconditionally; only a genuinely nested
+    /// constraint comes back broken.
+    pub definition_pretty: String,
     /// JSON serialization of the algebra node. Child constraints are represented
     /// by their arena ids, matching `render`.
     pub json: String,
@@ -242,6 +247,7 @@ impl Constraint {
 pub(crate) fn constraint_to_py(
     py: Python<'_>,
     arena: &shifty_algebra::ShapeArena,
+    px: &shifty_algebra::Prefixes,
     id: shifty_algebra::ShapeId,
 ) -> PyResult<Py<Constraint>> {
     Py::new(
@@ -249,8 +255,14 @@ pub(crate) fn constraint_to_py(
         Constraint {
             id: id.0,
             kind: constraint_kind_to_py(shifty_algebra::ConstraintKind::of(arena, id)),
-            render: shifty_algebra::render::shape_to_string(arena, id),
-            definition: shifty_algebra::render::describe_shape(arena, id),
+            render: shifty_algebra::render::shape_to_string_in(arena, id, px),
+            definition: shifty_algebra::render::describe_shape_in(arena, id, px),
+            definition_pretty: shifty_algebra::render::describe_shape_pretty(
+                arena,
+                id,
+                px,
+                shifty_algebra::render::PRETTY_WIDTH,
+            ),
             json: serde_json::to_string(arena.get(id))
                 .unwrap_or_else(|error| format!("{{\"error\":\"{error}\"}}")),
         },
@@ -279,6 +291,12 @@ pub struct Reason {
     pub constraint_id: u32,
     /// Statement id shared with repair witnesses.
     pub statement_id: usize,
+    /// For a cardinality constraint, how many values along the path satisfied
+    /// the qualifier. The bound it had to meet is in `constraint` itself, so
+    /// this is the one number a report needs that the algebra does not carry —
+    /// state the shortfall from these two rather than parsing `message`.
+    /// `None` for every other constraint kind.
+    pub observed_count: Option<u64>,
     /// Present only for a failed `sh:sparql`/custom SPARQL-based constraint
     /// component. `None` for every other failed constraint.
     pub sparql_diagnostic: Option<Py<SparqlDiagnostic>>,
@@ -795,6 +813,10 @@ pub(crate) fn violation_to_py(
     violation_to_py_with_arena(py, v, schema, &schema.arena)
 }
 
+/// Constraint *text* is compacted against the schema's vocabulary. Node identity
+/// — `focus_node`, `value` — stays absolute: callers match those against IRIs
+/// they hold (`failure_for(focus)`), and a compacted form is not resolvable
+/// without the prefix table alongside it.
 pub(crate) fn violation_to_py_with_arena(
     py: Python<'_>,
     v: &shifty_engine::Violation,
@@ -805,7 +827,7 @@ pub(crate) fn violation_to_py_with_arena(
         .reasons
         .iter()
         .map(|r| {
-            let constraint = constraint_to_py(py, arena, r.constraint_id)?;
+            let constraint = constraint_to_py(py, arena, &schema.prefixes, r.constraint_id)?;
             let sparql_diagnostic = r
                 .sparql_diagnostic
                 .as_ref()
@@ -823,6 +845,7 @@ pub(crate) fn violation_to_py_with_arena(
                     constraint_kind: constraint_kind_to_py(r.constraint_kind),
                     constraint_id: r.constraint_id.0,
                     statement_id: r.statement_id,
+                    observed_count: r.observed_count,
                     sparql_diagnostic,
                 },
             )
@@ -892,16 +915,27 @@ struct RawConstraint {
     kind: ConstraintKind,
     render: String,
     definition: String,
+    definition_pretty: String,
     json: String,
 }
 
 impl RawConstraint {
-    fn from_arena(arena: &shifty_algebra::ShapeArena, id: shifty_algebra::ShapeId) -> Self {
+    fn from_arena(
+        arena: &shifty_algebra::ShapeArena,
+        px: &shifty_algebra::Prefixes,
+        id: shifty_algebra::ShapeId,
+    ) -> Self {
         Self {
             id: id.0,
             kind: constraint_kind_to_py(shifty_algebra::ConstraintKind::of(arena, id)),
-            render: shifty_algebra::render::shape_to_string(arena, id),
-            definition: shifty_algebra::render::describe_shape(arena, id),
+            render: shifty_algebra::render::shape_to_string_in(arena, id, px),
+            definition: shifty_algebra::render::describe_shape_in(arena, id, px),
+            definition_pretty: shifty_algebra::render::describe_shape_pretty(
+                arena,
+                id,
+                px,
+                shifty_algebra::render::PRETTY_WIDTH,
+            ),
             json: serde_json::to_string(arena.get(id))
                 .unwrap_or_else(|error| format!("{{\"error\":\"{error}\"}}")),
         }
@@ -915,6 +949,7 @@ impl RawConstraint {
                 kind: self.kind,
                 render: self.render,
                 definition: self.definition,
+                definition_pretty: self.definition_pretty,
                 json: self.json,
             },
         )
@@ -931,6 +966,7 @@ struct RawReason {
     constraint_kind: ConstraintKind,
     constraint_id: u32,
     statement_id: usize,
+    observed_count: Option<u64>,
     sparql_diagnostic: Option<RawSparqlDiagnostic>,
 }
 
@@ -974,6 +1010,7 @@ impl RawAlgebraResult {
                                 constraint_kind: reason.constraint_kind,
                                 constraint_id: reason.constraint_id,
                                 statement_id: reason.statement_id,
+                                observed_count: reason.observed_count,
                                 sparql_diagnostic,
                             },
                         )
@@ -1027,8 +1064,13 @@ fn raw_algebra_result(
                     message: reason.message.clone(),
                     author_message: reason.author_message.clone(),
                     severity: reason.severity.label().to_string(),
-                    constraint: RawConstraint::from_arena(arena, reason.constraint_id),
+                    constraint: RawConstraint::from_arena(
+                        arena,
+                        &schema.prefixes,
+                        reason.constraint_id,
+                    ),
                     constraint_kind: constraint_kind_to_py(reason.constraint_kind),
+                    observed_count: reason.observed_count,
                     constraint_id: reason.constraint_id.0,
                     statement_id: reason.statement_id,
                     sparql_diagnostic: reason

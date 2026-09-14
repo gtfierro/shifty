@@ -15,9 +15,9 @@
 //! Data-aware selectivity, path compilation, and the plan executor come next.
 
 use serde::{Deserialize, Serialize};
-use shifty_algebra::render::{path_to_string, shape_to_string};
+use shifty_algebra::render::{path_to_string_in, shape_to_string_in};
 use shifty_algebra::{
-    NamedNode, Path, Schema, Selector, Shape, ShapeArena, ShapeId, SparqlTarget, Term,
+    NamedNode, Path, Prefixes, Schema, Selector, Shape, ShapeArena, ShapeId, SparqlTarget, Term,
 };
 use std::collections::BTreeSet;
 use std::collections::HashMap;
@@ -57,6 +57,10 @@ pub struct PhysicalPlan {
     /// the several names a collapsed shape can answer to).
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub names: HashMap<ShapeId, Vec<String>>,
+    /// The source document's `@prefix` declarations, copied from the schema so
+    /// that reports built from a plan compact IRIs the same way. Display only.
+    #[serde(default, skip_serializing_if = "Prefixes::is_empty")]
+    pub prefixes: Prefixes,
 }
 
 impl PhysicalPlan {
@@ -126,6 +130,7 @@ fn plan_with_flags(schema: &Schema, seeding: bool, sort: bool) -> PhysicalPlan {
         arena,
         statements,
         names: schema.names.clone(),
+        prefixes: schema.prefixes.clone(),
     }
 }
 
@@ -253,7 +258,7 @@ pub fn plan_to_text(plan: &PhysicalPlan) -> String {
     for (i, st) in plan.statements.iter().enumerate() {
         out.push_str(&format!(
             "  [{i}] {}  ⇒  @{}\n",
-            focus_to_string(&st.source),
+            focus_to_string(&st.source, &plan.prefixes),
             st.shape.0
         ));
     }
@@ -266,22 +271,22 @@ pub fn plan_to_text(plan: &PhysicalPlan) -> String {
             "  @{} [cost {}] = {}\n",
             id.0,
             costs[id.0 as usize],
-            shape_to_string(&plan.arena, *id),
+            shape_to_string_in(&plan.arena, *id, &plan.prefixes),
         ));
     }
     out
 }
 
-fn focus_to_string(source: &FocusSource) -> String {
+fn focus_to_string(source: &FocusSource, px: &Prefixes) -> String {
     match source {
         FocusSource::SubjectsOf(p) => format!("subjectsOf({p})"),
         FocusSource::ObjectsOf(p) => format!("objectsOf({p})"),
         FocusSource::Node(c) => format!("node({c})"),
         FocusSource::PathToConst { path, target } => {
-            format!("seed {target} ⟵ {}", path_to_string(path))
+            format!("seed {target} ⟵ {}", path_to_string_in(path, px))
         }
         FocusSource::ScanFilter { path, qualifier } => {
-            format!("scan ∃ {} . @{}", path_to_string(path), qualifier.0)
+            format!("scan ∃ {} . @{}", path_to_string_in(path, px), qualifier.0)
         }
         FocusSource::Sparql(_) => "sparql{…}".to_string(),
     }
@@ -327,6 +332,7 @@ mod tests {
             rules: Vec::new(),
             names: Default::default(),
             sources: Default::default(),
+            prefixes: Default::default(),
         }
     }
 

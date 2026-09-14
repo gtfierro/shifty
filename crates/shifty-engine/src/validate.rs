@@ -33,11 +33,12 @@ use regex::Regex;
 use rustc_hash::{FxHashMap, FxHashSet};
 use serde::{Deserialize, Serialize};
 use shifty_algebra::render::{
-    describe_negation, describe_shape, negated_class_target_shape, path_to_string, shape_to_string,
+    describe_negation_in, describe_shape_in, negated_class_target_shape, path_to_string_in,
+    shape_to_string_in, xone_alternatives,
 };
 use shifty_algebra::{
-    ConstraintKind, NodeExpr, Path, Schema, Selector, Severity, Shape, ShapeArena, ShapeId,
-    SparqlConstraint,
+    ConstraintKind, NodeExpr, Path, Prefixes, Schema, Selector, Severity, Shape, ShapeArena,
+    ShapeId, SparqlConstraint,
 };
 use shifty_opt::{FocusSource, PhysicalPlan, analyze};
 use std::cmp::Ordering;
@@ -78,6 +79,9 @@ struct EvalState {
 pub(crate) struct ShapeEvaluator<'a> {
     g: &'a dyn PathBackend,
     arena: &'a ShapeArena,
+    /// The vocabulary report messages are rendered in. Paired with `arena`
+    /// because every message built here compacts IRIs from it.
+    prefixes: &'a Prefixes,
     sparql: &'a SparqlExecutor,
     state: EvalState,
 }
@@ -86,11 +90,13 @@ impl<'a> ShapeEvaluator<'a> {
     pub(crate) fn new(
         g: &'a dyn PathBackend,
         arena: &'a ShapeArena,
+        prefixes: &'a Prefixes,
         sparql: &'a SparqlExecutor,
     ) -> Self {
         Self {
             g,
             arena,
+            prefixes,
             sparql,
             state: EvalState {
                 telemetry: crate::profile::is_enabled().then(ShapeCacheSample::default),
@@ -165,6 +171,14 @@ pub struct Reason {
     /// over [`message`](Self::message) when set; `message` remains the fallback.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub author_message: Option<String>,
+    /// For a cardinality constraint, how many values along the path satisfied
+    /// the qualifier. The bound this had to meet is already in
+    /// [`constraint`](Self::constraint) (`∃[min..max]`); the observed count is
+    /// the one number a report needs that the algebra does not carry, so a
+    /// renderer can state the shortfall without parsing
+    /// [`message`](Self::message). `None` for every other constraint kind.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub observed_count: Option<u64>,
     /// Non-empty when this reason is an `sh:or` group: one entry per OR branch
     /// that failed, so the caller can tell "fix any one of these."
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -492,7 +506,7 @@ fn validate_with_frozen(
     let backend = sparql
         .frozen()
         .expect("validation executor always has a frozen dataset");
-    let mut evaluator = ShapeEvaluator::new(backend, &schema.arena, &sparql);
+    let mut evaluator = ShapeEvaluator::new(backend, &schema.arena, &schema.prefixes, &sparql);
     let mut violations = Vec::new();
     for (i, st) in schema.statements.iter().enumerate() {
         if !entry_shape_any_name_selected(&options.entry_shape_names, schema.names_of(st.shape)) {
@@ -700,7 +714,7 @@ fn validate_plan_with_frozen(
     let backend = sparql
         .frozen()
         .expect("validation executor always has a frozen dataset");
-    let mut evaluator = ShapeEvaluator::new(backend, &plan.arena, &sparql);
+    let mut evaluator = ShapeEvaluator::new(backend, &plan.arena, &plan.prefixes, &sparql);
     let mut violations = Vec::new();
     for (i, sp) in plan.statements.iter().enumerate() {
         if !entry_shape_any_name_selected(&options.entry_shape_names, plan.names_of(sp.shape)) {
@@ -784,7 +798,7 @@ fn focus_for_source(
 pub fn focus_nodes(data: &Graph, sel: &Selector, arena: &ShapeArena) -> Vec<Term> {
     let sparql =
         SparqlExecutor::new(data).expect("building an in-memory Oxigraph store should succeed");
-    let mut evaluator = ShapeEvaluator::new(data, arena, &sparql);
+    let mut evaluator = ShapeEvaluator::new(data, arena, Prefixes::empty(), &sparql);
     focus_nodes_with_evaluator(data, sel, &mut evaluator)
 }
 
@@ -795,7 +809,7 @@ pub(crate) fn focus_nodes_with(
     arena: &ShapeArena,
     sparql: &SparqlExecutor,
 ) -> Vec<Term> {
-    let mut evaluator = ShapeEvaluator::new(backend, arena, sparql);
+    let mut evaluator = ShapeEvaluator::new(backend, arena, Prefixes::empty(), sparql);
     focus_nodes_with_evaluator(data, sel, &mut evaluator)
 }
 
@@ -1217,7 +1231,12 @@ fn explain(
                                     .path
                                     .map(|path| path.to_string())
                                     .or_else(|| path_ctx.map(str::to_string))
-                                    .or_else(|| constraint.path.as_ref().map(path_to_string)),
+                                    .or_else(|| {
+                                        constraint
+                                            .path
+                                            .as_ref()
+                                            .map(|p| path_to_string_in(p, evaluator.prefixes))
+                                    }),
                                 severity,
                                 message,
                                 None,
@@ -1257,14 +1276,22 @@ fn explain(
             id,
             path_ctx,
             severity,
-            format!("{} not satisfied", shape_to_string(evaluator.arena, id)),
+            format!(
+                "{} not satisfied",
+                shape_to_string_in(evaluator.arena, id, evaluator.prefixes)
+            ),
         ),
         Shape::Closed(q) => {
             let bad = closed_offenders(evaluator.g, node, &q);
             if bad.is_empty() {
                 Vec::new()
             } else {
-                let preds: Vec<String> = bad.iter().map(|p| p.to_string()).collect();
+                // The offending predicates are IRIs like any others in a
+                // message, so they compact against the document's vocabulary.
+                let preds: Vec<String> = bad
+                    .iter()
+                    .map(|p| evaluator.prefixes.compact(p.as_str()))
+                    .collect();
                 vec![reason(
                     evaluator.arena,
                     id,
@@ -1286,7 +1313,10 @@ fn explain(
                     node.clone(),
                     path_ctx.map(str::to_string),
                     severity,
-                    "negated shape unexpectedly held".to_string(),
+                    format!(
+                        "must satisfy `{}`",
+                        describe_negation_in(evaluator.arena, c, evaluator.prefixes)
+                    ),
                     None,
                     Vec::new(),
                     None,
@@ -1311,20 +1341,78 @@ fn explain(
                 sub_reasons.extend(sub);
             }
             if satisfied {
-                Vec::new()
-            } else {
-                vec![reason(
+                return Vec::new();
+            }
+            // `sh:xone` is lowered to `⋁ᵢ (φᵢ ∧ ⋀_{j≠i} ¬φⱼ)`. Reported as the
+            // plain disjunction it is, a node satisfying *two* alternatives —
+            // the usual way to fail a xone — gets told that none were satisfied,
+            // which is the opposite of the finding. Count what actually holds.
+            if let Some(alternatives) = xone_alternatives(id, evaluator.arena) {
+                let held: Vec<ShapeId> = alternatives
+                    .iter()
+                    .copied()
+                    .filter(|a| evaluator.holds(node, *a))
+                    .collect();
+                let total = alternatives.len();
+                // Naming the ones that hold is the whole of the fix: the reader
+                // has to drop all but one of them, and "2 of 3" does not say
+                // which two.
+                let describe_all = |ids: &[ShapeId]| {
+                    ids.iter()
+                        .map(|a| describe_shape_in(evaluator.arena, *a, evaluator.prefixes))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                };
+                let message = if held.is_empty() {
+                    format!("none of the {total} alternatives hold; exactly one must")
+                } else {
+                    // Both sides: which to drop, and which is left to keep.
+                    let idle: Vec<ShapeId> = alternatives
+                        .iter()
+                        .copied()
+                        .filter(|a| !held.contains(a))
+                        .collect();
+                    let mut message = format!(
+                        "exactly one alternative may hold; {} of {total} do — holds: {}",
+                        held.len(),
+                        describe_all(&held)
+                    );
+                    if !idle.is_empty() {
+                        message.push_str(&format!("; does not hold: {}", describe_all(&idle)));
+                    }
+                    message
+                };
+                // The branch sub-reasons explain the rewrite, not the shape the
+                // author wrote, and "fix any one of these" is the wrong advice
+                // for a node that already satisfies too many.
+                let sub_reasons = if held.is_empty() {
+                    sub_reasons
+                } else {
+                    Vec::new()
+                };
+                return vec![reason(
                     evaluator.arena,
                     id,
                     node.clone(),
                     path_ctx.map(str::to_string),
                     severity,
-                    format!("none of {} alternative(s) satisfied", cs.len()),
+                    message,
                     None,
                     sub_reasons,
                     None,
-                )]
+                )];
             }
+            vec![reason(
+                evaluator.arena,
+                id,
+                node.clone(),
+                path_ctx.map(str::to_string),
+                severity,
+                format!("none of {} alternative(s) satisfied", cs.len()),
+                None,
+                sub_reasons,
+                None,
+            )]
         }
         Shape::Count {
             path,
@@ -1360,7 +1448,7 @@ fn explain_count(
     severity: &Severity,
     stack: &mut HashSet<(ShapeId, Term)>,
 ) -> Vec<Reason> {
-    let path_str = path_to_string(path);
+    let path_str = path_to_string_in(path, evaluator.prefixes);
     let matched: Vec<Term> = succ(evaluator.g, node, path)
         .into_iter()
         .filter(|u| evaluator.holds(u, qualifier))
@@ -1375,7 +1463,10 @@ fn explain_count(
     // `sh:minCount`/`sh:maxCount` lower with a `⊤` qualifier and need no clause.
     let qual_clause = match evaluator.arena.get(qualifier) {
         Shape::Top => String::new(),
-        _ => format!(" matching `{}`", describe_shape(evaluator.arena, qualifier)),
+        _ => format!(
+            " matching `{}`",
+            describe_shape_in(evaluator.arena, qualifier, evaluator.prefixes)
+        ),
     };
 
     if let Some(mx) = max
@@ -1418,7 +1509,10 @@ fn explain_count(
                         u.clone(),
                         Some(path_str.clone()),
                         severity,
-                        format!("must be an instance of {}", term_text(&class)),
+                        format!(
+                            "must be an instance of {}",
+                            term_display(&class, evaluator.prefixes)
+                        ),
                         None,
                         Vec::new(),
                         None,
@@ -1426,21 +1520,27 @@ fn explain_count(
                 }
             }
             // Plain `sh:maxCount` (⊤ qualifier): concise count message.
-            Shape::Top => reasons.push(reason(
-                evaluator.arena,
-                id,
-                node.clone(),
-                Some(path_str.clone()),
-                severity,
-                format!("at most {mx} value(s){qual_clause} allowed along {path_str}, found {n}"),
-                None,
-                Vec::new(),
-                None,
+            Shape::Top => reasons.push(with_observed(
+                reason(
+                    evaluator.arena,
+                    id,
+                    node.clone(),
+                    Some(path_str.clone()),
+                    severity,
+                    format!(
+                        "at most {mx} value(s){qual_clause} allowed along {path_str}, found {n}"
+                    ),
+                    None,
+                    Vec::new(),
+                    None,
+                ),
+                n,
             )),
             // Any other `∃≤0` qualifier (`sh:nodeKind`, several value constraints
             // De-Morgan'd to an `Or`, …): describe the positive requirement.
             _ if mx == 0 => {
-                let requirement = describe_negation(evaluator.arena, qualifier);
+                let requirement =
+                    describe_negation_in(evaluator.arena, qualifier, evaluator.prefixes);
                 for u in &matched {
                     reasons.push(reason(
                         evaluator.arena,
@@ -1456,16 +1556,21 @@ fn explain_count(
                 }
             }
             // Genuine `sh:qualifiedMaxCount` ≥ 1: concise count message.
-            _ => reasons.push(reason(
-                evaluator.arena,
-                id,
-                node.clone(),
-                Some(path_str.clone()),
-                severity,
-                format!("at most {mx} value(s){qual_clause} allowed along {path_str}, found {n}"),
-                None,
-                Vec::new(),
-                None,
+            _ => reasons.push(with_observed(
+                reason(
+                    evaluator.arena,
+                    id,
+                    node.clone(),
+                    Some(path_str.clone()),
+                    severity,
+                    format!(
+                        "at most {mx} value(s){qual_clause} allowed along {path_str}, found {n}"
+                    ),
+                    None,
+                    Vec::new(),
+                    None,
+                ),
+                n,
             )),
         }
     }
@@ -1473,16 +1578,19 @@ fn explain_count(
     if let Some(mn) = min
         && n < mn
     {
-        reasons.push(reason(
-            evaluator.arena,
-            id,
-            node.clone(),
-            Some(path_str.clone()),
-            severity,
-            format!("at least {mn} value(s){qual_clause} required along {path_str}, found {n}"),
-            None,
-            Vec::new(),
-            None,
+        reasons.push(with_observed(
+            reason(
+                evaluator.arena,
+                id,
+                node.clone(),
+                Some(path_str.clone()),
+                severity,
+                format!("at least {mn} value(s){qual_clause} required along {path_str}, found {n}"),
+                None,
+                Vec::new(),
+                None,
+            ),
+            n,
         ));
     }
 
@@ -1558,6 +1666,16 @@ fn term_text(term: &Term) -> String {
     }
 }
 
+/// [`term_text`], but compacting an IRI against the document's vocabulary — for
+/// terms that appear inside a generated message rather than in a structured
+/// field, where the reader wants the spelling the shapes were authored in.
+fn term_display(term: &Term, px: &Prefixes) -> String {
+    match term {
+        Term::NamedNode(iri) => px.compact(iri.as_str()),
+        other => term_text(other),
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn reason(
     arena: &ShapeArena,
@@ -1581,9 +1699,18 @@ fn reason(
         severity: severity.clone(),
         message,
         author_message,
+        observed_count: None,
         sub_reasons,
         sparql_diagnostic,
     }
+}
+
+/// Stamp the observed value count onto a cardinality reason. Kept off
+/// [`reason`]'s argument list, which is already at the lint's limit, and set
+/// only where a count was actually taken.
+fn with_observed(mut r: Reason, observed: u64) -> Reason {
+    r.observed_count = Some(observed);
+    r
 }
 
 fn leaf(
@@ -1747,7 +1874,7 @@ mod tests {
         let sparql = SparqlExecutor::new(&graph).unwrap();
         crate::profile::enable();
         {
-            let mut evaluator = ShapeEvaluator::new(&graph, &arena, &sparql);
+            let mut evaluator = ShapeEvaluator::new(&graph, &arena, Prefixes::empty(), &sparql);
             assert!(evaluator.holds(&term("a"), root));
             assert!(evaluator.holds(&term("b"), root));
         }
@@ -1777,7 +1904,7 @@ mod tests {
 
         crate::profile::enable();
         {
-            let mut evaluator = ShapeEvaluator::new(&graph, &arena, &sparql);
+            let mut evaluator = ShapeEvaluator::new(&graph, &arena, Prefixes::empty(), &sparql);
             assert!(!evaluator.holds(&node, a));
             assert!(!evaluator.holds(&node, b));
         }

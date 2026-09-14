@@ -2,6 +2,114 @@
 
 ## Unreleased
 
+### Fixed
+
+- Fixed `sh:xone` reporting. It lowers to `⋁ᵢ (φᵢ ∧ ⋀_{j≠i} ¬φⱼ)`, and reported
+  as that disjunction a node satisfying *two* alternatives — the usual way to
+  fail a xone — was told that none were satisfied, the opposite of the finding.
+  The rewrite is now recognized (`render::xone_alternatives`), so the message
+  counts what actually holds and the constraint renders as
+  `exactly one of (…)` rather than as its expansion.
+- Fixed `sh:not` rendering a double negative when the negated shape is itself
+  negative: `not (∄ p)` now reads `∃[1..] p`. A boolean combination is left as
+  `not (a and b)`, where De Morgan would trade one clear form for a longer
+  disjunction. The `sh:not` failure message is now the positive requirement
+  instead of "negated shape unexpectedly held".
+- Fixed typed literals rendering their datatype as an absolute IRI
+  (`"10"^^<http://www.w3.org/2001/XMLSchema#integer>` → `"10"^^xsd:integer`),
+  including numeric bounds inside a value type. A plain string keeps its
+  implicit `xsd:string` unspelled.
+- Fixed the notation key listing the inverse-path symbol for a report that used
+  none: it matched the `^^` of a typed literal.
+- Fixed validation messages that leaked internal arena slot labels such as
+  `@257`. Constraint descriptions were cut at a fixed recursion depth and fell
+  back to the slot id, which is meaningless outside a debugging dump and could
+  elide the very term that distinguished two conjuncts. Descriptions now expand
+  in full, stopping only at a genuinely self-referential shape (named as such)
+  or a size cap (elided with an ellipsis).
+
+### Added
+
+- Added a top-level `shapes` map to `validate --format json`: the transitive
+  closure of every reported constraint, keyed by the same ids the algebra's own
+  `constraint_id` and `qualifier` fields use, so those pointers resolve inside
+  the document. Previously a JSON consumer hit the same dead end a reader of the
+  text report hit with `@257`. It is the closure rather than the whole arena
+  deliberately — for the s223 shapes that is 19 slots against 2412, a 2.2x
+  payload instead of 172x; `inspect --stage plan --format json` still dumps the
+  arena in full. Each reason also gains `definition` and `definition_pretty`,
+  and each violation `target` and `shape_name`.
+- Added `Shape::child_shapes`, the shape's direct references including the
+  `sh:filterShape` ids inside a node expression. `render`'s reachability walk
+  now uses it, so a shape reachable only through an expression no longer drops
+  out of a schema dump.
+- Added `Reason.observed_count`: for a cardinality constraint, how many values
+  along the path satisfied the qualifier. The bound is already in the constraint
+  algebra, so this is the one number a report needs that the algebra does not
+  carry — a renderer can now state the shortfall without parsing `message`.
+  Exposed in Python as `Reason.observed_count`.
+- Added an indented layout for constraint descriptions, for the nested ones that
+  are unreadable on a single line. `render::describe_shape_pretty` breaks and
+  indents by nesting depth, and returns the one-line form byte-identical when it
+  already fits, so callers can use it unconditionally. Surfaced as
+  `Constraint.definition_pretty` and `RepairSession.describe_shape_pretty` in
+  Python, and printed by `shifty validate` as a `constraint:` block under a
+  reason whose description does not fit. `Reason.message` and the
+  `sh:resultMessage` literal stay single-line: consumers embed them mid-line and
+  serialize them as RDF.
+
+### Changed
+
+- `shifty validate --format text` now reports *findings* rather than violations:
+  reasons that fail the same statement with the same rendered explanation are
+  grouped, the explanation printed once, and the focus nodes listed under it,
+  each with the value node that failed on it. On a sample s223 run this took a
+  report from 1230 lines to 161 — the same constraint failing on 59 nodes is one
+  thing wrong with the graph, and repeating its explanation 59 times buried the
+  two other things that were also wrong. The summary line counts both
+  (`61 violations in 3 findings`). The unit is one reason rather than one
+  violation so that each grouped node carries exactly one value node, which can
+  be named in the heading instead of left as a bare parenthesised IRI.
+- The generated message is labelled `failure` rather than `details`, and keeps
+  that label whether or not the shape carried an `sh:message`. It previously
+  appeared as `message` when there was no author text and `details` when there
+  was, so one field had two names and neither said where it came from. It is
+  also suppressed when it is exactly ``must satisfy `<the requirement>` ``.
+- A count over a `⊤` qualifier drops the vacuous `. any node` clause:
+  `∃[1..] ex:p` rather than `∃[1..] ex:p . any node`, matching `∄ p`.
+- `shifty validate --format text` now prints labelled fields — `focus node`,
+  `value node`, `path`, `found`, `requirement` — instead of packing a reason
+  onto one line. The two nodes in a reason are what a first-time reader
+  confuses: the focus node was selected for checking, the value node was reached
+  from it along the path and is what failed. Unlabelled, the value node reads as
+  the subject. A report that uses `∀`/`∃`/`∄` now also ends with a key glossing
+  only the symbols it actually used. Scripts should read `--format json`.
+- `shifty validate` now spells data-graph nodes using the data document's own
+  `@prefix` declarations, layered over the shapes document's. A focus node in the
+  s223 sample goes from 89 characters to 37, and it appears twice per reason.
+  This is the text report only. Node identity in the Python API
+  (`Violation.focus_node`, `Reason.value`) stays absolute: callers match those
+  against IRIs they hold, and a compacted form is not resolvable without the
+  prefix table beside it.
+- `shifty validate` no longer repeats a cardinality reason's generated message
+  inline when it also prints the constraint block. The block says everything the
+  message did — the bound is in the constraint, the count is in its label — so
+  the two together restated a 300-character sentence three lines above its own
+  readable form. Reasons that are not cardinality failures keep their message,
+  where the prose is the finding rather than a restatement.
+- Validation messages now state a `∃[..0] π . φ` count as the universal it is,
+  `∀ π . ¬φ`, inverting the qualifier. The lowered form of a universal carries a
+  negated qualifier, so the old rendering presented a double negative: what read
+  as two stacked "zero or fewer" quantifiers actually says "every value along
+  the path *is* an instance of C".
+- Descriptions now bracket nested `and`/`or` groups, so a message parses
+  unambiguously without knowing the connectives' precedence.
+- Report messages, paths, and rendered targets now compact IRIs using the
+  `@prefix` declarations of the document the shapes were loaded from, not just
+  the five well-known W3C namespaces. `Schema` and `PhysicalPlan` carry those
+  declarations as display metadata; new `*_in`/`*_px` rendering entry points
+  take them, and the existing prefix-less functions are unchanged.
+
 ## 0.4.4
 
 ### Added

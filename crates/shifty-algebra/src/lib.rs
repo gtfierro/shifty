@@ -12,6 +12,7 @@
 //! # Layout
 //! - [`term`] — RDF term aliases and node-kind sets.
 //! - [`path`] — the path algebra `π` (Def. 3).
+//! - [`prefix`] — display vocabulary (`@prefix` declarations) for rendering.
 //! - [`value_type`] — value types `T` / `test(τ)` facets.
 //! - [`shape`] — the shape grammar `φ` (Def. 4) and the cyclic-capable arena.
 //! - [`selector`] — selectors (Def. 5).
@@ -22,6 +23,7 @@
 
 pub mod expr;
 pub mod path;
+pub mod prefix;
 pub mod render;
 pub mod rule;
 pub mod schema;
@@ -34,6 +36,7 @@ pub mod value_type;
 
 pub use expr::NodeExpr;
 pub use path::Path;
+pub use prefix::Prefixes;
 pub use rule::{Rule, RuleHead};
 pub use schema::{Schema, Statement};
 pub use selector::Selector;
