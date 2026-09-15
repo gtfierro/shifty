@@ -6,7 +6,9 @@ Two validation interfaces:
 ``validate(data_graph, shacl_graph=None, ...)``
     pyshacl-compatible.  Returns ``(conforms, report_graph, results_text)``
     where *report_graph* is a :class:`rdflib.Graph` containing the full W3C
-    ``sh:ValidationReport``.
+    ``sh:ValidationReport``. Pass ``in_place=True`` to add triples derived by
+    SHACL-AF inference (on by default) directly into *data_graph* instead of
+    discarding them.
 
 ``validate_algebra(data_graph, shacl_graph=None, ...)``
     Returns an :class:`AlgebraResult` with a structured list of
@@ -35,7 +37,8 @@ Two validation interfaces:
 ``infer(data_graph, shapes_graph=None, ...)``
     Run SHACL-AF forward-chaining rules to a fixed point.
     Returns an :class:`InferResult`; call ``.graph()`` to get the
-    result as an :class:`rdflib.Graph`.
+    result as an :class:`rdflib.Graph`. Pass ``in_place=True`` to add the
+    derived triples into *data_graph* directly instead.
 
 ``PreparedValidator(shacl_graph).witnesses(data_graph, ...)``
     The inverse of validation: for every focus node that *conforms* to a

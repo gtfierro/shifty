@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Added
+
+- Added `in_place=True` to `infer()`, `validate()`, and
+  `PreparedValidator.validate()`: writes triples derived by SHACL-AF
+  inference directly into a caller-owned `rdflib.Graph` passed as
+  `data_graph`, instead of returning a separate copy. Only the inferred
+  delta crosses back from Rust either way, via the new
+  `InferResult.inferred_ntriples` / `W3cResult.inferred_ntriples`.
+
 ## 0.4.4
 
 ### Added

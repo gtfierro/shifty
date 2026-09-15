@@ -84,6 +84,9 @@ validate only what is asserted:
 
    conforms, report, text = shifty.validate(data, shapes, infer=False)
 
+Going the other way — keeping what inference derives — is ``in_place=True``,
+covered in :ref:`inference-during-validation`.
+
 Validate against only some shapes
 ---------------------------------
 
