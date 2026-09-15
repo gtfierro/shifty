@@ -486,6 +486,57 @@ class TestInferInPlace:
         assert set(data) == before
 
 
+class TestValidateInPlace:
+    def test_requires_rdflib_graph(self):
+        with pytest.raises(TypeError):
+            validate(INFER_DATA.encode(), INFER_SHAPES.encode(), in_place=True)
+
+    def test_requires_infer_true(self):
+        data = rdflib.Graph()
+        data.parse(data=INFER_DATA, format="turtle")
+        with pytest.raises(ValueError):
+            validate(data, INFER_SHAPES.encode(), in_place=True, infer=False)
+
+    def test_adds_inferred_triples_to_input_graph(self):
+        data = rdflib.Graph()
+        data.parse(data=INFER_DATA, format="turtle")
+        original_len = len(data)
+
+        conforms, _, _ = validate(data, INFER_SHAPES.encode(), in_place=True)
+
+        EX = rdflib.Namespace("http://example.org/")
+        assert conforms
+        assert (EX.a, EX.knows2, EX.b) in data
+        assert len(data) == original_len + 1
+
+    def test_report_graph_is_unaffected(self):
+        data = rdflib.Graph()
+        data.parse(data=INFER_DATA, format="turtle")
+
+        _, report, _ = validate(data, INFER_SHAPES.encode(), in_place=True)
+
+        assert isinstance(report, rdflib.Graph)
+        assert report is not data
+
+    def test_no_op_when_nothing_inferred(self):
+        data = rdflib.Graph()
+        data.parse(data=CONFORMS_DATA, format="turtle")
+        before = set(data)
+
+        validate(data, INFER_SHAPES.encode(), in_place=True)
+
+        assert set(data) == before
+
+    def test_matches_separately_computed_inference(self):
+        data = rdflib.Graph()
+        data.parse(data=INFER_DATA, format="turtle")
+
+        validate(data, INFER_SHAPES.encode(), in_place=True)
+        expected = shifty.infer(INFER_DATA.encode(), INFER_SHAPES.encode()).graph()
+
+        assert isomorphic(data, expected)
+
+
 # ── graph_mode variants ───────────────────────────────────────────────────────
 
 

@@ -434,6 +434,26 @@ def _coalesce_graph_input(graph: "GraphInputs") -> GraphInput:
     return graph
 
 
+def _require_in_place_target(
+    data_graph: "GraphInputs", *, caller: str
+) -> "rdflib.Graph":
+    """Validate an ``in_place=True`` call and return the graph to mutate.
+
+    Shared by :func:`infer` and :func:`validate` (and
+    :meth:`PreparedValidator.validate`): both only know how to write a
+    derived delta back into a single caller-owned :class:`rdflib.Graph`, so
+    every other ``GraphInputs`` shape — bytes, a path, a string, a
+    list/tuple — has nothing to mutate and is rejected up front."""
+    import rdflib
+
+    if not isinstance(data_graph, rdflib.Graph):
+        raise TypeError(
+            f"{caller}(..., in_place=True) requires data_graph to be a single "
+            f"rdflib.Graph, not {type(data_graph).__name__!r}"
+        )
+    return data_graph
+
+
 class InferResult:
     """Result of a SHACL-AF inference run."""
 
@@ -517,6 +537,7 @@ class PreparedValidator:
         graph_mode: str = "union",
         shape_names: Optional[Sequence[str]] = None,
         infer: bool = True,
+        in_place: bool = False,
         minimum_severity: str = "info",
         sort_results: bool = True,
         on_unsupported: str = "ignore",
@@ -525,9 +546,23 @@ class PreparedValidator:
 
         ``shape_names`` optionally limits validation to the named shapes in
         that list as top-level entry points. Referenced helper shapes are still
-        evaluated normally.
+        evaluated normally. ``in_place`` mirrors :func:`validate`: it writes
+        any inferred triples back into *data_graph* instead of discarding
+        them, and requires *data_graph* to be a single :class:`rdflib.Graph`
+        and ``infer=True``.
         """
         import rdflib
+
+        target: Optional[rdflib.Graph] = None
+        if in_place:
+            if not infer:
+                raise ValueError(
+                    "PreparedValidator.validate(..., in_place=True) has nothing to "
+                    "write back when infer=False"
+                )
+            target = _require_in_place_target(
+                data_graph, caller="PreparedValidator.validate"
+            )
 
         data = _to_rdf_input(_coalesce_graph_input(data_graph))
         result: W3cResult = self._inner.validate_w3c(
@@ -541,6 +576,8 @@ class PreparedValidator:
             sort_results,
             on_unsupported,
         )
+        if target is not None and result.inferred_ntriples:
+            target.parse(data=result.inferred_ntriples, format="nt")
         graph = rdflib.Graph()
         graph.parse(data=result.report_turtle, format="turtle")
         return (result.conforms, graph, result.results_text)
@@ -1082,6 +1119,7 @@ def validate(
     graph_mode: str = "union",
     shape_names: Optional[Sequence[str]] = None,
     infer: bool = True,
+    in_place: bool = False,
     minimum_severity: str = "info",
     sort_results: bool = True,
     on_unsupported: str = "ignore",
@@ -1106,6 +1144,16 @@ def validate(
         IRIs and ``<iri>`` forms are both accepted.
     infer:
         Run SHACL-AF rules before validation (default ``True``).
+    in_place:
+        If ``True``, add any triples SHACL-AF inference derived (per
+        *infer*) directly into *data_graph* instead of discarding them —
+        only the delta crosses back into Python. Requires *data_graph* to be
+        a single :class:`rdflib.Graph`; raises :class:`TypeError` otherwise.
+        Raises :class:`ValueError` if *infer* is ``False``, since there
+        would be nothing to write back. Never touches *shacl_graph*, and is
+        independent of *graph_mode*: inference always augments the data
+        graph. The report graph is unaffected either way — it's always a
+        fresh :class:`rdflib.Graph`, same as when *in_place* is ``False``.
     minimum_severity:
         Lowest level that makes ``conforms`` false: ``"info"`` (default),
         ``"warning"``, or ``"violation"``. Lower-level results remain in the
@@ -1125,6 +1173,14 @@ def validate(
         * *results_text* — human-readable summary string.
     """
     import rdflib
+
+    target: Optional[rdflib.Graph] = None
+    if in_place:
+        if not infer:
+            raise ValueError(
+                "validate(..., in_place=True) has nothing to write back when infer=False"
+            )
+        target = _require_in_place_target(data_graph, caller="validate")
 
     data = _to_rdf_input(_coalesce_graph_input(data_graph))
     shapes = (
@@ -1147,6 +1203,9 @@ def validate(
         on_unsupported,
         base,
     )
+
+    if target is not None and result.inferred_ntriples:
+        target.parse(data=result.inferred_ntriples, format="nt")
 
     g = rdflib.Graph()
     g.parse(data=result.report_turtle, format="turtle")
@@ -1247,16 +1306,7 @@ def infer(
         Call ``.graph()`` to get the result as an :class:`rdflib.Graph`,
         or read ``.graph_ntriples`` for the raw N-Triples string.
     """
-    target = None
-    if in_place:
-        import rdflib
-
-        if not isinstance(data_graph, rdflib.Graph):
-            raise TypeError(
-                "infer(..., in_place=True) requires data_graph to be a single "
-                f"rdflib.Graph, not {type(data_graph).__name__!r}"
-            )
-        target = data_graph
+    target = _require_in_place_target(data_graph, caller="infer") if in_place else None
 
     data = _to_rdf_input(_coalesce_graph_input(data_graph))
     shapes = (

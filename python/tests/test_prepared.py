@@ -24,6 +24,25 @@ INVALID = b"""
 ex:bob a ex:Person .
 """
 
+RULE_SHAPES = b"""
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix ex: <http://example.org/> .
+
+ex:S a sh:NodeShape ;
+    sh:targetClass ex:Thing ;
+    sh:rule [
+        a sh:TripleRule ;
+        sh:subject sh:this ;
+        sh:predicate ex:knows2 ;
+        sh:object [ sh:path ex:knows ]
+    ] .
+"""
+
+RULE_DATA = """
+@prefix ex: <http://example.org/> .
+ex:a a ex:Thing ; ex:knows ex:b .
+"""
+
 
 def test_prepared_validator_matches_one_shot():
     prepared = shifty.PreparedValidator(SHAPES)
@@ -56,6 +75,32 @@ def test_prepared_validator_accepts_rdflib_graph():
 def test_prepared_validator_rejects_empty_shapes():
     with pytest.raises(ValueError, match="explicit shapes graph is empty"):
         shifty.PreparedValidator(rdflib.Graph())
+
+
+def test_prepared_validator_in_place_adds_inferred_triples():
+    prepared = shifty.PreparedValidator(RULE_SHAPES)
+    data = rdflib.Graph()
+    data.parse(data=RULE_DATA, format="turtle")
+
+    conforms, _, _ = prepared.validate(data, in_place=True)
+
+    EX = rdflib.Namespace("http://example.org/")
+    assert conforms
+    assert (EX.a, EX.knows2, EX.b) in data
+
+
+def test_prepared_validator_in_place_requires_rdflib_graph():
+    prepared = shifty.PreparedValidator(RULE_SHAPES)
+    with pytest.raises(TypeError):
+        prepared.validate(RULE_DATA.encode(), in_place=True)
+
+
+def test_prepared_validator_in_place_requires_infer_true():
+    prepared = shifty.PreparedValidator(RULE_SHAPES)
+    data = rdflib.Graph()
+    data.parse(data=RULE_DATA, format="turtle")
+    with pytest.raises(ValueError):
+        prepared.validate(data, in_place=True, infer=False)
 
 
 def test_validation_releases_gil():
