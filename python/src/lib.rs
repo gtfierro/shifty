@@ -1,4 +1,4 @@
-use oxrdf::{Graph, Term};
+use oxrdf::{Graph, Term, Triple};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::pybacked::PyBackedBytes;
@@ -470,7 +470,12 @@ pub struct InferResult {
     inferred_count: usize,
     diagnostics: Vec<String>,
     graph: Graph,
+    /// The triples inference added, i.e. `graph` minus the original data —
+    /// kept separately so callers can write just the delta back into a
+    /// caller-owned graph instead of re-materializing everything.
+    inferred: Vec<Triple>,
     graph_ntriples_cache: OnceLock<String>,
+    inferred_ntriples_cache: OnceLock<String>,
 }
 
 #[pymethods]
@@ -490,6 +495,17 @@ impl InferResult {
         py.allow_threads(|| {
             self.graph_ntriples_cache
                 .get_or_init(|| graph_to_ntriples(&self.graph))
+                .clone()
+        })
+    }
+
+    /// Just the newly inferred triples (not the original data), as
+    /// N-Triples. Empty when nothing was inferred.
+    #[getter]
+    fn inferred_ntriples(&self, py: Python<'_>) -> String {
+        py.allow_threads(|| {
+            self.inferred_ntriples_cache
+                .get_or_init(|| triples_to_ntriples(&self.inferred))
                 .clone()
         })
     }
@@ -681,14 +697,23 @@ fn maybe_infer_embedded(
     }
 }
 
-pub(crate) fn graph_to_ntriples(graph: &Graph) -> String {
+/// Serialize any borrowed-triple iterable (a `&Graph`, a `&[Triple]`, ...) as
+/// N-Triples. Shared by `graph_to_ntriples` (a whole graph) and callers that
+/// only need to serialize a delta (e.g. `InferResult::inferred_ntriples`).
+pub(crate) fn triples_to_ntriples<'a, T: Into<oxrdf::TripleRef<'a>>>(
+    triples: impl IntoIterator<Item = T>,
+) -> String {
     let mut writer = oxttl::NTriplesSerializer::new().for_writer(Vec::new());
-    for triple in graph {
+    for triple in triples {
         writer.serialize_triple(triple).unwrap();
     }
     // NTriplesSerializer::finish() returns the writer (Vec<u8>) directly, not Result
     let bytes = writer.finish();
     String::from_utf8(bytes).unwrap()
+}
+
+pub(crate) fn graph_to_ntriples(graph: &Graph) -> String {
+    triples_to_ntriples(graph)
 }
 
 fn graph_to_turtle(graph: &Graph) -> String {
@@ -1376,7 +1401,9 @@ pub fn _infer(
             inferred_count: outcome.inferred.len(),
             diagnostics: outcome.diagnostics,
             graph: outcome.graph,
+            inferred: outcome.inferred,
             graph_ntriples_cache: OnceLock::new(),
+            inferred_ntriples_cache: OnceLock::new(),
         })
     })
     .map_err(py_value_error)
