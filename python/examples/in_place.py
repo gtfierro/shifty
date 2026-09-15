@@ -44,6 +44,14 @@ DATA = """
 ex:r1 a ex:Rectangle ; ex:width 4 ; ex:height 5 .
 """
 
+# The same rectangle held in a blank node rather than named by an IRI, which
+# is how a nested structure usually looks once it is parsed.
+NESTED_DATA = """
+@prefix ex:  <http://example.org/> .
+
+ex:building ex:hasRoom [ a ex:Rectangle ; ex:width 4 ; ex:height 5 ] .
+"""
+
 
 def main() -> None:
     # infer(..., in_place=True): the graph you passed in gets extended, and
@@ -77,6 +85,17 @@ def main() -> None:
     result = shifty.validate_algebra(data, SHAPES, in_place=True)
     print(f"\nconforms: {result.conforms}")
     print(f"data now has {len(data)} triples")
+
+    # A triple derived about a blank node lands on the blank node the graph
+    # already holds, so it stays reachable from whatever pointed at it.
+    data = rdflib.Graph()
+    data.parse(data=NESTED_DATA, format="turtle")
+
+    shifty.infer(data, RULES, in_place=True)
+
+    EX = rdflib.Namespace("http://example.org/")
+    room = data.value(EX.building, EX.hasRoom)
+    print(f"\narea reached through ex:hasRoom: {list(data.objects(room, EX.area))}")
 
 
 if __name__ == "__main__":

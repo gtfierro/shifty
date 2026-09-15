@@ -10,7 +10,18 @@
   `rdflib.Graph` passed as `data_graph`, instead of returning a separate
   copy. Only the inferred delta crosses back from Rust either way, via
   the new `InferResult.inferred_ntriples` / `W3cResult.inferred_ntriples`
-  / `AlgebraResult.inferred_ntriples`.
+  / `AlgebraResult.inferred_ntriples`. Triples derived about a blank node
+  land on the blank node the caller's graph already holds.
+
+### Changed
+
+- An `rdflib.Graph` input is now serialized as its namespace declarations
+  followed by an N-Triples body. This is valid Turtle and carries the same
+  bindings SHACL-SPARQL resolves prefixed names against, while also giving
+  every blank node an explicit label; it is cheaper to produce than
+  rdflib's Turtle serializer, which groups triples by subject, counts blank
+  node references to decide what to nest, and compacts every IRI against
+  the namespace manager.
 
 ## 0.4.4
 

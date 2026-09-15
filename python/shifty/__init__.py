@@ -51,8 +51,12 @@ Graph inputs
 ~~~~~~~~~~~~
 All three functions accept any of:
 
-* :class:`rdflib.Graph`       — serialized to Turtle, preserving namespace
-                                bindings used by SHACL-SPARQL queries and rules
+* :class:`rdflib.Graph`       — serialized as its namespace declarations
+                                followed by an N-Triples body: valid Turtle
+                                that carries the bindings SHACL-SPARQL
+                                resolves prefixed names against, and a label
+                                for every blank node so derived triples can
+                                be matched back to the node they describe
 * :class:`pathlib.Path`       — parsed directly as Turtle or N-Triples
 * ``str``                     — treated as an existing file path, an HTTP(S)
                                 URL, or raw Turtle text. A missing recognized

@@ -72,6 +72,17 @@ the delta crosses back from Rust, not the whole graph:
 string, or a list of inputs — there's no caller-owned object to mutate for
 those); anything else raises ``TypeError``.
 
+Triples derived about a blank node land on the blank node your graph already
+holds, so they stay reachable from whatever pointed at it:
+
+.. code-block:: python
+
+   data.parse(data="ex:r1 ex:hasDim [ a ex:Dim ; ex:width 4 ] .", format="turtle")
+   shifty.infer(data, rules, in_place=True)
+
+   dim = data.value(EX.r1, EX.hasDim)
+   list(data.objects(dim, EX.area))   # the derived value, reached through ex:r1
+
 Rules embedded in the data graph work the same way — omit the second argument:
 
 .. code-block:: python
