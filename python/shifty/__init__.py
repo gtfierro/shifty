@@ -592,6 +592,7 @@ class PreparedValidator:
         graph_mode: str = "union",
         shape_names: Optional[Sequence[str]] = None,
         infer: bool = True,
+        in_place: bool = False,
         minimum_severity: str = "info",
         sort_results: bool = True,
         on_unsupported: str = "ignore",
@@ -600,10 +601,24 @@ class PreparedValidator:
 
         ``shape_names`` optionally limits validation to the named shapes in
         that list as top-level entry points. Referenced helper shapes are still
-        evaluated normally.
+        evaluated normally. ``in_place`` mirrors :func:`validate_algebra`: it
+        writes any inferred triples back into *data_graph* instead of
+        discarding them, and requires *data_graph* to be a single
+        :class:`rdflib.Graph` and ``infer=True``.
         """
+        target: Optional[rdflib.Graph] = None
+        if in_place:
+            if not infer:
+                raise ValueError(
+                    "PreparedValidator.validate_algebra(..., in_place=True) has "
+                    "nothing to write back when infer=False"
+                )
+            target = _require_in_place_target(
+                data_graph, caller="PreparedValidator.validate_algebra"
+            )
+
         data = _to_rdf_input(_coalesce_graph_input(data_graph))
-        return self._inner.validate_algebra(
+        result = self._inner.validate_algebra(
             data.data,
             data.path,
             data.format,
@@ -614,6 +629,9 @@ class PreparedValidator:
             sort_results,
             on_unsupported,
         )
+        if target is not None and result.inferred_ntriples:
+            target.parse(data=result.inferred_ntriples, format="nt")
+        return result
 
     def witnesses(
         self,
@@ -1223,6 +1241,7 @@ def validate_algebra(
     graph_mode: str = "union",
     shape_names: Optional[Sequence[str]] = None,
     infer: bool = True,
+    in_place: bool = False,
     minimum_severity: str = "info",
     sort_results: bool = True,
     on_unsupported: str = "ignore",
@@ -1238,7 +1257,7 @@ def validate_algebra(
 
     Parameters
     ----------
-    data_graph, shacl_graph, graph_mode, shape_names, infer, base:
+    data_graph, shacl_graph, graph_mode, shape_names, infer, in_place, base:
         Same as :func:`validate`.
     minimum_severity:
         Lowest level that makes ``conforms`` false: ``"info"`` (default),
@@ -1251,13 +1270,22 @@ def validate_algebra(
         ``.conforms`` is ``True`` when no violations were found.
         ``.violations`` lists each failing focus node with reasons.
     """
+    target: Optional[rdflib.Graph] = None
+    if in_place:
+        if not infer:
+            raise ValueError(
+                "validate_algebra(..., in_place=True) has nothing to write back "
+                "when infer=False"
+            )
+        target = _require_in_place_target(data_graph, caller="validate_algebra")
+
     data = _to_rdf_input(_coalesce_graph_input(data_graph))
     shapes = (
         _to_rdf_input(_coalesce_graph_input(shacl_graph))
         if shacl_graph is not None
         else _RdfInput(None, None, "turtle")
     )
-    return _validate_algebra(
+    result = _validate_algebra(
         data.data,
         data.path,
         data.format,
@@ -1272,6 +1300,9 @@ def validate_algebra(
         on_unsupported,
         base,
     )
+    if target is not None and result.inferred_ntriples:
+        target.parse(data=result.inferred_ntriples, format="nt")
+    return result
 
 
 def infer(

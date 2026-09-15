@@ -77,7 +77,7 @@ def test_prepared_validator_rejects_empty_shapes():
         shifty.PreparedValidator(rdflib.Graph())
 
 
-def test_prepared_validator_in_place_adds_inferred_triples():
+def test_prepared_validator_validate_in_place_adds_inferred_triples():
     prepared = shifty.PreparedValidator(RULE_SHAPES)
     data = rdflib.Graph()
     data.parse(data=RULE_DATA, format="turtle")
@@ -89,18 +89,44 @@ def test_prepared_validator_in_place_adds_inferred_triples():
     assert (EX.a, EX.knows2, EX.b) in data
 
 
-def test_prepared_validator_in_place_requires_rdflib_graph():
+def test_prepared_validator_validate_in_place_requires_rdflib_graph():
     prepared = shifty.PreparedValidator(RULE_SHAPES)
     with pytest.raises(TypeError):
         prepared.validate(RULE_DATA.encode(), in_place=True)
 
 
-def test_prepared_validator_in_place_requires_infer_true():
+def test_prepared_validator_validate_in_place_requires_infer_true():
     prepared = shifty.PreparedValidator(RULE_SHAPES)
     data = rdflib.Graph()
     data.parse(data=RULE_DATA, format="turtle")
     with pytest.raises(ValueError):
         prepared.validate(data, in_place=True, infer=False)
+
+
+def test_prepared_validator_validate_algebra_in_place_adds_inferred_triples():
+    prepared = shifty.PreparedValidator(RULE_SHAPES)
+    data = rdflib.Graph()
+    data.parse(data=RULE_DATA, format="turtle")
+
+    result = prepared.validate_algebra(data, in_place=True)
+
+    EX = rdflib.Namespace("http://example.org/")
+    assert result.conforms
+    assert (EX.a, EX.knows2, EX.b) in data
+
+
+def test_prepared_validator_validate_algebra_in_place_requires_rdflib_graph():
+    prepared = shifty.PreparedValidator(RULE_SHAPES)
+    with pytest.raises(TypeError):
+        prepared.validate_algebra(RULE_DATA.encode(), in_place=True)
+
+
+def test_prepared_validator_validate_algebra_in_place_requires_infer_true():
+    prepared = shifty.PreparedValidator(RULE_SHAPES)
+    data = rdflib.Graph()
+    data.parse(data=RULE_DATA, format="turtle")
+    with pytest.raises(ValueError):
+        prepared.validate_algebra(data, in_place=True, infer=False)
 
 
 def test_validation_releases_gil():

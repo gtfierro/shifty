@@ -537,6 +537,48 @@ class TestValidateInPlace:
         assert isomorphic(data, expected)
 
 
+class TestValidateAlgebraInPlace:
+    def test_requires_rdflib_graph(self):
+        with pytest.raises(TypeError):
+            validate_algebra(INFER_DATA.encode(), INFER_SHAPES.encode(), in_place=True)
+
+    def test_requires_infer_true(self):
+        data = rdflib.Graph()
+        data.parse(data=INFER_DATA, format="turtle")
+        with pytest.raises(ValueError):
+            validate_algebra(data, INFER_SHAPES.encode(), in_place=True, infer=False)
+
+    def test_adds_inferred_triples_to_input_graph(self):
+        data = rdflib.Graph()
+        data.parse(data=INFER_DATA, format="turtle")
+        original_len = len(data)
+
+        result = validate_algebra(data, INFER_SHAPES.encode(), in_place=True)
+
+        EX = rdflib.Namespace("http://example.org/")
+        assert result.conforms
+        assert (EX.a, EX.knows2, EX.b) in data
+        assert len(data) == original_len + 1
+
+    def test_no_op_when_nothing_inferred(self):
+        data = rdflib.Graph()
+        data.parse(data=CONFORMS_DATA, format="turtle")
+        before = set(data)
+
+        validate_algebra(data, INFER_SHAPES.encode(), in_place=True)
+
+        assert set(data) == before
+
+    def test_matches_separately_computed_inference(self):
+        data = rdflib.Graph()
+        data.parse(data=INFER_DATA, format="turtle")
+
+        validate_algebra(data, INFER_SHAPES.encode(), in_place=True)
+        expected = shifty.infer(INFER_DATA.encode(), INFER_SHAPES.encode()).graph()
+
+        assert isomorphic(data, expected)
+
+
 # ── graph_mode variants ───────────────────────────────────────────────────────
 
 
