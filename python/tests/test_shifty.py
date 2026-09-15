@@ -384,6 +384,43 @@ INFER_DATA = PREFIXES + textwrap.dedent("""\
     ex:a a ex:Thing ; ex:knows ex:b .
 """)
 
+# A rule whose subject is the focus node, fired on a focus node that is itself
+# a blank node reached through ex:hasDim. Whatever it derives belongs on that
+# blank node, so the derived triple is only useful if it stays reachable from
+# ex:r1 -- which is the question these fixtures exist to ask.
+BNODE_RULES = PREFIXES + textwrap.dedent("""\
+    ex:DimShape a sh:NodeShape ;
+        sh:targetClass ex:Dim ;
+        sh:rule [
+            a sh:TripleRule ;
+            sh:subject sh:this ;
+            sh:predicate ex:area ;
+            sh:object [ sh:path ex:width ]
+        ] .
+""")
+
+BNODE_DATA = PREFIXES + textwrap.dedent("""\
+    ex:r1 ex:hasDim [ a ex:Dim ; ex:width 4 ] .
+""")
+
+
+def _bnode_graph():
+    graph = rdflib.Graph()
+    graph.parse(data=BNODE_DATA, format="turtle")
+    return graph
+
+
+def _derived_area(graph):
+    """The ex:area values reachable by walking ex:r1 -> ex:hasDim -> ex:area.
+
+    Reads the derived triple the way an application would, through the node
+    that points at it, rather than by scanning the graph for it. A triple
+    attached to some other blank node is invisible here even though the graph
+    contains it, which is exactly the failure worth catching."""
+    EX = rdflib.Namespace("http://example.org/")
+    dim = graph.value(EX.r1, EX.hasDim)
+    return list(graph.objects(dim, EX.area))
+
 
 class TestInfer:
     def test_returns_infer_result(self):
@@ -577,6 +614,73 @@ class TestValidateAlgebraInPlace:
         expected = shifty.infer(INFER_DATA.encode(), INFER_SHAPES.encode()).graph()
 
         assert isomorphic(data, expected)
+
+
+class TestInPlaceBlankNodes:
+    """Derived triples about a blank node have to land on the caller's node.
+
+    A blank node is named only by the label its document gives it, so these
+    exercise the one case where that name has to survive a full round trip:
+    the data goes out to the engine, a rule fires on a blank node, and the
+    triple that comes back has to rejoin the node it describes.
+    """
+
+    def test_infer_attaches_to_the_original_blank_node(self):
+        graph = _bnode_graph()
+
+        result = shifty.infer(graph, BNODE_RULES.encode(), in_place=True)
+
+        assert result.inferred_count == 1
+        assert _derived_area(graph) == [rdflib.Literal(4)]
+
+    def test_validate_attaches_to_the_original_blank_node(self):
+        graph = _bnode_graph()
+
+        validate(graph, BNODE_RULES.encode(), in_place=True)
+
+        assert _derived_area(graph) == [rdflib.Literal(4)]
+
+    def test_validate_algebra_attaches_to_the_original_blank_node(self):
+        graph = _bnode_graph()
+
+        validate_algebra(graph, BNODE_RULES.encode(), in_place=True)
+
+        assert _derived_area(graph) == [rdflib.Literal(4)]
+
+    def test_no_orphan_blank_node_is_introduced(self):
+        graph = _bnode_graph()
+
+        shifty.infer(graph, BNODE_RULES.encode(), in_place=True)
+
+        nodes = {
+            term
+            for triple in graph
+            for term in triple
+            if isinstance(term, rdflib.BNode)
+        }
+        assert len(nodes) == 1
+
+    def test_repeated_runs_stay_stable(self):
+        """Running twice derives the same triple onto the same node.
+
+        A run that minted a new blank node each time would leave the graph
+        growing on every call, so this pins the fixed point down."""
+        graph = _bnode_graph()
+
+        shifty.infer(graph, BNODE_RULES.encode(), in_place=True)
+        after_first = set(graph)
+        second = shifty.infer(graph, BNODE_RULES.encode(), in_place=True)
+
+        assert second.inferred_count == 0
+        assert set(graph) == after_first
+
+    def test_matches_the_graph_built_without_in_place(self):
+        graph = _bnode_graph()
+
+        shifty.infer(graph, BNODE_RULES.encode(), in_place=True)
+        separate = shifty.infer(BNODE_DATA.encode(), BNODE_RULES.encode()).graph()
+
+        assert isomorphic(graph, separate)
 
 
 # ── graph_mode variants ───────────────────────────────────────────────────────
