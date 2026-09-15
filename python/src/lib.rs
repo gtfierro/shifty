@@ -402,6 +402,12 @@ pub struct W3cResult {
     pub report_turtle: String,
     /// Human-readable summary (pyshacl-esque text).
     pub results_text: String,
+    /// Triples added by SHACL-AF inference before validation ran, as
+    /// N-Triples — empty when `run_infer` was false, there were no rules, or
+    /// nothing new was derived. Lets `validate(..., in_place=True)` write
+    /// just the delta back into the caller's data graph, mirroring
+    /// `InferResult.inferred_ntriples`.
+    pub inferred_ntriples: String,
 }
 
 #[pymethods]
@@ -667,17 +673,18 @@ fn prepare_loaded_shapes(
     Ok((loaded, schema, plan, parse_out.diagnostics))
 }
 
-/// Optionally run SHACL-AF inference; returns the graph to validate against.
+/// Optionally run SHACL-AF inference; returns the outcome (graph to
+/// validate against, plus the inferred delta) when it ran.
 fn maybe_infer(
     data: &Graph,
     shapes: &Graph,
     schema: &shifty_algebra::Schema,
     run_infer: bool,
-) -> Result<Option<Graph>, String> {
+) -> Result<Option<shifty_engine::InferenceOutcome>, String> {
     if run_infer && !schema.rules.is_empty() {
         let out = shifty_engine::infer_graphs(data, shapes, schema)
             .map_err(|e| format!("non-stratifiable schema: {e}"))?;
-        Ok(Some(out.graph))
+        Ok(Some(out))
     } else {
         Ok(None)
     }
@@ -687,11 +694,11 @@ fn maybe_infer_embedded(
     data: &Graph,
     schema: &shifty_algebra::Schema,
     run_infer: bool,
-) -> Result<Option<Graph>, String> {
+) -> Result<Option<shifty_engine::InferenceOutcome>, String> {
     if run_infer && !schema.rules.is_empty() {
         let out = shifty_engine::infer(data, schema)
             .map_err(|e| format!("non-stratifiable schema: {e}"))?;
-        Ok(Some(out.graph))
+        Ok(Some(out))
     } else {
         Ok(None)
     }
@@ -794,11 +801,18 @@ fn format_report_text(report: &ValidationReport) -> String {
     out
 }
 
-fn build_w3c_result(report: &ValidationReport, report_graph: &Graph) -> W3cResult {
+fn build_w3c_result(
+    report: &ValidationReport,
+    report_graph: &Graph,
+    inferred: Option<&shifty_engine::InferenceOutcome>,
+) -> W3cResult {
     W3cResult {
         conforms: report.conforms,
         report_turtle: graph_to_turtle(report_graph),
         results_text: format_report_text(report),
+        inferred_ntriples: inferred
+            .map(|outcome| triples_to_ntriples(&outcome.inferred))
+            .unwrap_or_default(),
     }
 }
 
@@ -1080,7 +1094,7 @@ fn validate_algebra_loaded(
     options: &ValidationOptions,
 ) -> Result<RawAlgebraResult, String> {
     let inferred = maybe_infer(&data_loaded.graph, &shapes_loaded.graph, schema, run_infer)?;
-    let eval_data = inferred.as_ref().unwrap_or(&data_loaded.graph);
+    let eval_data = inferred.as_ref().map_or(&data_loaded.graph, |o| &o.graph);
     let outcome = validate_plan_graphs_with_mode_and_options(
         eval_data,
         &shapes_loaded.graph,
@@ -1100,7 +1114,7 @@ fn validate_algebra_embedded(
     options: &ValidationOptions,
 ) -> Result<RawAlgebraResult, String> {
     let inferred = maybe_infer_embedded(&loaded.graph, schema, run_infer)?;
-    let eval_data = inferred.as_ref().unwrap_or(&loaded.graph);
+    let eval_data = inferred.as_ref().map_or(&loaded.graph, |o| &o.graph);
     let outcome = validate_plan_with_options(eval_data, plan, options)
         .map_err(|e| format!("non-stratifiable schema: {e}"))?;
     Ok(raw_algebra_result(outcome, schema, &plan.arena))
@@ -1115,11 +1129,11 @@ fn validate_w3c_loaded(
     options: &ValidationOptions,
 ) -> Result<W3cResult, String> {
     let inferred = maybe_infer(&data_loaded.graph, &shapes_loaded.graph, schema, run_infer)?;
-    let eval_data = inferred.as_ref().unwrap_or(&data_loaded.graph);
+    let eval_data = inferred.as_ref().map_or(&data_loaded.graph, |o| &o.graph);
     let report =
         validate_report_graphs_with_mode_and_options(shapes_loaded, eval_data, mode, options);
     let report_graph = report_to_graph(&report);
-    Ok(build_w3c_result(&report, &report_graph))
+    Ok(build_w3c_result(&report, &report_graph, inferred.as_ref()))
 }
 
 fn validate_w3c_embedded(
@@ -1129,10 +1143,10 @@ fn validate_w3c_embedded(
     options: &ValidationOptions,
 ) -> Result<W3cResult, String> {
     let inferred = maybe_infer_embedded(&loaded.graph, schema, run_infer)?;
-    let eval_data = inferred.as_ref().unwrap_or(&loaded.graph);
+    let eval_data = inferred.as_ref().map_or(&loaded.graph, |o| &o.graph);
     let report = validate_report_with_options(loaded, eval_data, options);
     let report_graph = report_to_graph(&report);
-    Ok(build_w3c_result(&report, &report_graph))
+    Ok(build_w3c_result(&report, &report_graph, inferred.as_ref()))
 }
 
 fn load_validation_inputs(
@@ -1609,7 +1623,7 @@ impl PreparedValidator {
                     &self.schema,
                     run_infer,
                 )?;
-                let eval_data = inferred.as_ref().unwrap_or(&data_loaded.graph);
+                let eval_data = inferred.as_ref().map_or(&data_loaded.graph, |o| &o.graph);
                 Ok::<_, String>(property_witnesses_graphs_with_mode_and_options(
                     &self.shapes,
                     eval_data,
