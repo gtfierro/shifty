@@ -333,6 +333,14 @@ pub struct AlgebraResult {
     pub conforms: bool,
     violations: Vec<Py<Violation>>,
     results_text_cache: OnceLock<String>,
+    /// Triples added by SHACL-AF inference before validation ran, as
+    /// N-Triples — empty when `run_infer` was false, there were no rules, or
+    /// nothing new was derived. Mirrors `W3cResult.inferred_ntriples` /
+    /// `InferResult.inferred_ntriples`; lets
+    /// `validate_algebra(..., in_place=True)` write just the delta back into
+    /// the caller's data graph.
+    #[pyo3(get)]
+    pub inferred_ntriples: String,
 }
 
 #[pymethods]
@@ -985,6 +993,7 @@ struct RawViolation {
 struct RawAlgebraResult {
     conforms: bool,
     violations: Vec<RawViolation>,
+    inferred_ntriples: String,
 }
 
 impl RawAlgebraResult {
@@ -1035,6 +1044,7 @@ impl RawAlgebraResult {
             conforms: self.conforms,
             violations,
             results_text_cache: OnceLock::new(),
+            inferred_ntriples: self.inferred_ntriples,
         })
     }
 }
@@ -1043,6 +1053,7 @@ fn raw_algebra_result(
     outcome: shifty_engine::ValidationOutcome,
     schema: &shifty_algebra::Schema,
     arena: &shifty_algebra::ShapeArena,
+    inferred: Option<&shifty_engine::InferenceOutcome>,
 ) -> RawAlgebraResult {
     let violations = outcome
         .violations
@@ -1081,6 +1092,9 @@ fn raw_algebra_result(
     RawAlgebraResult {
         conforms: outcome.conforms,
         violations,
+        inferred_ntriples: inferred
+            .map(|outcome| triples_to_ntriples(&outcome.inferred))
+            .unwrap_or_default(),
     }
 }
 
@@ -1103,7 +1117,7 @@ fn validate_algebra_loaded(
         options,
     )
     .map_err(|e| format!("non-stratifiable schema: {e}"))?;
-    Ok(raw_algebra_result(outcome, schema, &plan.arena))
+    Ok(raw_algebra_result(outcome, schema, &plan.arena, inferred.as_ref()))
 }
 
 fn validate_algebra_embedded(
@@ -1117,7 +1131,7 @@ fn validate_algebra_embedded(
     let eval_data = inferred.as_ref().map_or(&loaded.graph, |o| &o.graph);
     let outcome = validate_plan_with_options(eval_data, plan, options)
         .map_err(|e| format!("non-stratifiable schema: {e}"))?;
-    Ok(raw_algebra_result(outcome, schema, &plan.arena))
+    Ok(raw_algebra_result(outcome, schema, &plan.arena, inferred.as_ref()))
 }
 
 fn validate_w3c_loaded(
