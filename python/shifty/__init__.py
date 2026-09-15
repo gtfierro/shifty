@@ -85,6 +85,7 @@ evaluating referenced helper shapes normally.
 
 from __future__ import annotations
 
+import functools
 import pathlib
 import re
 import urllib.error
@@ -478,24 +479,107 @@ def _coalesce_graph_input(graph: "GraphInputs") -> GraphInput:
     return graph
 
 
-def _require_in_place_target(
-    data_graph: "GraphInputs", *, caller: str
-) -> "rdflib.Graph":
-    """Validate an ``in_place=True`` call and return the graph to mutate.
+def _in_place_target(
+    data_graph: "GraphInputs", *, in_place: bool, caller: str, infer: bool = True
+) -> "Optional[rdflib.Graph]":
+    """Check an ``in_place`` request and return the graph to extend, if any.
 
-    Shared by :func:`infer` and :func:`validate` (and
-    :meth:`PreparedValidator.validate`): both only know how to write a
-    derived delta back into a single caller-owned :class:`rdflib.Graph`, so
-    every other ``GraphInputs`` shape — bytes, a path, a string, a
-    list/tuple — has nothing to mutate and is rejected up front."""
+    Returns ``None`` when ``in_place`` is false, which leaves the caller on
+    its ordinary path of building a fresh result graph.
+
+    Two conditions have to hold for a delta to have somewhere to go. The graph
+    must be a single :class:`rdflib.Graph` the caller owns and can keep using;
+    bytes, a path, a string, or a list of inputs name no such object, so there
+    is nothing to extend and they raise :class:`TypeError`. And inference has
+    to be running, since the triples written back are the ones it derives —
+    asking to keep them while switching it off is contradictory, and raises
+    :class:`ValueError` rather than quietly doing nothing.
+
+    Both checks run before any work is handed to the engine, so a rejected
+    call costs nothing and leaves the caller's graph untouched."""
     import rdflib
 
+    if not in_place:
+        return None
+    if not infer:
+        raise ValueError(
+            f"{caller}(..., in_place=True) has nothing to write back when infer=False"
+        )
     if not isinstance(data_graph, rdflib.Graph):
         raise TypeError(
             f"{caller}(..., in_place=True) requires data_graph to be a single "
             f"rdflib.Graph, not {type(data_graph).__name__!r}"
         )
     return data_graph
+
+
+# A blank node label in N-Triples runs to the next delimiter. Scanning for
+# labels is deliberately generous: an extra match found inside a literal names
+# a node no triple refers to, which is inert, while a missed match would cost
+# a derived triple its connection to the graph.
+_BNODE_LABEL = re.compile(r"_:([^\s.;,()\[\]<>\"]+)")
+
+
+@functools.lru_cache(maxsize=1)
+def _bnode_labels_can_be_pinned() -> bool:
+    """Whether this rdflib honours a supplied blank node label mapping.
+
+    Probes the behaviour rather than the version, and answers once per
+    process: a parser that rejects the ``bnode_context`` argument and one that
+    accepts and ignores it are equally unusable here, and only reading back
+    what was parsed distinguishes either from one that works."""
+    import rdflib
+
+    label = "shiftybnodeprobe"
+    probe = rdflib.Graph()
+    try:
+        probe.parse(
+            data=f"_:{label} <urn:shifty:p> <urn:shifty:o> .",
+            format="nt",
+            bnode_context={label: rdflib.BNode(label)},
+        )
+    except TypeError:
+        return False
+    return any(str(subject) == label for subject in probe.subjects())
+
+
+def _write_back_derived(target: "Optional[rdflib.Graph]", ntriples: str) -> None:
+    """Add derived triples to *target*, landing them on the nodes it holds.
+
+    A blank node has no name of its own: it is identifiable only by the label
+    a document gives it, and a parser reading a document in isolation is right
+    to treat each label as naming a node of its own. Here the document is not
+    isolated — it describes nodes *target* already contains — so every label in
+    it is pinned to the blank node of the same name before parsing. A triple
+    derived about a blank node then attaches to that node, and stays reachable
+    by whatever already pointed at it.
+
+    Text with no blank nodes needs none of this and is parsed directly, which
+    is also the path taken on any rdflib whose parser cannot pin labels. When
+    labels do need pinning and the parser cannot, this raises rather than
+    silently attaching the triples to unreachable nodes."""
+    if target is None or not ntriples:
+        return
+
+    import rdflib
+
+    labels = set(_BNODE_LABEL.findall(ntriples))
+    if not labels:
+        target.parse(data=ntriples, format="nt")
+        return
+    if not _bnode_labels_can_be_pinned():
+        raise RuntimeError(
+            "in_place=True needs an rdflib whose N-Triples parser accepts "
+            "bnode_context, so that derived triples about blank nodes attach "
+            "to the blank nodes this graph already holds; this rdflib "
+            f"({rdflib.__version__}) does not. Upgrade rdflib, or drop "
+            "in_place and use the returned graph instead."
+        )
+    target.parse(
+        data=ntriples,
+        format="nt",
+        bnode_context={label: rdflib.BNode(label) for label in labels},
+    )
 
 
 class InferResult:
@@ -597,16 +681,12 @@ class PreparedValidator:
         """
         import rdflib
 
-        target: Optional[rdflib.Graph] = None
-        if in_place:
-            if not infer:
-                raise ValueError(
-                    "PreparedValidator.validate(..., in_place=True) has nothing to "
-                    "write back when infer=False"
-                )
-            target = _require_in_place_target(
-                data_graph, caller="PreparedValidator.validate"
-            )
+        target = _in_place_target(
+            data_graph,
+            in_place=in_place,
+            infer=infer,
+            caller="PreparedValidator.validate",
+        )
 
         data = _to_rdf_input(_coalesce_graph_input(data_graph))
         result: W3cResult = self._inner.validate_w3c(
@@ -620,8 +700,7 @@ class PreparedValidator:
             sort_results,
             on_unsupported,
         )
-        if target is not None and result.inferred_ntriples:
-            target.parse(data=result.inferred_ntriples, format="nt")
+        _write_back_derived(target, result.inferred_ntriples)
         graph = rdflib.Graph()
         graph.parse(data=result.report_turtle, format="turtle")
         return (result.conforms, graph, result.results_text)
@@ -647,16 +726,12 @@ class PreparedValidator:
         discarding them, and requires *data_graph* to be a single
         :class:`rdflib.Graph` and ``infer=True``.
         """
-        target: Optional[rdflib.Graph] = None
-        if in_place:
-            if not infer:
-                raise ValueError(
-                    "PreparedValidator.validate_algebra(..., in_place=True) has "
-                    "nothing to write back when infer=False"
-                )
-            target = _require_in_place_target(
-                data_graph, caller="PreparedValidator.validate_algebra"
-            )
+        target = _in_place_target(
+            data_graph,
+            in_place=in_place,
+            infer=infer,
+            caller="PreparedValidator.validate_algebra",
+        )
 
         data = _to_rdf_input(_coalesce_graph_input(data_graph))
         result = self._inner.validate_algebra(
@@ -670,8 +745,7 @@ class PreparedValidator:
             sort_results,
             on_unsupported,
         )
-        if target is not None and result.inferred_ntriples:
-            target.parse(data=result.inferred_ntriples, format="nt")
+        _write_back_derived(target, result.inferred_ntriples)
         return result
 
     def witnesses(
@@ -1236,13 +1310,9 @@ def validate(
     """
     import rdflib
 
-    target: Optional[rdflib.Graph] = None
-    if in_place:
-        if not infer:
-            raise ValueError(
-                "validate(..., in_place=True) has nothing to write back when infer=False"
-            )
-        target = _require_in_place_target(data_graph, caller="validate")
+    target = _in_place_target(
+        data_graph, in_place=in_place, infer=infer, caller="validate"
+    )
 
     data = _to_rdf_input(_coalesce_graph_input(data_graph))
     shapes = (
@@ -1266,8 +1336,7 @@ def validate(
         base,
     )
 
-    if target is not None and result.inferred_ntriples:
-        target.parse(data=result.inferred_ntriples, format="nt")
+    _write_back_derived(target, result.inferred_ntriples)
 
     g = rdflib.Graph()
     g.parse(data=result.report_turtle, format="turtle")
@@ -1311,14 +1380,9 @@ def validate_algebra(
         ``.conforms`` is ``True`` when no violations were found.
         ``.violations`` lists each failing focus node with reasons.
     """
-    target: Optional[rdflib.Graph] = None
-    if in_place:
-        if not infer:
-            raise ValueError(
-                "validate_algebra(..., in_place=True) has nothing to write back "
-                "when infer=False"
-            )
-        target = _require_in_place_target(data_graph, caller="validate_algebra")
+    target = _in_place_target(
+        data_graph, in_place=in_place, infer=infer, caller="validate_algebra"
+    )
 
     data = _to_rdf_input(_coalesce_graph_input(data_graph))
     shapes = (
@@ -1341,8 +1405,7 @@ def validate_algebra(
         on_unsupported,
         base,
     )
-    if target is not None and result.inferred_ntriples:
-        target.parse(data=result.inferred_ntriples, format="nt")
+    _write_back_derived(target, result.inferred_ntriples)
     return result
 
 
@@ -1381,7 +1444,7 @@ def infer(
         Call ``.graph()`` to get the result as an :class:`rdflib.Graph`,
         or read ``.graph_ntriples`` for the raw N-Triples string.
     """
-    target = _require_in_place_target(data_graph, caller="infer") if in_place else None
+    target = _in_place_target(data_graph, in_place=in_place, caller="infer")
 
     data = _to_rdf_input(_coalesce_graph_input(data_graph))
     shapes = (
@@ -1399,6 +1462,5 @@ def infer(
         on_unsupported,
         base,
     )
-    if target is not None and inner.inferred_ntriples:
-        target.parse(data=inner.inferred_ntriples, format="nt")
+    _write_back_derived(target, inner.inferred_ntriples)
     return InferResult(inner, _target=target)
