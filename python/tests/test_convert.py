@@ -5,7 +5,8 @@ This module tests the graph input conversion functions which handle:
 - bytes input (passthrough)
 - pathlib.Path input (file reading)
 - str input (file path or raw Turtle text)
-- rdflib.Graph input (Turtle serialization with namespaces)
+- rdflib.Graph input (a prefix block plus an N-Triples body, which is valid
+  Turtle carrying both the namespace bindings and a label for every blank node)
 - Error cases for unsupported types
 """
 
@@ -134,26 +135,64 @@ class TestToTurtleBytes:
         EX = rdflib.Namespace("http://example.org/")
         g.add((EX.a, EX.b, EX.c))
 
-        # Mock a graph that returns string from serialize
-        with mock.patch.object(
-            g, "serialize", return_value="ex:a ex:b ex:c ."
-        ) as serialize:
+        # A serializer may hand back str rather than bytes; both encode the same.
+        body = (
+            "<http://example.org/a> <http://example.org/b> <http://example.org/c> .\n"
+        )
+        with mock.patch.object(g, "serialize", return_value=body) as serialize:
             result = _to_turtle_bytes(g)
-            assert result == b"ex:a ex:b ex:c ."
-            serialize.assert_called_once_with(format="turtle", encoding="utf-8")
+            assert result.endswith(body.encode("utf-8"))
+            serialize.assert_called_once_with(format="nt", encoding="utf-8")
 
     def test_rdflib_graph_bytes_serialization(self):
         g = rdflib.Graph()
         EX = rdflib.Namespace("http://example.org/")
         g.add((EX.a, EX.b, EX.c))
 
-        # Mock a graph that returns bytes from serialize
-        with mock.patch.object(
-            g, "serialize", return_value=b"ex:a ex:b ex:c ."
-        ) as serialize:
+        body = (
+            b"<http://example.org/a> <http://example.org/b> <http://example.org/c> .\n"
+        )
+        with mock.patch.object(g, "serialize", return_value=body) as serialize:
             result = _to_turtle_bytes(g)
-            assert result == b"ex:a ex:b ex:c ."
-            serialize.assert_called_once_with(format="turtle", encoding="utf-8")
+            assert result.endswith(body)
+            serialize.assert_called_once_with(format="nt", encoding="utf-8")
+
+    def test_rdflib_graph_declares_namespace_bindings(self):
+        g = rdflib.Graph()
+        EX = rdflib.Namespace("http://example.org/")
+        g.bind("ex", EX)
+        g.add((EX.a, EX.b, EX.c))
+
+        result = _to_turtle_bytes(g).decode("utf-8")
+
+        assert "@prefix ex: <http://example.org/> ." in result
+
+    def test_rdflib_graph_labels_every_blank_node(self):
+        g = rdflib.Graph()
+        EX = rdflib.Namespace("http://example.org/")
+        node = rdflib.BNode()
+        g.add((EX.a, EX.has, node))
+        g.add((node, EX.width, rdflib.Literal(4)))
+
+        result = _to_turtle_bytes(g).decode("utf-8")
+
+        # The abbreviated `[ ... ]` form would leave this node unnamed.
+        assert f"_:{node}" in result
+
+    def test_rdflib_graph_skips_undeclarable_namespace(self):
+        g = rdflib.Graph()
+        EX = rdflib.Namespace("http://example.org/")
+        g.bind("ex", EX)
+        g.bind("broken", rdflib.Namespace("http://example.org/a b>c#"))
+        g.add((EX.a, EX.b, EX.c))
+
+        result = _to_turtle_bytes(g).decode("utf-8")
+
+        assert "broken" not in result
+        # The document still parses, and the sound bindings survive.
+        reparsed = rdflib.Graph()
+        reparsed.parse(data=result, format="turtle")
+        assert (EX.a, EX.b, EX.c) in reparsed
 
     def test_unsupported_type_int(self):
         with pytest.raises(TypeError, match="Cannot convert"):

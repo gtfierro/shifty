@@ -86,6 +86,7 @@ evaluating referenced helper shapes normally.
 from __future__ import annotations
 
 import pathlib
+import re
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -328,6 +329,52 @@ def _fetch_url(url: str) -> _RdfInput:
     return _RdfInput(data, None, _url_format(final_url or url, content_type))
 
 
+# A namespace IRI is written between angle brackets in a `@prefix` line, so a
+# namespace containing whitespace or a closing bracket cannot be declared that
+# way. Such a binding is dropped rather than allowed to corrupt the document;
+# the triples that use it still carry their IRIs in full, so only the
+# abbreviation is lost.
+_UNDECLARABLE_NAMESPACE = re.compile(r"[\s<>\"{}|^`\\]")
+
+
+def _flat_turtle_bytes(graph: "rdflib.Graph") -> bytes:
+    """Serialize an rdflib graph as a prefix block followed by an N-Triples body.
+
+    N-Triples is a syntactic subset of Turtle, so a run of ``@prefix``
+    declarations followed by an N-Triples body is a valid Turtle document. That
+    combination carries everything the engine needs from a caller's graph:
+
+    * the triples themselves;
+    * the namespace bindings, which are part of a shapes graph's meaning
+      whenever its SHACL-SPARQL queries or rules use prefixed names;
+    * an explicit ``_:label`` for every blank node.
+
+    The explicit labels matter because blank nodes have no global names: a
+    blank node is only identifiable by the label a document happens to give
+    it. Turtle's abbreviated ``[ ... ]`` form gives a blank node no label at
+    all, so a graph serialized that way arrives with its blank nodes
+    anonymous, and any triple the engine derives about one of them cannot be
+    matched back to the caller's node afterwards. N-Triples never abbreviates,
+    so every blank node keeps one stable name for the whole round trip and
+    derived triples land on the node they belong to.
+
+    Writing this form is also cheaper than asking rdflib for Turtle, which
+    additionally groups triples by subject, counts blank node references to
+    decide what to nest, and compacts every IRI against the namespace manager.
+    """
+    declarations = []
+    for prefix, namespace in graph.namespaces():
+        namespace = str(namespace)
+        if _UNDECLARABLE_NAMESPACE.search(namespace):
+            continue
+        declarations.append(f"@prefix {prefix}: <{namespace}> .\n")
+
+    body = graph.serialize(format="nt", encoding="utf-8")
+    if isinstance(body, str):
+        body = body.encode("utf-8")
+    return "".join(declarations).encode("utf-8") + body
+
+
 def _to_rdf_input(graph: GraphInput) -> _RdfInput:
     """Convert one public graph input into the native binding's descriptor.
 
@@ -362,14 +409,7 @@ def _to_rdf_input(graph: GraphInput) -> _RdfInput:
         return _RdfInput(graph.encode("utf-8"), None, "turtle")
     serialize = getattr(graph, "serialize", None)
     if serialize is not None:
-        # N-Triples has no prefix declarations. Those declarations are part
-        # of a shapes graph's meaning when its SHACL-SPARQL queries or rules
-        # use prefixed names, so preserve rdflib's namespace manager in Turtle.
-        result = serialize(format="turtle", encoding="utf-8")
-        if isinstance(result, str):
-            result = result.encode("utf-8")
-        if isinstance(result, bytes):
-            return _RdfInput(result, None, "turtle")
+        return _RdfInput(_flat_turtle_bytes(graph), None, "turtle")
     raise TypeError(
         f"Cannot convert {type(graph).__name__!r} to RDF data. "
         "Expected rdflib.Graph, pathlib.Path, str (path, HTTP(S) URL, or Turtle), "
