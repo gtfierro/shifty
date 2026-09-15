@@ -13,7 +13,8 @@ Two validation interfaces:
 ``validate_algebra(data_graph, shacl_graph=None, ...)``
     Returns an :class:`AlgebraResult` with a structured list of
     :class:`Violation` / :class:`Reason` objects representing the algebraic
-    failure tree — useful for programmatic inspection.
+    failure tree — useful for programmatic inspection. Also accepts
+    ``in_place=True``, same as ``validate``.
 
 ``EvidenceSession(shacl_graph, data_graph).validate()``
     Returns complete selected-pair coverage: exactly one structured satisfaction

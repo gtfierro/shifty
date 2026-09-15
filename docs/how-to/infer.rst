@@ -106,6 +106,9 @@ into ``data_graph`` instead, the same way ``infer(..., in_place=True)`` does:
    # data now includes whatever the rules derived; report is still a
    # fresh rdflib.Graph either way.
 
+``validate_algebra()`` and ``PreparedValidator.validate()`` /
+``.validate_algebra()`` accept the same ``in_place`` option.
+
 The two phases do not interleave. Inference runs to a fixed point, then
 validation runs over the result. They also use opposite fixed points —
 inference takes the least, validation the greatest — for reasons explained in

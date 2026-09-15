@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """Add SHACL-AF-derived triples directly into a caller-owned rdflib.Graph.
 
-By default, infer() and validate() always return a fresh graph/report and
-never touch the rdflib.Graph you passed in. Pass in_place=True when you'd
-rather keep working with your own graph object, extended with whatever was
-derived — only the inferred delta crosses back from Rust, not a full copy of
-the graph.
+By default, infer(), validate(), and validate_algebra() always return a
+fresh graph/report and never touch the rdflib.Graph you passed in. Pass
+in_place=True when you'd rather keep working with your own graph object,
+extended with whatever was derived — only the inferred delta crosses back
+from Rust, not a full copy of the graph.
 """
 
 import rdflib
@@ -68,6 +68,15 @@ def main() -> None:
     print(f"\nconforms: {conforms}")
     print(f"data now has {len(data)} triples (area was missing before validation)")
     print(f"report is a separate graph: {report is not data}")
+
+    # validate_algebra(..., in_place=True): same option, structured result
+    # path -- no report graph at all, so this is just the write-back.
+    data = rdflib.Graph()
+    data.parse(data=DATA, format="turtle")
+
+    result = shifty.validate_algebra(data, SHAPES, in_place=True)
+    print(f"\nconforms: {result.conforms}")
+    print(f"data now has {len(data)} triples")
 
 
 if __name__ == "__main__":
