@@ -423,6 +423,68 @@ class TestInfer:
         result = shifty.infer(INFER_DATA.encode(), INFER_SHAPES.encode())
         assert "inferred=1" in repr(result)
 
+    def test_inferred_ntriples_is_just_the_delta(self):
+        result = shifty.infer(INFER_DATA.encode(), INFER_SHAPES.encode())
+        assert isinstance(result.inferred_ntriples, str)
+        assert "knows2" in result.inferred_ntriples
+        # The delta shouldn't carry the original, already-asserted triples.
+        assert "ex:a a ex:Thing" not in result.inferred_ntriples
+        EX = rdflib.Namespace("http://example.org/")
+        delta = rdflib.Graph()
+        delta.parse(data=result.inferred_ntriples, format="nt")
+        assert (EX.a, EX.knows2, EX.b) in delta
+        assert (EX.a, rdflib.RDF.type, EX.Thing) not in delta
+
+    def test_inferred_ntriples_empty_when_nothing_inferred(self):
+        result = shifty.infer(CONFORMS_DATA.encode(), INFER_SHAPES.encode())
+        assert result.inferred_count == 0
+        assert result.inferred_ntriples == ""
+
+
+class TestInferInPlace:
+    def test_requires_rdflib_graph(self):
+        with pytest.raises(TypeError):
+            shifty.infer(INFER_DATA.encode(), INFER_SHAPES.encode(), in_place=True)
+
+    def test_adds_inferred_triples_to_input_graph(self):
+        data = rdflib.Graph()
+        data.parse(data=INFER_DATA, format="turtle")
+        original_len = len(data)
+
+        result = shifty.infer(data, INFER_SHAPES.encode(), in_place=True)
+
+        EX = rdflib.Namespace("http://example.org/")
+        assert (EX.a, EX.knows2, EX.b) in data
+        assert len(data) == original_len + result.inferred_count
+
+    def test_graph_returns_same_object_as_input(self):
+        data = rdflib.Graph()
+        data.parse(data=INFER_DATA, format="turtle")
+
+        result = shifty.infer(data, INFER_SHAPES.encode(), in_place=True)
+
+        assert result.graph() is data
+
+    def test_matches_non_in_place_result(self):
+        data = rdflib.Graph()
+        data.parse(data=INFER_DATA, format="turtle")
+
+        in_place_result = shifty.infer(data, INFER_SHAPES.encode(), in_place=True)
+        copy_result = shifty.infer(INFER_DATA.encode(), INFER_SHAPES.encode())
+
+        assert isomorphic(data, copy_result.graph())
+        assert in_place_result.inferred_count == copy_result.inferred_count
+
+    def test_no_op_when_nothing_inferred(self):
+        data = rdflib.Graph()
+        data.parse(data=CONFORMS_DATA, format="turtle")
+        before = set(data)
+
+        result = shifty.infer(data, INFER_SHAPES.encode(), in_place=True)
+
+        assert result.inferred_count == 0
+        assert set(data) == before
+
 
 # ── graph_mode variants ───────────────────────────────────────────────────────
 

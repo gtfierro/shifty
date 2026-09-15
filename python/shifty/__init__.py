@@ -437,8 +437,14 @@ def _coalesce_graph_input(graph: "GraphInputs") -> GraphInput:
 class InferResult:
     """Result of a SHACL-AF inference run."""
 
-    def __init__(self, inner: _RustInferResult) -> None:
+    def __init__(
+        self, inner: _RustInferResult, *, _target: "Optional[rdflib.Graph]" = None
+    ) -> None:
         self._inner = inner
+        # Set by infer(..., in_place=True): the caller's own graph, already
+        # mutated with the inferred delta. graph() then returns it directly
+        # instead of re-parsing the whole thing.
+        self._target = _target
 
     @property
     def inferred_count(self) -> int:
@@ -459,8 +465,21 @@ class InferResult:
         """Full graph (original data + inferred triples) as N-Triples string."""
         return self._inner.graph_ntriples
 
+    @property
+    def inferred_ntriples(self) -> str:
+        """Just the newly inferred triples (not the original data), as an
+        N-Triples string. Empty when nothing was inferred."""
+        return self._inner.inferred_ntriples
+
     def graph(self) -> "rdflib.Graph":
-        """Return the full graph as an :class:`rdflib.Graph`."""
+        """Return the full graph as an :class:`rdflib.Graph`.
+
+        If this result came from ``infer(..., in_place=True)``, this is the
+        same graph object that was mutated in place, returned as-is rather
+        than re-parsed.
+        """
+        if self._target is not None:
+            return self._target
         import rdflib
 
         g = rdflib.Graph()
@@ -1197,6 +1216,7 @@ def infer(
     data_graph: GraphInputs,
     shapes_graph: Optional[GraphInputs] = None,
     *,
+    in_place: bool = False,
     on_unsupported: str = "ignore",
     base: Optional[str] = None,
 ) -> InferResult:
@@ -1210,6 +1230,14 @@ def infer(
         Shapes graph containing ``sh:rule`` definitions.  If ``None``,
         rules are expected inside *data_graph*. Passing an empty
         ``rdflib.Graph()`` means an explicit empty rules graph.
+    in_place:
+        If ``True``, add the newly inferred triples directly into
+        *data_graph* instead of returning a separate copy — only the delta
+        crosses back into Python, not the whole graph. Requires *data_graph*
+        to be a single :class:`rdflib.Graph` (not bytes, a path, a string, or
+        a list/tuple of inputs); raises :class:`TypeError` otherwise, since
+        there is no caller-owned graph to mutate. ``InferResult.graph()``
+        then returns *data_graph* itself rather than a fresh copy.
     base:
         Base IRI for resolving relative IRIs.
 
@@ -1219,6 +1247,17 @@ def infer(
         Call ``.graph()`` to get the result as an :class:`rdflib.Graph`,
         or read ``.graph_ntriples`` for the raw N-Triples string.
     """
+    target = None
+    if in_place:
+        import rdflib
+
+        if not isinstance(data_graph, rdflib.Graph):
+            raise TypeError(
+                "infer(..., in_place=True) requires data_graph to be a single "
+                f"rdflib.Graph, not {type(data_graph).__name__!r}"
+            )
+        target = data_graph
+
     data = _to_rdf_input(_coalesce_graph_input(data_graph))
     shapes = (
         _to_rdf_input(_coalesce_graph_input(shapes_graph))
@@ -1235,4 +1274,6 @@ def infer(
         on_unsupported,
         base,
     )
-    return InferResult(inner)
+    if target is not None and inner.inferred_ntriples:
+        target.parse(data=inner.inferred_ntriples, format="nt")
+    return InferResult(inner, _target=target)
