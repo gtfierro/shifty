@@ -129,6 +129,41 @@ def test_prepared_validator_validate_algebra_in_place_requires_infer_true():
         prepared.validate_algebra(data, in_place=True, infer=False)
 
 
+@pytest.mark.parametrize("method", ["validate_algebra", "validate_w3c"])
+def test_prepared_native_validation_only_keeps_delta_when_requested(method):
+    native_validate = getattr(shifty.PreparedValidator(RULE_SHAPES)._inner, method)
+    ordinary = native_validate(data=RULE_DATA.encode())
+    retained = native_validate(data=RULE_DATA.encode(), keep_inferred=True)
+
+    assert ordinary.conforms == retained.conforms
+    assert ordinary._inferred_ntriples == ""
+    assert "knows2" in retained._inferred_ntriples
+    assert not hasattr(ordinary, "inferred_ntriples")
+
+
+@pytest.mark.parametrize("method", ["validate", "validate_algebra"])
+def test_prepared_default_wrappers_do_not_read_delta(method):
+    class NativeResult:
+        conforms = True
+        report_turtle = ""
+        results_text = ""
+
+        @property
+        def _inferred_ntriples(self):
+            raise AssertionError("default call read the inference delta")
+
+    class NativeValidator:
+        def validate_w3c(self, *args):
+            return NativeResult()
+
+        def validate_algebra(self, *args):
+            return NativeResult()
+
+    prepared = shifty.PreparedValidator.__new__(shifty.PreparedValidator)
+    prepared._inner = NativeValidator()
+    getattr(prepared, method)(RULE_DATA.encode())
+
+
 def test_validation_releases_gil():
     data = [
         "@prefix ex: <http://example.org/> .",

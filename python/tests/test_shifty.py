@@ -79,6 +79,39 @@ def test_released_repair_type_aliases_warn(legacy, replacement):
     assert value is getattr(shifty, replacement)
 
 
+def test_write_back_does_not_render_delta_without_a_target():
+    def unexpected_delta():
+        raise AssertionError("ordinary validation must not render its delta")
+
+    shifty._write_back_derived(None, unexpected_delta)
+
+
+@pytest.mark.parametrize(
+    ("wrapper", "native_name"),
+    [
+        ("infer", "_infer"),
+        ("validate", "_validate_w3c"),
+        ("validate_algebra", "_validate_algebra"),
+    ],
+)
+def test_default_wrappers_do_not_read_delta(monkeypatch, wrapper, native_name):
+    class NativeResult:
+        conforms = True
+        report_turtle = ""
+        results_text = ""
+
+        @property
+        def inferred_ntriples(self):
+            raise AssertionError("default call read the inference delta")
+
+        @property
+        def _inferred_ntriples(self):
+            raise AssertionError("default call read the inference delta")
+
+    monkeypatch.setattr(shifty, native_name, lambda *args: NativeResult())
+    getattr(shifty, wrapper)(INFER_DATA.encode(), INFER_SHAPES.encode())
+
+
 # ── validate() — pyshacl-compatible ──────────────────────────────────────────
 
 
@@ -637,6 +670,22 @@ class TestValidateAlgebraInPlace:
         expected = shifty.infer(INFER_DATA.encode(), INFER_SHAPES.encode()).graph()
 
         assert isomorphic(data, expected)
+
+
+@pytest.mark.parametrize("method", ["_validate_algebra", "_validate_w3c"])
+def test_native_validation_only_keeps_delta_when_requested(method):
+    native_validate = getattr(shifty, method)
+    ordinary = native_validate(data=INFER_DATA.encode(), shapes=INFER_SHAPES.encode())
+    retained = native_validate(
+        data=INFER_DATA.encode(),
+        shapes=INFER_SHAPES.encode(),
+        keep_inferred=True,
+    )
+
+    assert ordinary.conforms == retained.conforms
+    assert ordinary._inferred_ntriples == ""
+    assert "knows2" in retained._inferred_ntriples
+    assert not hasattr(ordinary, "inferred_ntriples")
 
 
 class TestInPlaceBlankNodes:

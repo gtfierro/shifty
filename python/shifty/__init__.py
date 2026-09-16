@@ -96,7 +96,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import warnings
-from typing import TYPE_CHECKING, NamedTuple, Optional, Sequence, Union
+from typing import TYPE_CHECKING, Callable, NamedTuple, Optional, Sequence, Union
 
 from ._shifty import (
     AlgebraResult,
@@ -656,7 +656,9 @@ def _bnode_labels_can_be_pinned() -> bool:
     return any(str(subject) == label for subject in probe.subjects())
 
 
-def _write_back_derived(target: "Optional[rdflib.Graph]", ntriples: str) -> None:
+def _write_back_derived(
+    target: "Optional[rdflib.Graph]", delta: Callable[[], str]
+) -> None:
     """Add derived triples to *target*, landing them on the nodes it holds.
 
     A blank node has no name of its own: it is identifiable only by the label
@@ -673,8 +675,12 @@ def _write_back_derived(target: "Optional[rdflib.Graph]", ntriples: str) -> None
 
     Text with no blank nodes needs none of this and is parsed directly. The
     parser's ability to pin labels is settled in :func:`_in_place_target`
-    before the engine runs, so by here it can be relied on."""
-    if target is None or not ntriples:
+    before the engine runs, so by here it can be relied on. The delta is read
+    only after a target is known, so ordinary validation never renders it."""
+    if target is None:
+        return
+    ntriples = delta()
+    if not ntriples:
         return
 
     import rdflib
@@ -809,8 +815,9 @@ class PreparedValidator:
             minimum_severity,
             sort_results,
             on_unsupported,
+            in_place,
         )
-        _write_back_derived(target, result.inferred_ntriples)
+        _write_back_derived(target, lambda: result._inferred_ntriples)
         graph = rdflib.Graph()
         graph.parse(data=result.report_turtle, format="turtle")
         return (result.conforms, graph, result.results_text)
@@ -854,8 +861,9 @@ class PreparedValidator:
             minimum_severity,
             sort_results,
             on_unsupported,
+            in_place,
         )
-        _write_back_derived(target, result.inferred_ntriples)
+        _write_back_derived(target, lambda: result._inferred_ntriples)
         return result
 
     def witnesses(
@@ -1444,9 +1452,10 @@ def validate(
         sort_results,
         on_unsupported,
         base,
+        in_place,
     )
 
-    _write_back_derived(target, result.inferred_ntriples)
+    _write_back_derived(target, lambda: result._inferred_ntriples)
 
     g = rdflib.Graph()
     g.parse(data=result.report_turtle, format="turtle")
@@ -1514,8 +1523,9 @@ def validate_algebra(
         sort_results,
         on_unsupported,
         base,
+        in_place,
     )
-    _write_back_derived(target, result.inferred_ntriples)
+    _write_back_derived(target, lambda: result._inferred_ntriples)
     return result
 
 
@@ -1572,5 +1582,5 @@ def infer(
         on_unsupported,
         base,
     )
-    _write_back_derived(target, inner.inferred_ntriples)
+    _write_back_derived(target, lambda: inner.inferred_ntriples)
     return InferResult(inner, _target=target)

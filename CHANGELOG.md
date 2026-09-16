@@ -8,10 +8,10 @@
   and `PreparedValidator.validate()` / `.validate_algebra()`: writes
   triples derived by SHACL-AF inference directly into a caller-owned
   `rdflib.Graph` passed as `data_graph`, instead of returning a separate
-  copy. Only the inferred delta crosses back from Rust either way, via
-  the new `InferResult.inferred_ntriples` / `W3cResult.inferred_ntriples`
-  / `AlgebraResult.inferred_ntriples`. Triples derived about a blank node
-  land on the blank node the caller's graph already holds.
+  copy. Only the inferred delta crosses back from Rust for in-place
+  validation. `infer()` exposes that delta through the new
+  `InferResult.inferred_ntriples` property. Triples derived about a blank
+  node land on the blank node the caller's graph already holds.
 
 ### Changed
 
@@ -26,9 +26,9 @@
   binding is skipped, and such a blank node is written under a reversible
   encoding, so no name a caller's graph happens to carry can make the
   document unparseable.
-- `validate()` and `validate_algebra()` no longer render the inference
-  delta unless it is read, so a run that does not use `in_place` does not
-  pay to build a string it discards.
+- `validate()` and `validate_algebra()` discard the inferred delta after
+  validation unless `in_place=True` needs it for write-back, and do not
+  render an unused N-Triples string.
 
 ## 0.4.4
 

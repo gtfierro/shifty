@@ -333,21 +333,17 @@ pub struct AlgebraResult {
     pub conforms: bool,
     violations: Vec<Py<Violation>>,
     results_text_cache: OnceLock<String>,
-    /// Triples added by SHACL-AF inference before validation ran, kept as
-    /// triples so that only a caller asking for them pays to render them.
+    /// Triples added by SHACL-AF inference before validation ran. Only an
+    /// in-place caller keeps them for write-back into its data graph.
     pub inferred: Vec<Triple>,
     pub inferred_ntriples_cache: OnceLock<String>,
 }
 
 #[pymethods]
 impl AlgebraResult {
-    /// The triples inference added before validation ran, as N-Triples —
-    /// empty when `run_infer` was false, there were no rules, or nothing new
-    /// was derived. Serialized on first read, since most validation runs
-    /// never ask: `validate_algebra(..., in_place=True)` wants the delta, and
-    /// a default `validate_algebra()` discards it.
+    /// Serialize the retained inference delta for the Python write-back path.
     #[getter]
-    fn inferred_ntriples(&self, py: Python<'_>) -> String {
+    fn _inferred_ntriples(&self, py: Python<'_>) -> String {
         py.allow_threads(|| {
             self.inferred_ntriples_cache
                 .get_or_init(|| triples_to_ntriples(&self.inferred))
@@ -423,21 +419,17 @@ pub struct W3cResult {
     /// Human-readable summary (pyshacl-esque text).
     #[pyo3(get)]
     pub results_text: String,
-    /// Triples added by SHACL-AF inference before validation ran, kept as
-    /// triples so that only a caller asking for them pays to render them.
+    /// Triples added by SHACL-AF inference before validation ran. Only an
+    /// in-place caller keeps them for write-back into its data graph.
     pub inferred: Vec<Triple>,
     pub inferred_ntriples_cache: OnceLock<String>,
 }
 
 #[pymethods]
 impl W3cResult {
-    /// The triples inference added before validation ran, as N-Triples —
-    /// empty when `run_infer` was false, there were no rules, or nothing new
-    /// was derived. Serialized on first read, since most validation runs
-    /// never ask: `validate(..., in_place=True)` wants the delta, and a
-    /// default `validate()` discards it.
+    /// Serialize the retained inference delta for the Python write-back path.
     #[getter]
-    fn inferred_ntriples(&self, py: Python<'_>) -> String {
+    fn _inferred_ntriples(&self, py: Python<'_>) -> String {
         py.allow_threads(|| {
             self.inferred_ntriples_cache
                 .get_or_init(|| triples_to_ntriples(&self.inferred))
@@ -735,6 +727,14 @@ fn maybe_infer_embedded(
     } else {
         Ok(None)
     }
+}
+
+/// Validation uses the inferred graph when requested, but only an in-place
+/// caller needs to retain the delta after evaluation.
+#[derive(Clone, Copy)]
+struct ValidationInference {
+    run: bool,
+    keep_delta: bool,
 }
 
 /// Serialize any borrowed-triple iterable (a `&Graph`, a `&[Triple]`, ...) as
@@ -1127,10 +1127,15 @@ fn validate_algebra_loaded(
     schema: &shifty_algebra::Schema,
     plan: &shifty_opt::PhysicalPlan,
     mode: ValidationGraphMode,
-    run_infer: bool,
+    inference: ValidationInference,
     options: &ValidationOptions,
 ) -> Result<RawAlgebraResult, String> {
-    let inferred = maybe_infer(&data_loaded.graph, &shapes_loaded.graph, schema, run_infer)?;
+    let inferred = maybe_infer(
+        &data_loaded.graph,
+        &shapes_loaded.graph,
+        schema,
+        inference.run,
+    )?;
     let eval_data = inferred.as_ref().map_or(&data_loaded.graph, |o| &o.graph);
     let outcome = validate_plan_graphs_with_mode_and_options(
         eval_data,
@@ -1144,7 +1149,9 @@ fn validate_algebra_loaded(
         outcome,
         schema,
         &plan.arena,
-        inferred.map(|o| o.inferred),
+        inferred
+            .filter(|_| inference.keep_delta)
+            .map(|o| o.inferred),
     ))
 }
 
@@ -1152,10 +1159,10 @@ fn validate_algebra_embedded(
     loaded: &shifty_parse::Loaded,
     schema: &shifty_algebra::Schema,
     plan: &shifty_opt::PhysicalPlan,
-    run_infer: bool,
+    inference: ValidationInference,
     options: &ValidationOptions,
 ) -> Result<RawAlgebraResult, String> {
-    let inferred = maybe_infer_embedded(&loaded.graph, schema, run_infer)?;
+    let inferred = maybe_infer_embedded(&loaded.graph, schema, inference.run)?;
     let eval_data = inferred.as_ref().map_or(&loaded.graph, |o| &o.graph);
     let outcome = validate_plan_with_options(eval_data, plan, options)
         .map_err(|e| format!("non-stratifiable schema: {e}"))?;
@@ -1163,7 +1170,9 @@ fn validate_algebra_embedded(
         outcome,
         schema,
         &plan.arena,
-        inferred.map(|o| o.inferred),
+        inferred
+            .filter(|_| inference.keep_delta)
+            .map(|o| o.inferred),
     ))
 }
 
@@ -1172,10 +1181,15 @@ fn validate_w3c_loaded(
     shapes_loaded: &shifty_parse::Loaded,
     schema: &shifty_algebra::Schema,
     mode: ValidationGraphMode,
-    run_infer: bool,
+    inference: ValidationInference,
     options: &ValidationOptions,
 ) -> Result<W3cResult, String> {
-    let inferred = maybe_infer(&data_loaded.graph, &shapes_loaded.graph, schema, run_infer)?;
+    let inferred = maybe_infer(
+        &data_loaded.graph,
+        &shapes_loaded.graph,
+        schema,
+        inference.run,
+    )?;
     let eval_data = inferred.as_ref().map_or(&data_loaded.graph, |o| &o.graph);
     let report =
         validate_report_graphs_with_mode_and_options(shapes_loaded, eval_data, mode, options);
@@ -1183,24 +1197,28 @@ fn validate_w3c_loaded(
     Ok(build_w3c_result(
         &report,
         &report_graph,
-        inferred.map(|outcome| outcome.inferred),
+        inferred
+            .filter(|_| inference.keep_delta)
+            .map(|outcome| outcome.inferred),
     ))
 }
 
 fn validate_w3c_embedded(
     loaded: &shifty_parse::Loaded,
     schema: &shifty_algebra::Schema,
-    run_infer: bool,
+    inference: ValidationInference,
     options: &ValidationOptions,
 ) -> Result<W3cResult, String> {
-    let inferred = maybe_infer_embedded(&loaded.graph, schema, run_infer)?;
+    let inferred = maybe_infer_embedded(&loaded.graph, schema, inference.run)?;
     let eval_data = inferred.as_ref().map_or(&loaded.graph, |o| &o.graph);
     let report = validate_report_with_options(loaded, eval_data, options);
     let report_graph = report_to_graph(&report);
     Ok(build_w3c_result(
         &report,
         &report_graph,
-        inferred.map(|outcome| outcome.inferred),
+        inferred
+            .filter(|_| inference.keep_delta)
+            .map(|outcome| outcome.inferred),
     ))
 }
 
@@ -1292,7 +1310,8 @@ pub fn version() -> &'static str {
     minimum_severity="info",
     sort_results=true,
     on_unsupported="ignore",
-    base=None
+    base=None,
+    keep_inferred=false
 ))]
 pub fn _validate_algebra(
     py: Python<'_>,
@@ -1309,6 +1328,7 @@ pub fn _validate_algebra(
     sort_results: bool,
     on_unsupported: &str,
     base: Option<String>,
+    keep_inferred: bool,
 ) -> PyResult<AlgebraResult> {
     let data = InputSpec::new(data, data_path, data_format, "data").map_err(py_value_error)?;
     let shapes = match (shapes, shapes_path) {
@@ -1324,6 +1344,10 @@ pub fn _validate_algebra(
         entry_shape_names: entry_shape_names.unwrap_or_default(),
         engine: engine_options(on_unsupported).map_err(py_value_error)?,
     };
+    let inference = ValidationInference {
+        run: run_infer,
+        keep_delta: keep_inferred,
+    };
     let raw = py
         .allow_threads(move || {
             let (data_loaded, shapes_loaded, schema, plan, diagnostics) =
@@ -1337,11 +1361,11 @@ pub fn _validate_algebra(
                     &schema,
                     &plan,
                     mode,
-                    run_infer,
+                    inference,
                     &options,
                 ),
                 None => {
-                    validate_algebra_embedded(&data_loaded, &schema, &plan, run_infer, &options)
+                    validate_algebra_embedded(&data_loaded, &schema, &plan, inference, &options)
                 }
             }
         })
@@ -1369,7 +1393,8 @@ pub fn _validate_algebra(
     minimum_severity="info",
     sort_results=true,
     on_unsupported="ignore",
-    base=None
+    base=None,
+    keep_inferred=false
 ))]
 pub fn _validate_w3c(
     py: Python<'_>,
@@ -1386,6 +1411,7 @@ pub fn _validate_w3c(
     sort_results: bool,
     on_unsupported: &str,
     base: Option<String>,
+    keep_inferred: bool,
 ) -> PyResult<W3cResult> {
     let data = InputSpec::new(data, data_path, data_format, "data").map_err(py_value_error)?;
     let shapes = match (shapes, shapes_path) {
@@ -1401,6 +1427,10 @@ pub fn _validate_w3c(
         entry_shape_names: entry_shape_names.unwrap_or_default(),
         engine: engine_options(on_unsupported).map_err(py_value_error)?,
     };
+    let inference = ValidationInference {
+        run: run_infer,
+        keep_delta: keep_inferred,
+    };
     py.allow_threads(move || {
         let (data_loaded, shapes_loaded, schema, _, _) =
             load_validation_inputs(data, shapes, base.as_deref())?;
@@ -1411,10 +1441,10 @@ pub fn _validate_w3c(
                 shapes_loaded,
                 &schema,
                 mode,
-                run_infer,
+                inference,
                 &options,
             ),
-            None => validate_w3c_embedded(&data_loaded, &schema, run_infer, &options),
+            None => validate_w3c_embedded(&data_loaded, &schema, inference, &options),
         }
     })
     .map_err(py_value_error)
@@ -1537,7 +1567,8 @@ impl PreparedValidator {
         run_infer=true,
         minimum_severity="info",
         sort_results=true,
-        on_unsupported="ignore"
+        on_unsupported="ignore",
+        keep_inferred=false
     ))]
     #[allow(clippy::too_many_arguments)]
     fn validate_algebra(
@@ -1552,6 +1583,7 @@ impl PreparedValidator {
         minimum_severity: &str,
         sort_results: bool,
         on_unsupported: &str,
+        keep_inferred: bool,
     ) -> PyResult<AlgebraResult> {
         let data = InputSpec::new(data, data_path, data_format, "data").map_err(py_value_error)?;
         let mode = parse_mode(graph_mode).map_err(py_value_error)?;
@@ -1560,6 +1592,10 @@ impl PreparedValidator {
             sort_results,
             entry_shape_names: entry_shape_names.unwrap_or_default(),
             engine: engine_options(on_unsupported).map_err(py_value_error)?,
+        };
+        let inference = ValidationInference {
+            run: run_infer,
+            keep_delta: keep_inferred,
         };
         let diagnostics = self.diagnostics.clone();
         let raw = py
@@ -1572,7 +1608,7 @@ impl PreparedValidator {
                     &self.schema,
                     &self.plan,
                     mode,
-                    run_infer,
+                    inference,
                     &options,
                 )
             })
@@ -1589,7 +1625,8 @@ impl PreparedValidator {
         run_infer=true,
         minimum_severity="info",
         sort_results=true,
-        on_unsupported="ignore"
+        on_unsupported="ignore",
+        keep_inferred=false
     ))]
     #[allow(clippy::too_many_arguments)]
     fn validate_w3c(
@@ -1604,6 +1641,7 @@ impl PreparedValidator {
         minimum_severity: &str,
         sort_results: bool,
         on_unsupported: &str,
+        keep_inferred: bool,
     ) -> PyResult<W3cResult> {
         let data = InputSpec::new(data, data_path, data_format, "data").map_err(py_value_error)?;
         let mode = parse_mode(graph_mode).map_err(py_value_error)?;
@@ -1613,6 +1651,10 @@ impl PreparedValidator {
             entry_shape_names: entry_shape_names.unwrap_or_default(),
             engine: engine_options(on_unsupported).map_err(py_value_error)?,
         };
+        let inference = ValidationInference {
+            run: run_infer,
+            keep_delta: keep_inferred,
+        };
         py.allow_threads(|| {
             let data_loaded = data.load(self.base.as_deref())?;
             validate_w3c_loaded(
@@ -1620,7 +1662,7 @@ impl PreparedValidator {
                 &self.shapes,
                 &self.schema,
                 mode,
-                run_infer,
+                inference,
                 &options,
             )
         })

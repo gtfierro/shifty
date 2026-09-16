@@ -92,7 +92,7 @@ class AlgebraResult:
     @property
     def results_text(self) -> str: ...
     @property
-    def inferred_ntriples(self) -> str: ...
+    def _inferred_ntriples(self) -> str: ...
     def __bool__(self) -> bool: ...
 
 class W3cResult:
@@ -103,7 +103,7 @@ class W3cResult:
     @property
     def results_text(self) -> str: ...
     @property
-    def inferred_ntriples(self) -> str: ...
+    def _inferred_ntriples(self) -> str: ...
     def __bool__(self) -> bool: ...
 
 class PropertyWitness:
@@ -147,6 +147,7 @@ class PreparedValidator:
         minimum_severity: str = ...,
         sort_results: bool = ...,
         on_unsupported: str = ...,
+        keep_inferred: bool = ...,
     ) -> AlgebraResult: ...
     def validate_w3c(
         self,
@@ -159,6 +160,7 @@ class PreparedValidator:
         minimum_severity: str = ...,
         sort_results: bool = ...,
         on_unsupported: str = ...,
+        keep_inferred: bool = ...,
     ) -> W3cResult: ...
     def witnesses(
         self,
@@ -640,6 +642,7 @@ def _validate_algebra(
     sort_results: bool = ...,
     on_unsupported: str = ...,
     base: Optional[str] = ...,
+    keep_inferred: bool = ...,
 ) -> AlgebraResult: ...
 def _validate_w3c(
     data: Optional[bytes] = ...,
@@ -655,6 +658,7 @@ def _validate_w3c(
     sort_results: bool = ...,
     on_unsupported: str = ...,
     base: Optional[str] = ...,
+    keep_inferred: bool = ...,
 ) -> W3cResult: ...
 def _infer(
     data: Optional[bytes] = ...,
