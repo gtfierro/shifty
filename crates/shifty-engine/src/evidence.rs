@@ -259,7 +259,12 @@ impl PreparedEvidenceValidator {
             .sparql
             .frozen()
             .expect("prepared evidence validator always owns a frozen dataset");
-        let mut evaluator = ShapeEvaluator::new(backend, &self.raw_schema.arena, &self.sparql);
+        let mut evaluator = ShapeEvaluator::new(
+            backend,
+            &self.raw_schema.arena,
+            &self.raw_schema.prefixes,
+            &self.sparql,
+        );
         Some(evaluator.holds(focus, constraint))
     }
 
@@ -331,7 +336,12 @@ impl PreparedEvidenceValidator {
             .sparql
             .frozen()
             .expect("prepared evidence validator always owns a frozen dataset");
-        let mut evaluator = ShapeEvaluator::new(backend, &self.schema.arena, &self.sparql);
+        let mut evaluator = ShapeEvaluator::new(
+            backend,
+            &self.schema.arena,
+            &self.schema.prefixes,
+            &self.sparql,
+        );
         let mut run = ConformanceRun {
             conforms: true,
             selected_pairs: 0,
@@ -412,7 +422,12 @@ impl PreparedEvidenceValidator {
             .sparql
             .frozen()
             .expect("prepared evidence validator always owns a frozen dataset");
-        let mut evaluator = ShapeEvaluator::new(backend, &self.schema.arena, &self.sparql);
+        let mut evaluator = ShapeEvaluator::new(
+            backend,
+            &self.schema.arena,
+            &self.schema.prefixes,
+            &self.sparql,
+        );
         prefetch_sparql_constraints(
             &self.schema.arena,
             statement.shape,
@@ -500,7 +515,12 @@ impl PreparedEvidenceValidator {
             .sparql
             .frozen()
             .expect("prepared evidence validator always owns a frozen dataset");
-        let mut evaluator = ShapeEvaluator::new(backend, &self.schema.arena, &self.sparql);
+        let mut evaluator = ShapeEvaluator::new(
+            backend,
+            &self.schema.arena,
+            &self.schema.prefixes,
+            &self.sparql,
+        );
         prefetch_sparql_constraints(
             &self.schema.arena,
             constraint,
@@ -544,7 +564,12 @@ impl PreparedEvidenceValidator {
             .sparql
             .frozen()
             .expect("prepared evidence validator always owns a frozen dataset");
-        let mut evaluator = ShapeEvaluator::new(backend, &self.schema.arena, &self.sparql);
+        let mut evaluator = ShapeEvaluator::new(
+            backend,
+            &self.schema.arena,
+            &self.schema.prefixes,
+            &self.sparql,
+        );
         let mut statements: Vec<Option<StatementEvaluation>> =
             vec![None; self.raw_schema.statements.len()];
         let mut conforms = true;

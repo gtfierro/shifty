@@ -533,13 +533,16 @@ def test_a_missing_obligation_describes_the_edge_that_would_close_it():
 
     obligation = on_focus[0]
     assert obligation.node == "<http://ex/ahu1>"
-    assert obligation.path == "<http://ex/hasPoint>"
+    assert obligation.path == "ex:hasPoint"
     assert (obligation.observed_count, obligation.required_count) == (1, 2)
     assert obligation.missing == 1
     # What an added value must satisfy, structured — no explain() parsing.
     assert obligation.qualifier.kind == shifty.ConstraintKind.ClassMembership
-    assert obligation.qualifier.definition == "instance of <http://ex/Temp>"
+    assert obligation.qualifier.definition == "instance of ex:Temp"
     assert isinstance(obligation.qualifier.id, int)
+    # A description that already fits is not broken up, so a caller can render
+    # the pretty form unconditionally.
+    assert obligation.qualifier.definition_pretty == obligation.qualifier.definition
 
 
 def test_a_nested_deficit_reports_its_own_node_not_the_focus():
@@ -788,7 +791,7 @@ def test_explain_materializes_one_pair_as_a_usable_run():
     assert [f.focus for f in one.failures_for(pair.focus)] == [pair.focus] * 2
     failure = one.failure_for(pair.focus, statement=0)
     assert [(o.node, o.path, o.missing) for o in failure.missing_obligations()] == [
-        ("<http://ex/bad>", "<http://ex/p>", 1)
+        ("<http://ex/bad>", "ex:p", 1)
     ]
 
     # And the evidence is the same as the full run's for that pair.
@@ -998,3 +1001,84 @@ def test_a_dangling_compact_reference_is_rejected():
     }
     with pytest.raises(ValueError, match="invalid node reference 999"):
         shifty.expand_evidence(encoded)
+
+
+def test_a_nested_constraint_offers_an_indented_definition():
+    """A deeply nested constraint is unreadable on one line, so `Constraint`
+    also carries the same description laid out by nesting depth. The one-line
+    form stays canonical: it is what goes into `Reason.message` and the
+    `sh:resultMessage` literal, which consumers embed mid-line."""
+    shapes = """
+        @prefix sh: <http://www.w3.org/ns/shacl#> .
+        @prefix ex: <http://ex/> .
+
+        ex:Inlet a sh:NodeShape ;
+            sh:class ex:InletPoint ;
+            sh:property [ sh:path ex:hasMedium ; sh:class ex:Signal ] .
+        ex:OtherInlet a sh:NodeShape ;
+            sh:class ex:InletPoint ;
+            sh:property [ sh:path ex:hasMedium ; sh:class ex:Power ] .
+
+        ex:S a sh:NodeShape ;
+            sh:targetClass ex:Display ;
+            sh:property [
+                sh:path ex:hasPoint ;
+                sh:qualifiedMinCount 1 ;
+                sh:qualifiedValueShape [ sh:and ( ex:Inlet [ sh:not ex:OtherInlet ] ) ] ;
+            ] .
+    """
+    data = "@prefix ex: <http://ex/> . ex:d a ex:Display ."
+
+    result = shifty.validate_algebra(data, shapes)
+    constraints = [r.constraint for v in result.violations for r in v.reasons]
+    nested = [c for c in constraints if "\n" in c.definition_pretty]
+    assert nested, [c.definition for c in constraints]
+
+    pretty = nested[0].definition_pretty
+    # The one-line form is untouched, and the indented one says the same thing.
+    assert "\n" not in nested[0].definition
+    assert "".join(pretty.split()) == "".join(nested[0].definition.split())
+    # Indented by nesting depth, with the connective leading its own line.
+    assert "\n  " in pretty
+    assert any(line.strip().startswith("and ") for line in pretty.splitlines())
+
+
+def test_a_cardinality_reason_carries_the_observed_count():
+    """The bound a count had to meet is in the constraint (`∃[min..max]`); the
+    number actually found is not, so `Reason` carries it. Together they let a
+    renderer state the shortfall without parsing `message`."""
+    shapes = """
+        @prefix sh: <http://www.w3.org/ns/shacl#> .
+        @prefix ex: <http://ex/> .
+        ex:S a sh:NodeShape ;
+            sh:targetClass ex:T ;
+            sh:property [ sh:path ex:p ; sh:minCount 3 ] .
+    """
+    data = "@prefix ex: <http://ex/> . ex:a a ex:T ; ex:p ex:one, ex:two ."
+
+    result = shifty.validate_algebra(data, shapes)
+    counts = [
+        r for v in result.violations for r in v.reasons if r.observed_count is not None
+    ]
+    assert len(counts) == 1, [r.message for v in result.violations for r in v.reasons]
+    assert counts[0].observed_count == 2
+    assert "found 2" in counts[0].message
+
+    # Node identity stays absolute: callers match these against IRIs they hold.
+    assert result.violations[0].focus_node == "<http://ex/a>"
+
+
+def test_a_non_cardinality_reason_has_no_observed_count():
+    shapes = """
+        @prefix sh: <http://www.w3.org/ns/shacl#> .
+        @prefix ex: <http://ex/> .
+        ex:S a sh:NodeShape ;
+            sh:targetClass ex:T ;
+            sh:property [ sh:path ex:p ; sh:nodeKind sh:IRI ] .
+    """
+    data = '@prefix ex: <http://ex/> . ex:a a ex:T ; ex:p "literal" .'
+
+    result = shifty.validate_algebra(data, shapes)
+    reasons = [r for v in result.violations for r in v.reasons]
+    assert reasons
+    assert all(r.observed_count is None for r in reasons)

@@ -134,6 +134,29 @@ pub struct ShapeArena {
     shapes: Vec<Shape>,
 }
 
+impl Shape {
+    /// Every shape this one references directly.
+    ///
+    /// Includes the `sh:filterShape` references carried inside a
+    /// [`Shape::Expression`]'s node expression. Those sit outside the shape
+    /// grammar and are easy to miss, which makes a shape reachable only through
+    /// an expression disappear from anything that walks children by hand.
+    pub fn child_shapes(&self) -> Vec<ShapeId> {
+        match self {
+            Shape::Annotated { shape, .. } => vec![*shape],
+            Shape::Not(c) => vec![*c],
+            Shape::And(cs) | Shape::Or(cs) => cs.clone(),
+            Shape::Count { qualifier, .. } => vec![*qualifier],
+            Shape::Expression(e) => {
+                let mut out = Vec::new();
+                e.referenced_shapes(&mut out);
+                out
+            }
+            _ => Vec::new(),
+        }
+    }
+}
+
 impl ShapeArena {
     pub fn new() -> Self {
         Self::default()

@@ -56,8 +56,9 @@ def test_witnesses_enumerate_the_horizon():
     fw = ws[0]
     assert fw.focus == "<http://example.org/bob>"
     assert fw.statement == 0
-    # the rendered target resolves the class instead of printing a bare φ
-    assert fw.target == "class(<http://example.org/Person>)"
+    # the rendered target resolves the class instead of printing a bare φ, in the
+    # prefix the document declared it with
+    assert fw.target == "class(ex:Person)"
     # …and the same selector is available structured, for external processing
     assert fw.selector.kind == shifty.TargetKind.Class
     assert fw.selector.value == "<http://example.org/Person>"
@@ -72,7 +73,7 @@ def test_witness_summary_and_explain():
     assert a.kind == shifty.WitnessKind.CountHigh
     assert a.evidence_kind == shifty.EvidenceKind.CountHigh
     assert a.constraint_kind == shifty.ConstraintKind.Cardinality
-    assert a.path == "<http://example.org/name>"
+    assert a.path == "ex:name"
     assert "max 1" in a.detail
     assert "CountHigh" in fw.explain()
 
@@ -647,14 +648,14 @@ def test_satisfactions_for_lists_passing_foci_with_matched_values():
     fs = sats[0]
     assert fs.statement == 0
     # the satisfaction side carries the same structured target as the witness side
-    assert fs.target == "class(<http://example.org/Person>)"
+    assert fs.target == "class(ex:Person)"
     assert fs.selector.kind == shifty.TargetKind.Class
     assert fs.selector.value == "<http://example.org/Person>"
     # the matched value for the checked property surfaces in the flat summary.
     matched = [
         (a.path, a.value) for a in fs.summary() if a.kind == shifty.SatKind.Match
     ]
-    assert ("<http://example.org/name>", '"Carol"') in matched
+    assert ("ex:name", '"Carol"') in matched
     assert all(
         atom.evidence_kind
         in {shifty.EvidenceKind.CountHeld, shifty.EvidenceKind.AllValuesHeld}

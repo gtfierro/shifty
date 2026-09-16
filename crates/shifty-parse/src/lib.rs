@@ -121,10 +121,11 @@ mod tests {
         let text = schema_to_text(&out.schema);
         // a class-target statement was produced
         assert!(text.contains("rdf:type/rdfs:subClassOf*"), "text:\n{text}");
-        // cardinality on ex:name lowered to an interval count
-        assert!(text.contains("[1..1] <http://ex/name>"), "text:\n{text}");
+        // cardinality on ex:name lowered to an interval count, and the dump
+        // renders IRIs in the document's own vocabulary
+        assert!(text.contains("[1..1] ex:name"), "text:\n{text}");
         // inverse path rendered
-        assert!(text.contains("^<http://ex/child>"), "text:\n{text}");
+        assert!(text.contains("^ex:child"), "text:\n{text}");
         // datatype facet present
         assert!(text.contains("datatype(xsd:string)"), "text:\n{text}");
     }

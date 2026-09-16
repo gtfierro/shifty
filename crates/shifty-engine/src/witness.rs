@@ -1046,7 +1046,7 @@ pub fn witness_violations(
     let backend = sparql
         .frozen()
         .expect("witness executor always has a frozen dataset");
-    let mut evaluator = ShapeEvaluator::new(backend, &schema.arena, &sparql);
+    let mut evaluator = ShapeEvaluator::new(backend, &schema.arena, &schema.prefixes, &sparql);
 
     let mut out = Vec::new();
     for (i, st) in schema.statements.iter().enumerate() {
@@ -1096,7 +1096,7 @@ pub fn witness_shape(
     let backend = sparql
         .frozen()
         .expect("witness executor always has a frozen dataset");
-    let mut evaluator = ShapeEvaluator::new(backend, &schema.arena, &sparql);
+    let mut evaluator = ShapeEvaluator::new(backend, &schema.arena, &schema.prefixes, &sparql);
 
     let mut out = Vec::new();
     for (i, st) in schema.statements.iter().enumerate() {
@@ -1150,7 +1150,7 @@ pub fn satisfy_shape(
     let backend = sparql
         .frozen()
         .expect("witness executor always has a frozen dataset");
-    let mut evaluator = ShapeEvaluator::new(backend, &schema.arena, &sparql);
+    let mut evaluator = ShapeEvaluator::new(backend, &schema.arena, &schema.prefixes, &sparql);
 
     let mut out = Vec::new();
     for (i, st) in schema.statements.iter().enumerate() {
@@ -1194,7 +1194,7 @@ pub fn witness_node(
     let backend = sparql
         .frozen()
         .expect("witness executor always has a frozen dataset");
-    let mut evaluator = ShapeEvaluator::new(backend, &schema.arena, &sparql);
+    let mut evaluator = ShapeEvaluator::new(backend, &schema.arena, &schema.prefixes, &sparql);
 
     let mut stack = Stack::new();
     Ok(witness(

@@ -323,7 +323,8 @@ fn fire_rule(
     out: &mut HashSet<Triple>,
     diags: &mut BTreeSet<String>,
 ) {
-    let mut evaluator = ShapeEvaluator::new(context, arena, sparql);
+    let mut evaluator =
+        ShapeEvaluator::new(context, arena, shifty_algebra::Prefixes::empty(), sparql);
     let eligible: Vec<&Term> = focus_nodes
         .iter()
         .filter(|v| rule.conditions.iter().all(|c| evaluator.holds(v, *c)))

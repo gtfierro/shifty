@@ -8,6 +8,7 @@
 //! G ⊨ S  iff  ∀ v. ∀ (sel, φ) ∈ S.  (G,v ⊨ sel) ⟹ (G,v ⊨ φ)
 //! ```
 
+use crate::prefix::Prefixes;
 use crate::rule::Rule;
 use crate::selector::Selector;
 use crate::shape::{ShapeArena, ShapeId};
@@ -43,6 +44,11 @@ pub struct Schema {
     /// (named or blank). Synthetic slots introduced by lowering have no entry.
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub sources: HashMap<ShapeId, Term>,
+    /// The `@prefix` declarations of the document this schema was lowered from,
+    /// used only to compact IRIs when rendering. Display metadata: evaluation
+    /// never consults it, and an empty table costs legibility, not correctness.
+    #[serde(default, skip_serializing_if = "Prefixes::is_empty")]
+    pub prefixes: Prefixes,
 }
 
 impl Schema {

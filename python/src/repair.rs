@@ -15,7 +15,7 @@ use crate::{
 use oxrdf::{Graph, Term};
 use pyo3::prelude::*;
 use pyo3::pybacked::PyBackedBytes;
-use shifty_algebra::{Schema, Selector, Shape, ShapeArena, ShapeId};
+use shifty_algebra::{Prefixes, Schema, Selector, Shape, ShapeArena, ShapeId};
 use shifty_engine::{
     ConformanceOptions, Evidence as IrEvidence, EvidenceKind as IrEvidenceKind,
     EvidenceOrigin as IrEvidenceOrigin, FocusSat as IrSat, FocusWitness as IrFocus,
@@ -33,21 +33,23 @@ use std::sync::Arc;
 
 // ── shared rendering (ports of the CLI renderers; kept local to the binding) ────
 
-fn path_str(p: &shifty_algebra::Path) -> String {
-    shifty_algebra::render::path_to_string(p)
+fn path_str(p: &shifty_algebra::Path, px: &Prefixes) -> String {
+    shifty_algebra::render::path_to_string_in(p, px)
 }
 
-fn constraint_str(c: &HoleConstraint, arena: &ShapeArena) -> String {
+fn constraint_str(c: &HoleConstraint, arena: &ShapeArena, px: &Prefixes) -> String {
     match c {
         HoleConstraint::AnyNode => "any node".to_string(),
         HoleConstraint::Fresh => "fresh node".to_string(),
         HoleConstraint::Const(t) => format!("= {t}"),
-        HoleConstraint::Typed(vt) => shifty_algebra::render::value_type_to_string(vt),
+        HoleConstraint::Typed(vt) => shifty_algebra::render::value_type_to_string_in(vt, px),
         HoleConstraint::Kind(_) => "nodeKind".to_string(),
         HoleConstraint::OneOf(v) => format!("one of {} value(s)", v.len()),
         // Fully expand the sub-shape(s) so no bare `@id` pointers leak out.
-        HoleConstraint::ConformsTo(s) => shifty_algebra::render::describe_shape(arena, *s),
-        HoleConstraint::ConformsToAll(ss) => shifty_algebra::render::describe_shapes(arena, ss),
+        HoleConstraint::ConformsTo(s) => shifty_algebra::render::describe_shape_in(arena, *s, px),
+        HoleConstraint::ConformsToAll(ss) => {
+            shifty_algebra::render::describe_shapes_in(arena, ss, px)
+        }
     }
 }
 
@@ -71,7 +73,7 @@ fn edit_str(e: &Edit) -> String {
     )
 }
 
-fn render_witness(w: &Witness, indent: usize, out: &mut Vec<String>) {
+fn render_witness(w: &Witness, px: &Prefixes, indent: usize, out: &mut Vec<String>) {
     let pad = " ".repeat(indent);
     match w {
         Witness::Atom {
@@ -81,7 +83,7 @@ fn render_witness(w: &Witness, indent: usize, out: &mut Vec<String>) {
             ..
         } => out.push(format!(
             "{pad}Atom at {node} via {}{}",
-            path_str(reached_by),
+            path_str(reached_by, px),
             if produced_by.is_some() {
                 " [cuttable]"
             } else {
@@ -105,25 +107,25 @@ fn render_witness(w: &Witness, indent: usize, out: &mut Vec<String>) {
         }
         Witness::Not { inner, .. } => {
             out.push(format!("{pad}Not — falsify the inner shape:"));
-            render_sat(inner, indent + 2, out);
+            render_sat(inner, px, indent + 2, out);
         }
         Witness::All { failed, .. } => {
             out.push(format!("{pad}All — fix every:"));
             for f in failed {
-                render_witness(f, indent + 2, out);
+                render_witness(f, px, indent + 2, out);
             }
         }
         Witness::Any { branches, .. } => {
             out.push(format!("{pad}Any — fix any one of:"));
             for b in branches {
-                render_witness(b, indent + 2, out);
+                render_witness(b, px, indent + 2, out);
             }
         }
         Witness::CountLow {
             path, have, min, ..
         } => out.push(format!(
             "{pad}CountLow along {}: have {have}, need {min}",
-            path_str(path)
+            path_str(path, px)
         )),
         Witness::CountHigh {
             path,
@@ -134,19 +136,19 @@ fn render_witness(w: &Witness, indent: usize, out: &mut Vec<String>) {
         } => {
             out.push(format!(
                 "{pad}CountHigh along {}: {} match(es), max {max}",
-                path_str(path),
+                path_str(path, px),
                 matched.len()
             ));
             for (v, sub) in per_value {
                 out.push(format!("{pad}  value {v}:"));
-                render_witness(sub, indent + 4, out);
+                render_witness(sub, px, indent + 4, out);
             }
         }
         Witness::Opaque { .. } => out.push(format!("{pad}Opaque (SPARQL) — no algebraic witness")),
     }
 }
 
-fn render_sat(s: &SatTrace, indent: usize, out: &mut Vec<String>) {
+fn render_sat(s: &SatTrace, px: &Prefixes, indent: usize, out: &mut Vec<String>) {
     let pad = " ".repeat(indent);
     match s {
         SatTrace::Irrefutable { .. } => out.push(format!("{pad}Irrefutable (⊤)")),
@@ -156,13 +158,13 @@ fn render_sat(s: &SatTrace, indent: usize, out: &mut Vec<String>) {
         SatTrace::AllHeld { children, .. } => {
             out.push(format!("{pad}AllHeld — break any one:"));
             for c in children {
-                render_sat(c, indent + 2, out);
+                render_sat(c, px, indent + 2, out);
             }
         }
         SatTrace::AnyHeld { satisfied, .. } => {
             out.push(format!("{pad}AnyHeld — break every:"));
             for c in satisfied {
-                render_sat(c, indent + 2, out);
+                render_sat(c, px, indent + 2, out);
             }
         }
         SatTrace::CountHeld { matches, .. } => {
@@ -174,19 +176,25 @@ fn render_sat(s: &SatTrace, indent: usize, out: &mut Vec<String>) {
                 values.len()
             ));
             for (_, _, trace) in values {
-                render_sat(trace, indent + 2, out);
+                render_sat(trace, px, indent + 2, out);
             }
         }
         SatTrace::NotHeld { inner_fails, .. } => {
             out.push(format!("{pad}NotHeld — make the inner shape hold:"));
-            render_witness(inner_fails, indent + 2, out);
+            render_witness(inner_fails, px, indent + 2, out);
         }
         SatTrace::Blocked { reason, .. } => out.push(format!("{pad}Blocked: {reason:?}")),
         SatTrace::Coinductive { .. } => out.push(format!("{pad}Coinductive (gfp back-edge)")),
     }
 }
 
-fn render_tree(t: &IrTree, arena: &ShapeArena, indent: usize, out: &mut Vec<String>) {
+fn render_tree(
+    t: &IrTree,
+    arena: &ShapeArena,
+    px: &Prefixes,
+    indent: usize,
+    out: &mut Vec<String>,
+) {
     let pad = " ".repeat(indent);
     match t {
         IrTree::Noop(_) => out.push(format!("{pad}Noop")),
@@ -197,25 +205,29 @@ fn render_tree(t: &IrTree, arena: &ShapeArena, indent: usize, out: &mut Vec<Stri
                 out.push(format!("{pad}  {}", edit_str(e)));
             }
             for (h, c) in holes {
-                out.push(format!("{pad}  ?{} : {}", h.0, constraint_str(c, arena)));
+                out.push(format!(
+                    "{pad}  ?{} : {}",
+                    h.0,
+                    constraint_str(c, arena, px)
+                ));
             }
         }
         IrTree::All { children, .. } => {
             out.push(format!("{pad}All — do all:"));
             for c in children {
-                render_tree(c, arena, indent + 2, out);
+                render_tree(c, arena, px, indent + 2, out);
             }
         }
         IrTree::Any { children, .. } => {
             out.push(format!("{pad}Any — choose one:"));
             for c in children {
-                render_tree(c, arena, indent + 2, out);
+                render_tree(c, arena, px, indent + 2, out);
             }
         }
         IrTree::Repeat { body, min, max, .. } => {
             let hi = max.map_or_else(|| "∞".to_string(), |m| m.to_string());
             out.push(format!("{pad}Repeat [{min}..{hi}]:"));
-            render_tree(body, arena, indent + 2, out);
+            render_tree(body, arena, px, indent + 2, out);
         }
     }
 }
@@ -396,7 +408,7 @@ fn witness_atom(
     }
 }
 
-fn witness_leaves(arena: &ShapeArena, w: &Witness, out: &mut Vec<WitnessAtom>) {
+fn witness_leaves(arena: &ShapeArena, px: &Prefixes, w: &Witness, out: &mut Vec<WitnessAtom>) {
     match w {
         Witness::Atom {
             shape,
@@ -408,7 +420,7 @@ fn witness_leaves(arena: &ShapeArena, w: &Witness, out: &mut Vec<WitnessAtom>) {
             arena,
             *shape,
             WitnessKind::Atom,
-            Some(path_str(reached_by)),
+            Some(path_str(reached_by, px)),
             Some(node.to_string()),
             if produced_by.is_some() {
                 "value-type test failed (edge is cuttable)".into()
@@ -453,7 +465,7 @@ fn witness_leaves(arena: &ShapeArena, w: &Witness, out: &mut Vec<WitnessAtom>) {
             arena,
             *shape,
             WitnessKind::CountLow,
-            Some(path_str(path)),
+            Some(path_str(path, px)),
             Some(node.to_string()),
             format!("have {have}, need {min}"),
         )),
@@ -470,12 +482,12 @@ fn witness_leaves(arena: &ShapeArena, w: &Witness, out: &mut Vec<WitnessAtom>) {
                 arena,
                 *shape,
                 WitnessKind::CountHigh,
-                Some(path_str(path)),
+                Some(path_str(path, px)),
                 Some(node.to_string()),
                 format!("{} match(es), max {max}", matched.len()),
             ));
             for (_, sub) in per_value {
-                witness_leaves(arena, sub, out);
+                witness_leaves(arena, px, sub, out);
             }
         }
         Witness::Not { shape, node, .. } => out.push(witness_atom(
@@ -496,12 +508,12 @@ fn witness_leaves(arena: &ShapeArena, w: &Witness, out: &mut Vec<WitnessAtom>) {
         )),
         Witness::All { failed, .. } => {
             for f in failed {
-                witness_leaves(arena, f, out);
+                witness_leaves(arena, px, f, out);
             }
         }
         Witness::Any { branches, .. } => {
             for b in branches {
-                witness_leaves(arena, b, out);
+                witness_leaves(arena, px, b, out);
             }
         }
     }
@@ -550,7 +562,7 @@ impl SatAtom {
 /// `Match`/`Atom` leaves), so a driver can see *what data* made the focus
 /// conform. Closed/relational/opaque leaves appear as `Blocked` (they hold but
 /// expose no enumerable value set).
-fn sat_leaves(s: &SatTrace, out: &mut Vec<SatAtom>) {
+fn sat_leaves(s: &SatTrace, px: &Prefixes, out: &mut Vec<SatAtom>) {
     match s {
         // Vacuously true: nothing was checked, nothing to surface.
         SatTrace::Irrefutable { .. } => {}
@@ -559,7 +571,7 @@ fn sat_leaves(s: &SatTrace, out: &mut Vec<SatAtom>) {
         } => out.push(SatAtom {
             kind: SatKind::Atom,
             evidence_kind: PyEvidenceKind::AtomHeld,
-            path: Some(path_str(reached_by)),
+            path: Some(path_str(reached_by, px)),
             value: Some(node.to_string()),
             detail: "value-type test holds".into(),
         }),
@@ -580,7 +592,7 @@ fn sat_leaves(s: &SatTrace, out: &mut Vec<SatAtom>) {
                 out.push(SatAtom {
                     kind: SatKind::Match,
                     evidence_kind: PyEvidenceKind::CountHeld,
-                    path: Some(path_str(path)),
+                    path: Some(path_str(path, px)),
                     value: Some(v.to_string()),
                     detail: format!("matched value (count {bounds})"),
                 });
@@ -591,21 +603,21 @@ fn sat_leaves(s: &SatTrace, out: &mut Vec<SatAtom>) {
                 out.push(SatAtom {
                     kind: SatKind::Match,
                     evidence_kind: PyEvidenceKind::AllValuesHeld,
-                    path: Some(path_str(path)),
+                    path: Some(path_str(path, px)),
                     value: Some(value.to_string()),
                     detail: "checked value satisfies universal qualifier".into(),
                 });
-                sat_leaves(trace, out);
+                sat_leaves(trace, px, out);
             }
         }
         SatTrace::AllHeld { children, .. } => {
             for c in children {
-                sat_leaves(c, out);
+                sat_leaves(c, px, out);
             }
         }
         SatTrace::AnyHeld { satisfied, .. } => {
             for c in satisfied {
-                sat_leaves(c, out);
+                sat_leaves(c, px, out);
             }
         }
         SatTrace::NotHeld { node, .. } => out.push(SatAtom {
@@ -721,9 +733,10 @@ impl RepairSession {
                     "provenance statement {statement_id} is out of bounds"
                 ))
             })?;
-        let target = shifty_algebra::render::selector_to_string_in(
+        let target = shifty_algebra::render::selector_to_string_in_px(
             &self.schema.statements[fw.statement].selector,
             &self.schema.arena,
+            &self.schema.prefixes,
         );
         Py::new(
             py,
@@ -739,6 +752,7 @@ impl RepairSession {
                 constraint: constraint_to_py(
                     py,
                     &self.provenance_schema.arena,
+                    &self.provenance_schema.prefixes,
                     provenance_statement.shape,
                 )?,
                 target,
@@ -907,9 +921,10 @@ impl RepairSession {
             .map(|fs| {
                 let statement_id = self.provenance_statement(fs.statement)?;
                 let provenance_statement = &self.provenance_schema.statements[statement_id];
-                let target = shifty_algebra::render::selector_to_string_in(
+                let target = shifty_algebra::render::selector_to_string_in_px(
                     &self.schema.statements[fs.statement].selector,
                     &self.schema.arena,
+                    &self.schema.prefixes,
                 );
                 Py::new(
                     py,
@@ -925,6 +940,7 @@ impl RepairSession {
                         constraint: constraint_to_py(
                             py,
                             &self.provenance_schema.arena,
+                            &self.provenance_schema.prefixes,
                             provenance_statement.shape,
                         )?,
                         target,
@@ -1004,7 +1020,25 @@ impl RepairSession {
     /// shape inlined, no `@id` pointers. The lookup a driver uses to understand
     /// what a `conforms to` hole actually demands.
     fn describe_shape(&self, shape_id: u32) -> String {
-        shifty_algebra::render::describe_shape(&self.schema.arena, ShapeId(shape_id))
+        shifty_algebra::render::describe_shape_in(
+            &self.schema.arena,
+            ShapeId(shape_id),
+            &self.schema.prefixes,
+        )
+    }
+
+    /// `describe_shape`, laid out over several lines and indented by nesting
+    /// depth, breaking only where a subtree does not fit in `width`. A
+    /// description that already fits comes back unchanged, so this is safe to
+    /// call unconditionally.
+    #[pyo3(signature = (shape_id, width = shifty_algebra::render::PRETTY_WIDTH))]
+    fn describe_shape_pretty(&self, shape_id: u32, width: usize) -> String {
+        shifty_algebra::render::describe_shape_pretty(
+            &self.schema.arena,
+            ShapeId(shape_id),
+            &self.schema.prefixes,
+            width,
+        )
     }
 
     /// A new session over `G ⊕ ΔG` (same schema, no re-inference) so a driver can
@@ -1086,10 +1120,11 @@ impl Target {
 /// Decompose a [`Selector`] into a structured [`Target`], resolving class targets
 /// and qualifiers against the schema arena.
 fn build_target(sel: &Selector, schema: &Schema) -> Target {
-    let render = shifty_algebra::render::selector_to_string_in(sel, &schema.arena);
+    let px = &schema.prefixes;
+    let render = shifty_algebra::render::selector_to_string_in_px(sel, &schema.arena, px);
     if let Some(class) = shifty_algebra::render::class_target(sel, &schema.arena) {
         let path = match sel {
-            Selector::HasPath(p, _) => Some(path_str(p)),
+            Selector::HasPath(p, _) => Some(path_str(p, px)),
             _ => None,
         };
         return Target {
@@ -1121,7 +1156,7 @@ fn build_target(sel: &Selector, schema: &Schema) -> Target {
         Selector::HasPath(p, _) => Target {
             kind: TargetKind::Path,
             value: None,
-            path: Some(path_str(p)),
+            path: Some(path_str(p, px)),
             render,
         },
         Selector::Sparql(_) => Target {
@@ -1290,8 +1325,10 @@ fn path_support_to_py(py: Python<'_>, value: IrPathSupport) -> PyResult<Py<PyPat
 /// Does `query` name `path`? Accepts the rendered spelling `path_str` produces
 /// (`ex:p`, `^ex:p`, `ex:a/ex:b`) and, for a single predicate step, the bare or
 /// bracketed IRI — so a caller holding an IRI need not know the prefix table.
-fn path_matches(path: &shifty_algebra::Path, query: &str) -> bool {
-    if path_str(path) == query {
+fn path_matches(path: &shifty_algebra::Path, px: &Prefixes, query: &str) -> bool {
+    // Both spellings, so a query written before the document's prefixes were
+    // carried through still resolves.
+    if path_str(path, px) == query || shifty_algebra::render::path_to_string(path) == query {
         return true;
     }
     match path {
@@ -1309,13 +1346,13 @@ fn path_matches(path: &shifty_algebra::Path, query: &str) -> bool {
 
 /// Matched values counted along `query`, read from the structured match records
 /// and rendered as RDF terms in match order without duplicates.
-fn evidence_values_for_path(value: &IrEvidence, query: &str) -> Vec<String> {
+fn evidence_values_for_path(value: &IrEvidence, px: &Prefixes, query: &str) -> Vec<String> {
     let query = query.trim();
     let mut seen = HashSet::new();
     value
         .matched_values_by_path()
         .into_iter()
-        .filter(|(path, _)| path_matches(path, query))
+        .filter(|(path, _)| path_matches(path, px, query))
         .flat_map(|(_, values)| values)
         .map(|value| value.to_string())
         .filter(|value| seen.insert(value.clone()))
@@ -1383,14 +1420,19 @@ impl FocusWitness {
     /// The failing leaves, flattened (AND/OR structure dropped; see `explain`).
     fn summary(&self) -> Vec<WitnessAtom> {
         let mut out = Vec::new();
-        witness_leaves(&self.schema.arena, &self.inner.failure, &mut out);
+        witness_leaves(
+            &self.schema.arena,
+            &self.schema.prefixes,
+            &self.inner.failure,
+            &mut out,
+        );
         out
     }
 
     /// The full witness tree, rendered as indented text.
     fn explain(&self) -> String {
         let mut out = Vec::new();
-        render_witness(&self.inner.failure, 0, &mut out);
+        render_witness(&self.inner.failure, &self.schema.prefixes, 0, &mut out);
         out.join("\n")
     }
 
@@ -1430,7 +1472,11 @@ impl FocusWitness {
     /// `ex:a/ex:b`) or, for a single predicate step, its IRI with or without
     /// angle brackets. Empty when nothing was counted along `path`.
     fn values_for_path(&self, path: &str) -> Vec<String> {
-        evidence_values_for_path(&IrEvidence::Failure(self.inner.failure.clone()), path)
+        evidence_values_for_path(
+            &IrEvidence::Failure(self.inner.failure.clone()),
+            &self.schema.prefixes,
+            path,
+        )
     }
 
     /// The cardinality deficits in this failure, each describing the edge that
@@ -1445,11 +1491,16 @@ impl FocusWitness {
                 Ok(PyMissingObligation {
                     constraint_id: value.constraint_id.0,
                     node: value.node.to_string(),
-                    path: path_str(&value.path),
+                    path: path_str(&value.path, &self.schema.prefixes),
                     observed_count: value.observed_count,
                     required_count: value.required_count,
                     missing: value.missing,
-                    qualifier: constraint_to_py(py, &self.schema.arena, value.qualifier)?,
+                    qualifier: constraint_to_py(
+                        py,
+                        &self.schema.arena,
+                        &self.schema.prefixes,
+                        value.qualifier,
+                    )?,
                 })
             })
             .collect()
@@ -1559,14 +1610,19 @@ impl FocusSatisfaction {
     /// value-type test that held (AND/OR structure dropped; see `explain`).
     fn summary(&self) -> Vec<SatAtom> {
         let mut out = Vec::new();
-        sat_leaves(&self.inner.trace, &mut out);
+        sat_leaves(&self.inner.trace, &self.selector_schema.prefixes, &mut out);
         out
     }
 
     /// The full satisfaction trace, rendered as indented text.
     fn explain(&self) -> String {
         let mut out = Vec::new();
-        render_sat(&self.inner.trace, 0, &mut out);
+        render_sat(
+            &self.inner.trace,
+            &self.selector_schema.prefixes,
+            0,
+            &mut out,
+        );
         out.join("\n")
     }
 
@@ -1606,7 +1662,11 @@ impl FocusSatisfaction {
     /// `ex:a/ex:b`) or, for a single predicate step, its IRI with or without
     /// angle brackets. Empty when nothing was counted along `path`.
     fn values_for_path(&self, path: &str) -> Vec<String> {
-        evidence_values_for_path(&IrEvidence::Satisfaction(self.inner.trace.clone()), path)
+        evidence_values_for_path(
+            &IrEvidence::Satisfaction(self.inner.trace.clone()),
+            &self.selector_schema.prefixes,
+            path,
+        )
     }
 
     /// Always empty: a satisfaction has no unmet cardinality. Present so the
@@ -2637,15 +2697,20 @@ impl EvidenceSession {
                 .statements
                 .get(statement.source_statement_id)
                 .ok_or_else(|| py_value_error("raw statement is out of bounds".into()))?;
-            let target = shifty_algebra::render::selector_to_string_in(
+            let target = shifty_algebra::render::selector_to_string_in_px(
                 &raw_statement.selector,
                 &self.raw_schema.arena,
+                &self.raw_schema.prefixes,
             );
             let normalized_constraint_id = statement
                 .normalized_constraint_id
                 .ok_or_else(|| py_value_error("statement has no normalized constraint".into()))?;
-            let constraint =
-                constraint_to_py(py, &normalized_schema.arena, normalized_constraint_id)?;
+            let constraint = constraint_to_py(
+                py,
+                &normalized_schema.arena,
+                &normalized_schema.prefixes,
+                normalized_constraint_id,
+            )?;
             let constraint_kind = constraint_kind_to_py(statement.constraint_kind);
             let shape_iri = self
                 .raw_schema
@@ -3108,7 +3173,13 @@ impl RepairTree {
     /// The tree rendered as indented text.
     fn explain(&self) -> String {
         let mut out = Vec::new();
-        render_tree(&self.inner, &self.schema.arena, 0, &mut out);
+        render_tree(
+            &self.inner,
+            &self.schema.arena,
+            &self.schema.prefixes,
+            0,
+            &mut out,
+        );
         out.join("\n")
     }
 
@@ -3124,7 +3195,7 @@ impl RepairTree {
                     py,
                     Hole {
                         id: h.0,
-                        constraint: constraint_str(&c, &self.schema.arena),
+                        constraint: constraint_str(&c, &self.schema.arena, &self.schema.prefixes),
                         inner: c,
                         schema: Arc::clone(&self.schema),
                         data: Arc::clone(&self.data),
@@ -3279,7 +3350,11 @@ impl Hole {
             .map(|id| {
                 (
                     id,
-                    shifty_algebra::render::describe_shape(&self.schema.arena, ShapeId(id)),
+                    shifty_algebra::render::describe_shape_in(
+                        &self.schema.arena,
+                        ShapeId(id),
+                        &self.schema.prefixes,
+                    ),
                 )
             })
             .collect()
@@ -3401,7 +3476,7 @@ impl Instantiated {
                     py,
                     Hole {
                         id: *id,
-                        constraint: constraint_str(c, &self.schema.arena),
+                        constraint: constraint_str(c, &self.schema.arena, &self.schema.prefixes),
                         inner: c.clone(),
                         schema: Arc::clone(&self.schema),
                         data: Arc::clone(&self.data),
