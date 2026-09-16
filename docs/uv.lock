@@ -439,6 +439,8 @@ dev = [
     { name = "pytest", specifier = ">=8" },
     { name = "pytest-cov", specifier = ">=5" },
     { name = "rdflib", specifier = ">=6.0" },
+    { name = "ruff", specifier = ">=0.16.5" },
+    { name = "ty", specifier = ">=0.0.77" },
 ]
 
 [[package]]

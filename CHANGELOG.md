@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 0.5.0-alpha.1
+
+Alpha release from [PR #22](https://github.com/gtfierro/shifty/pull/22).
+To try the Python package, run `pip install pyshifty==0.5.0a1`.
+The new Python `in_place` option is opt-in; existing calls retain their behavior.
+The CLI's text report has a new layout, so scripts should consume JSON output.
+
 ### Fixed
 
 - Fixed `sh:xone` reporting. It lowers to `⋁ᵢ (φᵢ ∧ ⋀_{j≠i} ¬φⱼ)`, and reported
