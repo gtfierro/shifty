@@ -682,6 +682,46 @@ class TestInPlaceBlankNodes:
 
         assert isomorphic(graph, separate)
 
+    @pytest.mark.parametrize(
+        "label",
+        [
+            "plain1",
+            "in.terior.dots",
+            "trailing.",
+            "with-dash",
+            "0leading-digit",
+            "has space",
+            "-leading-dash",
+            "unicode-é",
+            '<angle>"quote',
+        ],
+    )
+    def test_any_blank_node_label_keeps_its_derived_triple(self, label):
+        """The node's name must not decide whether the feature works.
+
+        rdflib will name a BNode anything, and applications do — identifiers
+        carried over from a JSON-LD ``@id`` or a database key land here
+        unchanged. Whatever the label, the derived triple has to come back to
+        the node it describes."""
+        EX = rdflib.Namespace("http://example.org/")
+        graph = rdflib.Graph()
+        dim = rdflib.BNode(label)
+        graph.add((EX.r1, EX.hasDim, dim))
+        graph.add((dim, rdflib.RDF.type, EX.Dim))
+        graph.add((dim, EX.width, rdflib.Literal(4)))
+
+        result = shifty.infer(graph, BNODE_RULES.encode(), in_place=True)
+
+        assert result.inferred_count == 1
+        assert _derived_area(graph) == [rdflib.Literal(4)]
+        nodes = {
+            term
+            for triple in graph
+            for term in triple
+            if isinstance(term, rdflib.BNode)
+        }
+        assert len(nodes) == 1
+
 
 # ── graph_mode variants ───────────────────────────────────────────────────────
 

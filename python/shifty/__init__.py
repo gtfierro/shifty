@@ -341,6 +341,63 @@ def _fetch_url(url: str) -> _RdfInput:
 # abbreviation is lost.
 _UNDECLARABLE_NAMESPACE = re.compile(r"[\s<>\"{}|^`\\]")
 
+# Turtle's PN_PREFIX: a name opens with a letter, may carry digits, `-`, `_`
+# and interior dots after that, and cannot end on a dot. The empty prefix of a
+# default namespace is allowed. A binding whose name falls outside this is
+# dropped for the same reason an undeclarable namespace is — one name that
+# cannot be spelled would otherwise make the whole document unparseable,
+# costing every call on that graph rather than just the abbreviation.
+_PN_CHARS_BASE = "A-Za-zÀ-ÖØ-öø-˿Ͱ-ͽͿ-῿‌-‍⁰-↏Ⰰ-⿯、-퟿豈-﷏ﷰ-�"
+_PN_CHARS = _PN_CHARS_BASE + "0-9_\\-·̀-ͯ‿-⁀"
+_DECLARABLE_PREFIX = re.compile(
+    f"\\A(?:[{_PN_CHARS_BASE}](?:[{_PN_CHARS}.]*[{_PN_CHARS}])?)?\\Z"
+)
+
+# A label passes through untouched only if it survives every parser on the
+# round trip, which is a narrower question than what Turtle's grammar permits.
+# The document written here is read by the engine, and the derived triples that
+# come back are read by rdflib's N-Triples parser, which accepts only ASCII
+# labels. Taking the intersection — opening on a letter, digit or underscore,
+# carrying dots and dashes inside, never closing on a dot — keeps the test to
+# the one property that matters: the name arrives unchanged at both ends.
+_SPELLABLE_BNODE_LABEL = re.compile(
+    r"\A[A-Za-z0-9_](?:[A-Za-z0-9_.-]*[A-Za-z0-9_-])?\Z"
+)
+
+# rdflib puts no constraints on what a BNode is named, so a label can arrive
+# holding characters RDF syntax has nowhere to put — a space, a leading dash,
+# anything an application carried over from a JSON-LD `@id` or a database key.
+# Such a label is rewritten to this marker followed by the hex of its UTF-8
+# bytes, which is always spellable, and read back by reversing that.
+#
+# The encoding is applied only to labels that cannot be written as they are,
+# and reversed only when the decoded result is itself unspellable. A label that
+# merely looks like the encoded form therefore decodes to something that would
+# never have been encoded, and is left alone.
+_ENCODED_BNODE_LABEL = re.compile(r"\Ashiftyx([0-9a-f]{2,})\Z")
+_BNODE_LABEL_MARKER = "shiftyx"
+
+
+def _encode_bnode_label(label: str) -> str:
+    """Return a label spellable in RDF syntax, naming the same blank node."""
+    if _SPELLABLE_BNODE_LABEL.match(label):
+        return label
+    return _BNODE_LABEL_MARKER + label.encode("utf-8").hex()
+
+
+def _decode_bnode_label(label: str) -> str:
+    """Invert :func:`_encode_bnode_label`, leaving untouched labels alone."""
+    encoded = _ENCODED_BNODE_LABEL.match(label)
+    if encoded is None:
+        return label
+    try:
+        decoded = bytes.fromhex(encoded.group(1)).decode("utf-8")
+    except (ValueError, UnicodeDecodeError):
+        return label
+    if _SPELLABLE_BNODE_LABEL.match(decoded):
+        return label
+    return decoded
+
 
 def _flat_turtle_bytes(graph: "rdflib.Graph") -> bytes:
     """Serialize an rdflib graph as a prefix block followed by an N-Triples body.
@@ -366,18 +423,34 @@ def _flat_turtle_bytes(graph: "rdflib.Graph") -> bytes:
     Writing this form is also cheaper than asking rdflib for Turtle, which
     additionally groups triples by subject, counts blank node references to
     decide what to nest, and compacts every IRI against the namespace manager.
+
+    Each term is written through rdflib's own ``n3()``, which handles escaping,
+    language tags and datatypes; blank nodes are the one term kind written
+    differently, under a label guaranteed to be spellable. Bindings that cannot
+    be declared are skipped, so a graph is never rendered unparseable by a name
+    it happens to carry.
     """
+    import rdflib
+
     declarations = []
     for prefix, namespace in graph.namespaces():
-        namespace = str(namespace)
+        prefix, namespace = str(prefix), str(namespace)
         if _UNDECLARABLE_NAMESPACE.search(namespace):
+            continue
+        if not _DECLARABLE_PREFIX.match(prefix):
             continue
         declarations.append(f"@prefix {prefix}: <{namespace}> .\n")
 
-    body = graph.serialize(format="nt", encoding="utf-8")
-    if isinstance(body, str):
-        body = body.encode("utf-8")
-    return "".join(declarations).encode("utf-8") + body
+    def term(node) -> str:
+        if isinstance(node, rdflib.BNode):
+            return f"_:{_encode_bnode_label(str(node))}"
+        return node.n3()
+
+    statements = [
+        f"{term(subject)} {term(predicate)} {term(object_)} .\n"
+        for subject, predicate, object_ in graph
+    ]
+    return "".join(declarations + statements).encode("utf-8")
 
 
 def _to_rdf_input(graph: GraphInput) -> _RdfInput:
@@ -499,12 +572,21 @@ def _in_place_target(
     asking to keep them while switching it off is contradictory, and raises
     :class:`ValueError` rather than quietly doing nothing.
 
-    Both checks run before any work is handed to the engine, so a rejected
-    call costs nothing and leaves the caller's graph untouched."""
-    import rdflib
+    All three checks run before any work is handed to the engine, so a
+    rejected call costs nothing and leaves the caller's graph untouched. The
+    third is the parser's ability to pin blank node labels, which is checked
+    here even though only a delta containing blank nodes goes on to need it:
+    a call that succeeds or fails according to whether the data happens to
+    contain a blank node would be a worse contract than one that settles the
+    question up front.
 
+    rdflib is imported only once a graph is actually in play, so the ordinary
+    ``in_place=False`` path never requires it to be installed."""
     if not in_place:
         return None
+
+    import rdflib
+
     if not infer:
         raise ValueError(
             f"{caller}(..., in_place=True) has nothing to write back when infer=False"
@@ -514,14 +596,26 @@ def _in_place_target(
             f"{caller}(..., in_place=True) requires data_graph to be a single "
             f"rdflib.Graph, not {type(data_graph).__name__!r}"
         )
+    if not _bnode_labels_can_be_pinned():
+        raise RuntimeError(
+            f"{caller}(..., in_place=True) needs an rdflib whose N-Triples "
+            "parser accepts bnode_context, so that derived triples about blank "
+            f"nodes attach to the nodes this graph already holds; rdflib "
+            f"{rdflib.__version__} does not. Upgrade rdflib, or drop in_place "
+            "and use the returned graph instead."
+        )
     return data_graph
 
 
-# A blank node label in N-Triples runs to the next delimiter. Scanning for
-# labels is deliberately generous: an extra match found inside a literal names
-# a node no triple refers to, which is inert, while a missed match would cost
-# a derived triple its connection to the graph.
-_BNODE_LABEL = re.compile(r"_:([^\s.;,()\[\]<>\"]+)")
+# A blank node label ends at whitespace: every other character this scan could
+# stop on, '.' most of all, is legal inside a label. The trailing '.' that ends
+# an N-Triples statement is stripped back off, since a label cannot end in one.
+#
+# Scanning is deliberately generous about what it collects. An extra match read
+# out of a literal names a node no triple refers to, so it sits unused in the
+# mapping, while a missed match would cost a derived triple its connection to
+# the graph.
+_BNODE_LABEL = re.compile(r"_:(\S+)")
 
 
 @functools.lru_cache(maxsize=1)
@@ -558,31 +652,28 @@ def _write_back_derived(target: "Optional[rdflib.Graph]", ntriples: str) -> None
     derived about a blank node then attaches to that node, and stays reachable
     by whatever already pointed at it.
 
-    Text with no blank nodes needs none of this and is parsed directly, which
-    is also the path taken on any rdflib whose parser cannot pin labels. When
-    labels do need pinning and the parser cannot, this raises rather than
-    silently attaching the triples to unreachable nodes."""
+    A label the engine reports is read back through the same encoding it was
+    written with, so a node whose name could not be spelled in RDF syntax
+    rejoins the graph under the name it actually has.
+
+    Text with no blank nodes needs none of this and is parsed directly. The
+    parser's ability to pin labels is settled in :func:`_in_place_target`
+    before the engine runs, so by here it can be relied on."""
     if target is None or not ntriples:
         return
 
     import rdflib
 
-    labels = set(_BNODE_LABEL.findall(ntriples))
+    labels = {label.rstrip(".") for label in _BNODE_LABEL.findall(ntriples)}
     if not labels:
         target.parse(data=ntriples, format="nt")
         return
-    if not _bnode_labels_can_be_pinned():
-        raise RuntimeError(
-            "in_place=True needs an rdflib whose N-Triples parser accepts "
-            "bnode_context, so that derived triples about blank nodes attach "
-            "to the blank nodes this graph already holds; this rdflib "
-            f"({rdflib.__version__}) does not. Upgrade rdflib, or drop "
-            "in_place and use the returned graph instead."
-        )
     target.parse(
         data=ntriples,
         format="nt",
-        bnode_context={label: rdflib.BNode(label) for label in labels},
+        bnode_context={
+            label: rdflib.BNode(_decode_bnode_label(label)) for label in labels
+        },
     )
 
 
