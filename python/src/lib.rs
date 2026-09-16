@@ -333,18 +333,28 @@ pub struct AlgebraResult {
     pub conforms: bool,
     violations: Vec<Py<Violation>>,
     results_text_cache: OnceLock<String>,
-    /// Triples added by SHACL-AF inference before validation ran, as
-    /// N-Triples — empty when `run_infer` was false, there were no rules, or
-    /// nothing new was derived. Mirrors `W3cResult.inferred_ntriples` /
-    /// `InferResult.inferred_ntriples`; lets
-    /// `validate_algebra(..., in_place=True)` write just the delta back into
-    /// the caller's data graph.
-    #[pyo3(get)]
-    pub inferred_ntriples: String,
+    /// Triples added by SHACL-AF inference before validation ran, kept as
+    /// triples so that only a caller asking for them pays to render them.
+    pub inferred: Vec<Triple>,
+    pub inferred_ntriples_cache: OnceLock<String>,
 }
 
 #[pymethods]
 impl AlgebraResult {
+    /// The triples inference added before validation ran, as N-Triples —
+    /// empty when `run_infer` was false, there were no rules, or nothing new
+    /// was derived. Serialized on first read, since most validation runs
+    /// never ask: `validate_algebra(..., in_place=True)` wants the delta, and
+    /// a default `validate_algebra()` discards it.
+    #[getter]
+    fn inferred_ntriples(&self, py: Python<'_>) -> String {
+        py.allow_threads(|| {
+            self.inferred_ntriples_cache
+                .get_or_init(|| triples_to_ntriples(&self.inferred))
+                .clone()
+        })
+    }
+
     #[getter]
     fn violations(&self, py: Python<'_>) -> Vec<Py<Violation>> {
         self.violations.iter().map(|v| v.clone_ref(py)).collect()
@@ -402,24 +412,39 @@ impl AlgebraResult {
 
 // ── W3C-report-path types ────────────────────────────────────────────────────
 
-#[pyclass(get_all)]
+#[pyclass]
 pub struct W3cResult {
     /// Whether the data graph conforms to all shapes.
+    #[pyo3(get)]
     pub conforms: bool,
     /// The `sh:ValidationReport` serialized as Turtle.
+    #[pyo3(get)]
     pub report_turtle: String,
     /// Human-readable summary (pyshacl-esque text).
+    #[pyo3(get)]
     pub results_text: String,
-    /// Triples added by SHACL-AF inference before validation ran, as
-    /// N-Triples — empty when `run_infer` was false, there were no rules, or
-    /// nothing new was derived. Lets `validate(..., in_place=True)` write
-    /// just the delta back into the caller's data graph, mirroring
-    /// `InferResult.inferred_ntriples`.
-    pub inferred_ntriples: String,
+    /// Triples added by SHACL-AF inference before validation ran, kept as
+    /// triples so that only a caller asking for them pays to render them.
+    pub inferred: Vec<Triple>,
+    pub inferred_ntriples_cache: OnceLock<String>,
 }
 
 #[pymethods]
 impl W3cResult {
+    /// The triples inference added before validation ran, as N-Triples —
+    /// empty when `run_infer` was false, there were no rules, or nothing new
+    /// was derived. Serialized on first read, since most validation runs
+    /// never ask: `validate(..., in_place=True)` wants the delta, and a
+    /// default `validate()` discards it.
+    #[getter]
+    fn inferred_ntriples(&self, py: Python<'_>) -> String {
+        py.allow_threads(|| {
+            self.inferred_ntriples_cache
+                .get_or_init(|| triples_to_ntriples(&self.inferred))
+                .clone()
+        })
+    }
+
     fn __bool__(&self) -> bool {
         self.conforms
     }
@@ -812,15 +837,14 @@ fn format_report_text(report: &ValidationReport) -> String {
 fn build_w3c_result(
     report: &ValidationReport,
     report_graph: &Graph,
-    inferred: Option<&shifty_engine::InferenceOutcome>,
+    inferred: Option<Vec<Triple>>,
 ) -> W3cResult {
     W3cResult {
         conforms: report.conforms,
         report_turtle: graph_to_turtle(report_graph),
         results_text: format_report_text(report),
-        inferred_ntriples: inferred
-            .map(|outcome| triples_to_ntriples(&outcome.inferred))
-            .unwrap_or_default(),
+        inferred: inferred.unwrap_or_default(),
+        inferred_ntriples_cache: OnceLock::new(),
     }
 }
 
@@ -993,7 +1017,7 @@ struct RawViolation {
 struct RawAlgebraResult {
     conforms: bool,
     violations: Vec<RawViolation>,
-    inferred_ntriples: String,
+    inferred: Vec<Triple>,
 }
 
 impl RawAlgebraResult {
@@ -1044,7 +1068,8 @@ impl RawAlgebraResult {
             conforms: self.conforms,
             violations,
             results_text_cache: OnceLock::new(),
-            inferred_ntriples: self.inferred_ntriples,
+            inferred: self.inferred,
+            inferred_ntriples_cache: OnceLock::new(),
         })
     }
 }
@@ -1053,7 +1078,7 @@ fn raw_algebra_result(
     outcome: shifty_engine::ValidationOutcome,
     schema: &shifty_algebra::Schema,
     arena: &shifty_algebra::ShapeArena,
-    inferred: Option<&shifty_engine::InferenceOutcome>,
+    inferred: Option<Vec<Triple>>,
 ) -> RawAlgebraResult {
     let violations = outcome
         .violations
@@ -1092,9 +1117,7 @@ fn raw_algebra_result(
     RawAlgebraResult {
         conforms: outcome.conforms,
         violations,
-        inferred_ntriples: inferred
-            .map(|outcome| triples_to_ntriples(&outcome.inferred))
-            .unwrap_or_default(),
+        inferred: inferred.unwrap_or_default(),
     }
 }
 
@@ -1117,7 +1140,12 @@ fn validate_algebra_loaded(
         options,
     )
     .map_err(|e| format!("non-stratifiable schema: {e}"))?;
-    Ok(raw_algebra_result(outcome, schema, &plan.arena, inferred.as_ref()))
+    Ok(raw_algebra_result(
+        outcome,
+        schema,
+        &plan.arena,
+        inferred.map(|o| o.inferred),
+    ))
 }
 
 fn validate_algebra_embedded(
@@ -1131,7 +1159,12 @@ fn validate_algebra_embedded(
     let eval_data = inferred.as_ref().map_or(&loaded.graph, |o| &o.graph);
     let outcome = validate_plan_with_options(eval_data, plan, options)
         .map_err(|e| format!("non-stratifiable schema: {e}"))?;
-    Ok(raw_algebra_result(outcome, schema, &plan.arena, inferred.as_ref()))
+    Ok(raw_algebra_result(
+        outcome,
+        schema,
+        &plan.arena,
+        inferred.map(|o| o.inferred),
+    ))
 }
 
 fn validate_w3c_loaded(
@@ -1147,7 +1180,11 @@ fn validate_w3c_loaded(
     let report =
         validate_report_graphs_with_mode_and_options(shapes_loaded, eval_data, mode, options);
     let report_graph = report_to_graph(&report);
-    Ok(build_w3c_result(&report, &report_graph, inferred.as_ref()))
+    Ok(build_w3c_result(
+        &report,
+        &report_graph,
+        inferred.map(|outcome| outcome.inferred),
+    ))
 }
 
 fn validate_w3c_embedded(
@@ -1160,7 +1197,11 @@ fn validate_w3c_embedded(
     let eval_data = inferred.as_ref().map_or(&loaded.graph, |o| &o.graph);
     let report = validate_report_with_options(loaded, eval_data, options);
     let report_graph = report_to_graph(&report);
-    Ok(build_w3c_result(&report, &report_graph, inferred.as_ref()))
+    Ok(build_w3c_result(
+        &report,
+        &report_graph,
+        inferred.map(|outcome| outcome.inferred),
+    ))
 }
 
 fn load_validation_inputs(
