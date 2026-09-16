@@ -523,6 +523,29 @@ class TestInferInPlace:
         assert set(data) == before
 
 
+class TestInferInPlaceAcceptsSingletonSequence:
+    """A one-member sequence names the graph it holds, on every other path."""
+
+    @pytest.mark.parametrize("wrap", [list, tuple])
+    def test_singleton_sequence_is_extended(self, wrap):
+        data = rdflib.Graph()
+        data.parse(data=INFER_DATA, format="turtle")
+
+        result = shifty.infer(wrap([data]), INFER_SHAPES.encode(), in_place=True)
+
+        EX = rdflib.Namespace("http://example.org/")
+        assert result.inferred_count == 1
+        assert (EX.a, EX.knows2, EX.b) in data
+
+    def test_longer_sequence_is_still_rejected(self):
+        """A union of several inputs is a new graph the caller never sees."""
+        data = rdflib.Graph()
+        data.parse(data=INFER_DATA, format="turtle")
+
+        with pytest.raises(TypeError):
+            shifty.infer([data, rdflib.Graph()], INFER_SHAPES.encode(), in_place=True)
+
+
 class TestValidateInPlace:
     def test_requires_rdflib_graph(self):
         with pytest.raises(TypeError):
@@ -694,6 +717,10 @@ class TestInPlaceBlankNodes:
             "-leading-dash",
             "unicode-é",
             '<angle>"quote',
+            # A name that already looks like an encoded label, which must not
+            # be mistaken for one on the way back.
+            "shiftyx20",
+            "shiftyx" + "has space".encode("utf-8").hex(),
         ],
     )
     def test_any_blank_node_label_keeps_its_derived_triple(self, label):

@@ -334,12 +334,12 @@ def _fetch_url(url: str) -> _RdfInput:
     return _RdfInput(data, None, _url_format(final_url or url, content_type))
 
 
-# A namespace IRI is written between angle brackets in a `@prefix` line, so a
-# namespace containing whitespace or a closing bracket cannot be declared that
-# way. Such a binding is dropped rather than allowed to corrupt the document;
-# the triples that use it still carry their IRIs in full, so only the
-# abbreviation is lost.
-_UNDECLARABLE_NAMESPACE = re.compile(r"[\s<>\"{}|^`\\]")
+# An IRI is written between angle brackets, so one holding a character that
+# Turtle's IRIREF excludes — every code point up to and including a space, and
+# the delimiters below — cannot be declared that way. Such a binding is dropped
+# rather than allowed to corrupt the document; the triples that use it still
+# carry their IRIs in full, so only the abbreviation is lost.
+_UNDECLARABLE_NAMESPACE = re.compile(r"[\x00-\x20<>\"{}|^`\\]")
 
 # Turtle's PN_PREFIX: a name opens with a letter, may carry digits, `-`, `_`
 # and interior dots after that, and cannot end on a dot. The empty prefix of a
@@ -347,7 +347,7 @@ _UNDECLARABLE_NAMESPACE = re.compile(r"[\s<>\"{}|^`\\]")
 # dropped for the same reason an undeclarable namespace is — one name that
 # cannot be spelled would otherwise make the whole document unparseable,
 # costing every call on that graph rather than just the abbreviation.
-_PN_CHARS_BASE = "A-Za-zÀ-ÖØ-öø-˿Ͱ-ͽͿ-῿‌-‍⁰-↏Ⰰ-⿯、-퟿豈-﷏ﷰ-�"
+_PN_CHARS_BASE = "A-Za-zÀ-ÖØ-öø-˿Ͱ-ͽͿ-῿‌-‍⁰-↏Ⰰ-⿯、-퟿豈-﷏ﷰ-�\U00010000-\U000effff"
 _PN_CHARS = _PN_CHARS_BASE + "0-9_\\-·̀-ͯ‿-⁀"
 _DECLARABLE_PREFIX = re.compile(
     f"\\A(?:[{_PN_CHARS_BASE}](?:[{_PN_CHARS}.]*[{_PN_CHARS}])?)?\\Z"
@@ -370,17 +370,19 @@ _SPELLABLE_BNODE_LABEL = re.compile(
 # Such a label is rewritten to this marker followed by the hex of its UTF-8
 # bytes, which is always spellable, and read back by reversing that.
 #
-# The encoding is applied only to labels that cannot be written as they are,
-# and reversed only when the decoded result is itself unspellable. A label that
-# merely looks like the encoded form therefore decodes to something that would
-# never have been encoded, and is left alone.
+# Distinct nodes have to keep distinct names, or the engine would see one node
+# carrying the triples of two. That holds because the two sets of names never
+# overlap: a label is encoded when it cannot be written as it is *or* when it
+# already looks like an encoded label, which leaves nothing that passes through
+# untouched wearing the marker. Every name arriving with the marker was
+# therefore produced here, and is decoded on sight.
 _ENCODED_BNODE_LABEL = re.compile(r"\Ashiftyx([0-9a-f]{2,})\Z")
 _BNODE_LABEL_MARKER = "shiftyx"
 
 
 def _encode_bnode_label(label: str) -> str:
     """Return a label spellable in RDF syntax, naming the same blank node."""
-    if _SPELLABLE_BNODE_LABEL.match(label):
+    if _SPELLABLE_BNODE_LABEL.match(label) and not _ENCODED_BNODE_LABEL.match(label):
         return label
     return _BNODE_LABEL_MARKER + label.encode("utf-8").hex()
 
@@ -391,12 +393,12 @@ def _decode_bnode_label(label: str) -> str:
     if encoded is None:
         return label
     try:
-        decoded = bytes.fromhex(encoded.group(1)).decode("utf-8")
+        return bytes.fromhex(encoded.group(1)).decode("utf-8")
     except (ValueError, UnicodeDecodeError):
+        # A label wearing the marker that this never wrote: it reached the
+        # engine from a document the caller supplied as bytes or a path, where
+        # labels are passed through untouched. Its own name is the right one.
         return label
-    if _SPELLABLE_BNODE_LABEL.match(decoded):
-        return label
-    return decoded
 
 
 def _flat_turtle_bytes(graph: "rdflib.Graph") -> bytes:
@@ -428,29 +430,36 @@ def _flat_turtle_bytes(graph: "rdflib.Graph") -> bytes:
     language tags and datatypes; blank nodes are the one term kind written
     differently, under a label guaranteed to be spellable. Bindings that cannot
     be declared are skipped, so a graph is never rendered unparseable by a name
-    it happens to carry.
+    it happens to carry. A graph's base is declared when it has one, since
+    without it the relative IRIs a graph may hold have nothing to resolve
+    against.
     """
     import rdflib
 
-    declarations = []
+    header = []
+    base = getattr(graph, "base", None)
+    if base and not _UNDECLARABLE_NAMESPACE.search(str(base)):
+        header.append(f"@base <{base}> .\n")
     for prefix, namespace in graph.namespaces():
         prefix, namespace = str(prefix), str(namespace)
         if _UNDECLARABLE_NAMESPACE.search(namespace):
             continue
         if not _DECLARABLE_PREFIX.match(prefix):
             continue
-        declarations.append(f"@prefix {prefix}: <{namespace}> .\n")
+        header.append(f"@prefix {prefix}: <{namespace}> .\n")
 
     def term(node) -> str:
         if isinstance(node, rdflib.BNode):
             return f"_:{_encode_bnode_label(str(node))}"
         return node.n3()
 
+    # Asking for triples explicitly keeps this right for a quad store, whose
+    # own iterator yields quads.
     statements = [
         f"{term(subject)} {term(predicate)} {term(object_)} .\n"
-        for subject, predicate, object_ in graph
+        for subject, predicate, object_ in graph.triples((None, None, None))
     ]
-    return "".join(declarations + statements).encode("utf-8")
+    return "".join(header + statements).encode("utf-8")
 
 
 def _to_rdf_input(graph: GraphInput) -> _RdfInput:
@@ -591,6 +600,12 @@ def _in_place_target(
         raise ValueError(
             f"{caller}(..., in_place=True) has nothing to write back when infer=False"
         )
+    # A one-member sequence names exactly the graph it holds, and is unioned
+    # into that same object everywhere else, so it is accepted as naming it
+    # here too. A longer one is unioned into a new graph the caller never sees,
+    # which is nothing to write back to.
+    if isinstance(data_graph, (list, tuple)) and len(data_graph) == 1:
+        data_graph = data_graph[0]
     if not isinstance(data_graph, rdflib.Graph):
         raise TypeError(
             f"{caller}(..., in_place=True) requires data_graph to be a single "

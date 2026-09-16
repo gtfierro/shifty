@@ -218,7 +218,17 @@ class TestToTurtleBytes:
         assert (EX.a, EX.b, EX.c) in reparsed
 
     @pytest.mark.parametrize(
-        "prefix", ["ex", "", "a1", "with-dash", "with_underscore", "in.terior", "é"]
+        "prefix",
+        [
+            "ex",
+            "",
+            "a1",
+            "with-dash",
+            "with_underscore",
+            "in.terior",
+            "é",
+            "\U00010300abc",  # supplementary plane, which PN_CHARS_BASE includes
+        ],
     )
     def test_rdflib_graph_declares_spellable_prefix(self, prefix):
         g = rdflib.Graph()
@@ -264,6 +274,75 @@ class TestToTurtleBytes:
         subject = reparsed.value(EX.a, EX.has)
         assert isinstance(subject, rdflib.BNode)
         assert list(reparsed.objects(subject, EX.width)) == [rdflib.Literal(4)]
+
+    def test_rdflib_graph_keeps_distinct_blank_nodes_distinct(self):
+        """Two nodes must never arrive as one.
+
+        A label that cannot be written directly is encoded, and a label that
+        already looks encoded is encoded too — otherwise the two could collide
+        on one name, and the engine would see a single node carrying both
+        nodes' triples, changing what counts as conforming."""
+        g = rdflib.Graph()
+        EX = rdflib.Namespace("http://example.org/")
+        plain = rdflib.BNode("has space")
+        lookalike = rdflib.BNode("shiftyx" + "has space".encode("utf-8").hex())
+        g.add((EX.x, EX.p, plain))
+        g.add((plain, EX.v, rdflib.Literal(1)))
+        g.add((EX.y, EX.p, lookalike))
+        g.add((lookalike, EX.v, rdflib.Literal(2)))
+
+        result = _to_turtle_bytes(g).decode("utf-8")
+
+        labels = {
+            line.split(" ", 1)[0]
+            for line in result.splitlines()
+            if line.startswith("_:")
+        }
+        assert len(labels) == 2
+
+        reparsed = rdflib.Graph()
+        reparsed.parse(data=result, format="turtle")
+        assert len(set(reparsed.objects(None, EX.p))) == 2
+
+    def test_rdflib_graph_declares_base(self):
+        """A relative IRI has nothing to resolve against without the base."""
+        g = rdflib.Graph(base="http://example.org/base/")
+        EX = rdflib.Namespace("http://example.org/")
+        g.add((rdflib.URIRef("rel"), EX.b, EX.c))
+
+        reparsed = rdflib.Graph()
+        reparsed.parse(data=_to_turtle_bytes(g), format="turtle")
+
+        assert (
+            rdflib.URIRef("http://example.org/base/rel"),
+            EX.b,
+            EX.c,
+        ) in reparsed
+
+    def test_dataset_input_is_serialized_as_triples(self):
+        """A quad store iterates quads, so triples are asked for explicitly."""
+        ds = rdflib.Dataset(default_union=True)
+        EX = rdflib.Namespace("http://example.org/")
+        ds.add((EX.a, EX.b, EX.c))
+
+        reparsed = rdflib.Graph()
+        reparsed.parse(data=_to_turtle_bytes(ds), format="turtle")
+
+        assert (EX.a, EX.b, EX.c) in reparsed
+
+    def test_rdflib_graph_skips_namespace_holding_a_control_character(self):
+        """Checked against the engine's parser, which is the strict one.
+
+        rdflib will re-read an IRI it wrote holding a control character;
+        Turtle's own grammar will not, so a document that survives a rdflib
+        round trip can still fail every call on the graph."""
+        g = rdflib.Graph()
+        EX = rdflib.Namespace("http://example.org/")
+        g.bind("ex", EX)
+        g.bind("bad", rdflib.Namespace("http://example.org/a\x01b#"))
+        g.add((EX.a, EX.b, EX.c))
+
+        assert shifty.infer(g).inferred_count == 0
 
     def test_rdflib_graph_skips_undeclarable_namespace(self):
         g = rdflib.Graph()
