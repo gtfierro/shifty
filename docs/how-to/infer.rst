@@ -77,11 +77,26 @@ holds, so they stay reachable from whatever pointed at it:
 
 .. code-block:: python
 
-   data.parse(data="ex:r1 ex:hasDim [ a ex:Dim ; ex:width 4 ] .", format="turtle")
+   import rdflib
+
+   EX = rdflib.Namespace("http://example.org/")
+   data = rdflib.Graph()
+   data.parse(
+       data="""
+       @prefix ex: <http://example.org/> .
+       ex:r1 ex:hasDim [ a ex:Dim ; ex:width 4 ] .
+       """,
+       format="turtle",
+   )
+
    shifty.infer(data, rules, in_place=True)
 
    dim = data.value(EX.r1, EX.hasDim)
    list(data.objects(dim, EX.area))   # the derived value, reached through ex:r1
+
+Any blank node label works, including names that RDF syntax cannot spell
+directly — labels carried over from a JSON-LD ``@id`` or a database key are
+encoded for the round trip and restored on the way back.
 
 Rules embedded in the data graph work the same way — omit the second argument:
 

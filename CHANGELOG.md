@@ -21,7 +21,14 @@
   every blank node an explicit label; it is cheaper to produce than
   rdflib's Turtle serializer, which groups triples by subject, counts blank
   node references to decide what to nest, and compacts every IRI against
-  the namespace manager.
+  the namespace manager. Namespace bindings and blank node labels that RDF
+  syntax cannot spell are handled rather than emitted: an undeclarable
+  binding is skipped, and such a blank node is written under a reversible
+  encoding, so no name a caller's graph happens to carry can make the
+  document unparseable.
+- `validate()` and `validate_algebra()` no longer render the inference
+  delta unless it is read, so a run that does not use `in_place` does not
+  pay to build a string it discards.
 
 ## 0.4.4
 
