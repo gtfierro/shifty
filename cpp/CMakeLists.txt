@@ -3,10 +3,12 @@ cmake_minimum_required(VERSION 3.20)
 file(
     STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/../Cargo.toml"
     SHIFTY_VERSION_LINE
-    REGEX "^version = \"[0-9]+\\.[0-9]+\\.[0-9]+\"$")
+    REGEX "^version = \"[0-9]+\\.[0-9]+\\.[0-9]+")
+# CMake's project VERSION accepts only numeric components, so use the core of
+# the Cargo version even for a prerelease such as 0.5.0-alpha.1.
 string(
     REGEX REPLACE
-    "^version = \"([0-9]+\\.[0-9]+\\.[0-9]+)\"$"
+    "^version = \"([0-9]+\\.[0-9]+\\.[0-9]+).*"
     "\\1"
     SHIFTY_VERSION
     "${SHIFTY_VERSION_LINE}")
