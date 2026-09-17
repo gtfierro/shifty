@@ -79,6 +79,39 @@ def test_released_repair_type_aliases_warn(legacy, replacement):
     assert value is getattr(shifty, replacement)
 
 
+def test_write_back_does_not_render_delta_without_a_target():
+    def unexpected_delta():
+        raise AssertionError("ordinary validation must not render its delta")
+
+    shifty._write_back_derived(None, unexpected_delta)
+
+
+@pytest.mark.parametrize(
+    ("wrapper", "native_name"),
+    [
+        ("infer", "_infer"),
+        ("validate", "_validate_w3c"),
+        ("validate_algebra", "_validate_algebra"),
+    ],
+)
+def test_default_wrappers_do_not_read_delta(monkeypatch, wrapper, native_name):
+    class NativeResult:
+        conforms = True
+        report_turtle = ""
+        results_text = ""
+
+        @property
+        def inferred_ntriples(self):
+            raise AssertionError("default call read the inference delta")
+
+        @property
+        def _inferred_ntriples(self):
+            raise AssertionError("default call read the inference delta")
+
+    monkeypatch.setattr(shifty, native_name, lambda *args: NativeResult())
+    getattr(shifty, wrapper)(INFER_DATA.encode(), INFER_SHAPES.encode())
+
+
 # ── validate() — pyshacl-compatible ──────────────────────────────────────────
 
 
@@ -384,6 +417,43 @@ INFER_DATA = PREFIXES + textwrap.dedent("""\
     ex:a a ex:Thing ; ex:knows ex:b .
 """)
 
+# A rule whose subject is the focus node, fired on a focus node that is itself
+# a blank node reached through ex:hasDim. Whatever it derives belongs on that
+# blank node, so the derived triple is only useful if it stays reachable from
+# ex:r1 -- which is the question these fixtures exist to ask.
+BNODE_RULES = PREFIXES + textwrap.dedent("""\
+    ex:DimShape a sh:NodeShape ;
+        sh:targetClass ex:Dim ;
+        sh:rule [
+            a sh:TripleRule ;
+            sh:subject sh:this ;
+            sh:predicate ex:area ;
+            sh:object [ sh:path ex:width ]
+        ] .
+""")
+
+BNODE_DATA = PREFIXES + textwrap.dedent("""\
+    ex:r1 ex:hasDim [ a ex:Dim ; ex:width 4 ] .
+""")
+
+
+def _bnode_graph():
+    graph = rdflib.Graph()
+    graph.parse(data=BNODE_DATA, format="turtle")
+    return graph
+
+
+def _derived_area(graph):
+    """The ex:area values reachable by walking ex:r1 -> ex:hasDim -> ex:area.
+
+    Reads the derived triple the way an application would, through the node
+    that points at it, rather than by scanning the graph for it. A triple
+    attached to some other blank node is invisible here even though the graph
+    contains it, which is exactly the failure worth catching."""
+    EX = rdflib.Namespace("http://example.org/")
+    dim = graph.value(EX.r1, EX.hasDim)
+    return list(graph.objects(dim, EX.area))
+
 
 class TestInfer:
     def test_returns_infer_result(self):
@@ -422,6 +492,311 @@ class TestInfer:
     def test_repr(self):
         result = shifty.infer(INFER_DATA.encode(), INFER_SHAPES.encode())
         assert "inferred=1" in repr(result)
+
+    def test_inferred_ntriples_is_just_the_delta(self):
+        result = shifty.infer(INFER_DATA.encode(), INFER_SHAPES.encode())
+        assert isinstance(result.inferred_ntriples, str)
+        assert "knows2" in result.inferred_ntriples
+        # The delta shouldn't carry the original, already-asserted triples.
+        assert "ex:a a ex:Thing" not in result.inferred_ntriples
+        EX = rdflib.Namespace("http://example.org/")
+        delta = rdflib.Graph()
+        delta.parse(data=result.inferred_ntriples, format="nt")
+        assert (EX.a, EX.knows2, EX.b) in delta
+        assert (EX.a, rdflib.RDF.type, EX.Thing) not in delta
+
+    def test_inferred_ntriples_empty_when_nothing_inferred(self):
+        result = shifty.infer(CONFORMS_DATA.encode(), INFER_SHAPES.encode())
+        assert result.inferred_count == 0
+        assert result.inferred_ntriples == ""
+
+
+class TestInferInPlace:
+    def test_requires_rdflib_graph(self):
+        with pytest.raises(TypeError):
+            shifty.infer(INFER_DATA.encode(), INFER_SHAPES.encode(), in_place=True)
+
+    def test_adds_inferred_triples_to_input_graph(self):
+        data = rdflib.Graph()
+        data.parse(data=INFER_DATA, format="turtle")
+        original_len = len(data)
+
+        result = shifty.infer(data, INFER_SHAPES.encode(), in_place=True)
+
+        EX = rdflib.Namespace("http://example.org/")
+        assert (EX.a, EX.knows2, EX.b) in data
+        assert len(data) == original_len + result.inferred_count
+
+    def test_graph_returns_same_object_as_input(self):
+        data = rdflib.Graph()
+        data.parse(data=INFER_DATA, format="turtle")
+
+        result = shifty.infer(data, INFER_SHAPES.encode(), in_place=True)
+
+        assert result.graph() is data
+
+    def test_matches_non_in_place_result(self):
+        data = rdflib.Graph()
+        data.parse(data=INFER_DATA, format="turtle")
+
+        in_place_result = shifty.infer(data, INFER_SHAPES.encode(), in_place=True)
+        copy_result = shifty.infer(INFER_DATA.encode(), INFER_SHAPES.encode())
+
+        assert isomorphic(data, copy_result.graph())
+        assert in_place_result.inferred_count == copy_result.inferred_count
+
+    def test_no_op_when_nothing_inferred(self):
+        data = rdflib.Graph()
+        data.parse(data=CONFORMS_DATA, format="turtle")
+        before = set(data)
+
+        result = shifty.infer(data, INFER_SHAPES.encode(), in_place=True)
+
+        assert result.inferred_count == 0
+        assert set(data) == before
+
+
+class TestInferInPlaceAcceptsSingletonSequence:
+    """A one-member sequence names the graph it holds, on every other path."""
+
+    @pytest.mark.parametrize("wrap", [list, tuple])
+    def test_singleton_sequence_is_extended(self, wrap):
+        data = rdflib.Graph()
+        data.parse(data=INFER_DATA, format="turtle")
+
+        result = shifty.infer(wrap([data]), INFER_SHAPES.encode(), in_place=True)
+
+        EX = rdflib.Namespace("http://example.org/")
+        assert result.inferred_count == 1
+        assert (EX.a, EX.knows2, EX.b) in data
+
+    def test_longer_sequence_is_still_rejected(self):
+        """A union of several inputs is a new graph the caller never sees."""
+        data = rdflib.Graph()
+        data.parse(data=INFER_DATA, format="turtle")
+
+        with pytest.raises(TypeError):
+            shifty.infer([data, rdflib.Graph()], INFER_SHAPES.encode(), in_place=True)
+
+
+class TestValidateInPlace:
+    def test_requires_rdflib_graph(self):
+        with pytest.raises(TypeError):
+            validate(INFER_DATA.encode(), INFER_SHAPES.encode(), in_place=True)
+
+    def test_requires_infer_true(self):
+        data = rdflib.Graph()
+        data.parse(data=INFER_DATA, format="turtle")
+        with pytest.raises(ValueError):
+            validate(data, INFER_SHAPES.encode(), in_place=True, infer=False)
+
+    def test_adds_inferred_triples_to_input_graph(self):
+        data = rdflib.Graph()
+        data.parse(data=INFER_DATA, format="turtle")
+        original_len = len(data)
+
+        conforms, _, _ = validate(data, INFER_SHAPES.encode(), in_place=True)
+
+        EX = rdflib.Namespace("http://example.org/")
+        assert conforms
+        assert (EX.a, EX.knows2, EX.b) in data
+        assert len(data) == original_len + 1
+
+    def test_report_graph_is_unaffected(self):
+        data = rdflib.Graph()
+        data.parse(data=INFER_DATA, format="turtle")
+
+        _, report, _ = validate(data, INFER_SHAPES.encode(), in_place=True)
+
+        assert isinstance(report, rdflib.Graph)
+        assert report is not data
+
+    def test_no_op_when_nothing_inferred(self):
+        data = rdflib.Graph()
+        data.parse(data=CONFORMS_DATA, format="turtle")
+        before = set(data)
+
+        validate(data, INFER_SHAPES.encode(), in_place=True)
+
+        assert set(data) == before
+
+    def test_matches_separately_computed_inference(self):
+        data = rdflib.Graph()
+        data.parse(data=INFER_DATA, format="turtle")
+
+        validate(data, INFER_SHAPES.encode(), in_place=True)
+        expected = shifty.infer(INFER_DATA.encode(), INFER_SHAPES.encode()).graph()
+
+        assert isomorphic(data, expected)
+
+
+class TestValidateAlgebraInPlace:
+    def test_requires_rdflib_graph(self):
+        with pytest.raises(TypeError):
+            validate_algebra(INFER_DATA.encode(), INFER_SHAPES.encode(), in_place=True)
+
+    def test_requires_infer_true(self):
+        data = rdflib.Graph()
+        data.parse(data=INFER_DATA, format="turtle")
+        with pytest.raises(ValueError):
+            validate_algebra(data, INFER_SHAPES.encode(), in_place=True, infer=False)
+
+    def test_adds_inferred_triples_to_input_graph(self):
+        data = rdflib.Graph()
+        data.parse(data=INFER_DATA, format="turtle")
+        original_len = len(data)
+
+        result = validate_algebra(data, INFER_SHAPES.encode(), in_place=True)
+
+        EX = rdflib.Namespace("http://example.org/")
+        assert result.conforms
+        assert (EX.a, EX.knows2, EX.b) in data
+        assert len(data) == original_len + 1
+
+    def test_no_op_when_nothing_inferred(self):
+        data = rdflib.Graph()
+        data.parse(data=CONFORMS_DATA, format="turtle")
+        before = set(data)
+
+        validate_algebra(data, INFER_SHAPES.encode(), in_place=True)
+
+        assert set(data) == before
+
+    def test_matches_separately_computed_inference(self):
+        data = rdflib.Graph()
+        data.parse(data=INFER_DATA, format="turtle")
+
+        validate_algebra(data, INFER_SHAPES.encode(), in_place=True)
+        expected = shifty.infer(INFER_DATA.encode(), INFER_SHAPES.encode()).graph()
+
+        assert isomorphic(data, expected)
+
+
+@pytest.mark.parametrize("method", ["_validate_algebra", "_validate_w3c"])
+def test_native_validation_only_keeps_delta_when_requested(method):
+    native_validate = getattr(shifty, method)
+    ordinary = native_validate(data=INFER_DATA.encode(), shapes=INFER_SHAPES.encode())
+    retained = native_validate(
+        data=INFER_DATA.encode(),
+        shapes=INFER_SHAPES.encode(),
+        keep_inferred=True,
+    )
+
+    assert ordinary.conforms == retained.conforms
+    assert ordinary._inferred_ntriples == ""
+    assert "knows2" in retained._inferred_ntriples
+    assert not hasattr(ordinary, "inferred_ntriples")
+
+
+class TestInPlaceBlankNodes:
+    """Derived triples about a blank node have to land on the caller's node.
+
+    A blank node is named only by the label its document gives it, so these
+    exercise the one case where that name has to survive a full round trip:
+    the data goes out to the engine, a rule fires on a blank node, and the
+    triple that comes back has to rejoin the node it describes.
+    """
+
+    def test_infer_attaches_to_the_original_blank_node(self):
+        graph = _bnode_graph()
+
+        result = shifty.infer(graph, BNODE_RULES.encode(), in_place=True)
+
+        assert result.inferred_count == 1
+        assert _derived_area(graph) == [rdflib.Literal(4)]
+
+    def test_validate_attaches_to_the_original_blank_node(self):
+        graph = _bnode_graph()
+
+        validate(graph, BNODE_RULES.encode(), in_place=True)
+
+        assert _derived_area(graph) == [rdflib.Literal(4)]
+
+    def test_validate_algebra_attaches_to_the_original_blank_node(self):
+        graph = _bnode_graph()
+
+        validate_algebra(graph, BNODE_RULES.encode(), in_place=True)
+
+        assert _derived_area(graph) == [rdflib.Literal(4)]
+
+    def test_no_orphan_blank_node_is_introduced(self):
+        graph = _bnode_graph()
+
+        shifty.infer(graph, BNODE_RULES.encode(), in_place=True)
+
+        nodes = {
+            term
+            for triple in graph
+            for term in triple
+            if isinstance(term, rdflib.BNode)
+        }
+        assert len(nodes) == 1
+
+    def test_repeated_runs_stay_stable(self):
+        """Running twice derives the same triple onto the same node.
+
+        A run that minted a new blank node each time would leave the graph
+        growing on every call, so this pins the fixed point down."""
+        graph = _bnode_graph()
+
+        shifty.infer(graph, BNODE_RULES.encode(), in_place=True)
+        after_first = set(graph)
+        second = shifty.infer(graph, BNODE_RULES.encode(), in_place=True)
+
+        assert second.inferred_count == 0
+        assert set(graph) == after_first
+
+    def test_matches_the_graph_built_without_in_place(self):
+        graph = _bnode_graph()
+
+        shifty.infer(graph, BNODE_RULES.encode(), in_place=True)
+        separate = shifty.infer(BNODE_DATA.encode(), BNODE_RULES.encode()).graph()
+
+        assert isomorphic(graph, separate)
+
+    @pytest.mark.parametrize(
+        "label",
+        [
+            "plain1",
+            "in.terior.dots",
+            "trailing.",
+            "with-dash",
+            "0leading-digit",
+            "has space",
+            "-leading-dash",
+            "unicode-é",
+            '<angle>"quote',
+            # A name that already looks like an encoded label, which must not
+            # be mistaken for one on the way back.
+            "shiftyx20",
+            "shiftyx" + "has space".encode("utf-8").hex(),
+        ],
+    )
+    def test_any_blank_node_label_keeps_its_derived_triple(self, label):
+        """The node's name must not decide whether the feature works.
+
+        rdflib will name a BNode anything, and applications do — identifiers
+        carried over from a JSON-LD ``@id`` or a database key land here
+        unchanged. Whatever the label, the derived triple has to come back to
+        the node it describes."""
+        EX = rdflib.Namespace("http://example.org/")
+        graph = rdflib.Graph()
+        dim = rdflib.BNode(label)
+        graph.add((EX.r1, EX.hasDim, dim))
+        graph.add((dim, rdflib.RDF.type, EX.Dim))
+        graph.add((dim, EX.width, rdflib.Literal(4)))
+
+        result = shifty.infer(graph, BNODE_RULES.encode(), in_place=True)
+
+        assert result.inferred_count == 1
+        assert _derived_area(graph) == [rdflib.Literal(4)]
+        nodes = {
+            term
+            for triple in graph
+            for term in triple
+            if isinstance(term, rdflib.BNode)
+        }
+        assert len(nodes) == 1
 
 
 # ── graph_mode variants ───────────────────────────────────────────────────────

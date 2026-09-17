@@ -244,6 +244,7 @@ jobs:
     permissions:
       contents: write
     needs:
+      - validate-release
       - build-cli
       - wheels-linux
       - wheels-musllinux
@@ -252,12 +253,25 @@ jobs:
       - wheels-sdist
       - smoke-wheel
     steps:
+      - uses: actions/checkout@v5
       - uses: actions/download-artifact@v8
         with:
           path: release-artifacts
+      - name: Prepare release notes
+        env:
+          VERSION: ${{ needs.validate-release.outputs.version }}
+        run: |
+          awk -v version="$VERSION" '
+            $0 == "## " version { printing=1; next }
+            printing && /^## / { exit }
+            printing { print }
+          ' CHANGELOG.md > release-notes.md
+          test -s release-notes.md
       - name: Create release
         uses: softprops/action-gh-release@v3
         with:
+          body_path: release-notes.md
+          prerelease: ${{ contains(github.ref_name, '-') }}
           files: |
             release-artifacts/**/*.whl
             release-artifacts/**/*.tar.gz
@@ -293,6 +307,7 @@ jobs:
 
   publish_crates:
     name: Publish crates to crates.io
+    if: ${{ !contains(github.ref_name, '-') }}
     runs-on: ubuntu-latest
     needs:
       - build-cli

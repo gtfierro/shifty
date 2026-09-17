@@ -48,6 +48,13 @@ jobs:
       - name: Run Python binding tests with coverage
         working-directory: python
         run: uv run pytest tests/ -v --cov=shifty --cov-report=term-missing --cov-report=xml
+      - name: Test minimum supported rdflib
+        working-directory: python
+        run: |
+          uv pip install --python .venv/bin/python "rdflib==6.0.0"
+          .venv/bin/python -c "import rdflib; assert rdflib.__version__ == '6.0.0'"
+          # Avoid `uv run`, which would restore the locked rdflib version.
+          .venv/bin/pytest -q
 
   linux:
     runs-on: ${{ matrix.platform.runner }}

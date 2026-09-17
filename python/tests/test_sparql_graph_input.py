@@ -80,6 +80,39 @@ def test_sparql_target_with_prefixed_name_survives_graph_input():
     assert not conforms
 
 
+def test_embedded_sparql_rule_prefixes_survive_graph_input():
+    """One rdflib.Graph carrying both the data and the rules that read it.
+
+    The prefixes a SPARQL rule resolves against belong to the document the
+    rule is written in, and here that document is the data graph itself, so
+    this is the case where the namespace bindings and the data have to arrive
+    together."""
+    combined = graph(DATA + "\n" + SPARQL_RULE)
+
+    result = shifty.infer(combined)
+
+    assert result.inferred_count == 1
+    assert (
+        rdflib.URIRef("http://example.org/focus"),
+        rdflib.URIRef("http://example.org/inferred"),
+        rdflib.URIRef("http://example.org/Value"),
+    ) in result.graph()
+
+
+def test_embedded_sparql_rule_prefixes_survive_in_place_graph_input():
+    """The same graph, extended in place rather than copied."""
+    combined = graph(DATA + "\n" + SPARQL_RULE)
+
+    result = shifty.infer(combined, in_place=True)
+
+    assert result.inferred_count == 1
+    assert (
+        rdflib.URIRef("http://example.org/focus"),
+        rdflib.URIRef("http://example.org/inferred"),
+        rdflib.URIRef("http://example.org/Value"),
+    ) in combined
+
+
 @pytest.mark.parametrize(
     ("shapes", "operation"),
     [

@@ -24,6 +24,25 @@ INVALID = b"""
 ex:bob a ex:Person .
 """
 
+RULE_SHAPES = b"""
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix ex: <http://example.org/> .
+
+ex:S a sh:NodeShape ;
+    sh:targetClass ex:Thing ;
+    sh:rule [
+        a sh:TripleRule ;
+        sh:subject sh:this ;
+        sh:predicate ex:knows2 ;
+        sh:object [ sh:path ex:knows ]
+    ] .
+"""
+
+RULE_DATA = """
+@prefix ex: <http://example.org/> .
+ex:a a ex:Thing ; ex:knows ex:b .
+"""
+
 
 def test_prepared_validator_matches_one_shot():
     prepared = shifty.PreparedValidator(SHAPES)
@@ -56,6 +75,93 @@ def test_prepared_validator_accepts_rdflib_graph():
 def test_prepared_validator_rejects_empty_shapes():
     with pytest.raises(ValueError, match="explicit shapes graph is empty"):
         shifty.PreparedValidator(rdflib.Graph())
+
+
+def test_prepared_validator_validate_in_place_adds_inferred_triples():
+    prepared = shifty.PreparedValidator(RULE_SHAPES)
+    data = rdflib.Graph()
+    data.parse(data=RULE_DATA, format="turtle")
+
+    conforms, _, _ = prepared.validate(data, in_place=True)
+
+    EX = rdflib.Namespace("http://example.org/")
+    assert conforms
+    assert (EX.a, EX.knows2, EX.b) in data
+
+
+def test_prepared_validator_validate_in_place_requires_rdflib_graph():
+    prepared = shifty.PreparedValidator(RULE_SHAPES)
+    with pytest.raises(TypeError):
+        prepared.validate(RULE_DATA.encode(), in_place=True)
+
+
+def test_prepared_validator_validate_in_place_requires_infer_true():
+    prepared = shifty.PreparedValidator(RULE_SHAPES)
+    data = rdflib.Graph()
+    data.parse(data=RULE_DATA, format="turtle")
+    with pytest.raises(ValueError):
+        prepared.validate(data, in_place=True, infer=False)
+
+
+def test_prepared_validator_validate_algebra_in_place_adds_inferred_triples():
+    prepared = shifty.PreparedValidator(RULE_SHAPES)
+    data = rdflib.Graph()
+    data.parse(data=RULE_DATA, format="turtle")
+
+    result = prepared.validate_algebra(data, in_place=True)
+
+    EX = rdflib.Namespace("http://example.org/")
+    assert result.conforms
+    assert (EX.a, EX.knows2, EX.b) in data
+
+
+def test_prepared_validator_validate_algebra_in_place_requires_rdflib_graph():
+    prepared = shifty.PreparedValidator(RULE_SHAPES)
+    with pytest.raises(TypeError):
+        prepared.validate_algebra(RULE_DATA.encode(), in_place=True)
+
+
+def test_prepared_validator_validate_algebra_in_place_requires_infer_true():
+    prepared = shifty.PreparedValidator(RULE_SHAPES)
+    data = rdflib.Graph()
+    data.parse(data=RULE_DATA, format="turtle")
+    with pytest.raises(ValueError):
+        prepared.validate_algebra(data, in_place=True, infer=False)
+
+
+@pytest.mark.parametrize("method", ["validate_algebra", "validate_w3c"])
+def test_prepared_native_validation_only_keeps_delta_when_requested(method):
+    native_validate = getattr(shifty.PreparedValidator(RULE_SHAPES)._inner, method)
+    ordinary = native_validate(data=RULE_DATA.encode())
+    retained = native_validate(data=RULE_DATA.encode(), keep_inferred=True)
+
+    assert ordinary.conforms == retained.conforms
+    assert ordinary._inferred_ntriples == ""
+    assert "knows2" in retained._inferred_ntriples
+    assert not hasattr(ordinary, "inferred_ntriples")
+
+
+@pytest.mark.parametrize("method", ["validate", "validate_algebra"])
+def test_prepared_default_wrappers_do_not_read_delta(method):
+    class NativeResult:
+        conforms = True
+        report_turtle = ""
+        results_text = ""
+
+        @property
+        def _inferred_ntriples(self):
+            raise AssertionError("default call read the inference delta")
+
+    class NativeValidator:
+        def validate_w3c(self, *args):
+            return NativeResult()
+
+        def validate_algebra(self, *args):
+            return NativeResult()
+
+    prepared = shifty.PreparedValidator.__new__(shifty.PreparedValidator)
+    prepared._inner = NativeValidator()
+    getattr(prepared, method)(RULE_DATA.encode())
 
 
 def test_validation_releases_gil():

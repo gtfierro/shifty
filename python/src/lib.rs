@@ -1,4 +1,4 @@
-use oxrdf::{Graph, Term};
+use oxrdf::{Graph, Term, Triple};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::pybacked::PyBackedBytes;
@@ -351,10 +351,24 @@ pub struct AlgebraResult {
     pub conforms: bool,
     violations: Vec<Py<Violation>>,
     results_text_cache: OnceLock<String>,
+    /// Triples added by SHACL-AF inference before validation ran. Only an
+    /// in-place caller keeps them for write-back into its data graph.
+    pub inferred: Vec<Triple>,
+    pub inferred_ntriples_cache: OnceLock<String>,
 }
 
 #[pymethods]
 impl AlgebraResult {
+    /// Serialize the retained inference delta for the Python write-back path.
+    #[getter]
+    fn _inferred_ntriples(&self, py: Python<'_>) -> String {
+        py.allow_threads(|| {
+            self.inferred_ntriples_cache
+                .get_or_init(|| triples_to_ntriples(&self.inferred))
+                .clone()
+        })
+    }
+
     #[getter]
     fn violations(&self, py: Python<'_>) -> Vec<Py<Violation>> {
         self.violations.iter().map(|v| v.clone_ref(py)).collect()
@@ -412,18 +426,35 @@ impl AlgebraResult {
 
 // ── W3C-report-path types ────────────────────────────────────────────────────
 
-#[pyclass(get_all)]
+#[pyclass]
 pub struct W3cResult {
     /// Whether the data graph conforms to all shapes.
+    #[pyo3(get)]
     pub conforms: bool,
     /// The `sh:ValidationReport` serialized as Turtle.
+    #[pyo3(get)]
     pub report_turtle: String,
     /// Human-readable summary (pyshacl-esque text).
+    #[pyo3(get)]
     pub results_text: String,
+    /// Triples added by SHACL-AF inference before validation ran. Only an
+    /// in-place caller keeps them for write-back into its data graph.
+    pub inferred: Vec<Triple>,
+    pub inferred_ntriples_cache: OnceLock<String>,
 }
 
 #[pymethods]
 impl W3cResult {
+    /// Serialize the retained inference delta for the Python write-back path.
+    #[getter]
+    fn _inferred_ntriples(&self, py: Python<'_>) -> String {
+        py.allow_threads(|| {
+            self.inferred_ntriples_cache
+                .get_or_init(|| triples_to_ntriples(&self.inferred))
+                .clone()
+        })
+    }
+
     fn __bool__(&self) -> bool {
         self.conforms
     }
@@ -488,7 +519,12 @@ pub struct InferResult {
     inferred_count: usize,
     diagnostics: Vec<String>,
     graph: Graph,
+    /// The triples inference added, i.e. `graph` minus the original data —
+    /// kept separately so callers can write just the delta back into a
+    /// caller-owned graph instead of re-materializing everything.
+    inferred: Vec<Triple>,
     graph_ntriples_cache: OnceLock<String>,
+    inferred_ntriples_cache: OnceLock<String>,
 }
 
 #[pymethods]
@@ -508,6 +544,17 @@ impl InferResult {
         py.allow_threads(|| {
             self.graph_ntriples_cache
                 .get_or_init(|| graph_to_ntriples(&self.graph))
+                .clone()
+        })
+    }
+
+    /// Just the newly inferred triples (not the original data), as
+    /// N-Triples. Empty when nothing was inferred.
+    #[getter]
+    fn inferred_ntriples(&self, py: Python<'_>) -> String {
+        py.allow_threads(|| {
+            self.inferred_ntriples_cache
+                .get_or_init(|| triples_to_ntriples(&self.inferred))
                 .clone()
         })
     }
@@ -669,17 +716,18 @@ fn prepare_loaded_shapes(
     Ok((loaded, schema, plan, parse_out.diagnostics))
 }
 
-/// Optionally run SHACL-AF inference; returns the graph to validate against.
+/// Optionally run SHACL-AF inference; returns the outcome (graph to
+/// validate against, plus the inferred delta) when it ran.
 fn maybe_infer(
     data: &Graph,
     shapes: &Graph,
     schema: &shifty_algebra::Schema,
     run_infer: bool,
-) -> Result<Option<Graph>, String> {
+) -> Result<Option<shifty_engine::InferenceOutcome>, String> {
     if run_infer && !schema.rules.is_empty() {
         let out = shifty_engine::infer_graphs(data, shapes, schema)
             .map_err(|e| format!("non-stratifiable schema: {e}"))?;
-        Ok(Some(out.graph))
+        Ok(Some(out))
     } else {
         Ok(None)
     }
@@ -689,24 +737,41 @@ fn maybe_infer_embedded(
     data: &Graph,
     schema: &shifty_algebra::Schema,
     run_infer: bool,
-) -> Result<Option<Graph>, String> {
+) -> Result<Option<shifty_engine::InferenceOutcome>, String> {
     if run_infer && !schema.rules.is_empty() {
         let out = shifty_engine::infer(data, schema)
             .map_err(|e| format!("non-stratifiable schema: {e}"))?;
-        Ok(Some(out.graph))
+        Ok(Some(out))
     } else {
         Ok(None)
     }
 }
 
-pub(crate) fn graph_to_ntriples(graph: &Graph) -> String {
+/// Validation uses the inferred graph when requested, but only an in-place
+/// caller needs to retain the delta after evaluation.
+#[derive(Clone, Copy)]
+struct ValidationInference {
+    run: bool,
+    keep_delta: bool,
+}
+
+/// Serialize any borrowed-triple iterable (a `&Graph`, a `&[Triple]`, ...) as
+/// N-Triples. Shared by `graph_to_ntriples` (a whole graph) and callers that
+/// only need to serialize a delta (e.g. `InferResult::inferred_ntriples`).
+pub(crate) fn triples_to_ntriples<'a, T: Into<oxrdf::TripleRef<'a>>>(
+    triples: impl IntoIterator<Item = T>,
+) -> String {
     let mut writer = oxttl::NTriplesSerializer::new().for_writer(Vec::new());
-    for triple in graph {
+    for triple in triples {
         writer.serialize_triple(triple).unwrap();
     }
     // NTriplesSerializer::finish() returns the writer (Vec<u8>) directly, not Result
     let bytes = writer.finish();
     String::from_utf8(bytes).unwrap()
+}
+
+pub(crate) fn graph_to_ntriples(graph: &Graph) -> String {
+    triples_to_ntriples(graph)
 }
 
 fn graph_to_turtle(graph: &Graph) -> String {
@@ -787,11 +852,17 @@ fn format_report_text(report: &ValidationReport) -> String {
     out
 }
 
-fn build_w3c_result(report: &ValidationReport, report_graph: &Graph) -> W3cResult {
+fn build_w3c_result(
+    report: &ValidationReport,
+    report_graph: &Graph,
+    inferred: Option<Vec<Triple>>,
+) -> W3cResult {
     W3cResult {
         conforms: report.conforms,
         report_turtle: graph_to_turtle(report_graph),
         results_text: format_report_text(report),
+        inferred: inferred.unwrap_or_default(),
+        inferred_ntriples_cache: OnceLock::new(),
     }
 }
 
@@ -982,6 +1053,7 @@ struct RawViolation {
 struct RawAlgebraResult {
     conforms: bool,
     violations: Vec<RawViolation>,
+    inferred: Vec<Triple>,
 }
 
 impl RawAlgebraResult {
@@ -1033,6 +1105,8 @@ impl RawAlgebraResult {
             conforms: self.conforms,
             violations,
             results_text_cache: OnceLock::new(),
+            inferred: self.inferred,
+            inferred_ntriples_cache: OnceLock::new(),
         })
     }
 }
@@ -1041,6 +1115,7 @@ fn raw_algebra_result(
     outcome: shifty_engine::ValidationOutcome,
     schema: &shifty_algebra::Schema,
     arena: &shifty_algebra::ShapeArena,
+    inferred: Option<Vec<Triple>>,
 ) -> RawAlgebraResult {
     let violations = outcome
         .violations
@@ -1084,6 +1159,7 @@ fn raw_algebra_result(
     RawAlgebraResult {
         conforms: outcome.conforms,
         violations,
+        inferred: inferred.unwrap_or_default(),
     }
 }
 
@@ -1093,11 +1169,16 @@ fn validate_algebra_loaded(
     schema: &shifty_algebra::Schema,
     plan: &shifty_opt::PhysicalPlan,
     mode: ValidationGraphMode,
-    run_infer: bool,
+    inference: ValidationInference,
     options: &ValidationOptions,
 ) -> Result<RawAlgebraResult, String> {
-    let inferred = maybe_infer(&data_loaded.graph, &shapes_loaded.graph, schema, run_infer)?;
-    let eval_data = inferred.as_ref().unwrap_or(&data_loaded.graph);
+    let inferred = maybe_infer(
+        &data_loaded.graph,
+        &shapes_loaded.graph,
+        schema,
+        inference.run,
+    )?;
+    let eval_data = inferred.as_ref().map_or(&data_loaded.graph, |o| &o.graph);
     let outcome = validate_plan_graphs_with_mode_and_options(
         eval_data,
         &shapes_loaded.graph,
@@ -1106,21 +1187,35 @@ fn validate_algebra_loaded(
         options,
     )
     .map_err(|e| format!("non-stratifiable schema: {e}"))?;
-    Ok(raw_algebra_result(outcome, schema, &plan.arena))
+    Ok(raw_algebra_result(
+        outcome,
+        schema,
+        &plan.arena,
+        inferred
+            .filter(|_| inference.keep_delta)
+            .map(|o| o.inferred),
+    ))
 }
 
 fn validate_algebra_embedded(
     loaded: &shifty_parse::Loaded,
     schema: &shifty_algebra::Schema,
     plan: &shifty_opt::PhysicalPlan,
-    run_infer: bool,
+    inference: ValidationInference,
     options: &ValidationOptions,
 ) -> Result<RawAlgebraResult, String> {
-    let inferred = maybe_infer_embedded(&loaded.graph, schema, run_infer)?;
-    let eval_data = inferred.as_ref().unwrap_or(&loaded.graph);
+    let inferred = maybe_infer_embedded(&loaded.graph, schema, inference.run)?;
+    let eval_data = inferred.as_ref().map_or(&loaded.graph, |o| &o.graph);
     let outcome = validate_plan_with_options(eval_data, plan, options)
         .map_err(|e| format!("non-stratifiable schema: {e}"))?;
-    Ok(raw_algebra_result(outcome, schema, &plan.arena))
+    Ok(raw_algebra_result(
+        outcome,
+        schema,
+        &plan.arena,
+        inferred
+            .filter(|_| inference.keep_delta)
+            .map(|o| o.inferred),
+    ))
 }
 
 fn validate_w3c_loaded(
@@ -1128,28 +1223,45 @@ fn validate_w3c_loaded(
     shapes_loaded: &shifty_parse::Loaded,
     schema: &shifty_algebra::Schema,
     mode: ValidationGraphMode,
-    run_infer: bool,
+    inference: ValidationInference,
     options: &ValidationOptions,
 ) -> Result<W3cResult, String> {
-    let inferred = maybe_infer(&data_loaded.graph, &shapes_loaded.graph, schema, run_infer)?;
-    let eval_data = inferred.as_ref().unwrap_or(&data_loaded.graph);
+    let inferred = maybe_infer(
+        &data_loaded.graph,
+        &shapes_loaded.graph,
+        schema,
+        inference.run,
+    )?;
+    let eval_data = inferred.as_ref().map_or(&data_loaded.graph, |o| &o.graph);
     let report =
         validate_report_graphs_with_mode_and_options(shapes_loaded, eval_data, mode, options);
     let report_graph = report_to_graph(&report);
-    Ok(build_w3c_result(&report, &report_graph))
+    Ok(build_w3c_result(
+        &report,
+        &report_graph,
+        inferred
+            .filter(|_| inference.keep_delta)
+            .map(|outcome| outcome.inferred),
+    ))
 }
 
 fn validate_w3c_embedded(
     loaded: &shifty_parse::Loaded,
     schema: &shifty_algebra::Schema,
-    run_infer: bool,
+    inference: ValidationInference,
     options: &ValidationOptions,
 ) -> Result<W3cResult, String> {
-    let inferred = maybe_infer_embedded(&loaded.graph, schema, run_infer)?;
-    let eval_data = inferred.as_ref().unwrap_or(&loaded.graph);
+    let inferred = maybe_infer_embedded(&loaded.graph, schema, inference.run)?;
+    let eval_data = inferred.as_ref().map_or(&loaded.graph, |o| &o.graph);
     let report = validate_report_with_options(loaded, eval_data, options);
     let report_graph = report_to_graph(&report);
-    Ok(build_w3c_result(&report, &report_graph))
+    Ok(build_w3c_result(
+        &report,
+        &report_graph,
+        inferred
+            .filter(|_| inference.keep_delta)
+            .map(|outcome| outcome.inferred),
+    ))
 }
 
 fn load_validation_inputs(
@@ -1240,7 +1352,8 @@ pub fn version() -> &'static str {
     minimum_severity="info",
     sort_results=true,
     on_unsupported="ignore",
-    base=None
+    base=None,
+    keep_inferred=false
 ))]
 pub fn _validate_algebra(
     py: Python<'_>,
@@ -1257,6 +1370,7 @@ pub fn _validate_algebra(
     sort_results: bool,
     on_unsupported: &str,
     base: Option<String>,
+    keep_inferred: bool,
 ) -> PyResult<AlgebraResult> {
     let data = InputSpec::new(data, data_path, data_format, "data").map_err(py_value_error)?;
     let shapes = match (shapes, shapes_path) {
@@ -1272,6 +1386,10 @@ pub fn _validate_algebra(
         entry_shape_names: entry_shape_names.unwrap_or_default(),
         engine: engine_options(on_unsupported).map_err(py_value_error)?,
     };
+    let inference = ValidationInference {
+        run: run_infer,
+        keep_delta: keep_inferred,
+    };
     let raw = py
         .allow_threads(move || {
             let (data_loaded, shapes_loaded, schema, plan, diagnostics) =
@@ -1285,11 +1403,11 @@ pub fn _validate_algebra(
                     &schema,
                     &plan,
                     mode,
-                    run_infer,
+                    inference,
                     &options,
                 ),
                 None => {
-                    validate_algebra_embedded(&data_loaded, &schema, &plan, run_infer, &options)
+                    validate_algebra_embedded(&data_loaded, &schema, &plan, inference, &options)
                 }
             }
         })
@@ -1317,7 +1435,8 @@ pub fn _validate_algebra(
     minimum_severity="info",
     sort_results=true,
     on_unsupported="ignore",
-    base=None
+    base=None,
+    keep_inferred=false
 ))]
 pub fn _validate_w3c(
     py: Python<'_>,
@@ -1334,6 +1453,7 @@ pub fn _validate_w3c(
     sort_results: bool,
     on_unsupported: &str,
     base: Option<String>,
+    keep_inferred: bool,
 ) -> PyResult<W3cResult> {
     let data = InputSpec::new(data, data_path, data_format, "data").map_err(py_value_error)?;
     let shapes = match (shapes, shapes_path) {
@@ -1349,6 +1469,10 @@ pub fn _validate_w3c(
         entry_shape_names: entry_shape_names.unwrap_or_default(),
         engine: engine_options(on_unsupported).map_err(py_value_error)?,
     };
+    let inference = ValidationInference {
+        run: run_infer,
+        keep_delta: keep_inferred,
+    };
     py.allow_threads(move || {
         let (data_loaded, shapes_loaded, schema, _, _) =
             load_validation_inputs(data, shapes, base.as_deref())?;
@@ -1359,10 +1483,10 @@ pub fn _validate_w3c(
                 shapes_loaded,
                 &schema,
                 mode,
-                run_infer,
+                inference,
                 &options,
             ),
-            None => validate_w3c_embedded(&data_loaded, &schema, run_infer, &options),
+            None => validate_w3c_embedded(&data_loaded, &schema, inference, &options),
         }
     })
     .map_err(py_value_error)
@@ -1418,7 +1542,9 @@ pub fn _infer(
             inferred_count: outcome.inferred.len(),
             diagnostics: outcome.diagnostics,
             graph: outcome.graph,
+            inferred: outcome.inferred,
             graph_ntriples_cache: OnceLock::new(),
+            inferred_ntriples_cache: OnceLock::new(),
         })
     })
     .map_err(py_value_error)
@@ -1483,7 +1609,8 @@ impl PreparedValidator {
         run_infer=true,
         minimum_severity="info",
         sort_results=true,
-        on_unsupported="ignore"
+        on_unsupported="ignore",
+        keep_inferred=false
     ))]
     #[allow(clippy::too_many_arguments)]
     fn validate_algebra(
@@ -1498,6 +1625,7 @@ impl PreparedValidator {
         minimum_severity: &str,
         sort_results: bool,
         on_unsupported: &str,
+        keep_inferred: bool,
     ) -> PyResult<AlgebraResult> {
         let data = InputSpec::new(data, data_path, data_format, "data").map_err(py_value_error)?;
         let mode = parse_mode(graph_mode).map_err(py_value_error)?;
@@ -1506,6 +1634,10 @@ impl PreparedValidator {
             sort_results,
             entry_shape_names: entry_shape_names.unwrap_or_default(),
             engine: engine_options(on_unsupported).map_err(py_value_error)?,
+        };
+        let inference = ValidationInference {
+            run: run_infer,
+            keep_delta: keep_inferred,
         };
         let diagnostics = self.diagnostics.clone();
         let raw = py
@@ -1518,7 +1650,7 @@ impl PreparedValidator {
                     &self.schema,
                     &self.plan,
                     mode,
-                    run_infer,
+                    inference,
                     &options,
                 )
             })
@@ -1535,7 +1667,8 @@ impl PreparedValidator {
         run_infer=true,
         minimum_severity="info",
         sort_results=true,
-        on_unsupported="ignore"
+        on_unsupported="ignore",
+        keep_inferred=false
     ))]
     #[allow(clippy::too_many_arguments)]
     fn validate_w3c(
@@ -1550,6 +1683,7 @@ impl PreparedValidator {
         minimum_severity: &str,
         sort_results: bool,
         on_unsupported: &str,
+        keep_inferred: bool,
     ) -> PyResult<W3cResult> {
         let data = InputSpec::new(data, data_path, data_format, "data").map_err(py_value_error)?;
         let mode = parse_mode(graph_mode).map_err(py_value_error)?;
@@ -1559,6 +1693,10 @@ impl PreparedValidator {
             entry_shape_names: entry_shape_names.unwrap_or_default(),
             engine: engine_options(on_unsupported).map_err(py_value_error)?,
         };
+        let inference = ValidationInference {
+            run: run_infer,
+            keep_delta: keep_inferred,
+        };
         py.allow_threads(|| {
             let data_loaded = data.load(self.base.as_deref())?;
             validate_w3c_loaded(
@@ -1566,7 +1704,7 @@ impl PreparedValidator {
                 &self.shapes,
                 &self.schema,
                 mode,
-                run_infer,
+                inference,
                 &options,
             )
         })
@@ -1624,7 +1762,7 @@ impl PreparedValidator {
                     &self.schema,
                     run_infer,
                 )?;
-                let eval_data = inferred.as_ref().unwrap_or(&data_loaded.graph);
+                let eval_data = inferred.as_ref().map_or(&data_loaded.graph, |o| &o.graph);
                 Ok::<_, String>(property_witnesses_graphs_with_mode_and_options(
                     &self.shapes,
                     eval_data,

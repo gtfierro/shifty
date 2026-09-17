@@ -5,7 +5,8 @@ This module tests the graph input conversion functions which handle:
 - bytes input (passthrough)
 - pathlib.Path input (file reading)
 - str input (file path or raw Turtle text)
-- rdflib.Graph input (Turtle serialization with namespaces)
+- rdflib.Graph input (a prefix block plus an N-Triples body, which is valid
+  Turtle carrying both the namespace bindings and a label for every blank node)
 - Error cases for unsupported types
 """
 
@@ -129,31 +130,234 @@ class TestToTurtleBytes:
         g2.parse(data=result, format="turtle")
         assert (EX.a, EX.b, EX.c) in g2
 
-    def test_rdflib_graph_string_serialization(self):
+    def test_rdflib_graph_writes_one_statement_per_triple(self):
         g = rdflib.Graph()
         EX = rdflib.Namespace("http://example.org/")
         g.add((EX.a, EX.b, EX.c))
 
-        # Mock a graph that returns string from serialize
-        with mock.patch.object(
-            g, "serialize", return_value="ex:a ex:b ex:c ."
-        ) as serialize:
-            result = _to_turtle_bytes(g)
-            assert result == b"ex:a ex:b ex:c ."
-            serialize.assert_called_once_with(format="turtle", encoding="utf-8")
+        result = _to_turtle_bytes(g).decode("utf-8")
 
-    def test_rdflib_graph_bytes_serialization(self):
+        assert (
+            "<http://example.org/a> <http://example.org/b> <http://example.org/c> ."
+            in result
+        )
+
+    @pytest.mark.parametrize(
+        "value",
+        [
+            rdflib.Literal("plain"),
+            rdflib.Literal('quotes " and \\ backslash'),
+            rdflib.Literal("line\nbreak\ttab"),
+            rdflib.Literal("é — 🙂"),
+            rdflib.Literal("tagged", lang="en"),
+            rdflib.Literal(4),
+            rdflib.Literal(1.5),
+            rdflib.Literal(True),
+            rdflib.Literal("2020-01-01", datatype=rdflib.XSD.date),
+        ],
+    )
+    def test_rdflib_graph_round_trips_literals(self, value):
         g = rdflib.Graph()
         EX = rdflib.Namespace("http://example.org/")
+        g.add((EX.a, EX.b, value))
+
+        reparsed = rdflib.Graph()
+        reparsed.parse(data=_to_turtle_bytes(g), format="turtle")
+
+        assert list(reparsed.objects(EX.a, EX.b)) == [value]
+
+    def test_rdflib_graph_declares_namespace_bindings(self):
+        g = rdflib.Graph()
+        EX = rdflib.Namespace("http://example.org/")
+        g.bind("ex", EX)
         g.add((EX.a, EX.b, EX.c))
 
-        # Mock a graph that returns bytes from serialize
-        with mock.patch.object(
-            g, "serialize", return_value=b"ex:a ex:b ex:c ."
-        ) as serialize:
-            result = _to_turtle_bytes(g)
-            assert result == b"ex:a ex:b ex:c ."
-            serialize.assert_called_once_with(format="turtle", encoding="utf-8")
+        result = _to_turtle_bytes(g).decode("utf-8")
+
+        assert "@prefix ex: <http://example.org/> ." in result
+
+    def test_rdflib_graph_labels_every_blank_node(self):
+        g = rdflib.Graph()
+        EX = rdflib.Namespace("http://example.org/")
+        node = rdflib.BNode()
+        g.add((EX.a, EX.has, node))
+        g.add((node, EX.width, rdflib.Literal(4)))
+
+        result = _to_turtle_bytes(g).decode("utf-8")
+
+        # The abbreviated `[ ... ]` form would leave this node unnamed.
+        assert f"_:{node}" in result
+
+    @pytest.mark.parametrize(
+        "prefix",
+        [
+            "2020",  # opens on a digit
+            "-lead",  # opens on a dash
+            "trailing.",  # closes on a dot
+            ".leading",  # opens on a dot
+            "#hash",
+            "sl/ash",
+        ],
+    )
+    def test_rdflib_graph_skips_unspellable_prefix(self, prefix):
+        """A binding whose name is not a Turtle prefix must not be declared.
+
+        rdflib accepts these names, so a graph can carry one without its owner
+        ever noticing; emitting it would make the document unparseable and
+        break every call on that graph, not only the ones that use it."""
+        g = rdflib.Graph()
+        EX = rdflib.Namespace("http://example.org/")
+        g.bind("ex", EX)
+        g.bind(prefix, rdflib.Namespace("http://example.org/other/"))
+        g.add((EX.a, EX.b, EX.c))
+
+        result = _to_turtle_bytes(g)
+
+        reparsed = rdflib.Graph()
+        reparsed.parse(data=result, format="turtle")
+        assert (EX.a, EX.b, EX.c) in reparsed
+
+    @pytest.mark.parametrize(
+        "prefix",
+        [
+            "ex",
+            "",
+            "a1",
+            "with-dash",
+            "with_underscore",
+            "in.terior",
+            "é",
+            "\U00010300abc",  # supplementary plane, which PN_CHARS_BASE includes
+        ],
+    )
+    def test_rdflib_graph_declares_spellable_prefix(self, prefix):
+        g = rdflib.Graph()
+        EX = rdflib.Namespace("http://example.org/")
+        g.bind(prefix, EX, override=True, replace=True)
+        g.add((EX.a, EX.b, EX.c))
+
+        result = _to_turtle_bytes(g).decode("utf-8")
+
+        assert f"@prefix {prefix}: <http://example.org/> ." in result
+
+    @pytest.mark.parametrize(
+        "label",
+        [
+            "plain1",
+            "in.terior.dots",
+            "with-dash",
+            "with_underscore",
+            "0leading-digit",
+            "has space",
+            "-leading-dash",
+            "trailing.",
+            "unicode-é",
+            "<angle>",
+            'quote"mark',
+        ],
+    )
+    def test_rdflib_graph_round_trips_any_blank_node_label(self, label):
+        """rdflib puts no constraints on a BNode's name, so any label can arrive.
+
+        Whatever the name, the document has to parse and the node has to stay
+        one node: the two triples below share a subject, and a label rendered
+        two different ways would split them across two nodes."""
+        g = rdflib.Graph()
+        EX = rdflib.Namespace("http://example.org/")
+        node = rdflib.BNode(label)
+        g.add((EX.a, EX.has, node))
+        g.add((node, EX.width, rdflib.Literal(4)))
+
+        reparsed = rdflib.Graph()
+        reparsed.parse(data=_to_turtle_bytes(g), format="turtle")
+
+        subject = reparsed.value(EX.a, EX.has)
+        assert isinstance(subject, rdflib.BNode)
+        assert list(reparsed.objects(subject, EX.width)) == [rdflib.Literal(4)]
+
+    def test_rdflib_graph_keeps_distinct_blank_nodes_distinct(self):
+        """Two nodes must never arrive as one.
+
+        A label that cannot be written directly is encoded, and a label that
+        already looks encoded is encoded too — otherwise the two could collide
+        on one name, and the engine would see a single node carrying both
+        nodes' triples, changing what counts as conforming."""
+        g = rdflib.Graph()
+        EX = rdflib.Namespace("http://example.org/")
+        plain = rdflib.BNode("has space")
+        lookalike = rdflib.BNode("shiftyx" + "has space".encode("utf-8").hex())
+        g.add((EX.x, EX.p, plain))
+        g.add((plain, EX.v, rdflib.Literal(1)))
+        g.add((EX.y, EX.p, lookalike))
+        g.add((lookalike, EX.v, rdflib.Literal(2)))
+
+        result = _to_turtle_bytes(g).decode("utf-8")
+
+        labels = {
+            line.split(" ", 1)[0]
+            for line in result.splitlines()
+            if line.startswith("_:")
+        }
+        assert len(labels) == 2
+
+        reparsed = rdflib.Graph()
+        reparsed.parse(data=result, format="turtle")
+        assert len(set(reparsed.objects(None, EX.p))) == 2
+
+    def test_rdflib_graph_declares_base(self):
+        """A relative IRI has nothing to resolve against without the base."""
+        g = rdflib.Graph(base="http://example.org/base/")
+        EX = rdflib.Namespace("http://example.org/")
+        g.add((rdflib.URIRef("rel"), EX.b, EX.c))
+
+        reparsed = rdflib.Graph()
+        reparsed.parse(data=_to_turtle_bytes(g), format="turtle")
+
+        assert (
+            rdflib.URIRef("http://example.org/base/rel"),
+            EX.b,
+            EX.c,
+        ) in reparsed
+
+    def test_dataset_input_is_serialized_as_triples(self):
+        """A quad store iterates quads, so triples are asked for explicitly."""
+        ds = rdflib.Dataset(default_union=True)
+        EX = rdflib.Namespace("http://example.org/")
+        ds.add((EX.a, EX.b, EX.c))
+
+        reparsed = rdflib.Graph()
+        reparsed.parse(data=_to_turtle_bytes(ds), format="turtle")
+
+        assert (EX.a, EX.b, EX.c) in reparsed
+
+    def test_rdflib_graph_skips_namespace_holding_a_control_character(self):
+        """Checked against the engine's parser, which is the strict one.
+
+        rdflib will re-read an IRI it wrote holding a control character;
+        Turtle's own grammar will not, so a document that survives a rdflib
+        round trip can still fail every call on the graph."""
+        g = rdflib.Graph()
+        EX = rdflib.Namespace("http://example.org/")
+        g.bind("ex", EX)
+        g.bind("bad", rdflib.Namespace("http://example.org/a\x01b#"))
+        g.add((EX.a, EX.b, EX.c))
+
+        assert shifty.infer(g).inferred_count == 0
+
+    def test_rdflib_graph_skips_undeclarable_namespace(self):
+        g = rdflib.Graph()
+        EX = rdflib.Namespace("http://example.org/")
+        g.bind("ex", EX)
+        g.bind("broken", rdflib.Namespace("http://example.org/a b>c#"))
+        g.add((EX.a, EX.b, EX.c))
+
+        result = _to_turtle_bytes(g).decode("utf-8")
+
+        assert "broken" not in result
+        # The document still parses, and the sound bindings survive.
+        reparsed = rdflib.Graph()
+        reparsed.parse(data=result, format="turtle")
+        assert (EX.a, EX.b, EX.c) in reparsed
 
     def test_unsupported_type_int(self):
         with pytest.raises(TypeError, match="Cannot convert"):

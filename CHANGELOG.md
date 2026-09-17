@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 0.5.0-alpha.1
+
+Alpha release from [PR #22](https://github.com/gtfierro/shifty/pull/22).
+To try the Python package, run `pip install pyshifty==0.5.0a1`.
+The new Python `in_place` option is opt-in; existing calls retain their behavior.
+The CLI's text report has a new layout, so scripts should consume JSON output.
+
 ### Fixed
 
 - Fixed `sh:xone` reporting. It lowers to `⋁ᵢ (φᵢ ∧ ⋀_{j≠i} ¬φⱼ)`, and reported
@@ -30,6 +37,14 @@
 
 ### Added
 
+- Added `in_place=True` to `infer()`, `validate()`, `validate_algebra()`,
+  and `PreparedValidator.validate()` / `.validate_algebra()`: writes
+  triples derived by SHACL-AF inference directly into a caller-owned
+  `rdflib.Graph` passed as `data_graph`, instead of returning a separate
+  copy. Only the inferred delta crosses back from Rust for in-place
+  validation. `infer()` exposes that delta through the new
+  `InferResult.inferred_ntriples` property. Triples derived about a blank
+  node land on the blank node the caller's graph already holds.
 - Added a top-level `shapes` map to `validate --format json`: the transitive
   closure of every reported constraint, keyed by the same ids the algebra's own
   `constraint_id` and `qualifier` fields use, so those pointers resolve inside
@@ -60,6 +75,20 @@
 
 ### Changed
 
+- An `rdflib.Graph` input is now serialized as its namespace declarations
+  followed by an N-Triples body. This is valid Turtle and carries the same
+  bindings SHACL-SPARQL resolves prefixed names against, while also giving
+  every blank node an explicit label; it is cheaper to produce than
+  rdflib's Turtle serializer, which groups triples by subject, counts blank
+  node references to decide what to nest, and compacts every IRI against
+  the namespace manager. Namespace bindings and blank node labels that RDF
+  syntax cannot spell are handled rather than emitted: an undeclarable
+  binding is skipped, and such a blank node is written under a reversible
+  encoding, so no name a caller's graph happens to carry can make the
+  document unparseable.
+- `validate()` and `validate_algebra()` discard the inferred delta after
+  validation unless `in_place=True` needs it for write-back, and do not
+  render an unused N-Triples string.
 - `shifty validate --format text` now reports *findings* rather than violations:
   reasons that fail the same statement with the same rendered explanation are
   grouped, the explanation printed once, and the focus nodes listed under it,

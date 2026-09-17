@@ -6,12 +6,15 @@ Two validation interfaces:
 ``validate(data_graph, shacl_graph=None, ...)``
     pyshacl-compatible.  Returns ``(conforms, report_graph, results_text)``
     where *report_graph* is a :class:`rdflib.Graph` containing the full W3C
-    ``sh:ValidationReport``.
+    ``sh:ValidationReport``. Pass ``in_place=True`` to add triples derived by
+    SHACL-AF inference (on by default) directly into *data_graph* instead of
+    discarding them.
 
 ``validate_algebra(data_graph, shacl_graph=None, ...)``
     Returns an :class:`AlgebraResult` with a structured list of
     :class:`Violation` / :class:`Reason` objects representing the algebraic
-    failure tree — useful for programmatic inspection.
+    failure tree — useful for programmatic inspection. Also accepts
+    ``in_place=True``, same as ``validate``.
 
 ``EvidenceSession(shacl_graph, data_graph).validate()``
     Returns complete selected-pair coverage: exactly one structured satisfaction
@@ -35,7 +38,8 @@ Two validation interfaces:
 ``infer(data_graph, shapes_graph=None, ...)``
     Run SHACL-AF forward-chaining rules to a fixed point.
     Returns an :class:`InferResult`; call ``.graph()`` to get the
-    result as an :class:`rdflib.Graph`.
+    result as an :class:`rdflib.Graph`. Pass ``in_place=True`` to add the
+    derived triples into *data_graph* directly instead.
 
 ``PreparedValidator(shacl_graph).witnesses(data_graph, ...)``
     The inverse of validation: for every focus node that *conforms* to a
@@ -47,8 +51,12 @@ Graph inputs
 ~~~~~~~~~~~~
 All three functions accept any of:
 
-* :class:`rdflib.Graph`       — serialized to Turtle, preserving namespace
-                                bindings used by SHACL-SPARQL queries and rules
+* :class:`rdflib.Graph`       — serialized as its namespace declarations
+                                followed by an N-Triples body: valid Turtle
+                                that carries the bindings SHACL-SPARQL
+                                resolves prefixed names against, and a label
+                                for every blank node so derived triples can
+                                be matched back to the node they describe
 * :class:`pathlib.Path`       — parsed directly as Turtle or N-Triples
 * ``str``                     — treated as an existing file path, an HTTP(S)
                                 URL, or raw Turtle text. A missing recognized
@@ -81,12 +89,14 @@ evaluating referenced helper shapes normally.
 
 from __future__ import annotations
 
+import functools
 import pathlib
+import re
 import urllib.error
 import urllib.parse
 import urllib.request
 import warnings
-from typing import TYPE_CHECKING, NamedTuple, Optional, Sequence, Union
+from typing import TYPE_CHECKING, Callable, NamedTuple, Optional, Sequence, Union
 
 from ._shifty import (
     AlgebraResult,
@@ -324,6 +334,134 @@ def _fetch_url(url: str) -> _RdfInput:
     return _RdfInput(data, None, _url_format(final_url or url, content_type))
 
 
+# An IRI is written between angle brackets, so one holding a character that
+# Turtle's IRIREF excludes — every code point up to and including a space, and
+# the delimiters below — cannot be declared that way. Such a binding is dropped
+# rather than allowed to corrupt the document; the triples that use it still
+# carry their IRIs in full, so only the abbreviation is lost.
+_UNDECLARABLE_NAMESPACE = re.compile(r"[\x00-\x20<>\"{}|^`\\]")
+
+# Turtle's PN_PREFIX: a name opens with a letter, may carry digits, `-`, `_`
+# and interior dots after that, and cannot end on a dot. The empty prefix of a
+# default namespace is allowed. A binding whose name falls outside this is
+# dropped for the same reason an undeclarable namespace is — one name that
+# cannot be spelled would otherwise make the whole document unparseable,
+# costing every call on that graph rather than just the abbreviation.
+_PN_CHARS_BASE = "A-Za-zÀ-ÖØ-öø-˿Ͱ-ͽͿ-῿‌-‍⁰-↏Ⰰ-⿯、-퟿豈-﷏ﷰ-�\U00010000-\U000effff"
+_PN_CHARS = _PN_CHARS_BASE + "0-9_\\-·̀-ͯ‿-⁀"
+_DECLARABLE_PREFIX = re.compile(
+    f"\\A(?:[{_PN_CHARS_BASE}](?:[{_PN_CHARS}.]*[{_PN_CHARS}])?)?\\Z"
+)
+
+# A label passes through untouched only if it survives every parser on the
+# round trip, which is a narrower question than what Turtle's grammar permits.
+# The document written here is read by the engine, and the derived triples that
+# come back are read by rdflib's N-Triples parser, which accepts only ASCII
+# labels. Taking the intersection — opening on a letter, digit or underscore,
+# carrying dots and dashes inside, never closing on a dot — keeps the test to
+# the one property that matters: the name arrives unchanged at both ends.
+_SPELLABLE_BNODE_LABEL = re.compile(
+    r"\A[A-Za-z0-9_](?:[A-Za-z0-9_.-]*[A-Za-z0-9_-])?\Z"
+)
+
+# rdflib puts no constraints on what a BNode is named, so a label can arrive
+# holding characters RDF syntax has nowhere to put — a space, a leading dash,
+# anything an application carried over from a JSON-LD `@id` or a database key.
+# Such a label is rewritten to this marker followed by the hex of its UTF-8
+# bytes, which is always spellable, and read back by reversing that.
+#
+# Distinct nodes have to keep distinct names, or the engine would see one node
+# carrying the triples of two. That holds because the two sets of names never
+# overlap: a label is encoded when it cannot be written as it is *or* when it
+# already looks like an encoded label, which leaves nothing that passes through
+# untouched wearing the marker. Every name arriving with the marker was
+# therefore produced here, and is decoded on sight.
+_ENCODED_BNODE_LABEL = re.compile(r"\Ashiftyx([0-9a-f]{2,})\Z")
+_BNODE_LABEL_MARKER = "shiftyx"
+
+
+def _encode_bnode_label(label: str) -> str:
+    """Return a label spellable in RDF syntax, naming the same blank node."""
+    if _SPELLABLE_BNODE_LABEL.match(label) and not _ENCODED_BNODE_LABEL.match(label):
+        return label
+    return _BNODE_LABEL_MARKER + label.encode("utf-8").hex()
+
+
+def _decode_bnode_label(label: str) -> str:
+    """Invert :func:`_encode_bnode_label`, leaving untouched labels alone."""
+    encoded = _ENCODED_BNODE_LABEL.match(label)
+    if encoded is None:
+        return label
+    try:
+        return bytes.fromhex(encoded.group(1)).decode("utf-8")
+    except (ValueError, UnicodeDecodeError):
+        # A label wearing the marker that this never wrote: it reached the
+        # engine from a document the caller supplied as bytes or a path, where
+        # labels are passed through untouched. Its own name is the right one.
+        return label
+
+
+def _flat_turtle_bytes(graph: "rdflib.Graph") -> bytes:
+    """Serialize an rdflib graph as a prefix block followed by an N-Triples body.
+
+    N-Triples is a syntactic subset of Turtle, so a run of ``@prefix``
+    declarations followed by an N-Triples body is a valid Turtle document. That
+    combination carries everything the engine needs from a caller's graph:
+
+    * the triples themselves;
+    * the namespace bindings, which are part of a shapes graph's meaning
+      whenever its SHACL-SPARQL queries or rules use prefixed names;
+    * an explicit ``_:label`` for every blank node.
+
+    The explicit labels matter because blank nodes have no global names: a
+    blank node is only identifiable by the label a document happens to give
+    it. Turtle's abbreviated ``[ ... ]`` form gives a blank node no label at
+    all, so a graph serialized that way arrives with its blank nodes
+    anonymous, and any triple the engine derives about one of them cannot be
+    matched back to the caller's node afterwards. N-Triples never abbreviates,
+    so every blank node keeps one stable name for the whole round trip and
+    derived triples land on the node they belong to.
+
+    Writing this form is also cheaper than asking rdflib for Turtle, which
+    additionally groups triples by subject, counts blank node references to
+    decide what to nest, and compacts every IRI against the namespace manager.
+
+    Each term is written through rdflib's own ``n3()``, which handles escaping,
+    language tags and datatypes; blank nodes are the one term kind written
+    differently, under a label guaranteed to be spellable. Bindings that cannot
+    be declared are skipped, so a graph is never rendered unparseable by a name
+    it happens to carry. A graph's base is declared when it has one, since
+    without it the relative IRIs a graph may hold have nothing to resolve
+    against.
+    """
+    import rdflib
+
+    header = []
+    base = getattr(graph, "base", None)
+    if base and not _UNDECLARABLE_NAMESPACE.search(str(base)):
+        header.append(f"@base <{base}> .\n")
+    for prefix, namespace in graph.namespaces():
+        prefix, namespace = str(prefix), str(namespace)
+        if _UNDECLARABLE_NAMESPACE.search(namespace):
+            continue
+        if not _DECLARABLE_PREFIX.match(prefix):
+            continue
+        header.append(f"@prefix {prefix}: <{namespace}> .\n")
+
+    def term(node) -> str:
+        if isinstance(node, rdflib.BNode):
+            return f"_:{_encode_bnode_label(str(node))}"
+        return node.n3()
+
+    # Asking for triples explicitly keeps this right for a quad store, whose
+    # own iterator yields quads.
+    statements = [
+        f"{term(subject)} {term(predicate)} {term(object_)} .\n"
+        for subject, predicate, object_ in graph.triples((None, None, None))
+    ]
+    return "".join(header + statements).encode("utf-8")
+
+
 def _to_rdf_input(graph: GraphInput) -> _RdfInput:
     """Convert one public graph input into the native binding's descriptor.
 
@@ -358,14 +496,7 @@ def _to_rdf_input(graph: GraphInput) -> _RdfInput:
         return _RdfInput(graph.encode("utf-8"), None, "turtle")
     serialize = getattr(graph, "serialize", None)
     if serialize is not None:
-        # N-Triples has no prefix declarations. Those declarations are part
-        # of a shapes graph's meaning when its SHACL-SPARQL queries or rules
-        # use prefixed names, so preserve rdflib's namespace manager in Turtle.
-        result = serialize(format="turtle", encoding="utf-8")
-        if isinstance(result, str):
-            result = result.encode("utf-8")
-        if isinstance(result, bytes):
-            return _RdfInput(result, None, "turtle")
+        return _RdfInput(_flat_turtle_bytes(graph), None, "turtle")
     raise TypeError(
         f"Cannot convert {type(graph).__name__!r} to RDF data. "
         "Expected rdflib.Graph, pathlib.Path, str (path, HTTP(S) URL, or Turtle), "
@@ -434,11 +565,150 @@ def _coalesce_graph_input(graph: "GraphInputs") -> GraphInput:
     return graph
 
 
+def _in_place_target(
+    data_graph: "GraphInputs", *, in_place: bool, caller: str, infer: bool = True
+) -> "Optional[rdflib.Graph]":
+    """Check an ``in_place`` request and return the graph to extend, if any.
+
+    Returns ``None`` when ``in_place`` is false, which leaves the caller on
+    its ordinary path of building a fresh result graph.
+
+    Two conditions have to hold for a delta to have somewhere to go. The graph
+    must be a single :class:`rdflib.Graph` the caller owns and can keep using;
+    bytes, a path, a string, or a list of inputs name no such object, so there
+    is nothing to extend and they raise :class:`TypeError`. And inference has
+    to be running, since the triples written back are the ones it derives —
+    asking to keep them while switching it off is contradictory, and raises
+    :class:`ValueError` rather than quietly doing nothing.
+
+    All three checks run before any work is handed to the engine, so a
+    rejected call costs nothing and leaves the caller's graph untouched. The
+    third is the parser's ability to pin blank node labels, which is checked
+    here even though only a delta containing blank nodes goes on to need it:
+    a call that succeeds or fails according to whether the data happens to
+    contain a blank node would be a worse contract than one that settles the
+    question up front.
+
+    rdflib is imported only once a graph is actually in play, so the ordinary
+    ``in_place=False`` path never requires it to be installed."""
+    if not in_place:
+        return None
+
+    import rdflib
+
+    if not infer:
+        raise ValueError(
+            f"{caller}(..., in_place=True) has nothing to write back when infer=False"
+        )
+    # A one-member sequence names exactly the graph it holds, and is unioned
+    # into that same object everywhere else, so it is accepted as naming it
+    # here too. A longer one is unioned into a new graph the caller never sees,
+    # which is nothing to write back to.
+    if isinstance(data_graph, (list, tuple)) and len(data_graph) == 1:
+        data_graph = data_graph[0]
+    if not isinstance(data_graph, rdflib.Graph):
+        raise TypeError(
+            f"{caller}(..., in_place=True) requires data_graph to be a single "
+            f"rdflib.Graph, not {type(data_graph).__name__!r}"
+        )
+    if not _bnode_labels_can_be_pinned():
+        raise RuntimeError(
+            f"{caller}(..., in_place=True) needs an rdflib whose N-Triples "
+            "parser accepts bnode_context, so that derived triples about blank "
+            f"nodes attach to the nodes this graph already holds; rdflib "
+            f"{rdflib.__version__} does not. Upgrade rdflib, or drop in_place "
+            "and use the returned graph instead."
+        )
+    return data_graph
+
+
+# A blank node label ends at whitespace: every other character this scan could
+# stop on, '.' most of all, is legal inside a label. The trailing '.' that ends
+# an N-Triples statement is stripped back off, since a label cannot end in one.
+#
+# Scanning is deliberately generous about what it collects. An extra match read
+# out of a literal names a node no triple refers to, so it sits unused in the
+# mapping, while a missed match would cost a derived triple its connection to
+# the graph.
+_BNODE_LABEL = re.compile(r"_:(\S+)")
+
+
+@functools.lru_cache(maxsize=1)
+def _bnode_labels_can_be_pinned() -> bool:
+    """Whether this rdflib honours a supplied blank node label mapping.
+
+    Probes the behaviour rather than the version, and answers once per
+    process: a parser that rejects the ``bnode_context`` argument and one that
+    accepts and ignores it are equally unusable here, and only reading back
+    what was parsed distinguishes either from one that works."""
+    import rdflib
+
+    label = "shiftybnodeprobe"
+    probe = rdflib.Graph()
+    try:
+        probe.parse(
+            data=f"_:{label} <urn:shifty:p> <urn:shifty:o> .",
+            format="nt",
+            bnode_context={label: rdflib.BNode(label)},
+        )
+    except TypeError:
+        return False
+    return any(str(subject) == label for subject in probe.subjects())
+
+
+def _write_back_derived(
+    target: "Optional[rdflib.Graph]", delta: Callable[[], str]
+) -> None:
+    """Add derived triples to *target*, landing them on the nodes it holds.
+
+    A blank node has no name of its own: it is identifiable only by the label
+    a document gives it, and a parser reading a document in isolation is right
+    to treat each label as naming a node of its own. Here the document is not
+    isolated — it describes nodes *target* already contains — so every label in
+    it is pinned to the blank node of the same name before parsing. A triple
+    derived about a blank node then attaches to that node, and stays reachable
+    by whatever already pointed at it.
+
+    A label the engine reports is read back through the same encoding it was
+    written with, so a node whose name could not be spelled in RDF syntax
+    rejoins the graph under the name it actually has.
+
+    Text with no blank nodes needs none of this and is parsed directly. The
+    parser's ability to pin labels is settled in :func:`_in_place_target`
+    before the engine runs, so by here it can be relied on. The delta is read
+    only after a target is known, so ordinary validation never renders it."""
+    if target is None:
+        return
+    ntriples = delta()
+    if not ntriples:
+        return
+
+    import rdflib
+
+    labels = {label.rstrip(".") for label in _BNODE_LABEL.findall(ntriples)}
+    if not labels:
+        target.parse(data=ntriples, format="nt")
+        return
+    target.parse(
+        data=ntriples,
+        format="nt",
+        bnode_context={
+            label: rdflib.BNode(_decode_bnode_label(label)) for label in labels
+        },
+    )
+
+
 class InferResult:
     """Result of a SHACL-AF inference run."""
 
-    def __init__(self, inner: _RustInferResult) -> None:
+    def __init__(
+        self, inner: _RustInferResult, *, _target: "Optional[rdflib.Graph]" = None
+    ) -> None:
         self._inner = inner
+        # Set by infer(..., in_place=True): the caller's own graph, already
+        # mutated with the inferred delta. graph() then returns it directly
+        # instead of re-parsing the whole thing.
+        self._target = _target
 
     @property
     def inferred_count(self) -> int:
@@ -459,8 +729,21 @@ class InferResult:
         """Full graph (original data + inferred triples) as N-Triples string."""
         return self._inner.graph_ntriples
 
+    @property
+    def inferred_ntriples(self) -> str:
+        """Just the newly inferred triples (not the original data), as an
+        N-Triples string. Empty when nothing was inferred."""
+        return self._inner.inferred_ntriples
+
     def graph(self) -> "rdflib.Graph":
-        """Return the full graph as an :class:`rdflib.Graph`."""
+        """Return the full graph as an :class:`rdflib.Graph`.
+
+        If this result came from ``infer(..., in_place=True)``, this is the
+        same graph object that was mutated in place, returned as-is rather
+        than re-parsed.
+        """
+        if self._target is not None:
+            return self._target
         import rdflib
 
         g = rdflib.Graph()
@@ -498,6 +781,7 @@ class PreparedValidator:
         graph_mode: str = "union",
         shape_names: Optional[Sequence[str]] = None,
         infer: bool = True,
+        in_place: bool = False,
         minimum_severity: str = "info",
         sort_results: bool = True,
         on_unsupported: str = "ignore",
@@ -506,9 +790,19 @@ class PreparedValidator:
 
         ``shape_names`` optionally limits validation to the named shapes in
         that list as top-level entry points. Referenced helper shapes are still
-        evaluated normally.
+        evaluated normally. ``in_place`` mirrors :func:`validate`: it writes
+        any inferred triples back into *data_graph* instead of discarding
+        them, and requires *data_graph* to be a single :class:`rdflib.Graph`
+        and ``infer=True``.
         """
         import rdflib
+
+        target = _in_place_target(
+            data_graph,
+            in_place=in_place,
+            infer=infer,
+            caller="PreparedValidator.validate",
+        )
 
         data = _to_rdf_input(_coalesce_graph_input(data_graph))
         result: W3cResult = self._inner.validate_w3c(
@@ -521,7 +815,9 @@ class PreparedValidator:
             minimum_severity,
             sort_results,
             on_unsupported,
+            in_place,
         )
+        _write_back_derived(target, lambda: result._inferred_ntriples)
         graph = rdflib.Graph()
         graph.parse(data=result.report_turtle, format="turtle")
         return (result.conforms, graph, result.results_text)
@@ -533,6 +829,7 @@ class PreparedValidator:
         graph_mode: str = "union",
         shape_names: Optional[Sequence[str]] = None,
         infer: bool = True,
+        in_place: bool = False,
         minimum_severity: str = "info",
         sort_results: bool = True,
         on_unsupported: str = "ignore",
@@ -541,10 +838,20 @@ class PreparedValidator:
 
         ``shape_names`` optionally limits validation to the named shapes in
         that list as top-level entry points. Referenced helper shapes are still
-        evaluated normally.
+        evaluated normally. ``in_place`` mirrors :func:`validate_algebra`: it
+        writes any inferred triples back into *data_graph* instead of
+        discarding them, and requires *data_graph* to be a single
+        :class:`rdflib.Graph` and ``infer=True``.
         """
+        target = _in_place_target(
+            data_graph,
+            in_place=in_place,
+            infer=infer,
+            caller="PreparedValidator.validate_algebra",
+        )
+
         data = _to_rdf_input(_coalesce_graph_input(data_graph))
-        return self._inner.validate_algebra(
+        result = self._inner.validate_algebra(
             data.data,
             data.path,
             data.format,
@@ -554,7 +861,10 @@ class PreparedValidator:
             minimum_severity,
             sort_results,
             on_unsupported,
+            in_place,
         )
+        _write_back_derived(target, lambda: result._inferred_ntriples)
+        return result
 
     def witnesses(
         self,
@@ -1070,6 +1380,7 @@ def validate(
     graph_mode: str = "union",
     shape_names: Optional[Sequence[str]] = None,
     infer: bool = True,
+    in_place: bool = False,
     minimum_severity: str = "info",
     sort_results: bool = True,
     on_unsupported: str = "ignore",
@@ -1094,6 +1405,16 @@ def validate(
         IRIs and ``<iri>`` forms are both accepted.
     infer:
         Run SHACL-AF rules before validation (default ``True``).
+    in_place:
+        If ``True``, add any triples SHACL-AF inference derived (per
+        *infer*) directly into *data_graph* instead of discarding them —
+        only the delta crosses back into Python. Requires *data_graph* to be
+        a single :class:`rdflib.Graph`; raises :class:`TypeError` otherwise.
+        Raises :class:`ValueError` if *infer* is ``False``, since there
+        would be nothing to write back. Never touches *shacl_graph*, and is
+        independent of *graph_mode*: inference always augments the data
+        graph. The report graph is unaffected either way — it's always a
+        fresh :class:`rdflib.Graph`, same as when *in_place* is ``False``.
     minimum_severity:
         Lowest level that makes ``conforms`` false: ``"info"`` (default),
         ``"warning"``, or ``"violation"``. Lower-level results remain in the
@@ -1113,6 +1434,10 @@ def validate(
         * *results_text* — human-readable summary string.
     """
     import rdflib
+
+    target = _in_place_target(
+        data_graph, in_place=in_place, infer=infer, caller="validate"
+    )
 
     data = _to_rdf_input(_coalesce_graph_input(data_graph))
     shapes = (
@@ -1134,7 +1459,10 @@ def validate(
         sort_results,
         on_unsupported,
         base,
+        in_place,
     )
+
+    _write_back_derived(target, lambda: result._inferred_ntriples)
 
     g = rdflib.Graph()
     g.parse(data=result.report_turtle, format="turtle")
@@ -1149,6 +1477,7 @@ def validate_algebra(
     graph_mode: str = "union",
     shape_names: Optional[Sequence[str]] = None,
     infer: bool = True,
+    in_place: bool = False,
     minimum_severity: str = "info",
     sort_results: bool = True,
     on_unsupported: str = "ignore",
@@ -1164,7 +1493,7 @@ def validate_algebra(
 
     Parameters
     ----------
-    data_graph, shacl_graph, graph_mode, shape_names, infer, base:
+    data_graph, shacl_graph, graph_mode, shape_names, infer, in_place, base:
         Same as :func:`validate`.
     minimum_severity:
         Lowest level that makes ``conforms`` false: ``"info"`` (default),
@@ -1177,13 +1506,17 @@ def validate_algebra(
         ``.conforms`` is ``True`` when no violations were found.
         ``.violations`` lists each failing focus node with reasons.
     """
+    target = _in_place_target(
+        data_graph, in_place=in_place, infer=infer, caller="validate_algebra"
+    )
+
     data = _to_rdf_input(_coalesce_graph_input(data_graph))
     shapes = (
         _to_rdf_input(_coalesce_graph_input(shacl_graph))
         if shacl_graph is not None
         else _RdfInput(None, None, "turtle")
     )
-    return _validate_algebra(
+    result = _validate_algebra(
         data.data,
         data.path,
         data.format,
@@ -1197,13 +1530,17 @@ def validate_algebra(
         sort_results,
         on_unsupported,
         base,
+        in_place,
     )
+    _write_back_derived(target, lambda: result._inferred_ntriples)
+    return result
 
 
 def infer(
     data_graph: GraphInputs,
     shapes_graph: Optional[GraphInputs] = None,
     *,
+    in_place: bool = False,
     on_unsupported: str = "ignore",
     base: Optional[str] = None,
 ) -> InferResult:
@@ -1217,6 +1554,14 @@ def infer(
         Shapes graph containing ``sh:rule`` definitions.  If ``None``,
         rules are expected inside *data_graph*. Passing an empty
         ``rdflib.Graph()`` means an explicit empty rules graph.
+    in_place:
+        If ``True``, add the newly inferred triples directly into
+        *data_graph* instead of returning a separate copy — only the delta
+        crosses back into Python, not the whole graph. Requires *data_graph*
+        to be a single :class:`rdflib.Graph` (not bytes, a path, a string, or
+        a list/tuple of inputs); raises :class:`TypeError` otherwise, since
+        there is no caller-owned graph to mutate. ``InferResult.graph()``
+        then returns *data_graph* itself rather than a fresh copy.
     base:
         Base IRI for resolving relative IRIs.
 
@@ -1226,6 +1571,8 @@ def infer(
         Call ``.graph()`` to get the result as an :class:`rdflib.Graph`,
         or read ``.graph_ntriples`` for the raw N-Triples string.
     """
+    target = _in_place_target(data_graph, in_place=in_place, caller="infer")
+
     data = _to_rdf_input(_coalesce_graph_input(data_graph))
     shapes = (
         _to_rdf_input(_coalesce_graph_input(shapes_graph))
@@ -1242,4 +1589,5 @@ def infer(
         on_unsupported,
         base,
     )
-    return InferResult(inner)
+    _write_back_derived(target, lambda: inner.inferred_ntriples)
+    return InferResult(inner, _target=target)

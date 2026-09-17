@@ -55,6 +55,49 @@ original graph plus everything derived, use Python:
 constructing an rdflib graph, which is faster if you are writing it straight to
 a file or passing it to another process.
 
+If ``data`` is already an ``rdflib.Graph`` you own, ``in_place=True`` adds the
+derived triples into it directly instead of building a separate copy — only
+the delta crosses back from Rust, not the whole graph:
+
+.. code-block:: python
+
+   data = rdflib.Graph()
+   data.parse("data.ttl")
+
+   result = shifty.infer(data, rules, in_place=True)
+   print(result.inferred_count)   # 1
+   result.graph() is data         # True — same object, now extended
+
+``in_place=True`` requires a single ``rdflib.Graph`` (not bytes, a path, a
+string, or a list of inputs — there's no caller-owned object to mutate for
+those); anything else raises ``TypeError``.
+
+Triples derived about a blank node land on the blank node your graph already
+holds, so they stay reachable from whatever pointed at it:
+
+.. code-block:: python
+
+   import rdflib
+
+   EX = rdflib.Namespace("http://example.org/")
+   data = rdflib.Graph()
+   data.parse(
+       data="""
+       @prefix ex: <http://example.org/> .
+       ex:r1 ex:hasDim [ a ex:Dim ; ex:width 4 ] .
+       """,
+       format="turtle",
+   )
+
+   shifty.infer(data, rules, in_place=True)
+
+   dim = data.value(EX.r1, EX.hasDim)
+   list(data.objects(dim, EX.area))   # the derived value, reached through ex:r1
+
+Any blank node label works, including names that RDF syntax cannot spell
+directly — labels carried over from a JSON-LD ``@id`` or a database key are
+encoded for the round trip and restored on the way back.
+
 Rules embedded in the data graph work the same way — omit the second argument:
 
 .. code-block:: python
@@ -65,6 +108,8 @@ Passing an empty ``rdflib.Graph()`` as the second argument is *not* the same
 thing: it means "run with an explicitly empty rules graph", so no rules are
 found and nothing is derived.
 
+.. _inference-during-validation:
+
 Inference during validation
 ---------------------------
 
@@ -73,6 +118,22 @@ graph, which is usually what you want — a rule that derives ``ex:area`` should
 be able to satisfy a shape that requires ``ex:area``. Turn it off with
 ``infer=False`` (Python) or ``--no-infer`` (CLI) to validate only asserted
 triples.
+
+``validate()`` normally discards that inferred closure once the report is
+built. Pass ``in_place=True`` (with ``infer=True``, the default) to add it
+into ``data_graph`` instead, the same way ``infer(..., in_place=True)`` does:
+
+.. code-block:: python
+
+   data = rdflib.Graph()
+   data.parse("data.ttl")
+
+   conforms, report, _ = shifty.validate(data, shapes, in_place=True)
+   # data now includes whatever the rules derived; report is still a
+   # fresh rdflib.Graph either way.
+
+``validate_algebra()`` and ``PreparedValidator.validate()`` /
+``.validate_algebra()`` accept the same ``in_place`` option.
 
 The two phases do not interleave. Inference runs to a fixed point, then
 validation runs over the result. They also use opposite fixed points —
