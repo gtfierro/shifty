@@ -242,9 +242,16 @@ struct SourceBytes {
 fn fetch_bytes(src: &str) -> Result<SourceBytes, Box<dyn Error>> {
     if src.starts_with("http://") || src.starts_with("https://") {
         let response = ureq::get(src).call()?;
-        let content_type = response.header("content-type").map(ToOwned::to_owned);
+        let content_type = response
+            .headers()
+            .get("content-type")
+            .and_then(|value| value.to_str().ok())
+            .map(ToOwned::to_owned);
         let mut bytes = Vec::new();
-        std::io::Read::read_to_end(&mut response.into_reader(), &mut bytes)?;
+        // Read through the body's reader rather than `read_to_vec`, which caps
+        // the response at 10 MB: a shapes closure served over HTTP is routinely
+        // larger than that, and the cap would truncate it into a syntax error.
+        std::io::Read::read_to_end(&mut response.into_body().into_reader(), &mut bytes)?;
         Ok(SourceBytes {
             bytes,
             content_type,

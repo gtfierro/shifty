@@ -49,9 +49,9 @@ oxttl = "0.2.4"
 oxigraph = { version = "0.5.11", default-features = false }
 spargebra = { version = "=0.4.7", features = ["sep-0006"] }
 spareval = "=0.2.7"
-petgraph = "0.6"
+petgraph = "0.8"
 clap = { version = "4.5.39", features = ["derive"] }
-ureq = { version = "2", features = ["tls"] }
+ureq = { version = "3.4.2" }
 regex = "1"
 # Non-cryptographic hasher for hot internal maps whose keys are already
 # trusted (shape ids, RDF terms from the parsed graph). Nothing here is
