@@ -43,6 +43,15 @@ python-source = "."
 # wheels do not need them, and PyPI users should not pay their size cost.
 strip = true
 
+[tool.pytest.ini_options]
+# The suite is `tests/`, and saying so is what makes a bare `pytest` mean the
+# same thing as CI's `pytest tests/`. Without it, collection starts at the
+# rootdir and sweeps in whatever else lives under `python/` — a scratch
+# checkout, a stray virtualenv with vendored `test_*.py` in it — and one
+# unimportable file there fails the run before a single real test executes.
+# `release.yml` and the CLAUDE.md quality gate both invoke pytest bare.
+testpaths = ["tests"]
+
 [tool.ruff]
 target-version = "py39"
 extend-exclude = ["README.md"]

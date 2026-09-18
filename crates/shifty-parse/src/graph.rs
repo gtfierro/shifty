@@ -45,6 +45,18 @@ impl RdfFormat {
         }
     }
 
+    /// The document-format name to show a reader (media-type spelling).
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Turtle => "turtle",
+            Self::NTriples => "n-triples",
+            Self::RdfXml => "rdf/xml",
+            Self::NQuads => "n-quads",
+            Self::TriG => "trig",
+            Self::N3 => "n3",
+        }
+    }
+
     fn to_oxrdfio(self) -> oxrdfio::RdfFormat {
         match self {
             Self::Turtle => oxrdfio::RdfFormat::Turtle,
@@ -54,6 +66,12 @@ impl RdfFormat {
             Self::TriG => oxrdfio::RdfFormat::TriG,
             Self::N3 => oxrdfio::RdfFormat::N3,
         }
+    }
+}
+
+impl std::fmt::Display for RdfFormat {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.name())
     }
 }
 
@@ -92,6 +110,21 @@ impl Loaded {
         source: Option<&str>,
         base: Option<&str>,
     ) -> Result<Self, ParseError> {
+        Self::from_rdf_auto_reporting(data, content_type, source, base).map(|(loaded, _)| loaded)
+    }
+
+    /// [`Self::from_rdf_auto`], also reporting the format that actually parsed
+    /// the document.
+    ///
+    /// The format is the one that succeeded, not the one that was guessed: a
+    /// `.ttl.md` literate-Turtle document hints at nothing by extension, is
+    /// sniffed as Turtle, and reports Turtle because Turtle is what read it.
+    pub fn from_rdf_auto_reporting(
+        data: &[u8],
+        content_type: Option<&str>,
+        source: Option<&str>,
+        base: Option<&str>,
+    ) -> Result<(Self, RdfFormat), ParseError> {
         let sniffed = sniff_format(data);
         let hinted = content_type
             .and_then(RdfFormat::from_media_type)
@@ -100,7 +133,7 @@ impl Loaded {
 
         if let Some(format) = hinted {
             match Self::from_rdf(data, format, base) {
-                Ok(loaded) => return Ok(loaded),
+                Ok(loaded) => return Ok((loaded, format)),
                 Err(first_error)
                     if content_type.is_some() || source.is_some() || sniffed.is_some() =>
                 {
@@ -120,7 +153,7 @@ impl Loaded {
             RdfFormat::N3,
         ] {
             match Self::from_rdf(data, format, base) {
-                Ok(loaded) => return Ok(loaded),
+                Ok(loaded) => return Ok((loaded, format)),
                 Err(e) => errors.push(format!("{format:?}: {e}")),
             }
         }
