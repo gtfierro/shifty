@@ -127,15 +127,21 @@ pub(crate) fn infer_with_compiled_functions(
     schedule: Option<&[crate::compiled::CompiledRuleSchedule]>,
     shapes: Option<&Graph>,
 ) -> Result<InferenceOutcome, NonStratifiable> {
-    let strat = analyze(&schema.arena);
-    if !strat.stratifiable {
-        let components = strat
-            .strata
-            .iter()
-            .filter(|s| !s.stratifiable)
-            .map(|s| s.shapes.clone())
-            .collect();
-        return Err(NonStratifiable { components });
+    // `CompiledShapes::compile` already admits and checks the normalized
+    // arena. Legacy callers still need the analysis here; compiled sessions
+    // pass their admitted rule schedule and must not pay for a second SCC
+    // traversal on every data snapshot.
+    if schedule.is_none() {
+        let strat = analyze(&schema.arena);
+        if !strat.stratifiable {
+            let components = strat
+                .strata
+                .iter()
+                .filter(|s| !s.stratifiable)
+                .map(|s| s.shapes.clone())
+                .collect();
+            return Err(NonStratifiable { components });
+        }
     }
 
     let mut graph = data.clone();
