@@ -32,14 +32,23 @@ shifty-engine = { path = "crates/shifty-engine", version = "0.5.0-alpha.1" }
 shifty-repair = { path = "crates/shifty-repair", version = "0.5.0-alpha.1" }
 
 # external
-oxrdf = { version = "=0.3.3", features = ["serde", "oxsdatatypes"] }
-oxrdfio = "=0.2.4"
-oxsdatatypes = "0.2.2"
+#
+# The oxigraph family (oxrdf, oxrdfio, oxttl, oxsdatatypes, spargebra, spareval,
+# sparesults and oxigraph itself) pins its own members with `=` requirements
+# upstream: oxigraph 0.5.11 depends on oxrdf =0.3.4, and every sibling agrees.
+# We hand those same types across the boundary, so a floating requirement here
+# would either resolve two incompatible copies of oxrdf or hold the whole family
+# back to whatever our oldest pin allows. Bump them together, never singly, and
+# check https://crates.io/crates/oxigraph for the set that belongs with the
+# oxigraph release you are moving to; `cargo update` alone cannot do it.
+oxrdf = { version = "=0.3.4", features = ["serde", "oxsdatatypes"] }
+oxrdfio = "=0.2.6"
+oxsdatatypes = "0.2.3"
 bigdecimal = "0.4"
-oxttl = "0.2.3"
-oxigraph = { version = "0.5.5", default-features = false }
-spargebra = { version = "=0.4.6", features = ["sep-0006"] }
-spareval = "=0.2.6"
+oxttl = "0.2.4"
+oxigraph = { version = "0.5.11", default-features = false }
+spargebra = { version = "=0.4.7", features = ["sep-0006"] }
+spareval = "=0.2.7"
 petgraph = "0.6"
 clap = { version = "4.5.39", features = ["derive"] }
 ureq = { version = "2", features = ["tls"] }
@@ -53,7 +62,7 @@ log = "0.4"
 env_logger = "0.11"
 serde = { version = "1.0", features = ["derive", "rc"] }
 serde_json = "1.0"
-sparesults = "0.3.3"
+sparesults = "0.3.4"
 # Monotonic clock that maps to std::time on native and performance.now() on
 # wasm32 (std::time::Instant panics there). Drop-in API-compatible with std.
 web-time = "1.1"
