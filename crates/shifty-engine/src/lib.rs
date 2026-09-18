@@ -16,6 +16,39 @@
 //!
 //! Public APIs expose shallow operations; the caches and semantic translations
 //! that make them fast and correct remain in their owning modules.
+//!
+//! # Reusable document sessions
+//!
+//! [`CompiledShapes::compile`] admits a loaded shapes document once and retains
+//! its authored schema, normalized schema, function definitions, and rule
+//! schedule. Cloning the handle shares those resources. A physical validation
+//! plan is built lazily, so inference-only sessions do not pay for it.
+//!
+//! Create an [`EvaluationSession`] with [`CompiledShapes::session`], choosing
+//! [`SessionData::Separate`] or [`SessionData::Embedded`] and fixed
+//! [`SessionOptions`] for inference, graph mode, and engine policy. In Separate
+//! mode, Data evaluates data alone, Union also reads shapes, and UnionAll also
+//! selects focus nodes from shapes. Embedded mode evaluates the evolving data
+//! graph. Every mode binds the authored shapes source as the named
+//! `$shapesGraph`, including after inference.
+//!
+//! A session owns an immutable asserted-data snapshot. Inference runs at
+//! construction; the frozen index is built on the first validation, report,
+//! or evidence operation. [`EvaluationSession::with_delta`] edits asserted
+//! data and creates a new session, recomputing inference under the same policy.
+//! The original session and its results remain valid. A selected evidence pair
+//! belongs to exactly one session; passing it to another session's `explain`
+//! returns [`EvaluationError::ForeignPair`].
+//!
+//! Compilation diagnostics are available from [`CompiledShapes::diagnostics`]
+//! and inference diagnostics from [`EvaluationSession::diagnostics`]. Strict
+//! unsupported-feature policy can reject session construction. Conformance
+//! scans count logical failures, while finding-based validation applies its
+//! selected minimum severity; their `conforms` values can therefore differ.
+//!
+//! [`CompiledShapes`] is `Send + Sync` and may be shared across workers.
+//! Sessions retain operation-local `Rc`/`RefCell` executor state and should be
+//! created separately on each worker.
 
 pub mod compact;
 mod compiled;

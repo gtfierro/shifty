@@ -242,7 +242,17 @@ pub fn property_witnesses_graphs_with_mode_and_options(
     }
     let mut sparql = SparqlExecutor::from_frozen(frozen, has_shapes_graph);
     sparql.set_functions(collect_functions(shapes), options.engine.unsupported);
-    let r = build_reporter(shapes, focus_data, &sparql, options);
+    property_witnesses_prepared(shapes, focus_data, &sparql, key_path, options)
+}
+
+pub(crate) fn property_witnesses_prepared(
+    shapes: &Loaded,
+    focus_data: &Graph,
+    sparql: &SparqlExecutor,
+    key_path: Option<&Path>,
+    options: &ValidationOptions,
+) -> Vec<PropertyWitness> {
+    let r = build_reporter(shapes, focus_data, sparql, options);
     let mut out = Vec::new();
     for shape in r.target_shapes() {
         let foci = r.focus_nodes(&shape);

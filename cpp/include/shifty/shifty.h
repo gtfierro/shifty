@@ -201,6 +201,8 @@ ShiftyStringView shifty_validation_result_report_turtle(
     const ShiftyValidationResult *result);
 ShiftyStringView shifty_validation_result_results_text(
     const ShiftyValidationResult *result);
+ShiftyStringView shifty_validation_result_diagnostics_json(
+    const ShiftyValidationResult *result);
 
 /*
  * Algebra-path validation: the engine's own conformance oracle, run directly

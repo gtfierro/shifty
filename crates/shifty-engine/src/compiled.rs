@@ -4,8 +4,8 @@ use crate::sparql::FunctionDef;
 use crate::validate::NonStratifiable;
 use shifty_algebra::{Schema, ShapeId};
 use shifty_opt::{
-    PhysicalPlan, RuleDependencies, analyze, normalize_with_mapping, plan, rule_dependencies,
-    rule_guard_dependencies,
+    PhysicalPlan, RuleDependencies, Stratification, analyze, normalize_with_mapping_and_analysis,
+    plan, rule_dependencies, rule_guard_dependencies,
 };
 use shifty_parse::{Diagnostic, Loaded, ParseError, parse_loaded};
 use std::fmt;
@@ -18,10 +18,10 @@ pub struct CompiledShapes {
 }
 
 pub(crate) struct CompiledShapesInner {
-    pub(crate) source: Loaded,
+    pub(crate) source: Arc<Loaded>,
     pub(crate) authored: Arc<Schema>,
     pub(crate) normalized: Arc<Schema>,
-    statement_map: Vec<usize>,
+    statement_map: Arc<Vec<usize>>,
     pub(crate) shape_map: Arc<Vec<Option<ShapeId>>>,
     pub(crate) raw_by_normalized: Arc<Vec<Vec<usize>>>,
     pub(crate) diagnostics: Vec<Diagnostic>,
@@ -54,10 +54,10 @@ impl fmt::Display for CompileError {
 
 impl std::error::Error for CompileError {}
 
-fn check_strata(schema: &Schema) -> Result<(), CompileError> {
+fn check_strata(schema: &Schema) -> Result<Stratification, CompileError> {
     let analysis = analyze(&schema.arena);
     if analysis.stratifiable {
-        return Ok(());
+        return Ok(analysis);
     }
     Err(CompileError::NonStratifiable(NonStratifiable {
         components: analysis
@@ -73,8 +73,8 @@ impl CompiledShapes {
     pub fn compile(source: Loaded) -> Result<Self, CompileError> {
         let parsed = parse_loaded(&source);
         parsed.require_valid().map_err(CompileError::Invalid)?;
-        check_strata(&parsed.schema)?;
-        let normalized = normalize_with_mapping(&parsed.schema);
+        let authored_analysis = check_strata(&parsed.schema)?;
+        let normalized = normalize_with_mapping_and_analysis(&parsed.schema, &authored_analysis);
         check_strata(&normalized.schema)?;
         let mut raw_by_normalized = vec![Vec::new(); normalized.schema.statements.len()];
         for (authored, normalized_id) in normalized.statement_map.iter().copied().enumerate() {
@@ -97,10 +97,10 @@ impl CompiledShapes {
         rules.sort_by_key(|rule| (rule.order, rule.index));
         Ok(Self {
             inner: Arc::new(CompiledShapesInner {
-                source,
+                source: Arc::new(source),
                 authored: Arc::new(parsed.schema),
                 normalized: Arc::new(normalized.schema),
-                statement_map: normalized.statement_map,
+                statement_map: Arc::new(normalized.statement_map),
                 shape_map: Arc::new(normalized.shape_map),
                 raw_by_normalized: Arc::new(raw_by_normalized),
                 diagnostics: parsed.diagnostics,
@@ -119,9 +119,19 @@ impl CompiledShapes {
         &self.inner.source
     }
 
+    /// Share the authored RDF document without copying its graph.
+    pub fn source_shared(&self) -> Arc<Loaded> {
+        Arc::clone(&self.inner.source)
+    }
+
     /// Mapping from authored statement IDs to normalized execution IDs.
     pub fn statement_map(&self) -> &[usize] {
         &self.inner.statement_map
+    }
+
+    /// Share the authored-to-normalized statement mapping.
+    pub fn statement_map_shared(&self) -> Arc<Vec<usize>> {
+        Arc::clone(&self.inner.statement_map)
     }
 
     /// The authored schema retained for source-oriented inspection.
@@ -129,9 +139,19 @@ impl CompiledShapes {
         &self.inner.authored
     }
 
+    /// Share the authored schema with a result or adapter.
+    pub fn authored_schema_shared(&self) -> Arc<Schema> {
+        Arc::clone(&self.inner.authored)
+    }
+
     /// The canonical schema used by sessions.
     pub fn normalized_schema(&self) -> &Schema {
         &self.inner.normalized
+    }
+
+    /// Share the executable schema with a result or adapter.
+    pub fn normalized_schema_shared(&self) -> Arc<Schema> {
+        Arc::clone(&self.inner.normalized)
     }
 
     /// Build the physical validation plan only when explicitly requested.
@@ -147,3 +167,46 @@ const _: fn() = || {
     fn assert_send_sync<T: Send + Sync>() {}
     assert_send_sync::<CompiledShapes>();
 };
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{FindingOptions, SessionData, SessionOptions};
+
+    #[test]
+    fn sessions_share_compilation_and_plan_only_when_validation_uses_it() {
+        let source = shifty_parse::load_turtle(
+            br#"
+            @prefix sh: <http://www.w3.org/ns/shacl#> .
+            @prefix ex: <http://ex/> .
+            ex:S a sh:NodeShape ; sh:targetNode ex:a ;
+                sh:property [ sh:path ex:p ; sh:minCount 1 ] .
+            "#,
+            None,
+        )
+        .unwrap();
+        let compiled = CompiledShapes::compile(source).unwrap();
+        let clone = compiled.clone();
+        assert!(Arc::ptr_eq(&compiled.inner, &clone.inner));
+        assert!(compiled.inner.physical.get().is_none());
+
+        let session = compiled
+            .session(
+                SessionData::Embedded,
+                SessionOptions {
+                    inference: true,
+                    ..SessionOptions::default()
+                },
+            )
+            .unwrap();
+        assert!(compiled.inner.physical.get().is_none());
+        assert!(!session.has_prepared_dataset());
+        session.validate(&FindingOptions::default()).unwrap();
+        assert!(compiled.inner.physical.get().is_some());
+        assert!(session.has_prepared_dataset());
+        assert!(std::ptr::eq(
+            compiled.physical_plan(),
+            clone.physical_plan()
+        ));
+    }
+}

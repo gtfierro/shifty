@@ -3,17 +3,18 @@
 use crate::frozen::FrozenIndexedDataset;
 use crate::validate::{ValidationGraphMode, graph_union};
 use oxrdf::Graph;
+use std::sync::Arc;
 
 pub(crate) fn focus_graph(
-    data: &Graph,
+    data: &Arc<Graph>,
     shapes: &Graph,
     separate: bool,
     mode: ValidationGraphMode,
-) -> Graph {
+) -> Arc<Graph> {
     if separate && mode == ValidationGraphMode::UnionAll {
-        graph_union(data, shapes)
+        Arc::new(graph_union(data, shapes))
     } else {
-        data.clone()
+        Arc::clone(data)
     }
 }
 

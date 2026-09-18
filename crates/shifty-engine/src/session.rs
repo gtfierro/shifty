@@ -187,6 +187,7 @@ impl CompiledShapes {
                 &options.engine,
                 &self.inner.functions,
                 Some(&self.inner.rules),
+                Some(&self.source().graph),
             )
             .map_err(SessionError::Inference)?;
             let diagnostics: Vec<_> = outcome
@@ -216,6 +217,11 @@ impl CompiledShapes {
 }
 
 impl EvaluationSession {
+    #[cfg(test)]
+    pub(crate) fn has_prepared_dataset(&self) -> bool {
+        self.prepared.get().is_some()
+    }
+
     fn prepared(&self) -> &PreparedEvidenceValidator {
         self.prepared.get_or_init(|| {
             let shapes = &self.compiled.source().graph;
@@ -263,6 +269,18 @@ impl EvaluationSession {
         ))
     }
 
+    pub fn property_witnesses(
+        &self,
+        key_path: Option<&shifty_algebra::Path>,
+        options: &FindingOptions,
+    ) -> Result<Vec<crate::report::PropertyWitness>, EvaluationError> {
+        Ok(self.prepared().property_witnesses(
+            self.compiled.source(),
+            key_path,
+            &options.validation(self.options.engine),
+        ))
+    }
+
     pub fn evidence(&self, options: &EvidenceOptions) -> Result<EvidenceRun, EvaluationError> {
         let validation = options.findings.validation(self.options.engine);
         Ok(if options.include_progress {
@@ -294,6 +312,19 @@ impl EvaluationSession {
         &self,
         pair: &SelectedPair,
     ) -> Result<Vec<StatementEvaluation>, EvaluationError> {
+        self.check_pair(pair)?;
+        Ok(self.prepared().explain(pair))
+    }
+
+    pub fn explain_canonical(
+        &self,
+        pair: &SelectedPair,
+    ) -> Result<Vec<StatementEvaluation>, EvaluationError> {
+        self.check_pair(pair)?;
+        Ok(self.prepared().explain_canonical(pair))
+    }
+
+    fn check_pair(&self, pair: &SelectedPair) -> Result<(), EvaluationError> {
         if !pair
             .snapshot
             .as_ref()
@@ -301,7 +332,7 @@ impl EvaluationSession {
         {
             return Err(EvaluationError::ForeignPair);
         }
-        Ok(self.prepared().explain(pair))
+        Ok(())
     }
 
     pub fn with_delta(&self, delta: &GraphDelta) -> Result<Self, SessionError> {
@@ -312,6 +343,16 @@ impl EvaluationSession {
 
     pub fn data(&self) -> &Graph {
         &self.evaluated
+    }
+
+    /// Share the evaluated data graph without copying it.
+    pub fn data_shared(&self) -> Arc<Graph> {
+        Arc::clone(&self.evaluated)
+    }
+
+    /// Share the asserted data graph used by `with_delta`.
+    pub fn asserted_shared(&self) -> Arc<Graph> {
+        Arc::clone(&self.asserted)
     }
 
     pub fn inferred(&self) -> &[Triple] {

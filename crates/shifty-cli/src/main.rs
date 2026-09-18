@@ -1001,19 +1001,18 @@ fn validate(args: ValidateArgs) -> Result<(), Box<dyn Error>> {
     if shapes_loaded.graph.is_empty() {
         return Err("explicit shapes graph is empty".into());
     }
-    let parsed = shifty_parse::parse_loaded(&shapes_loaded);
-    parsed.require_valid()?;
-    let normalized = shifty_opt::normalize(&parsed.schema);
-    for d in &parsed.diagnostics {
+    let compiled = shifty_engine::CompiledShapes::compile(shapes_loaded)?;
+    let shapes_loaded = compiled.source();
+    let authored = compiled.authored_schema();
+    for d in compiled.diagnostics() {
         eprintln!("{d}");
     }
     let graph_mode = args.graph_mode.into();
     let threshold: shifty_algebra::Severity = args.minimum_severity.into();
-    let validation_options = shifty_engine::ValidationOptions {
+    let finding_options = shifty_engine::FindingOptions {
         minimum_severity: threshold.clone(),
         sort_results: true,
         entry_shape_names: args.entry_shape_names.clone(),
-        ..Default::default()
     };
 
     // Input telemetry is collected as the graphs load but printed at the very
@@ -1039,49 +1038,37 @@ fn validate(args: ValidateArgs) -> Result<(), Box<dyn Error>> {
             .unwrap_or_default(),
         shapes_loaded.prefixes.clone(),
     ]);
-    let inference = if args.no_infer {
-        None
+    let session_data = data_loaded
+        .as_ref()
+        .map_or(shifty_engine::SessionData::Embedded, |data| {
+            shifty_engine::SessionData::Separate(data.graph.clone())
+        });
+    let session = compiled
+        .session(
+            session_data,
+            shifty_engine::SessionOptions {
+                graph_mode,
+                inference: !args.no_infer,
+                engine: Default::default(),
+            },
+        )
+        .map_err(|e| format!("{e}; cannot prepare validation (see `inspect --stage strata`)"))?;
+    if args.no_infer {
+        input_lines.push("profile: inference: skipped (--no-infer)".to_string());
     } else {
-        let outcome = match data_loaded.as_ref() {
-            Some(data) => {
-                shifty_engine::infer_graphs(&data.graph, &shapes_loaded.graph, &normalized)
-            }
-            None => shifty_engine::infer(&shapes_loaded.graph, &normalized),
-        };
-        match outcome {
-            Ok(outcome) => Some(outcome),
-            Err(e) => {
-                return Err(format!(
-                    "{e}; cannot infer before validation (see `inspect --stage strata`)"
-                )
-                .into());
-            }
+        for d in session.diagnostics() {
+            eprintln!("warning: {}", d.message);
         }
-    };
-    match &inference {
-        Some(inference) => {
-            for d in &inference.diagnostics {
-                eprintln!("warning: {d}");
-            }
-            input_lines.push(format!(
-                "profile: inference: {} added before validation",
-                plural(inference.inferred.len(), "triple")
-            ));
-        }
-        None => input_lines.push("profile: inference: skipped (--no-infer)".to_string()),
+        input_lines.push(format!(
+            "profile: inference: {} added before validation",
+            plural(session.inferred().len(), "triple")
+        ));
     }
-    let data_graph = inference.as_ref().map_or_else(
-        || {
-            data_loaded
-                .as_ref()
-                .map_or(&shapes_loaded.graph, |data| &data.graph)
-        },
-        |inference| &inference.graph,
-    );
+    let data_graph = session.data();
 
     // Dumps come before the result: they describe the run's input, and writing
     // them first means a run that later fails to validate still produced them.
-    let prefixes = output_prefixes(&shapes_loaded, data_loaded.as_ref());
+    let prefixes = output_prefixes(shapes_loaded, data_loaded.as_ref());
     if let Some(dest) = &args.dump_shapes {
         dump_graph(dest, &shapes_loaded.graph, &prefixes)?;
     }
@@ -1091,20 +1078,7 @@ fn validate(args: ValidateArgs) -> Result<(), Box<dyn Error>> {
 
     // W3C report mode: component-granular validator + RDF report output.
     if args.report {
-        let report = if data_loaded.is_some() {
-            shifty_engine::validate_report_graphs_with_mode_and_options(
-                &shapes_loaded,
-                data_graph,
-                graph_mode,
-                &validation_options,
-            )
-        } else {
-            shifty_engine::validate_report_with_options(
-                &shapes_loaded,
-                data_graph,
-                &validation_options,
-            )
-        };
+        let report = session.report(&finding_options)?;
         let graph = shifty_engine::report_to_graph(&report);
         let bytes = turtle_bytes(&graph, &prefixes)?;
         print!("{}", String::from_utf8_lossy(&bytes));
@@ -1114,23 +1088,8 @@ fn validate(args: ValidateArgs) -> Result<(), Box<dyn Error>> {
         return Ok(());
     }
 
-    let physical = shifty_opt::plan(&normalized);
-    let mut outcome = match if data_loaded.is_some() {
-        shifty_engine::validate_plan_graphs_with_mode_and_options(
-            data_graph,
-            &shapes_loaded.graph,
-            &physical,
-            graph_mode,
-            &validation_options,
-        )
-    } else {
-        shifty_engine::validate_plan_with_options(data_graph, &physical, &validation_options)
-    } {
-        Ok(o) => o,
-        Err(e) => {
-            return Err(format!("{e}; cannot validate (see `inspect --stage strata`)").into());
-        }
-    };
+    let physical = compiled.physical_plan();
+    let mut outcome = session.validate(&finding_options)?;
 
     // The engine retains every finding; `--minimum-severity` scopes both
     // `conforms` (already applied) and what we display/serialize here. Drop
@@ -1144,7 +1103,7 @@ fn validate(args: ValidateArgs) -> Result<(), Box<dyn Error>> {
     match args.format {
         Format::Dot => return Err("--format dot is not supported for validate".into()),
         Format::Json => {
-            let doc = json_report(&outcome, &parsed.schema, &physical, &display_prefixes)?;
+            let doc = json_report(&outcome, authored, physical, &display_prefixes)?;
             println!("{}", serde_json::to_string_pretty(&doc)?);
         }
         Format::Text => {
@@ -1159,20 +1118,19 @@ fn validate(args: ValidateArgs) -> Result<(), Box<dyn Error>> {
             let mut findings: Vec<Finding> = Vec::new();
             let mut index: HashMap<(usize, String, String, String), usize> = HashMap::new();
             for v in &outcome.violations {
-                let st = &parsed.schema.statements[v.statement];
+                let st = &authored.statements[v.statement];
                 let focus = shifty_algebra::render::term_to_string_in(&v.focus, &display_prefixes);
                 let target = shifty_algebra::render::selector_to_string_in_px(
                     &st.selector,
-                    &parsed.schema.arena,
-                    &parsed.schema.prefixes,
+                    &authored.arena,
+                    &authored.prefixes,
                 );
                 // The source shape's IRI. Printed even when the target line
                 // already names it — an implicit class target renders as
                 // `class(<that same IRI>)` — because which shape a finding came
                 // from is the first thing a reader goes to fix, and it should
                 // not be conditional on how the target happened to render.
-                let shape = parsed
-                    .schema
+                let shape = authored
                     .name_of(st.shape)
                     .map(|name| display_prefixes.compact(name));
 
@@ -1258,13 +1216,12 @@ fn validate(args: ValidateArgs) -> Result<(), Box<dyn Error>> {
 
 fn repair(args: RepairArgs) -> Result<(), Box<dyn Error>> {
     let base = args.base.as_deref();
-    let shapes_loaded = load_sources(&args.shapes, base)?;
-    let parsed = shifty_parse::parse_loaded(&shapes_loaded);
-    parsed.require_valid()?;
-    for d in &parsed.diagnostics {
+    let compiled = shifty_engine::CompiledShapes::compile(load_sources(&args.shapes, base)?)?;
+    let shapes_loaded = compiled.source();
+    for d in compiled.diagnostics() {
         eprintln!("{d}");
     }
-    let schema = &parsed.schema;
+    let schema = compiled.authored_schema();
 
     let data_loaded = if args.data.is_empty() {
         None
@@ -1272,27 +1229,24 @@ fn repair(args: RepairArgs) -> Result<(), Box<dyn Error>> {
         Some(load_sources(&args.data, base)?)
     };
 
-    // Witness/synthesize against the (optionally inferred) data graph.
-    let inference = if args.no_infer {
-        None
-    } else {
-        let outcome = match data_loaded.as_ref() {
-            Some(data) => shifty_engine::infer_graphs(&data.graph, &shapes_loaded.graph, schema),
-            None => shifty_engine::infer(&shapes_loaded.graph, schema),
-        };
-        match outcome {
-            Ok(o) => Some(o),
-            Err(e) => {
-                return Err(format!("{e}; cannot infer (see `inspect --stage strata`)").into());
-            }
-        }
-    };
-    let data_graph = match inference {
-        Some(inf) => inf.graph,
-        None => data_loaded
-            .as_ref()
-            .map_or_else(|| shapes_loaded.graph.clone(), |d| d.graph.clone()),
-    };
+    let session_data = data_loaded
+        .as_ref()
+        .map_or(shifty_engine::SessionData::Embedded, |data| {
+            shifty_engine::SessionData::Separate(data.graph.clone())
+        });
+    let session = compiled
+        .session(
+            session_data,
+            shifty_engine::SessionOptions {
+                inference: !args.no_infer,
+                ..Default::default()
+            },
+        )
+        .map_err(|e| format!("{e}; cannot prepare repair (see `inspect --stage strata`)"))?;
+    for diagnostic in session.diagnostics() {
+        eprintln!("warning: {}", diagnostic.message);
+    }
+    let data_graph = session.data().clone();
     // Witness/gate against `data ∪ shapes` so paths and the class hierarchy
     // (e.g. `rdfs:subClassOf` for `sh:class`) resolve against the shapes/ontology
     // graph, while focus and the emitted repair stay the data graph. When the

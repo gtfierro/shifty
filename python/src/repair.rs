@@ -17,12 +17,12 @@ use pyo3::prelude::*;
 use pyo3::pybacked::PyBackedBytes;
 use shifty_algebra::{Prefixes, Schema, Selector, Shape, ShapeArena, ShapeId};
 use shifty_engine::{
-    ConformanceOptions, Evidence as IrEvidence, EvidenceKind as IrEvidenceKind,
-    EvidenceOrigin as IrEvidenceOrigin, FocusSat as IrSat, FocusWitness as IrFocus,
-    PathSupport as IrPathSupport, PreparedEvidenceValidator, SatTrace, ValidationOptions, Witness,
-    apply as engine_apply, candidates as engine_candidates, gate as engine_gate, graph_union,
-    satisfy_shape, shape_id_for_iri, synthesize_with_origins, witness_node, witness_shape,
-    witness_violations,
+    CompiledShapes, ConformanceOptions, EvaluationSession, Evidence as IrEvidence,
+    EvidenceKind as IrEvidenceKind, EvidenceOrigin as IrEvidenceOrigin, FocusSat as IrSat,
+    FocusWitness as IrFocus, PathSupport as IrPathSupport, PreparedEvidenceValidator, SatTrace,
+    SessionData, SessionOptions, ValidationOptions, Witness, apply as engine_apply,
+    candidates as engine_candidates, gate as engine_gate, graph_union, satisfy_shape,
+    shape_id_for_iri, synthesize_with_origins, witness_node, witness_shape, witness_violations,
 };
 use shifty_repair::{
     Edit, EditOp, Hole as IrHole, HoleConstraint, NodeId, Plan, RepairTree as IrTree, Slot,
@@ -799,58 +799,47 @@ impl RepairSession {
             }
         };
         py.detach(move || {
-            let shapes_loaded = shapes_spec.load(base.as_deref())?;
-            let parse_out = shifty_parse::parse_loaded(&shapes_loaded);
-            parse_out
-                .require_valid()
+            let compiled = CompiledShapes::compile(shapes_spec.load(base.as_deref())?)
                 .map_err(|error| error.to_string())?;
-            let diagnostics = parse_out
-                .diagnostics
-                .iter()
-                .map(ToString::to_string)
-                .collect();
-            let schema = parse_out.schema;
-            let provenance = shifty_opt::normalize_with_mapping(&schema);
-            let provenance_schema = provenance.schema;
-            let provenance_statement_map = provenance.statement_map;
 
             let data_loaded = data_spec
                 .map(|spec| spec.load(base.as_deref()))
                 .transpose()?;
-            let base_data = data_loaded
-                .as_ref()
-                .map_or(&shapes_loaded.graph, |d| &d.graph);
-
-            // Mirror the CLI: run SHACL-AF inference before witnessing.
-            let eval = if run_infer && !schema.rules.is_empty() {
-                let out = match data_loaded.as_ref() {
-                    Some(_) => {
-                        shifty_engine::infer_graphs(base_data, &shapes_loaded.graph, &schema)
-                    }
-                    None => shifty_engine::infer(&shapes_loaded.graph, &schema),
-                }
-                .map_err(|e| format!("non-stratifiable schema: {e}"))?;
-                out.graph
-            } else {
-                base_data.clone()
-            };
-
-            // Evaluation reads `data ∪ shapes` so paths and the class hierarchy
-            // (e.g. `rdfs:subClassOf` for `sh:class`) resolve against the
-            // shapes/ontology graph, while focus discovery and the emitted graph
-            // stay the data graph. When the shapes embed the data, `eval` already
-            // is the union, so share the Arc rather than building a second copy.
-            let data = Arc::new(eval);
-            let context = if data_loaded.is_some() {
-                Arc::new(graph_union(&data, &shapes_loaded.graph))
+            let separate = data_loaded.is_some();
+            let session_data = data_loaded.map_or(SessionData::Embedded, |loaded| {
+                SessionData::Separate(loaded.graph)
+            });
+            let session = compiled
+                .session(
+                    session_data,
+                    SessionOptions {
+                        inference: run_infer,
+                        ..SessionOptions::default()
+                    },
+                )
+                .map_err(|error| error.to_string())?;
+            let diagnostics = compiled
+                .diagnostics()
+                .iter()
+                .map(ToString::to_string)
+                .chain(
+                    session
+                        .diagnostics()
+                        .iter()
+                        .map(|diagnostic| diagnostic.message.clone()),
+                )
+                .collect();
+            let data = session.data_shared();
+            let context = if separate {
+                Arc::new(graph_union(&data, &compiled.source().graph))
             } else {
                 Arc::clone(&data)
             };
 
             Ok(RepairSession::from_parts(
-                Arc::new(schema),
-                Arc::new(provenance_schema),
-                Arc::new(provenance_statement_map),
+                compiled.authored_schema_shared(),
+                compiled.normalized_schema_shared(),
+                compiled.statement_map_shared(),
                 data,
                 context,
                 diagnostics,
@@ -2277,7 +2266,7 @@ pub fn expand_evidence_json(compact: &str, catalog: Option<&str>) -> PyResult<St
 /// across calls to `validate()`.
 #[pyclass(unsendable, name = "EvidenceSession")]
 pub struct EvidenceSession {
-    prepared: PreparedEvidenceValidator,
+    session: EvaluationSession,
     raw_schema: Arc<Schema>,
     normalized_schema: Arc<Schema>,
     data: Arc<Graph>,
@@ -2289,7 +2278,7 @@ pub struct EvidenceSession {
     /// inference and preparation take a different entry point either way.
     has_data_graph: bool,
     run_infer: bool,
-    shapes: shifty_parse::Loaded,
+    shapes: Arc<shifty_parse::Loaded>,
     graph_mode: shifty_engine::ValidationGraphMode,
     diagnostics: Vec<String>,
 }
@@ -2330,57 +2319,52 @@ impl EvidenceSession {
         };
         let mode = parse_mode(graph_mode).map_err(py_value_error)?;
         let shapes_loaded = shapes_spec.load(base.as_deref()).map_err(py_value_error)?;
-        let parsed = shifty_parse::parse_loaded(&shapes_loaded);
-        parsed
-            .require_valid()
+        let compiled = CompiledShapes::compile(shapes_loaded)
             .map_err(|error| py_value_error(error.to_string()))?;
-        let diagnostics = parsed.diagnostics.iter().map(ToString::to_string).collect();
-        let raw_schema = parsed.schema;
         let data_loaded = data_spec
             .map(|spec| spec.load(base.as_deref()))
             .transpose()
             .map_err(py_value_error)?;
         let has_data_graph = data_loaded.is_some();
-        let base_data = data_loaded
-            .as_ref()
-            .map_or(&shapes_loaded.graph, |loaded| &loaded.graph);
-
-        let evaluated = if run_infer && !raw_schema.rules.is_empty() {
-            let inference = match data_loaded.as_ref() {
-                Some(_) => {
-                    shifty_engine::infer_graphs(base_data, &shapes_loaded.graph, &raw_schema)
-                }
-                None => shifty_engine::infer(&shapes_loaded.graph, &raw_schema),
-            }
-            .map_err(|error| py_value_error(format!("non-stratifiable schema: {error}")))?;
-            inference.graph
-        } else {
-            base_data.clone()
-        };
-
-        let prepared = if has_data_graph {
-            PreparedEvidenceValidator::with_graphs(
-                &evaluated,
-                &shapes_loaded.graph,
-                &raw_schema,
-                mode,
+        let session_data = data_loaded.map_or(SessionData::Embedded, |loaded| {
+            SessionData::Separate(loaded.graph)
+        });
+        let session = compiled
+            .session(
+                session_data,
+                SessionOptions {
+                    graph_mode: mode,
+                    inference: run_infer,
+                    ..SessionOptions::default()
+                },
             )
-        } else {
-            PreparedEvidenceValidator::new(&evaluated, &raw_schema)
-        }
-        .map_err(|error| py_value_error(format!("non-stratifiable schema: {error}")))?;
-        let normalized_schema = Arc::new(prepared.schema().clone());
-        let base_data = Arc::new(base_data.clone());
+            .map_err(|error| py_value_error(error.to_string()))?;
+        let diagnostics = compiled
+            .diagnostics()
+            .iter()
+            .map(ToString::to_string)
+            .chain(
+                session
+                    .diagnostics()
+                    .iter()
+                    .map(|diagnostic| diagnostic.message.clone()),
+            )
+            .collect();
+        let normalized_schema = compiled.normalized_schema_shared();
+        let raw_schema = compiled.authored_schema_shared();
+        let data = session.data_shared();
+        let base_data = session.asserted_shared();
+        let shapes = compiled.source_shared();
 
         Ok(Self {
-            prepared,
-            raw_schema: Arc::new(raw_schema),
+            session,
+            raw_schema,
             normalized_schema,
-            data: Arc::new(evaluated),
+            data,
             base_data,
             has_data_graph,
             run_infer,
-            shapes: shapes_loaded,
+            shapes,
             graph_mode: mode,
             diagnostics,
         })
@@ -2400,7 +2384,7 @@ impl EvidenceSession {
         sort_results: bool,
     ) -> PyResult<EvidenceValidationOutcome> {
         let options = validation_options(entry_shape_names, minimum_severity, sort_results)?;
-        let outcome = self.prepared.validate(&options);
+        let outcome = self.session.prepared_evidence().validate(&options);
         self.build_run(py, outcome, &self.normalized_schema, &self.data)
     }
 
@@ -2436,6 +2420,20 @@ impl EvidenceSession {
     ) -> PyResult<EvidenceValidationOutcome> {
         let options = validation_options(entry_shape_names, minimum_severity, sort_results)?;
         let run_infer = infer.unwrap_or(self.run_infer);
+
+        if run_infer == self.run_infer {
+            let next = self
+                .session
+                .with_delta(&delta.inner)
+                .map_err(|error| py_value_error(error.to_string()))?;
+            let outcome = next.prepared_evidence().validate(&options);
+            return self.build_run(
+                py,
+                outcome,
+                &self.normalized_schema,
+                &Arc::new(next.data().clone()),
+            );
+        }
 
         // With inference on, patch the graph the rules read. Patching the
         // already-derived graph would strand triples that the deletion should
@@ -2489,7 +2487,9 @@ impl EvidenceSession {
     ) -> PyResult<PyConformanceRun> {
         let options = conformance_options(entry_shape_names);
         Ok(conformance_to_py(
-            self.prepared.validate_conformance(&options),
+            self.session
+                .conformance(&options)
+                .map_err(|error| py_value_error(error.to_string()))?,
         ))
     }
 
@@ -2506,7 +2506,10 @@ impl EvidenceSession {
         entry_shape_names: Option<Vec<String>>,
     ) -> PyResult<(PyConformanceRun, Vec<Py<PySelectedPair>>)> {
         let options = conformance_options(entry_shape_names);
-        let (run, failures) = self.prepared.find_failures(&options);
+        let (run, failures) = self
+            .session
+            .find_failures(&options)
+            .map_err(|error| py_value_error(error.to_string()))?;
         let pairs = failures
             .into_iter()
             .map(|pair| Py::new(py, PySelectedPair { inner: pair }))
@@ -2533,7 +2536,11 @@ impl EvidenceSession {
         py: Python<'_>,
         pair: &PySelectedPair,
     ) -> PyResult<EvidenceValidationOutcome> {
-        self.explain_run(py, self.prepared.explain(&pair.inner))
+        let statements = self
+            .session
+            .explain(&pair.inner)
+            .map_err(|error| py_value_error(error.to_string()))?;
+        self.explain_run(py, statements)
     }
 
     /// `explain` without the authored-statement progress view, keeping the
@@ -2543,7 +2550,11 @@ impl EvidenceSession {
         py: Python<'_>,
         pair: &PySelectedPair,
     ) -> PyResult<EvidenceValidationOutcome> {
-        self.explain_run(py, self.prepared.explain_canonical(&pair.inner))
+        let statements = self
+            .session
+            .explain_canonical(&pair.inner)
+            .map_err(|error| py_value_error(error.to_string()))?;
+        self.explain_run(py, statements)
     }
 
     /// The source and normalized constraint catalogs for this snapshot, as a
@@ -2555,7 +2566,7 @@ impl EvidenceSession {
     /// `to_compact_json(include_catalog=False)` usable: the catalog travels once,
     /// out of band.
     fn constraints(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
-        let json = serde_json::to_string(&self.prepared.constraints())
+        let json = serde_json::to_string(&self.session.prepared_evidence().constraints())
             .map_err(|error| py_value_error(format!("cannot serialize constraints: {error}")))?;
         Ok(py.import("json")?.call_method1("loads", (json,))?.unbind())
     }
@@ -2876,7 +2887,8 @@ impl EvidenceSession {
     fn evidence_for_impl(&self, focus: &str, constraint_id: u32) -> PyResult<PyEvidenceNode> {
         let term = parse_term(focus).map_err(py_value_error)?;
         let evidence = self
-            .prepared
+            .session
+            .prepared_evidence()
             .explain_constraint(&term, ShapeId(constraint_id))
             .ok_or_else(|| {
                 py_value_error(format!(
@@ -3033,9 +3045,12 @@ impl EvidenceSession {
         let mut values: Vec<String> = shifty_engine::path::succ(graph, &focus, &path)
             .into_iter()
             .filter(|value| {
-                qualifying
-                    .iter()
-                    .all(|shape| self.prepared.raw_constraint_holds(value, *shape) == Some(true))
+                qualifying.iter().all(|shape| {
+                    self.session
+                        .prepared_evidence()
+                        .raw_constraint_holds(value, *shape)
+                        == Some(true)
+                })
             })
             // Shape-map values are parsed back into typed Python terms, so
             // retain the full N-Triples spelling rather than the display form

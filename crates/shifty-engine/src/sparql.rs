@@ -179,6 +179,10 @@ impl SparqlExecutor {
         Self::build(graph, None)
     }
 
+    pub(crate) fn new_with_shapes(context: &Graph, shapes: &Graph) -> Result<Self, String> {
+        Self::build(context, Some(shapes))
+    }
+
     fn build(context: &Graph, shapes: Option<&Graph>) -> Result<Self, String> {
         let store = Store::new().map_err(|e| e.to_string())?;
         store

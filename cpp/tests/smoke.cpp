@@ -85,6 +85,7 @@ int main() {
     assert(invalid_shapes_rejected);
 
     const auto validation = validator.validate(dataset);
+    assert(validation.diagnostics_json() == "[]");
     assert(!validation.conforms());
     assert(validation.report_turtle().find("ValidationReport") != std::string::npos);
     assert(validation.results_text().find("bob") != std::string::npos);

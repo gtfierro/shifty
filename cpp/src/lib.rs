@@ -105,6 +105,7 @@ pub struct ShiftyValidationResult {
     conforms: bool,
     report_turtle: String,
     results_text: String,
+    diagnostics_json: String,
 }
 
 /// One failed atomic constraint within an [`AlgebraViolationItem`], pre-
@@ -646,6 +647,14 @@ fn validate_dataset(
         conforms: report.conforms,
         report_turtle: graph_to_turtle(&report_graph)?,
         results_text: format_report_text(&report),
+        diagnostics_json: serde_json::to_string(
+            &session
+                .diagnostics()
+                .iter()
+                .map(|diagnostic| diagnostic.message.as_str())
+                .collect::<Vec<_>>(),
+        )
+        .expect("serializing strings to JSON cannot fail"),
     })
 }
 
@@ -1689,6 +1698,19 @@ pub unsafe extern "C" fn shifty_validation_result_results_text(
             len: 0,
         },
         |result| string_view(&result.results_text),
+    )
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_validation_result_diagnostics_json(
+    result: *const ShiftyValidationResult,
+) -> ShiftyStringView {
+    unsafe { result.as_ref() }.map_or(
+        ShiftyStringView {
+            data: ptr::null(),
+            len: 0,
+        },
+        |result| string_view(&result.diagnostics_json),
     )
 }
 

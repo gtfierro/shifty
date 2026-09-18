@@ -113,7 +113,7 @@ pub fn infer_with_owned_context_and_options(
     options: &EngineOptions,
 ) -> Result<InferenceOutcome, NonStratifiable> {
     let functions = collect_functions(&context);
-    infer_with_compiled_functions(data, context, schema, options, &functions, None)
+    infer_with_compiled_functions(data, context, schema, options, &functions, None, None)
 }
 
 /// The document-session path uses definitions fixed by the compiled shapes
@@ -125,6 +125,7 @@ pub(crate) fn infer_with_compiled_functions(
     options: &EngineOptions,
     functions: &[FunctionDef],
     schedule: Option<&[crate::compiled::CompiledRuleSchedule]>,
+    shapes: Option<&Graph>,
 ) -> Result<InferenceOutcome, NonStratifiable> {
     let strat = analyze(&schema.arena);
     if !strat.stratifiable {
@@ -139,8 +140,11 @@ pub(crate) fn infer_with_compiled_functions(
 
     let mut graph = data.clone();
     let mut context = context;
-    let mut sparql =
-        SparqlExecutor::new(&context).expect("building an in-memory Oxigraph store should succeed");
+    let mut sparql = match shapes {
+        Some(shapes) => SparqlExecutor::new_with_shapes(&context, shapes),
+        None => SparqlExecutor::new(&context),
+    }
+    .expect("building an in-memory Oxigraph store should succeed");
     // Register sh:SPARQLFunctions so CONSTRUCT rule bodies can call them (node
     // expressions use the graph-aware call_sparql_function path separately).
     sparql.set_functions(functions.to_vec(), options.unsupported);
@@ -179,7 +183,10 @@ pub(crate) fn infer_with_compiled_functions(
     let mut frozen = rules
         .iter()
         .any(|scheduled| matches!(scheduled.rule.head, RuleHead::Sparql(_)))
-        .then(|| FrozenIndexedDataset::from_graph(&context));
+        .then(|| match shapes {
+            Some(shapes) => FrozenIndexedDataset::from_graphs(&context, shapes),
+            None => FrozenIndexedDataset::from_graph(&context),
+        });
 
     // The first pass evaluates every rule. Later passes are semi-naive at rule
     // granularity: only rules that may read a changed predicate are active.

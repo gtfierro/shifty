@@ -46,7 +46,7 @@ pub struct PreparedEvidenceValidator {
     /// The graph used for focus selection. It is retained separately from the
     /// frozen context inside `sparql`: graph mode may deliberately use data-only
     /// targets while paths and SPARQL read data ∪ shapes.
-    data: Graph,
+    data: Arc<Graph>,
     /// The authored schema is not an execution duplicate. It is the provenance
     /// layer that lets progress explain a constraint normalization removed or
     /// merged, while `schema` remains the small canonical graph to evaluate.
@@ -103,13 +103,28 @@ impl From<&ValidationOptions> for ConformanceOptions {
 /// name a pair while preserving scoped source fan-out. Several authored
 /// statements may share one normalized statement, but only the authored
 /// statements selected for this handle are retained.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct SelectedPair {
     normalized_statement: usize,
     focus: oxrdf::Term,
     source_statements: Vec<usize>,
     pub(crate) snapshot: Option<Arc<()>>,
 }
+
+impl PartialEq for SelectedPair {
+    fn eq(&self, other: &Self) -> bool {
+        self.normalized_statement == other.normalized_statement
+            && self.focus == other.focus
+            && self.source_statements == other.source_statements
+            && match (&self.snapshot, &other.snapshot) {
+                (Some(left), Some(right)) => Arc::ptr_eq(left, right),
+                (None, None) => true,
+                _ => false,
+            }
+    }
+}
+
+impl Eq for SelectedPair {}
 
 impl SelectedPair {
     fn new(normalized_statement: usize, focus: oxrdf::Term, source_statements: Vec<usize>) -> Self {
@@ -135,6 +150,21 @@ impl SelectedPair {
 }
 
 impl PreparedEvidenceValidator {
+    pub(crate) fn property_witnesses(
+        &self,
+        source: &shifty_parse::Loaded,
+        key_path: Option<&shifty_algebra::Path>,
+        options: &ValidationOptions,
+    ) -> Vec<crate::report::PropertyWitness> {
+        crate::report::property_witnesses_prepared(
+            source,
+            &self.data,
+            &self.sparql,
+            key_path,
+            options,
+        )
+    }
+
     pub(crate) fn report(
         &self,
         source: &shifty_parse::Loaded,
@@ -261,7 +291,7 @@ impl PreparedEvidenceValidator {
         }
 
         Ok(Self {
-            data,
+            data: Arc::new(data),
             raw_schema: Arc::new(raw_schema.clone()),
             schema: Arc::new(normalized.schema),
             raw_by_normalized: Arc::new(raw_by_normalized),
@@ -271,7 +301,7 @@ impl PreparedEvidenceValidator {
     }
 
     pub(crate) fn from_compiled(
-        data: Graph,
+        data: Arc<Graph>,
         compiled: &crate::compiled::CompiledShapes,
         frozen: FrozenIndexedDataset,
         has_shapes_graph: bool,

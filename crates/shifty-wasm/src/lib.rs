@@ -110,6 +110,7 @@ struct AlgebraResult {
     conforms: bool,
     violations: Vec<JsViolation>,
     results_text: String,
+    diagnostics: Vec<String>,
 }
 
 #[derive(Serialize)]
@@ -142,6 +143,7 @@ struct W3cResult {
     conforms: bool,
     report_turtle: String,
     results_text: String,
+    diagnostics: Vec<String>,
 }
 
 #[derive(Serialize)]
@@ -201,6 +203,7 @@ pub fn validate(
             .map(|v| violation_to_js(v, schema))
             .collect(),
         results_text: format_algebra_text(&outcome.conforms, &outcome.violations, schema),
+        diagnostics: session_diagnostics(&compiled, &session),
     };
     to_js(&result)
 }
@@ -222,7 +225,7 @@ pub fn validate_w3c(
     let vopts = opts.validation_options()?;
     let mode = opts.graph_mode()?;
 
-    let (_, session) = make_session(shapes_ttl, data_text(&data_ttl), mode, opts.infer)?;
+    let (compiled, session) = make_session(shapes_ttl, data_text(&data_ttl), mode, opts.infer)?;
     let report = session
         .report(&finding_options(&vopts))
         .map_err(|error| JsError::new(&error.to_string()))?;
@@ -232,6 +235,7 @@ pub fn validate_w3c(
         conforms: report.conforms,
         report_turtle: graph_to_turtle(&report_graph),
         results_text: format_report_text(&report),
+        diagnostics: session_diagnostics(&compiled, &session),
     };
     to_js(&result)
 }
@@ -241,7 +245,7 @@ pub fn validate_w3c(
 /// Invalid shapes diagnostics reject the call instead of dropping a rule.
 #[wasm_bindgen(js_name = infer)]
 pub fn infer_js(shapes_ttl: &str, data_ttl: Option<String>) -> Result<JsValue, JsError> {
-    let (_, session) = make_session(
+    let (compiled, session) = make_session(
         shapes_ttl,
         data_text(&data_ttl),
         ValidationGraphMode::Data,
@@ -253,11 +257,7 @@ pub fn infer_js(shapes_ttl: &str, data_ttl: Option<String>) -> Result<JsValue, J
         total_count: session.data().len(),
         graph_ntriples: graph_to_ntriples(session.data()),
         inferred_ntriples: triples_to_ntriples(session.inferred()),
-        diagnostics: session
-            .diagnostics()
-            .iter()
-            .map(|diagnostic| diagnostic.message.clone())
-            .collect(),
+        diagnostics: session_diagnostics(&compiled, &session),
     };
     to_js(&result)
 }
@@ -336,6 +336,20 @@ fn make_session(
         )
         .map_err(|error| JsError::new(&error.to_string()))?;
     Ok((compiled, session))
+}
+
+fn session_diagnostics(compiled: &CompiledShapes, session: &EvaluationSession) -> Vec<String> {
+    compiled
+        .diagnostics()
+        .iter()
+        .map(ToString::to_string)
+        .chain(
+            session
+                .diagnostics()
+                .iter()
+                .map(|diagnostic| diagnostic.message.clone()),
+        )
+        .collect()
 }
 
 // ── Serialization helpers ─────────────────────────────────────────────────────
