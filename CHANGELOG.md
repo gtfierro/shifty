@@ -19,6 +19,14 @@
   that had not been read. The format reported is the one that succeeded, not the
   one the extension suggests: a literate-Turtle `.md` document reports `turtle`.
 
+### Changed
+
+- Updated the Python bindings to pyo3 0.29 (from 0.23). `requires-python` is
+  unchanged at 3.9 and the extension is still built abi3. The `#[pyclass]`
+  types no longer carry an automatic `FromPyObject`: pyo3 is making it opt-in,
+  nothing in the crate extracted these types from Python, and they are values
+  the bindings hand out rather than accept.
+
 ### Fixed
 
 - Fixed `shifty validate --profile` printing no telemetry at all. The call that

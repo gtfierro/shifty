@@ -28,7 +28,7 @@ const VERSION: &str = env!("CARGO_PKG_VERSION");
 /// Debugging detail for a failed `sh:sparql`/custom SPARQL-based constraint
 /// component: what query ran, what it was bound to, and what it returned, so
 /// a SPARQL failure is never a dead end.
-#[pyclass(get_all)]
+#[pyclass(get_all, skip_from_py_object)]
 #[derive(Clone)]
 pub struct SparqlDiagnostic {
     /// The query actually executed, after every static SHACL substitution
@@ -163,7 +163,7 @@ fn sparql_diagnostic_to_py(
     )
 }
 
-#[pyclass(eq, eq_int, hash, frozen, name = "ConstraintKind")]
+#[pyclass(eq, eq_int, hash, frozen, name = "ConstraintKind", skip_from_py_object)]
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum ConstraintKind {
     Unknown,
@@ -209,7 +209,7 @@ pub(crate) fn constraint_kind_to_py(kind: shifty_algebra::ConstraintKind) -> Con
     }
 }
 
-#[pyclass(get_all, name = "Constraint")]
+#[pyclass(get_all, name = "Constraint", skip_from_py_object)]
 #[derive(Clone)]
 pub struct Constraint {
     /// Algebra arena id for this constraint.
@@ -362,7 +362,7 @@ impl AlgebraResult {
     /// Serialize the retained inference delta for the Python write-back path.
     #[getter]
     fn _inferred_ntriples(&self, py: Python<'_>) -> String {
-        py.allow_threads(|| {
+        py.detach(|| {
             self.inferred_ntriples_cache
                 .get_or_init(|| triples_to_ntriples(&self.inferred))
                 .clone()
@@ -448,7 +448,7 @@ impl W3cResult {
     /// Serialize the retained inference delta for the Python write-back path.
     #[getter]
     fn _inferred_ntriples(&self, py: Python<'_>) -> String {
-        py.allow_threads(|| {
+        py.detach(|| {
             self.inferred_ntriples_cache
                 .get_or_init(|| triples_to_ntriples(&self.inferred))
                 .clone()
@@ -541,7 +541,7 @@ impl InferResult {
 
     #[getter]
     fn graph_ntriples(&self, py: Python<'_>) -> String {
-        py.allow_threads(|| {
+        py.detach(|| {
             self.graph_ntriples_cache
                 .get_or_init(|| graph_to_ntriples(&self.graph))
                 .clone()
@@ -552,7 +552,7 @@ impl InferResult {
     /// N-Triples. Empty when nothing was inferred.
     #[getter]
     fn inferred_ntriples(&self, py: Python<'_>) -> String {
-        py.allow_threads(|| {
+        py.detach(|| {
             self.inferred_ntriples_cache
                 .get_or_init(|| triples_to_ntriples(&self.inferred))
                 .clone()
@@ -1391,7 +1391,7 @@ pub fn _validate_algebra(
         keep_delta: keep_inferred,
     };
     let raw = py
-        .allow_threads(move || {
+        .detach(move || {
             let (data_loaded, shapes_loaded, schema, plan, diagnostics) =
                 load_validation_inputs(data, shapes, base.as_deref())?;
             check_explicit_shapes_not_empty(shapes_loaded.as_ref())?;
@@ -1473,7 +1473,7 @@ pub fn _validate_w3c(
         run: run_infer,
         keep_delta: keep_inferred,
     };
-    py.allow_threads(move || {
+    py.detach(move || {
         let (data_loaded, shapes_loaded, schema, _, _) =
             load_validation_inputs(data, shapes, base.as_deref())?;
         check_explicit_shapes_not_empty(shapes_loaded.as_ref())?;
@@ -1525,7 +1525,7 @@ pub fn _infer(
         }
     };
     let engine = engine_options(on_unsupported).map_err(py_value_error)?;
-    py.allow_threads(move || {
+    py.detach(move || {
         let (data_loaded, shapes_loaded, schema, _, _) =
             load_validation_inputs(data, shapes, base.as_deref())?;
         let outcome = match shapes_loaded.as_ref() {
@@ -1577,7 +1577,7 @@ impl PreparedValidator {
     ) -> PyResult<Self> {
         let input =
             InputSpec::new(shapes, shapes_path, shapes_format, "shapes").map_err(py_value_error)?;
-        py.allow_threads({
+        py.detach({
             let base = base.clone();
             move || {
                 let loaded = input.load(base.as_deref())?;
@@ -1641,7 +1641,7 @@ impl PreparedValidator {
         };
         let diagnostics = self.diagnostics.clone();
         let raw = py
-            .allow_threads(|| {
+            .detach(|| {
                 check_unsupported_diagnostics(&diagnostics, options.engine.unsupported)?;
                 let data_loaded = data.load(self.base.as_deref())?;
                 validate_algebra_loaded(
@@ -1697,7 +1697,7 @@ impl PreparedValidator {
             run: run_infer,
             keep_delta: keep_inferred,
         };
-        py.allow_threads(|| {
+        py.detach(|| {
             let data_loaded = data.load(self.base.as_deref())?;
             validate_w3c_loaded(
                 &data_loaded,
@@ -1754,7 +1754,7 @@ impl PreparedValidator {
             .map_err(|e| format!("invalid key_path: {e}"))
             .map_err(py_value_error)?;
         let witnesses = py
-            .allow_threads(|| {
+            .detach(|| {
                 let data_loaded = data.load(self.base.as_deref())?;
                 let inferred = maybe_infer(
                     &data_loaded.graph,

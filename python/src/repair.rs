@@ -237,7 +237,7 @@ fn render_tree(
 /// Exact kind of a structured evidence node. Unlike `WitnessKind` and
 /// `SatKind`, which classify flattened driver summaries, this enum is a
 /// one-to-one projection of the Rust evidence grammar.
-#[pyclass(eq, eq_int, hash, frozen, name = "EvidenceKind")]
+#[pyclass(eq, eq_int, hash, frozen, name = "EvidenceKind", skip_from_py_object)]
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum PyEvidenceKind {
     Irrefutable,
@@ -338,7 +338,7 @@ impl PyEvidenceKind {
 /// The kind of a failing witness leaf — the enumerated discriminant of
 /// [`WitnessAtom`]. `Not` marks a `¬φ` that holds and must be falsified; the
 /// `Count*` variants an under-/over-satisfied cardinality.
-#[pyclass(eq, eq_int, hash, frozen, name = "WitnessKind")]
+#[pyclass(eq, eq_int, hash, frozen, name = "WitnessKind", skip_from_py_object)]
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum WitnessKind {
     Atom,
@@ -352,7 +352,7 @@ pub enum WitnessKind {
 
 /// One failing leaf of a witness, flattened. The AND/OR structure is preserved in
 /// `explain`; this is the bag of leaves a driver can scan.
-#[pyclass(get_all, name = "WitnessAtom")]
+#[pyclass(get_all, name = "WitnessAtom", skip_from_py_object)]
 #[derive(Clone)]
 pub struct WitnessAtom {
     /// The leaf kind (see [`WitnessKind`]).
@@ -523,7 +523,7 @@ fn witness_leaves(arena: &ShapeArena, px: &Prefixes, w: &Witness, out: &mut Vec<
 /// [`SatAtom`]. `Match` is a value that satisfied a counted path; `Blocked` a
 /// leaf that holds but exposes no enumerable value set (closed / relational /
 /// opaque SPARQL); `Coinductive` a gfp back-edge assumed true.
-#[pyclass(eq, eq_int, hash, frozen, name = "SatKind")]
+#[pyclass(eq, eq_int, hash, frozen, name = "SatKind", skip_from_py_object)]
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum SatKind {
     Atom,
@@ -535,7 +535,7 @@ pub enum SatKind {
 
 /// One holding leaf of a satisfaction trace, flattened — the satisfaction-side
 /// dual of [`WitnessAtom`]. The AND/OR structure is preserved in `explain`.
-#[pyclass(get_all, name = "SatAtom")]
+#[pyclass(get_all, name = "SatAtom", skip_from_py_object)]
 #[derive(Clone)]
 pub struct SatAtom {
     /// The leaf kind (see [`SatKind`]).
@@ -798,7 +798,7 @@ impl RepairSession {
                 Some(InputSpec::new(data, path, data_format, "data").map_err(py_value_error)?)
             }
         };
-        py.allow_threads(move || {
+        py.detach(move || {
             let shapes_loaded = shapes_spec.load(base.as_deref())?;
             let parse_out = shifty_parse::parse_loaded(&shapes_loaded);
             parse_out
@@ -867,7 +867,7 @@ impl RepairSession {
     /// The horizon: one [`FocusWitness`] per `(focus, failed statement)`.
     fn witnesses(&self, py: Python<'_>) -> PyResult<Vec<Py<FocusWitness>>> {
         let raw = py
-            .allow_threads(|| witness_violations(&self.data, &self.context, &self.schema))
+            .detach(|| witness_violations(&self.data, &self.context, &self.schema))
             .map_err(|e| py_value_error(format!("non-stratifiable schema: {e}")))?;
         let mut seen = HashSet::new();
         let mut out = Vec::new();
@@ -889,7 +889,7 @@ impl RepairSession {
     fn witnesses_for(&self, py: Python<'_>, shape_iri: &str) -> PyResult<Vec<Py<FocusWitness>>> {
         let shape = self.resolve_shape(shape_iri)?;
         let raw = py
-            .allow_threads(|| witness_shape(&self.data, &self.context, &self.schema, shape))
+            .detach(|| witness_shape(&self.data, &self.context, &self.schema, shape))
             .map_err(|e| py_value_error(format!("non-stratifiable schema: {e}")))?;
         let mut seen = HashSet::new();
         let mut out = Vec::new();
@@ -915,7 +915,7 @@ impl RepairSession {
     ) -> PyResult<Vec<Py<FocusSatisfaction>>> {
         let shape = self.resolve_shape(shape_iri)?;
         let raw = py
-            .allow_threads(|| satisfy_shape(&self.data, &self.context, &self.schema, shape))
+            .detach(|| satisfy_shape(&self.data, &self.context, &self.schema, shape))
             .map_err(|e| py_value_error(format!("non-stratifiable schema: {e}")))?;
         raw.into_iter()
             .map(|fs| {
@@ -956,7 +956,7 @@ impl RepairSession {
     /// Decides and applies nothing; returns a [`RepairOutcome`].
     fn gate(&self, py: Python<'_>, delta: &RepairDelta) -> PyResult<RepairOutcome> {
         let outcome = py
-            .allow_threads(|| engine_gate(&self.data, &self.context, &self.schema, &delta.inner))
+            .detach(|| engine_gate(&self.data, &self.context, &self.schema, &delta.inner))
             .map_err(|e| py_value_error(format!("non-stratifiable schema: {e}")))?;
         let sound = outcome.is_sound();
         let progress = outcome.is_progress();
@@ -978,12 +978,12 @@ impl RepairSession {
     /// parses it to rdflib). After `advance`, this is `G` with every accepted
     /// `ΔG` applied.
     fn current_ntriples(&self, py: Python<'_>) -> String {
-        py.allow_threads(|| graph_to_ntriples(&self.data))
+        py.detach(|| graph_to_ntriples(&self.data))
     }
 
     /// `G ⊕ ΔG` as an N-Triples string (the Python layer parses it to rdflib).
     fn apply_ntriples(&self, py: Python<'_>, delta: &RepairDelta) -> String {
-        py.allow_threads(|| {
+        py.detach(|| {
             let g = engine_apply(&self.data, &delta.inner);
             graph_to_ntriples(&g)
         })
@@ -1002,7 +1002,7 @@ impl RepairSession {
     ) -> PyResult<Option<RepairTree>> {
         let term = parse_term(node).map_err(py_value_error)?;
         let fw = py
-            .allow_threads(|| witness_node(&self.context, &self.schema, &term, ShapeId(shape_id)))
+            .detach(|| witness_node(&self.context, &self.schema, &term, ShapeId(shape_id)))
             .map_err(|e| py_value_error(format!("non-stratifiable schema: {e}")))?;
         Ok(fw.map(|fw| {
             let synthesized = synthesize_with_origins(&self.schema.arena, &fw);
@@ -1046,7 +1046,7 @@ impl RepairSession {
     /// both the data graph and the evaluation context (which contains it), so the
     /// next session evaluates against `(data ⊕ ΔG) ∪ shapes`.
     fn advance(&self, py: Python<'_>, delta: &RepairDelta) -> Self {
-        let (next_data, next_context) = py.allow_threads(|| {
+        let (next_data, next_context) = py.detach(|| {
             (
                 engine_apply(&self.data, &delta.inner),
                 engine_apply(&self.context, &delta.inner),
@@ -1076,7 +1076,7 @@ impl RepairSession {
 /// `SubjectsOf`/`ObjectsOf` are `sh:targetSubjectsOf`/`sh:targetObjectsOf`;
 /// `Node` an `sh:targetNode`; `Path` a generic path target; `Sparql` a
 /// SPARQL-based target.
-#[pyclass(eq, eq_int, hash, frozen, name = "TargetKind")]
+#[pyclass(eq, eq_int, hash, frozen, name = "TargetKind", skip_from_py_object)]
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum TargetKind {
     Class,
@@ -1090,7 +1090,7 @@ pub enum TargetKind {
 /// A statement's target selector, decomposed for inspection: a [`TargetKind`]
 /// discriminant plus the salient term(s), alongside the rendered string. The
 /// structured counterpart of `FocusWitness.target` / `FocusSatisfaction.target`.
-#[pyclass(get_all, name = "Target")]
+#[pyclass(get_all, name = "Target", skip_from_py_object)]
 #[derive(Clone)]
 pub struct Target {
     /// What the selector targets (see [`TargetKind`]).
@@ -1537,8 +1537,7 @@ impl FocusWitness {
 
     /// Synthesize the repair space (`RepairTree`) for this violation.
     fn repair_tree(&self, py: Python<'_>) -> RepairTree {
-        let synthesized =
-            py.allow_threads(|| synthesize_with_origins(&self.schema.arena, &self.inner));
+        let synthesized = py.detach(|| synthesize_with_origins(&self.schema.arena, &self.inner));
         RepairTree {
             inner: synthesized.tree,
             origins: synthesized.origins,
@@ -3102,7 +3101,7 @@ pub struct RepairTree {
 }
 
 /// The evidence occurrence that justified one repair-tree node.
-#[pyclass(get_all, eq, frozen, name = "RepairOrigin")]
+#[pyclass(get_all, eq, frozen, name = "RepairOrigin", skip_from_py_object)]
 #[derive(Clone, PartialEq, Eq)]
 pub struct RepairOrigin {
     /// Authored statement id, absent for direct node/sub-shape repairs.
@@ -3310,7 +3309,7 @@ impl Hole {
     /// via `RepairPlan.bind(hole.id, value)`.
     #[pyo3(signature = (limit=64))]
     fn candidates(&self, py: Python<'_>, limit: usize) -> Vec<String> {
-        py.allow_threads(|| {
+        py.detach(|| {
             engine_candidates(&self.inner, &self.data, limit)
                 .iter()
                 .map(|t| t.to_string())
@@ -3368,7 +3367,7 @@ impl Hole {
 /// The kind of decision point in a [`RepairTree`] — the enumerated discriminant
 /// of [`Choice`]. `Any` is a disjunction (pick one branch); `Repeat` a bounded
 /// repetition (pick a count).
-#[pyclass(eq, eq_int, hash, frozen, name = "ChoiceKind")]
+#[pyclass(eq, eq_int, hash, frozen, name = "ChoiceKind", skip_from_py_object)]
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum ChoiceKind {
     Any,
@@ -3376,7 +3375,7 @@ pub enum ChoiceKind {
 }
 
 /// An `Any`/`Repeat` decision point in a [`RepairTree`].
-#[pyclass(get_all, name = "Choice")]
+#[pyclass(get_all, name = "Choice", skip_from_py_object)]
 #[derive(Clone)]
 pub struct Choice {
     pub node_id: u32,
@@ -3510,7 +3509,7 @@ impl Instantiated {
 }
 
 /// A set of triple additions and deletions — the `ΔG` a driver gates and applies.
-#[pyclass(name = "RepairDelta")]
+#[pyclass(name = "RepairDelta", skip_from_py_object)]
 #[derive(Clone)]
 pub struct RepairDelta {
     inner: shifty_repair::GraphDelta,
