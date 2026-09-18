@@ -80,7 +80,7 @@ fn key(v: &Violation) -> (Term, usize) {
     (v.focus.clone(), v.statement)
 }
 
-fn diff(baseline: Vec<Violation>, patched: Vec<Violation>) -> RepairOutcome {
+pub(crate) fn diff(baseline: Vec<Violation>, patched: Vec<Violation>) -> RepairOutcome {
     let baseline_keys: HashSet<(Term, usize)> = baseline.iter().map(key).collect();
     let patched_keys: HashSet<(Term, usize)> = patched.iter().map(key).collect();
 

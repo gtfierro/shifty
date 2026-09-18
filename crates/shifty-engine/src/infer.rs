@@ -112,6 +112,20 @@ pub fn infer_with_owned_context_and_options(
     schema: &Schema,
     options: &EngineOptions,
 ) -> Result<InferenceOutcome, NonStratifiable> {
+    let functions = collect_functions(&context);
+    infer_with_compiled_functions(data, context, schema, options, &functions, None)
+}
+
+/// The document-session path uses definitions fixed by the compiled shapes
+/// source; the legacy path above still discovers functions from its context.
+pub(crate) fn infer_with_compiled_functions(
+    data: &Graph,
+    context: Graph,
+    schema: &Schema,
+    options: &EngineOptions,
+    functions: &[FunctionDef],
+    schedule: Option<&[crate::compiled::CompiledRuleSchedule]>,
+) -> Result<InferenceOutcome, NonStratifiable> {
     let strat = analyze(&schema.arena);
     if !strat.stratifiable {
         let components = strat
@@ -129,24 +143,39 @@ pub fn infer_with_owned_context_and_options(
         SparqlExecutor::new(&context).expect("building an in-memory Oxigraph store should succeed");
     // Register sh:SPARQLFunctions so CONSTRUCT rule bodies can call them (node
     // expressions use the graph-aware call_sparql_function path separately).
-    sparql.set_functions(collect_functions(&context), options.unsupported);
+    sparql.set_functions(functions.to_vec(), options.unsupported);
     let mut inferred: Vec<Triple> = Vec::new();
     let mut diags: BTreeSet<String> = BTreeSet::new();
 
-    let mut rules: Vec<ScheduledRule<'_>> = schema
-        .rules
-        .iter()
-        .enumerate()
-        .filter(|(_, rule)| !rule.deactivated)
-        .map(|(index, rule)| ScheduledRule {
-            index,
-            order: rule.order.unwrap_or(0),
-            dependencies: rule_dependencies(rule, &schema.arena),
-            guard_dependencies: rule_guard_dependencies(rule, &schema.arena),
-            rule,
-        })
-        .collect();
-    rules.sort_by_key(|scheduled| (scheduled.order, scheduled.index));
+    let mut rules: Vec<ScheduledRule<'_>> = if let Some(schedule) = schedule {
+        schedule
+            .iter()
+            .map(|entry| ScheduledRule {
+                index: entry.index,
+                order: entry.order,
+                dependencies: entry.dependencies.clone(),
+                guard_dependencies: entry.guard_dependencies.clone(),
+                rule: &schema.rules[entry.index],
+            })
+            .collect()
+    } else {
+        schema
+            .rules
+            .iter()
+            .enumerate()
+            .filter(|(_, rule)| !rule.deactivated)
+            .map(|(index, rule)| ScheduledRule {
+                index,
+                order: rule.order.unwrap_or(0),
+                dependencies: rule_dependencies(rule, &schema.arena),
+                guard_dependencies: rule_guard_dependencies(rule, &schema.arena),
+                rule,
+            })
+            .collect()
+    };
+    if schedule.is_none() {
+        rules.sort_by_key(|scheduled| (scheduled.order, scheduled.index));
+    }
     let mut frozen = rules
         .iter()
         .any(|scheduled| matches!(scheduled.rule.head, RuleHead::Sparql(_)))

@@ -85,19 +85,7 @@ pub(crate) struct SparqlExecutor {
 /// the frozen dataset is `Rc`-based and cannot cross the `Send + Sync` boundary
 /// the custom-function closure requires. (Node-expression function calls keep
 /// full graph access via [`SparqlExecutor::call_sparql_function`].)
-#[derive(Clone)]
-pub(crate) struct FunctionDef {
-    pub iri: NamedNode,
-    /// Parameter variable names, in positional call order.
-    pub params: Vec<String>,
-    /// The function body (`sh:select` or `sh:ask`), prefix-expanded.
-    pub query: String,
-    /// Whether the body reads the data graph (has a non-trivial WHERE pattern).
-    /// Such functions only return correct results in node expressions, where the
-    /// real dataset is available; from a SPARQL context they run over an empty
-    /// dataset, so `UnsupportedPolicy::Error` declines to register them.
-    pub reads_graph: bool,
-}
+pub(crate) use shifty_algebra::FunctionDef;
 
 /// Cache key for a compiled constraint: the canonical query plus the static
 /// bindings that change its plan. `$this` is bound per focus and so is *not*

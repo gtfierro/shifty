@@ -443,14 +443,13 @@ fn infer(args: InferArgs) -> Result<(), Box<dyn Error>> {
     }
     let base = args.base.as_deref();
     let (shapes, shape_stats) = load_sources_profiled(&args.shapes, base)?;
-    let parsed = shifty_parse::parse_loaded(&shapes);
-    parsed.require_valid()?;
-    let normalized = shifty_opt::normalize(&parsed.schema);
-    for d in &parsed.diagnostics {
+    let compiled = shifty_engine::CompiledShapes::compile(shapes)?;
+    for d in compiled.diagnostics() {
         eprintln!("{d}");
     }
 
-    let mut input_lines = input_profile_lines("shapes", &shape_stats, shapes.graph.len());
+    let mut input_lines =
+        input_profile_lines("shapes", &shape_stats, compiled.source().graph.len());
     let data = if args.data.is_empty() {
         input_lines
             .push("profile: data: none given; the shapes graph is also the data graph".to_string());
@@ -461,23 +460,28 @@ fn infer(args: InferArgs) -> Result<(), Box<dyn Error>> {
         Some(data)
     };
 
-    let outcome = match data.as_ref() {
-        None => shifty_engine::infer(&shapes.graph, &normalized),
-        Some(data) => shifty_engine::infer_graphs(&data.graph, &shapes.graph, &normalized),
-    };
-    let outcome = match outcome {
-        Ok(o) => o,
+    let session_data = data.map_or(shifty_engine::SessionData::Embedded, |data| {
+        shifty_engine::SessionData::Separate(data.graph)
+    });
+    let session = match compiled.session(
+        session_data,
+        shifty_engine::SessionOptions {
+            inference: true,
+            ..Default::default()
+        },
+    ) {
+        Ok(session) => session,
         Err(e) => return Err(format!("{e}; cannot infer (see `inspect --stage strata`)").into()),
     };
-    for d in &outcome.diagnostics {
-        eprintln!("warning: {d}");
+    for d in session.diagnostics() {
+        eprintln!("warning: {}", d.message);
     }
 
     match args.format {
         Format::Dot => return Err("--format dot is not supported for infer".into()),
         Format::Json => {
-            let triples: Vec<_> = outcome
-                .inferred
+            let triples: Vec<_> = session
+                .inferred()
                 .iter()
                 .map(|t| {
                     serde_json::json!({
@@ -490,8 +494,8 @@ fn infer(args: InferArgs) -> Result<(), Box<dyn Error>> {
             println!("{}", serde_json::to_string_pretty(&triples)?);
         }
         Format::Text => {
-            println!("inferred {} triple(s):", outcome.inferred.len());
-            let mut lines: Vec<String> = outcome.inferred.iter().map(|t| t.to_string()).collect();
+            println!("inferred {} triple(s):", session.inferred().len());
+            let mut lines: Vec<String> = session.inferred().iter().map(|t| t.to_string()).collect();
             lines.sort();
             for line in lines {
                 println!("  {line}");

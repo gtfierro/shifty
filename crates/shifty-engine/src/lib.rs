@@ -18,6 +18,8 @@
 //! that make them fast and correct remain in their owning modules.
 
 pub mod compact;
+mod compiled;
+mod context;
 pub mod enumerate;
 pub mod evidence;
 pub mod frozen;
@@ -28,6 +30,7 @@ pub mod path;
 mod path_plan;
 pub mod profile;
 pub mod report;
+mod session;
 pub mod sharing;
 mod sparql;
 pub use sparql::SparqlDiagnostic;
@@ -40,6 +43,7 @@ pub use compact::{
     CompactError, Sharing, compact, compact_value, expand, expand_value, expand_with_catalog,
     sharing, to_compact_json,
 };
+pub use compiled::{CompileError, CompiledShapes};
 pub use enumerate::{
     EnumOptions, FixpointResult, RepairSolution, candidates, enumerate_repair, repair_to_fixpoint,
 };
@@ -60,6 +64,10 @@ pub use report::{
     property_witnesses_graphs_with_mode, property_witnesses_graphs_with_mode_and_options,
     report_to_graph, validate_report, validate_report_graphs, validate_report_graphs_with_mode,
     validate_report_graphs_with_mode_and_options, validate_report_with_options,
+};
+pub use session::{
+    EvaluationError, EvaluationSession, EvidenceOptions, ExecutionDiagnostic, FindingOptions,
+    SessionData, SessionError, SessionOptions,
 };
 pub use sharing::{ResultSharing, result_sharing};
 pub use synthesize::{

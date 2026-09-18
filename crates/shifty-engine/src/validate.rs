@@ -503,13 +503,37 @@ fn validate_with_frozen(
     }
 
     let sparql = SparqlExecutor::from_frozen(frozen, has_shapes_graph);
+    Ok(validate_with_executor(data, schema, &sparql, options))
+}
+
+pub(crate) fn validate_with_executor(
+    data: &Graph,
+    schema: &Schema,
+    sparql: &SparqlExecutor,
+    options: &ValidationOptions,
+) -> ValidationOutcome {
+    validate_with_executor_selected(data, schema, sparql, options, None)
+}
+
+pub(crate) fn validate_with_executor_selected(
+    data: &Graph,
+    schema: &Schema,
+    sparql: &SparqlExecutor,
+    options: &ValidationOptions,
+    selected: Option<&[bool]>,
+) -> ValidationOutcome {
     let backend = sparql
         .frozen()
         .expect("validation executor always has a frozen dataset");
-    let mut evaluator = ShapeEvaluator::new(backend, &schema.arena, &schema.prefixes, &sparql);
+    let mut evaluator = ShapeEvaluator::new(backend, &schema.arena, &schema.prefixes, sparql);
     let mut violations = Vec::new();
     for (i, st) in schema.statements.iter().enumerate() {
-        if !entry_shape_any_name_selected(&options.entry_shape_names, schema.names_of(st.shape)) {
+        if selected.is_some_and(|selected| !selected[i]) {
+            continue;
+        }
+        if selected.is_none()
+            && !entry_shape_any_name_selected(&options.entry_shape_names, schema.names_of(st.shape))
+        {
             continue;
         }
         let label = schema
@@ -517,7 +541,7 @@ fn validate_with_frozen(
             .map(str::to_string)
             .unwrap_or_else(|| format!("@{}", st.shape.0));
         let foci = focus_nodes_with_evaluator(data, &st.selector, &mut evaluator);
-        prefetch_sparql_constraints(&schema.arena, st.shape, &foci, &sparql);
+        prefetch_sparql_constraints(&schema.arena, st.shape, &foci, sparql);
         for v in foci {
             let t = web_time::Instant::now();
             let mut stack = HashSet::new();
@@ -544,10 +568,10 @@ fn validate_with_frozen(
         }
     }
     sort_violations(&mut violations, options.sort_results);
-    Ok(ValidationOutcome {
+    ValidationOutcome {
         conforms: conforms_at_threshold(&violations, &options.minimum_severity),
         violations,
-    })
+    }
 }
 
 /// Whether any `sh:sparql` constraint references `$shapesGraph`, requiring the
@@ -711,13 +735,30 @@ fn validate_plan_with_frozen(
     }
 
     let sparql = SparqlExecutor::from_frozen(frozen, has_shapes_graph);
+    Ok(validate_plan_with_executor(
+        data, plan, &sparql, options, None,
+    ))
+}
+
+pub(crate) fn validate_plan_with_executor(
+    data: &Graph,
+    plan: &PhysicalPlan,
+    sparql: &SparqlExecutor,
+    options: &ValidationOptions,
+    selected: Option<&[bool]>,
+) -> ValidationOutcome {
     let backend = sparql
         .frozen()
         .expect("validation executor always has a frozen dataset");
-    let mut evaluator = ShapeEvaluator::new(backend, &plan.arena, &plan.prefixes, &sparql);
+    let mut evaluator = ShapeEvaluator::new(backend, &plan.arena, &plan.prefixes, sparql);
     let mut violations = Vec::new();
     for (i, sp) in plan.statements.iter().enumerate() {
-        if !entry_shape_any_name_selected(&options.entry_shape_names, plan.names_of(sp.shape)) {
+        if selected.is_some_and(|selected| !selected[i]) {
+            continue;
+        }
+        if selected.is_none()
+            && !entry_shape_any_name_selected(&options.entry_shape_names, plan.names_of(sp.shape))
+        {
             continue;
         }
         let label = plan
@@ -725,7 +766,7 @@ fn validate_plan_with_frozen(
             .map(str::to_string)
             .unwrap_or_else(|| format!("@{}", sp.shape.0));
         let foci = focus_for_source(data, &sp.source, &mut evaluator);
-        prefetch_sparql_constraints(&plan.arena, sp.shape, &foci, &sparql);
+        prefetch_sparql_constraints(&plan.arena, sp.shape, &foci, sparql);
         for v in foci {
             let t = web_time::Instant::now();
             let mut stack = HashSet::new();
@@ -752,10 +793,10 @@ fn validate_plan_with_frozen(
         }
     }
     sort_violations(&mut violations, options.sort_results);
-    Ok(ValidationOutcome {
+    ValidationOutcome {
         conforms: conforms_at_threshold(&violations, &options.minimum_severity),
         violations,
-    })
+    }
 }
 
 /// Focus nodes for a compiled [`FocusSource`].

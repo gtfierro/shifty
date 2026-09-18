@@ -7,6 +7,7 @@
 //! answers.
 
 pub mod diagnostics;
+pub mod functions;
 pub mod graph;
 pub mod lower;
 pub mod path;
@@ -14,6 +15,7 @@ pub mod sparql_path;
 pub mod vocab;
 
 pub use diagnostics::{DiagLevel, Diagnostic, ParseError};
+pub use functions::collect_functions;
 pub use graph::{Loaded, RdfFormat};
 pub use sparql_path::parse_property_path;
 

@@ -10,10 +10,9 @@ use oxrdf::{Dataset as OxDataset, Graph, GraphName, Quad, Term};
 use oxttl::{NTriplesSerializer, TurtleSerializer};
 use shifty_algebra::{Schema, Severity, ShapeId};
 use shifty_engine::{
-    EngineOptions, EvidenceRun, PreparedEvidenceValidator, ValidationGraphMode,
-    ValidationOptions as EngineValidationOptions, ValidationOutcome, ValidationReport, Violation,
-    graph_union, infer_graphs, report_to_graph, validate_plan_graphs_with_mode_and_options,
-    validate_report_graphs_with_mode_and_options,
+    CompiledShapes, EngineOptions, EvidenceRun, FindingOptions, SessionData, SessionOptions,
+    ValidationGraphMode, ValidationOptions as EngineValidationOptions, ValidationOutcome,
+    ValidationReport, Violation, graph_union, report_to_graph,
 };
 use shifty_parse::{Loaded as LoadedShapes, parse_property_path};
 use sparesults::{QueryResultsFormat, QueryResultsSerializer};
@@ -91,12 +90,7 @@ pub struct ShiftyDataset {
 }
 
 pub struct ShiftyPreparedValidator {
-    shapes: shifty_parse::Loaded,
-    /// The authored schema retained for shape-map names and statement metadata;
-    /// report and algebra validation use the normalized `schema` below.
-    raw_schema: Schema,
-    schema: Schema,
-    plan: shifty_opt::PhysicalPlan,
+    compiled: CompiledShapes,
     diagnostics_json: String,
 }
 
@@ -179,7 +173,7 @@ pub struct ShiftyStringPair {
 
 /// Prepared state used while extracting one shape map.
 struct ShapeMapSession {
-    prepared: PreparedEvidenceValidator,
+    session: shifty_engine::EvaluationSession,
     /// Retained so authored selectors can be rendered without depending on the
     /// `ShiftyPreparedValidator` outliving this session.
     raw_schema: Schema,
@@ -601,18 +595,15 @@ fn parse_file(
 }
 
 fn prepare(loaded: shifty_parse::Loaded) -> Result<ShiftyPreparedValidator, ApiError> {
-    let parsed = shifty_parse::parse_loaded(&loaded);
-    parsed
-        .require_valid()
+    let compiled = CompiledShapes::compile(loaded)
         .map_err(|error| ApiError::new(ShiftyStatus::ParseError, error.to_string()))?;
-    let diagnostics: Vec<String> = parsed.diagnostics.iter().map(ToString::to_string).collect();
-    let schema = shifty_opt::normalize(&parsed.schema);
-    let plan = shifty_opt::plan(&schema);
+    let diagnostics: Vec<String> = compiled
+        .diagnostics()
+        .iter()
+        .map(ToString::to_string)
+        .collect();
     Ok(ShiftyPreparedValidator {
-        shapes: loaded,
-        raw_schema: parsed.schema,
-        schema,
-        plan,
+        compiled,
         diagnostics_json: serde_json::to_string(&diagnostics)
             .expect("serializing strings to JSON cannot fail"),
     })
@@ -631,19 +622,25 @@ fn validate_dataset(
         ShiftyGraphMode::Union => ValidationGraphMode::Union,
         ShiftyGraphMode::UnionAll => ValidationGraphMode::UnionAll,
     };
-    let inferred = if run_inference && !validator.schema.rules.is_empty() {
-        Some(
-            infer_graphs(&dataset.graph, &validator.shapes.graph, &validator.schema)
-                .map_err(|error| ApiError::new(ShiftyStatus::ValidationError, error.to_string()))?
-                .graph,
-        )
-    } else {
-        None
-    };
-    let data = inferred.as_ref().unwrap_or(&dataset.graph);
     let options = engine_validation_options(minimum_severity, entry_shape_names);
-    let report =
-        validate_report_graphs_with_mode_and_options(&validator.shapes, data, mode, &options);
+    let session = validator
+        .compiled
+        .session(
+            SessionData::Separate(dataset.graph.clone()),
+            SessionOptions {
+                graph_mode: mode,
+                inference: run_inference,
+                engine: options.engine,
+            },
+        )
+        .map_err(|error| ApiError::new(ShiftyStatus::ValidationError, error.to_string()))?;
+    let report = session
+        .report(&FindingOptions {
+            entry_shape_names: options.entry_shape_names.clone(),
+            minimum_severity: options.minimum_severity.clone(),
+            sort_results: options.sort_results,
+        })
+        .map_err(|error| ApiError::new(ShiftyStatus::ValidationError, error.to_string()))?;
     let report_graph = report_to_graph(&report);
     Ok(ShiftyValidationResult {
         conforms: report.conforms,
@@ -747,26 +744,29 @@ fn validate_algebra_dataset(
         ShiftyGraphMode::Union => ValidationGraphMode::Union,
         ShiftyGraphMode::UnionAll => ValidationGraphMode::UnionAll,
     };
-    let inferred = if run_inference && !validator.schema.rules.is_empty() {
-        Some(
-            infer_graphs(&dataset.graph, &validator.shapes.graph, &validator.schema)
-                .map_err(|error| ApiError::new(ShiftyStatus::ValidationError, error.to_string()))?
-                .graph,
-        )
-    } else {
-        None
-    };
-    let data = inferred.as_ref().unwrap_or(&dataset.graph);
     let options = engine_validation_options(minimum_severity, entry_shape_names);
-    let outcome = validate_plan_graphs_with_mode_and_options(
-        data,
-        &validator.shapes.graph,
-        &validator.plan,
-        mode,
-        &options,
-    )
-    .map_err(|error| ApiError::new(ShiftyStatus::ValidationError, error.to_string()))?;
-    Ok(build_algebra_result(outcome, &validator.schema))
+    let session = validator
+        .compiled
+        .session(
+            SessionData::Separate(dataset.graph.clone()),
+            SessionOptions {
+                graph_mode: mode,
+                inference: run_inference,
+                engine: options.engine,
+            },
+        )
+        .map_err(|error| ApiError::new(ShiftyStatus::ValidationError, error.to_string()))?;
+    let outcome = session
+        .validate(&FindingOptions {
+            entry_shape_names: options.entry_shape_names.clone(),
+            minimum_severity: options.minimum_severity.clone(),
+            sort_results: options.sort_results,
+        })
+        .map_err(|error| ApiError::new(ShiftyStatus::ValidationError, error.to_string()))?;
+    Ok(build_algebra_result(
+        outcome,
+        validator.compiled.normalized_schema(),
+    ))
 }
 
 /// Prepare shape-map extraction over `validator`'s shapes and `dataset`.
@@ -786,41 +786,26 @@ fn prepare_shape_map(
         ShiftyGraphMode::Union => ValidationGraphMode::Union,
         ShiftyGraphMode::UnionAll => ValidationGraphMode::UnionAll,
     };
-    let inferred = if run_inference && !validator.raw_schema.rules.is_empty() {
-        Some(
-            infer_graphs(
-                &dataset.graph,
-                &validator.shapes.graph,
-                &validator.raw_schema,
-            )
-            .map_err(|error| ApiError::new(ShiftyStatus::ValidationError, error.to_string()))?
-            .graph,
+    let session = validator
+        .compiled
+        .session(
+            SessionData::Separate(dataset.graph.clone()),
+            SessionOptions {
+                graph_mode: mode,
+                inference: run_inference,
+                engine: EngineOptions::default(),
+            },
         )
-    } else {
-        None
-    };
-    let data = inferred.as_ref().unwrap_or(&dataset.graph);
-    let prepared = PreparedEvidenceValidator::with_graphs(
-        data,
-        &validator.shapes.graph,
-        &validator.raw_schema,
-        mode,
-    )
-    .map_err(|error| {
-        ApiError::new(
-            ShiftyStatus::ValidationError,
-            format!("non-stratifiable schema: {error}"),
-        )
-    })?;
+        .map_err(|error| ApiError::new(ShiftyStatus::ValidationError, error.to_string()))?;
     Ok(ShapeMapSession {
-        prepared,
-        raw_schema: validator.raw_schema.clone(),
+        session,
+        raw_schema: validator.compiled.authored_schema().clone(),
         // `Loaded` is not `Clone`; rebuild it from the validator's parts so the
         // session owns its own copy of the shapes graph and prefixes.
         shapes: LoadedShapes {
-            graph: validator.shapes.graph.clone(),
-            prefixes: validator.shapes.prefixes.clone(),
-            base: validator.shapes.base.clone(),
+            graph: validator.compiled.source().graph.clone(),
+            prefixes: validator.compiled.source().prefixes.clone(),
+            base: validator.compiled.source().base.clone(),
         },
         graph_mode: mode,
     })
@@ -911,18 +896,22 @@ impl ShapeMapSession {
 
         let union_graph;
         let graph: &Graph = match self.graph_mode {
-            ValidationGraphMode::Data => self.prepared.data(),
+            ValidationGraphMode::Data => self.session.prepared_evidence().data(),
             ValidationGraphMode::Union | ValidationGraphMode::UnionAll => {
-                union_graph = graph_union(self.prepared.data(), &self.shapes.graph);
+                union_graph =
+                    graph_union(self.session.prepared_evidence().data(), &self.shapes.graph);
                 &union_graph
             }
         };
         let mut values: Vec<_> = shifty_engine::path::succ(graph, &focus, &path)
             .into_iter()
             .filter(|value| {
-                qualifying
-                    .iter()
-                    .all(|shape| self.prepared.raw_constraint_holds(value, *shape) == Some(true))
+                qualifying.iter().all(|shape| {
+                    self.session
+                        .prepared_evidence()
+                        .raw_constraint_holds(value, *shape)
+                        == Some(true)
+                })
             })
             .map(|value| shapemap::term_from_oxrdf(&value))
             .collect();
@@ -958,9 +947,10 @@ impl ShapeMapSession {
         })?;
         let union_graph;
         let graph: &Graph = match self.graph_mode {
-            ValidationGraphMode::Data => self.prepared.data(),
+            ValidationGraphMode::Data => self.session.prepared_evidence().data(),
             ValidationGraphMode::Union | ValidationGraphMode::UnionAll => {
-                union_graph = graph_union(self.prepared.data(), &self.shapes.graph);
+                union_graph =
+                    graph_union(self.session.prepared_evidence().data(), &self.shapes.graph);
                 &union_graph
             }
         };
@@ -1018,7 +1008,8 @@ impl ShapeMapSession {
             materialize_constraint: &|focus, ref_id| {
                 let term = parse_term(focus).map_err(|error| error.message)?;
                 let evidence = self
-                    .prepared
+                    .session
+                    .prepared_evidence()
                     .explain_constraint(&term, ShapeId(ref_id))
                     .map(|evidence| match evidence {
                         shifty_engine::Evidence::Satisfaction(trace) => {
@@ -1973,7 +1964,10 @@ pub unsafe extern "C" fn shifty_prepared_validator_shape_map(
 
         let session = prepare_shape_map(validator, dataset, graph_mode, run_inference != 0)?;
         let options = engine_validation_options(minimum_severity, &shape_names);
-        let run = build_shape_map_run(session.prepared.validate(&options), &session.raw_schema)?;
+        let run = build_shape_map_run(
+            session.session.prepared_evidence().validate(&options),
+            &session.raw_schema,
+        )?;
         let map = session.shape_map(&run, name_path, &value_paths_vec)?;
         unsafe { out.write(Box::into_raw(Box::new(map))) };
         Ok(())
