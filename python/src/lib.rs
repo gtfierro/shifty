@@ -261,29 +261,39 @@ pub(crate) fn constraint_kind_to_py(kind: shifty_algebra::ConstraintKind) -> Con
     }
 }
 
-#[pyclass(get_all, name = "Constraint", skip_from_py_object)]
+#[pyclass(name = "Constraint", skip_from_py_object)]
 #[derive(Clone)]
 pub struct Constraint {
     /// Algebra arena id for this constraint.
+    #[pyo3(get)]
     pub id: u32,
     /// Stable semantic operator kind.
+    #[pyo3(get)]
     pub kind: ConstraintKind,
     /// One-level algebra rendering. Child constraints appear as `@id`.
+    #[pyo3(get)]
     pub render: String,
     /// Fully-expanded human description, on one line.
+    #[pyo3(get)]
     pub definition: String,
     /// The same description laid out over several lines and indented by nesting
     /// depth. Identical to `definition` whenever that already fits on a line, so
     /// a caller can render this unconditionally; only a genuinely nested
     /// constraint comes back broken.
+    #[pyo3(get)]
     pub definition_pretty: String,
-    /// JSON serialization of the algebra node. Child constraints are represented
-    /// by their arena ids, matching `render`.
-    pub json: String,
+    shape: shifty_algebra::Shape,
 }
 
 #[pymethods]
 impl Constraint {
+    /// JSON serialization of the algebra node, computed when requested.
+    #[getter]
+    fn json(&self) -> String {
+        serde_json::to_string(&self.shape)
+            .unwrap_or_else(|error| format!("{{\"error\":\"{error}\"}}"))
+    }
+
     fn __repr__(&self) -> String {
         format!(
             "Constraint(id={}, kind={:?}, render={:?})",
@@ -315,8 +325,7 @@ pub(crate) fn constraint_to_py(
                 px,
                 shifty_algebra::render::PRETTY_WIDTH,
             ),
-            json: serde_json::to_string(arena.get(id))
-                .unwrap_or_else(|error| format!("{{\"error\":\"{error}\"}}")),
+            shape: arena.get(id).clone(),
         },
     )
 }
@@ -993,7 +1002,7 @@ struct RawConstraint {
     render: String,
     definition: String,
     definition_pretty: String,
-    json: String,
+    shape: shifty_algebra::Shape,
 }
 
 impl RawConstraint {
@@ -1013,8 +1022,7 @@ impl RawConstraint {
                 px,
                 shifty_algebra::render::PRETTY_WIDTH,
             ),
-            json: serde_json::to_string(arena.get(id))
-                .unwrap_or_else(|error| format!("{{\"error\":\"{error}\"}}")),
+            shape: arena.get(id).clone(),
         }
     }
 
@@ -1027,7 +1035,7 @@ impl RawConstraint {
                 render: self.render,
                 definition: self.definition,
                 definition_pretty: self.definition_pretty,
-                json: self.json,
+                shape: self.shape,
             },
         )
     }

@@ -20,8 +20,8 @@ use shifty_engine::{
     CompiledShapes, ConformanceOptions, EvaluationSession, Evidence as IrEvidence,
     EvidenceKind as IrEvidenceKind, EvidenceOrigin as IrEvidenceOrigin, FocusSat as IrSat,
     FocusWitness as IrFocus, PathSupport as IrPathSupport, PreparedEvidenceValidator, SatTrace,
-    SessionData, SessionOptions, ValidationOptions, Witness, apply as engine_apply,
-    candidates as engine_candidates, gate as engine_gate, graph_union, satisfy_shape,
+    SessionData, SessionOptions, ValidationGraphMode, ValidationOptions, Witness,
+    apply as engine_apply, candidates as engine_candidates, graph_union, satisfy_shape,
     shape_id_for_iri, synthesize_with_origins, witness_node, witness_shape, witness_violations,
 };
 use shifty_repair::{
@@ -668,6 +668,7 @@ fn parse_term(s: &str) -> Result<Term, String> {
 /// session over `G ⊕ ΔG` so a driver can step its own fixpoint loop.
 #[pyclass(name = "RepairSession")]
 pub struct RepairSession {
+    snapshot: RepairSnapshot,
     schema: Arc<Schema>,
     provenance_schema: Arc<Schema>,
     provenance_statement_map: Arc<Vec<usize>>,
@@ -681,8 +682,17 @@ pub struct RepairSession {
     diagnostics: Vec<String>,
 }
 
+struct RepairSnapshot {
+    compiled: CompiledShapes,
+    asserted: Arc<Graph>,
+    separate: bool,
+    run_infer: bool,
+    materialized: bool,
+}
+
 impl RepairSession {
     fn from_parts(
+        snapshot: RepairSnapshot,
         schema: Arc<Schema>,
         provenance_schema: Arc<Schema>,
         provenance_statement_map: Arc<Vec<usize>>,
@@ -691,6 +701,7 @@ impl RepairSession {
         diagnostics: Vec<String>,
     ) -> Self {
         Self {
+            snapshot,
             schema,
             provenance_schema,
             provenance_statement_map,
@@ -830,6 +841,7 @@ impl RepairSession {
                 )
                 .collect();
             let data = session.data_shared();
+            let asserted = session.asserted_shared();
             let context = if separate {
                 Arc::new(graph_union(&data, &compiled.source().graph))
             } else {
@@ -837,6 +849,13 @@ impl RepairSession {
             };
 
             Ok(RepairSession::from_parts(
+                RepairSnapshot {
+                    compiled: compiled.clone(),
+                    asserted,
+                    separate,
+                    run_infer,
+                    materialized: false,
+                },
                 compiled.authored_schema_shared(),
                 compiled.normalized_schema_shared(),
                 compiled.statement_map_shared(),
@@ -941,17 +960,38 @@ impl RepairSession {
             .collect()
     }
 
-    /// Re-validate `G ⊕ ΔG` and diff the violation set against `G`'s — the gate.
+    /// Re-validate the asserted graph after `ΔG` and diff whole-session
+    /// violations. Rule inference follows this session's policy; sessions
+    /// returned by `advance` instead start from their materialized data.
     /// Decides and applies nothing; returns a [`RepairOutcome`].
     fn gate(&self, py: Python<'_>, delta: &RepairDelta) -> PyResult<RepairOutcome> {
         let outcome = py
-            .detach(|| engine_gate(&self.data, &self.context, &self.schema, &delta.inner))
-            .map_err(|e| py_value_error(format!("non-stratifiable schema: {e}")))?;
+            .detach(|| {
+                let session_data = if self.snapshot.separate || self.snapshot.materialized {
+                    SessionData::Separate(self.snapshot.asserted.as_ref().clone())
+                } else {
+                    SessionData::Embedded
+                };
+                let session = self.snapshot.compiled.session(
+                    session_data,
+                    SessionOptions {
+                        graph_mode: if self.snapshot.separate {
+                            ValidationGraphMode::Union
+                        } else {
+                            ValidationGraphMode::Data
+                        },
+                        inference: self.snapshot.run_infer,
+                        ..SessionOptions::default()
+                    },
+                )?;
+                session.gate(&delta.inner)
+            })
+            .map_err(|error| py_value_error(error.to_string()))?;
         let sound = outcome.is_sound();
         let progress = outcome.is_progress();
         let to_py = |vs: &[shifty_engine::Violation]| -> PyResult<Vec<Py<Violation>>> {
             vs.iter()
-                .map(|v| violation_to_py(py, v, &self.schema))
+                .map(|v| violation_to_py(py, v, &self.provenance_schema))
                 .collect()
         };
         Ok(RepairOutcome {
@@ -1041,11 +1081,19 @@ impl RepairSession {
                 engine_apply(&self.context, &delta.inner),
             )
         });
+        let next_data = Arc::new(next_data);
         RepairSession::from_parts(
+            RepairSnapshot {
+                compiled: self.snapshot.compiled.clone(),
+                asserted: Arc::clone(&next_data),
+                separate: self.snapshot.separate,
+                run_infer: false,
+                materialized: true,
+            },
             Arc::clone(&self.schema),
             Arc::clone(&self.provenance_schema),
             Arc::clone(&self.provenance_statement_map),
-            Arc::new(next_data),
+            next_data,
             Arc::new(next_context),
             self.diagnostics.clone(),
         )

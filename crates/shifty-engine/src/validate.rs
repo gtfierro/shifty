@@ -522,45 +522,69 @@ pub(crate) fn validate_with_executor_selected(
     options: &ValidationOptions,
     selected: Option<&[bool]>,
 ) -> ValidationOutcome {
-    let backend = sparql
-        .frozen()
-        .expect("validation executor always has a frozen dataset");
-    let mut evaluator = ShapeEvaluator::new(backend, &schema.arena, &schema.prefixes, sparql);
-    let mut violations = Vec::new();
-    for (i, st) in schema.statements.iter().enumerate() {
-        if selected.is_some_and(|selected| !selected[i]) {
-            continue;
-        }
-        if selected.is_none()
-            && !entry_shape_any_name_selected(&options.entry_shape_names, schema.names_of(st.shape))
+    let entries = schema.statements.iter().enumerate().filter_map(|(i, st)| {
+        if selected.is_some_and(|selected| !selected[i])
+            || (selected.is_none()
+                && !entry_shape_any_name_selected(
+                    &options.entry_shape_names,
+                    schema.names_of(st.shape),
+                ))
         {
-            continue;
+            return None;
         }
         let label = schema
             .name_of(st.shape)
             .map(str::to_string)
             .unwrap_or_else(|| format!("@{}", st.shape.0));
-        let foci = focus_nodes_with_evaluator(data, &st.selector, &mut evaluator);
-        prefetch_sparql_constraints(&schema.arena, st.shape, &foci, sparql);
-        for v in foci {
-            let t = web_time::Instant::now();
+        Some((i, st.shape, &st.selector, label))
+    });
+    validate_entries(
+        data,
+        &schema.arena,
+        &schema.prefixes,
+        sparql,
+        options,
+        entries,
+        focus_nodes_with_evaluator,
+    )
+}
+
+fn validate_entries<'a, S: 'a>(
+    data: &Graph,
+    arena: &ShapeArena,
+    prefixes: &Prefixes,
+    sparql: &SparqlExecutor,
+    options: &ValidationOptions,
+    entries: impl IntoIterator<Item = (usize, ShapeId, &'a S, String)>,
+    focus: impl Fn(&Graph, &S, &mut ShapeEvaluator<'_>) -> Vec<Term>,
+) -> ValidationOutcome {
+    let backend = sparql
+        .frozen()
+        .expect("validation executor always has a frozen dataset");
+    let mut evaluator = ShapeEvaluator::new(backend, arena, prefixes, sparql);
+    let mut violations = Vec::new();
+    for (statement, shape, source, label) in entries {
+        let foci = focus(data, source, &mut evaluator);
+        prefetch_sparql_constraints(arena, shape, &foci, sparql);
+        for focus in foci {
+            let start = web_time::Instant::now();
             let mut stack = HashSet::new();
             let mut reasons = explain(
                 &mut evaluator,
-                &v,
-                st.shape,
+                &focus,
+                shape,
                 None,
                 &Severity::Violation,
                 &mut stack,
             );
-            crate::profile::record_shape(&label, t.elapsed().as_micros() as u64);
+            crate::profile::record_shape(&label, start.elapsed().as_micros() as u64);
             dedup_reasons(&mut reasons);
-            stamp_statement_id(&mut reasons, i);
+            stamp_statement_id(&mut reasons, statement);
             if !reasons.is_empty() {
                 let severity = most_severe(&reasons);
                 violations.push(Violation {
-                    focus: v,
-                    statement: i,
+                    focus,
+                    statement,
                     severity,
                     reasons,
                 });
@@ -747,56 +771,31 @@ pub(crate) fn validate_plan_with_executor(
     options: &ValidationOptions,
     selected: Option<&[bool]>,
 ) -> ValidationOutcome {
-    let backend = sparql
-        .frozen()
-        .expect("validation executor always has a frozen dataset");
-    let mut evaluator = ShapeEvaluator::new(backend, &plan.arena, &plan.prefixes, sparql);
-    let mut violations = Vec::new();
-    for (i, sp) in plan.statements.iter().enumerate() {
-        if selected.is_some_and(|selected| !selected[i]) {
-            continue;
-        }
-        if selected.is_none()
-            && !entry_shape_any_name_selected(&options.entry_shape_names, plan.names_of(sp.shape))
+    let entries = plan.statements.iter().enumerate().filter_map(|(i, sp)| {
+        if selected.is_some_and(|selected| !selected[i])
+            || (selected.is_none()
+                && !entry_shape_any_name_selected(
+                    &options.entry_shape_names,
+                    plan.names_of(sp.shape),
+                ))
         {
-            continue;
+            return None;
         }
         let label = plan
             .name_of(sp.shape)
             .map(str::to_string)
             .unwrap_or_else(|| format!("@{}", sp.shape.0));
-        let foci = focus_for_source(data, &sp.source, &mut evaluator);
-        prefetch_sparql_constraints(&plan.arena, sp.shape, &foci, sparql);
-        for v in foci {
-            let t = web_time::Instant::now();
-            let mut stack = HashSet::new();
-            let mut reasons = explain(
-                &mut evaluator,
-                &v,
-                sp.shape,
-                None,
-                &Severity::Violation,
-                &mut stack,
-            );
-            crate::profile::record_shape(&label, t.elapsed().as_micros() as u64);
-            dedup_reasons(&mut reasons);
-            stamp_statement_id(&mut reasons, i);
-            if !reasons.is_empty() {
-                let severity = most_severe(&reasons);
-                violations.push(Violation {
-                    focus: v,
-                    statement: i,
-                    severity,
-                    reasons,
-                });
-            }
-        }
-    }
-    sort_violations(&mut violations, options.sort_results);
-    ValidationOutcome {
-        conforms: conforms_at_threshold(&violations, &options.minimum_severity),
-        violations,
-    }
+        Some((i, sp.shape, &sp.source, label))
+    });
+    validate_entries(
+        data,
+        &plan.arena,
+        &plan.prefixes,
+        sparql,
+        options,
+        entries,
+        focus_for_source,
+    )
 }
 
 /// Focus nodes for a compiled [`FocusSource`].

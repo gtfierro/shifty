@@ -4,6 +4,11 @@
 
 ### Added
 
+- Added reusable Rust `CompiledShapes` and `EvaluationSession` APIs. Sessions
+  share compiled shapes across data snapshots, expose validation, reports,
+  evidence, diagnostics, and asserted-data edits, and reject evidence handles
+  from another snapshot. Document-based Python, C++, CLI, and Wasm paths now
+  use this compilation boundary.
 - Added `--dump-data <PATH>` and `--dump-shapes <PATH>` to `validate`, writing
   the graphs it evaluated as Turtle to a path or to stdout with `-`. Neither is
   the file on disk: the data graph carries whatever SHACL-AF inference derived,
@@ -21,6 +26,14 @@
 
 ### Changed
 
+- `$shapesGraph` now always names the authored shapes source. In combined
+  shapes/data input, triples derived later by inference remain in the data
+  graph but no longer appear in `$shapesGraph`. With separate inputs, function
+  definitions come from the compiled shapes source; only the low-level legacy
+  inference API still discovers functions in the combined context graph.
+- `RepairSession.gate()` evaluates the whole candidate snapshot with the
+  session's inference policy. `RepairSession.advance()` continues to patch its
+  materialized graph without rerunning inference.
 - Updated the Python bindings to pyo3 0.29 (from 0.23). `requires-python` is
   unchanged at 3.9 and the extension is still built abi3. The `#[pyclass]`
   types no longer carry an automatic `FromPyObject`: pyo3 is making it opt-in,

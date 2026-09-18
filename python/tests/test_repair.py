@@ -298,6 +298,31 @@ def test_subgraph_patch_without_conforming_structure_is_rejected():
     assert not outcome.is_progress  # but fixes nothing
 
 
+def test_gate_recomputes_inference_while_advance_keeps_materialized_data():
+    shapes = '''
+    @prefix sh: <http://www.w3.org/ns/shacl#> .
+    @prefix ex: <http://example.org/> .
+    ex:S a sh:NodeShape ; sh:targetNode ex:x ;
+        sh:property [ sh:path ex:p ; sh:minCount 1 ] ;
+        sh:rule [ a sh:SPARQLRule ;
+            sh:construct """CONSTRUCT { $this <http://example.org/p> <http://example.org/y> } WHERE { $this <http://example.org/q> ?v }""" ] .
+    '''
+    data = "@prefix ex: <http://example.org/> . ex:x ex:q ex:y ."
+    s = shifty.RepairSession(shapes, data, infer=True)
+    assert s.witnesses() == []
+
+    delete_q = shifty.delta_from_graph(delete=data)
+    outcome = s.gate(delete_q)
+    assert not outcome.is_sound
+    assert len(outcome.introduced) == 1
+
+    # The legacy advance operation edits the materialized graph and does not
+    # rerun rules. Its next gate starts from that explicit materialized state.
+    advanced = s.advance(delete_q)
+    assert advanced.witnesses() == []
+    assert advanced.gate(shifty.delta_from_graph()).introduced == []
+
+
 def test_delta_from_graph_accepts_rdflib_graph():
     import rdflib
 

@@ -169,6 +169,46 @@ fn compiled_functions_are_available_to_validation_queries() {
 }
 
 #[test]
+fn compiled_inference_uses_source_functions_while_legacy_inference_reads_context() {
+    let shapes = loaded(
+        r#"
+        @prefix sh: <http://www.w3.org/ns/shacl#> .
+        @prefix ex: <http://ex/> .
+        ex:S a sh:NodeShape ; sh:targetNode ex:x ;
+            sh:rule [ a sh:SPARQLRule ;
+                sh:construct """CONSTRUCT { $this <http://ex/p> <http://ex/y> }
+                    WHERE { FILTER (<http://ex/allowed>()) }""" ] .
+        "#,
+    );
+    let data = loaded(
+        r#"
+        @prefix sh: <http://www.w3.org/ns/shacl#> .
+        @prefix ex: <http://ex/> .
+        ex:x ex:q ex:y .
+        ex:allowed a sh:SPARQLFunction ;
+            sh:ask "ASK { FILTER (true) }" .
+        "#,
+    )
+    .graph;
+    let parsed = shifty_parse::parse_loaded(&shapes);
+    parsed.require_valid().unwrap();
+    let legacy = shifty_engine::infer_graphs(&data, &shapes.graph, &parsed.schema).unwrap();
+    assert_eq!(legacy.inferred.len(), 1);
+
+    let compiled = CompiledShapes::compile(shapes).unwrap();
+    let session = compiled
+        .session(
+            SessionData::Separate(data),
+            SessionOptions {
+                inference: true,
+                ..SessionOptions::default()
+            },
+        )
+        .unwrap();
+    assert!(session.inferred().is_empty());
+}
+
+#[test]
 fn union_all_keeps_data_out_of_the_named_shapes_graph() {
     let shapes = loaded(
         r#"

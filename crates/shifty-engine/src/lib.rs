@@ -31,6 +31,9 @@
 //! selects focus nodes from shapes. Embedded mode evaluates the evolving data
 //! graph. Every mode binds the authored shapes source as the named
 //! `$shapesGraph`, including after inference.
+//! [`SessionOptions::default`] uses Union mode, disables inference, and ignores
+//! unsupported features. [`FindingOptions::default`] selects all entry shapes,
+//! considers all severities, and sorts findings.
 //!
 //! A session owns an immutable asserted-data snapshot. Inference runs at
 //! construction; the frozen index is built on the first validation, report,
