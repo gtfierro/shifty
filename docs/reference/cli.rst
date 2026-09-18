@@ -76,8 +76,15 @@ or rule. ``inspect`` remains diagnostic-oriented and shows lowering output.
    * - ``--minimum-severity <LEVEL>``
      - ``info`` (default), ``warning``, or ``violation``. The lowest severity
        that makes the run non-conforming.
+   * - ``--dump-data <PATH>``
+     - Write the data graph validation actually read, as Turtle, to ``PATH``
+       (``-`` for stdout). See :ref:`cli-dump`.
+   * - ``--dump-shapes <PATH>``
+     - Write the merged shapes graph, as Turtle, to ``PATH`` (``-`` for
+       stdout). See :ref:`cli-dump`.
    * - ``--profile``
-     - Print shape, cache, and SPARQL execution telemetry afterwards.
+     - Print input, shape, cache, and SPARQL execution telemetry afterwards.
+       See :ref:`cli-profile`.
 
 Default output:
 
@@ -141,7 +148,8 @@ bare or in angle brackets.
    * - ``--format <FORMAT>``
      - ``text`` (default) or ``json``.
    * - ``--profile``
-     - Print shape, cache, and SPARQL execution telemetry afterwards.
+     - Print input, shape, cache, and SPARQL execution telemetry afterwards.
+       See :ref:`cli-profile`.
 
 .. code-block:: text
 
@@ -242,3 +250,100 @@ See :doc:`../how-to/inspect-pipeline` for how to read each stage.
    shifty version
 
 Prints the installed CLI version.
+
+.. _cli-profile:
+
+``--profile``
+-------------
+
+``validate`` and ``infer`` accept ``--profile``, which appends a telemetry
+block to stdout after the normal output — after the ``sh:ValidationReport``
+document under ``--report``, so it never interrupts it.
+
+The block opens with the inputs: for each of ``--shapes`` and ``--data``, the
+format that parsed each source and the number of triples it contributed.
+
+.. code-block:: text
+
+   conforms: true
+   profile: shapes: 28 triples from shapes.ttl [turtle]
+   profile: data: 633 triples from ontology.ttl.md [turtle]
+   profile: inference: 0 triples added before validation
+   profile: 2 distinct shape(s)/rule(s)
+     rule[0]: 1 call(s), 24µs total, 24µs avg
+   ...
+
+The format is the one that *succeeded*, not the one the extension suggests. A
+document is identified by content type, then by extension, then by sniffing its
+first non-comment token, and finally by trying each supported format in turn;
+``ontology.ttl.md`` above is literate Turtle — markdown prose on ``#`` comment
+lines, statements indented — and is reported as ``turtle`` because Turtle is
+what read it.
+
+This is how to tell an empty result from an unread input: a shape whose target
+predicate never appears in the data conforms vacuously, and ``conforms: true``
+alone cannot distinguish that from a document that failed to contribute
+anything. With several sources the header gives the merged graph's size and
+each source's own contribution:
+
+.. code-block:: text
+
+   profile: data: 2 triples from 2 sources (1 triple dropped as duplicate)
+     first.ttl: 1 triple [turtle]
+     second.ttl: 2 triples [turtle]
+
+``validate`` also reports what rule inference added before validation, or
+``skipped (--no-infer)``. Then come the engine's own counters: per-shape and
+per-rule wall-clock time, shape-cache hit rate and peak size, and per-query
+SPARQL execution time.
+
+.. _cli-dump:
+
+``--dump-data`` and ``--dump-shapes``
+-------------------------------------
+
+``validate`` can write out the two graphs it evaluated, as Turtle, to a path or
+to stdout with ``-``:
+
+.. code-block:: bash
+
+   shifty validate --shapes shapes.ttl --data ontology.ttl \
+       --dump-data used-data.ttl --dump-shapes used-shapes.ttl
+
+Neither graph is the file on disk, which is the reason the flags exist:
+
+- **The data graph is post-inference.** Unless ``--no-infer`` is given, SHACL-AF
+  rules run before validation and their conclusions are part of what the
+  constraints see. A shape that fails on a triple appearing in no input
+  document is failing on an inferred one, and the dump is where to find it.
+- **The shapes graph is every** ``--shapes`` **source merged**, so a constraint
+  that only exists after two files are combined shows up here as it was
+  evaluated.
+- Under the default ``--graph-mode union`` the evaluator reads the two
+  together; they are dumped separately, as they are held.
+
+Blank node labels are the parser's own, so they are stable within a run but
+need not match the source document's.
+
+Both dumps are written before the validation result, so a run that goes on to
+fail still leaves them behind. With ``-`` and ``--report`` on the same command
+line, the dumped graph comes first and the report follows.
+
+Seeing what inference contributed:
+
+.. code-block:: text
+
+   $ shifty validate --shapes shapes.ttl --data alias.ttl --dump-data - --profile
+   @prefix bro: <https://ontology.brickschema.org/2.0/#bro:> .
+   @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+   bro:AHU rdfs:subClassOf bro:AirHandlingUnit ;
+       a rdfs:Class ;
+       bro:aliasClassOf bro:AirHandlingUnit .
+   bro:AirHandlingUnit rdfs:subClassOf bro:AHU ;
+       a rdfs:Class .
+   conforms: true
+   profile: data: 3 triples from alias.ttl [turtle]
+   profile: inference: 2 triples added before validation
+
+The two ``rdfs:subClassOf`` statements are in no input file; a rule derived
+them.

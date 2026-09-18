@@ -70,6 +70,16 @@ pub fn load_rdf_auto(
     Loaded::from_rdf_auto(data, content_type, source, base)
 }
 
+/// [`load_rdf_auto`], also reporting the format that parsed the document.
+pub fn load_rdf_auto_with_format(
+    data: &[u8],
+    content_type: Option<&str>,
+    source: Option<&str>,
+    base: Option<&str>,
+) -> Result<(Loaded, RdfFormat), ParseError> {
+    Loaded::from_rdf_auto_reporting(data, content_type, source, base)
+}
+
 /// Parse and lower a Turtle shapes graph into the algebra IR.
 pub fn parse_turtle(data: &[u8], base: Option<&str>) -> Result<ParseOutput, ParseError> {
     let loaded = Loaded::from_turtle(data, base)?;

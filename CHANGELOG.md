@@ -2,6 +2,30 @@
 
 ## Unreleased
 
+### Added
+
+- Added `--dump-data <PATH>` and `--dump-shapes <PATH>` to `validate`, writing
+  the graphs it evaluated as Turtle to a path or to stdout with `-`. Neither is
+  the file on disk: the data graph carries whatever SHACL-AF inference derived,
+  and the shapes graph is every `--shapes` source merged, so a constraint that
+  fails on a triple appearing in no input document could not be seen before.
+- Added input telemetry to `--profile` on `validate` and `infer`: each
+  `--shapes` and `--data` source is reported with the format that parsed it and
+  the triples it contributed, plus the merged total (and any duplicates dropped)
+  when a graph has several sources. `validate` also reports how many triples
+  rule inference added, or that it was skipped. Until now nothing in a run
+  described its own inputs, so a vacuous `conforms: true` — a shape whose target
+  predicate never occurs in the data — was indistinguishable from a document
+  that had not been read. The format reported is the one that succeeded, not the
+  one the extension suggests: a literate-Turtle `.md` document reports `turtle`.
+
+### Fixed
+
+- Fixed `shifty validate --profile` printing no telemetry at all. The call that
+  prints the collected summary was dropped in "Label the text report, and make
+  JSON pointers resolve" (0.5.0-alpha.1); profiling was still enabled, and the
+  data still collected, but never shown. `infer --profile` was unaffected.
+
 ## 0.5.0-alpha.1
 
 Alpha release from [PR #22](https://github.com/gtfierro/shifty/pull/22).

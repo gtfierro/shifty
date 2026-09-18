@@ -83,7 +83,8 @@ struct InferArgs {
     /// Output format.
     #[arg(long, value_enum, default_value_t = Format::Text)]
     format: Format,
-    /// Print shape, cache, and SPARQL execution telemetry after inference.
+    /// Print input, shape, cache, and SPARQL execution telemetry after
+    /// inference.
     #[arg(long)]
     profile: bool,
 }
@@ -118,7 +119,16 @@ struct ValidateArgs {
     /// Lowest result severity that makes validation non-conforming.
     #[arg(long, value_enum, default_value_t = SeverityLevel::Info)]
     minimum_severity: SeverityLevel,
-    /// Print shape, cache, and SPARQL execution telemetry after validation.
+    /// Write the data graph validation actually read — after SHACL-AF
+    /// inference — as Turtle to this path, or to stdout for `-`.
+    #[arg(long, value_name = "PATH")]
+    dump_data: Option<String>,
+    /// Write the merged shapes graph as Turtle to this path, or to stdout for
+    /// `-`.
+    #[arg(long, value_name = "PATH")]
+    dump_shapes: Option<String>,
+    /// Print input, shape, cache, and SPARQL execution telemetry after
+    /// validation.
     #[arg(long)]
     profile: bool,
 }
@@ -247,28 +257,177 @@ fn fetch_bytes(src: &str) -> Result<SourceBytes, Box<dyn Error>> {
     }
 }
 
+/// What one `--shapes`/`--data` source contributed, for `--profile`.
+///
+/// A file is named by the format that read it and the triples it produced,
+/// because neither is inferable from the output otherwise: a `conforms: true`
+/// looks the same whether a document parsed into 633 triples or into none, and
+/// an extension is a hint, not a fact — `ontology.ttl.md` is read as Turtle
+/// because Turtle is what parsed it, not because `.md` says anything.
+struct SourceStat {
+    name: String,
+    triples: usize,
+    format: shifty_parse::RdfFormat,
+}
+
 fn load_sources(
     sources: &[String],
     base: Option<&str>,
 ) -> Result<shifty_parse::Loaded, Box<dyn Error>> {
+    load_sources_profiled(sources, base).map(|(loaded, _)| loaded)
+}
+
+fn load_sources_profiled(
+    sources: &[String],
+    base: Option<&str>,
+) -> Result<(shifty_parse::Loaded, Vec<SourceStat>), Box<dyn Error>> {
     let mut merged: Option<shifty_parse::Loaded> = None;
+    let mut stats = Vec::with_capacity(sources.len());
     for src in sources {
         let fetched = fetch_bytes(src)?;
         let parsed_base = base.or_else(|| {
             (src.starts_with("http://") || src.starts_with("https://")).then_some(src.as_str())
         });
-        let loaded = shifty_parse::load_rdf_auto(
+        let (loaded, format) = shifty_parse::load_rdf_auto_with_format(
             &fetched.bytes,
             fetched.content_type.as_deref(),
             Some(src),
             parsed_base,
         )?;
+        stats.push(SourceStat {
+            name: src.clone(),
+            triples: loaded.graph.len(),
+            format,
+        });
         match merged.as_mut() {
             None => merged = Some(loaded),
             Some(m) => m.merge_from(&loaded),
         }
     }
-    merged.ok_or_else(|| "no sources provided".into())
+    let merged = merged.ok_or_else(|| Box::<dyn Error>::from("no sources provided"))?;
+    Ok((merged, stats))
+}
+
+/// The `--profile` lines describing one graph's inputs.
+///
+/// `merged` is the size of the graph that was actually evaluated, which is the
+/// sum of the sources only when they share no triples; the difference is worth
+/// stating rather than hiding, since a source can silently contribute nothing
+/// new.
+fn input_profile_lines(kind: &str, stats: &[SourceStat], merged: usize) -> Vec<String> {
+    let mut lines = Vec::new();
+    match stats {
+        [] => return lines,
+        [one] => {
+            lines.push(format!(
+                "profile: {kind}: {} from {} [{}]",
+                plural(one.triples, "triple"),
+                one.name,
+                one.format
+            ));
+        }
+        many => {
+            let sum: usize = many.iter().map(|s| s.triples).sum();
+            let overlap = if sum > merged {
+                format!(" ({} dropped as duplicate)", plural(sum - merged, "triple"))
+            } else {
+                String::new()
+            };
+            lines.push(format!(
+                "profile: {kind}: {} from {}{overlap}",
+                plural(merged, "triple"),
+                plural(many.len(), "source"),
+            ));
+            for stat in many {
+                lines.push(format!(
+                    "  {}: {} [{}]",
+                    stat.name,
+                    plural(stat.triples, "triple"),
+                    stat.format
+                ));
+            }
+        }
+    }
+    lines
+}
+
+/// The prefix table to serialize output graphs with: whatever the inputs
+/// declared, plus standard entries for the vocabularies SHACL output always
+/// mentions. First declaration of a name wins.
+fn output_prefixes<'a>(
+    shapes: &'a shifty_parse::Loaded,
+    data: Option<&'a shifty_parse::Loaded>,
+) -> Vec<(&'a str, &'a str)> {
+    let mut prefixes: Vec<(&str, &str)> = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for (name, iri) in shapes
+        .prefixes
+        .iter()
+        .chain(data.map(|d| d.prefixes.iter()).into_iter().flatten())
+    {
+        if seen.insert(name.as_str()) {
+            prefixes.push((name.as_str(), iri.as_str()));
+        }
+    }
+    for (name, iri) in [
+        ("sh", "http://www.w3.org/ns/shacl#"),
+        ("rdf", "http://www.w3.org/1999/02/22-rdf-syntax-ns#"),
+        ("xsd", "http://www.w3.org/2001/XMLSchema#"),
+    ] {
+        if seen.insert(name) {
+            prefixes.push((name, iri));
+        }
+    }
+    prefixes
+}
+
+fn turtle_bytes(
+    graph: &oxrdf::Graph,
+    prefixes: &[(&str, &str)],
+) -> Result<Vec<u8>, Box<dyn Error>> {
+    let mut ser = oxttl::TurtleSerializer::new();
+    for (name, iri) in prefixes {
+        ser = ser.with_prefix(*name, *iri)?;
+    }
+    Ok(graph
+        .iter()
+        .try_fold(ser.for_writer(Vec::new()), |mut s, triple| {
+            s.serialize_triple(triple).map(|()| s)
+        })?
+        .finish()?)
+}
+
+/// Write out one of the graphs validation actually used.
+///
+/// Worth having because neither graph is the file on disk: the data graph is
+/// post-inference, the shapes graph is every `--shapes` source merged, and
+/// under `--graph-mode union` the evaluator reads them together. Blank node
+/// labels are the parser's, not the source document's.
+fn dump_graph(
+    dest: &str,
+    graph: &oxrdf::Graph,
+    prefixes: &[(&str, &str)],
+) -> Result<(), Box<dyn Error>> {
+    let bytes = turtle_bytes(graph, prefixes)?;
+    if dest == "-" {
+        use std::io::Write;
+        std::io::stdout().write_all(&bytes)?;
+    } else {
+        std::fs::write(dest, &bytes).map_err(|e| format!("failed to write {dest}: {e}"))?;
+    }
+    Ok(())
+}
+
+/// Print the `--profile` block: the inputs first, then the engine's own
+/// telemetry. Held to the end of the command so `--report` can write its
+/// N-Triples document to stdout uninterrupted.
+fn print_profile(input_lines: &[String]) {
+    for line in input_lines {
+        println!("{line}");
+    }
+    if let Some(col) = shifty_engine::profile::take() {
+        col.print_summary();
+    }
 }
 
 fn infer(args: InferArgs) -> Result<(), Box<dyn Error>> {
@@ -276,7 +435,7 @@ fn infer(args: InferArgs) -> Result<(), Box<dyn Error>> {
         shifty_engine::profile::enable();
     }
     let base = args.base.as_deref();
-    let shapes = load_sources(&args.shapes, base)?;
+    let (shapes, shape_stats) = load_sources_profiled(&args.shapes, base)?;
     let parsed = shifty_parse::parse_loaded(&shapes);
     parsed.require_valid()?;
     let normalized = shifty_opt::normalize(&parsed.schema);
@@ -284,11 +443,20 @@ fn infer(args: InferArgs) -> Result<(), Box<dyn Error>> {
         eprintln!("{d}");
     }
 
-    let outcome = if args.data.is_empty() {
-        shifty_engine::infer(&shapes.graph, &normalized)
+    let mut input_lines = input_profile_lines("shapes", &shape_stats, shapes.graph.len());
+    let data = if args.data.is_empty() {
+        input_lines
+            .push("profile: data: none given; the shapes graph is also the data graph".to_string());
+        None
     } else {
-        let data = load_sources(&args.data, base)?;
-        shifty_engine::infer_graphs(&data.graph, &shapes.graph, &normalized)
+        let (data, data_stats) = load_sources_profiled(&args.data, base)?;
+        input_lines.extend(input_profile_lines("data", &data_stats, data.graph.len()));
+        Some(data)
+    };
+
+    let outcome = match data.as_ref() {
+        None => shifty_engine::infer(&shapes.graph, &normalized),
+        Some(data) => shifty_engine::infer_graphs(&data.graph, &shapes.graph, &normalized),
     };
     let outcome = match outcome {
         Ok(o) => o,
@@ -323,10 +491,8 @@ fn infer(args: InferArgs) -> Result<(), Box<dyn Error>> {
             }
         }
     }
-    if args.profile
-        && let Some(col) = shifty_engine::profile::take()
-    {
-        col.print_summary();
+    if args.profile {
+        print_profile(&input_lines);
     }
     Ok(())
 }
@@ -820,7 +986,7 @@ fn validate(args: ValidateArgs) -> Result<(), Box<dyn Error>> {
         shifty_engine::profile::enable();
     }
     let base = args.base.as_deref();
-    let shapes_loaded = load_sources(&args.shapes, base)?;
+    let (shapes_loaded, shape_stats) = load_sources_profiled(&args.shapes, base)?;
     if shapes_loaded.graph.is_empty() {
         return Err("explicit shapes graph is empty".into());
     }
@@ -839,10 +1005,18 @@ fn validate(args: ValidateArgs) -> Result<(), Box<dyn Error>> {
         ..Default::default()
     };
 
+    // Input telemetry is collected as the graphs load but printed at the very
+    // end: `--report` and `--format json` own stdout, and a profile line ahead
+    // of either would land inside the document.
+    let mut input_lines = input_profile_lines("shapes", &shape_stats, shapes_loaded.graph.len());
     let data_loaded = if args.data.is_empty() {
+        input_lines
+            .push("profile: data: none given; the shapes graph is also the data graph".to_string());
         None
     } else {
-        Some(load_sources(&args.data, base)?)
+        let (data, data_stats) = load_sources_profiled(&args.data, base)?;
+        input_lines.extend(input_profile_lines("data", &data_stats, data.graph.len()));
+        Some(data)
     };
     // Report display draws on both documents: focus and value nodes are
     // data-graph terms, constraints are shapes-graph terms, and each reads best
@@ -873,10 +1047,17 @@ fn validate(args: ValidateArgs) -> Result<(), Box<dyn Error>> {
             }
         }
     };
-    if let Some(inference) = &inference {
-        for d in &inference.diagnostics {
-            eprintln!("warning: {d}");
+    match &inference {
+        Some(inference) => {
+            for d in &inference.diagnostics {
+                eprintln!("warning: {d}");
+            }
+            input_lines.push(format!(
+                "profile: inference: {} added before validation",
+                plural(inference.inferred.len(), "triple")
+            ));
         }
+        None => input_lines.push("profile: inference: skipped (--no-infer)".to_string()),
     }
     let data_graph = inference.as_ref().map_or_else(
         || {
@@ -886,6 +1067,16 @@ fn validate(args: ValidateArgs) -> Result<(), Box<dyn Error>> {
         },
         |inference| &inference.graph,
     );
+
+    // Dumps come before the result: they describe the run's input, and writing
+    // them first means a run that later fails to validate still produced them.
+    let prefixes = output_prefixes(&shapes_loaded, data_loaded.as_ref());
+    if let Some(dest) = &args.dump_shapes {
+        dump_graph(dest, &shapes_loaded.graph, &prefixes)?;
+    }
+    if let Some(dest) = &args.dump_data {
+        dump_graph(dest, data_graph, &prefixes)?;
+    }
 
     // W3C report mode: component-granular validator + RDF report output.
     if args.report {
@@ -904,41 +1095,11 @@ fn validate(args: ValidateArgs) -> Result<(), Box<dyn Error>> {
             )
         };
         let graph = shifty_engine::report_to_graph(&report);
-        // Collect prefixes from shapes + data, deduplicating by name.
-        // Fall back to standard entries for sh:/rdf:/xsd: if not declared.
-        let mut prefixes: Vec<(&str, &str)> = Vec::new();
-        let mut seen = std::collections::HashSet::new();
-        for (name, iri) in shapes_loaded.prefixes.iter().chain(
-            data_loaded
-                .as_ref()
-                .map(|d| d.prefixes.iter())
-                .into_iter()
-                .flatten(),
-        ) {
-            if seen.insert(name.as_str()) {
-                prefixes.push((name.as_str(), iri.as_str()));
-            }
-        }
-        for (name, iri) in [
-            ("sh", "http://www.w3.org/ns/shacl#"),
-            ("rdf", "http://www.w3.org/1999/02/22-rdf-syntax-ns#"),
-            ("xsd", "http://www.w3.org/2001/XMLSchema#"),
-        ] {
-            if seen.insert(name) {
-                prefixes.push((name, iri));
-            }
-        }
-        let mut ser = oxttl::TurtleSerializer::new();
-        for (name, iri) in &prefixes {
-            ser = ser.with_prefix(*name, *iri).unwrap();
-        }
-        let bytes = graph
-            .iter()
-            .try_fold(ser.for_writer(Vec::new()), |mut s, triple| {
-                s.serialize_triple(triple).map(|()| s)
-            })?
-            .finish()?;
+        let bytes = turtle_bytes(&graph, &prefixes)?;
         print!("{}", String::from_utf8_lossy(&bytes));
+        if args.profile {
+            print_profile(&input_lines);
+        }
         return Ok(());
     }
 
@@ -1078,6 +1239,9 @@ fn validate(args: ValidateArgs) -> Result<(), Box<dyn Error>> {
         }
     }
 
+    if args.profile {
+        print_profile(&input_lines);
+    }
     Ok(())
 }
 
