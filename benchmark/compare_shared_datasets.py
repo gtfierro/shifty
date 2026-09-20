@@ -367,13 +367,22 @@ def main() -> None:
                     line
                     for line in new_profile.splitlines()
                     if line.startswith(
-                        ("profile: storage", "profile: graph materialization")
+                        (
+                            "profile: storage",
+                            "profile: primary pair buffers",
+                            "profile: graph materialization",
+                        )
                     )
                 ],
                 "new_profile_indexes": [
                     line
                     for line in new_profile.splitlines()
                     if line.startswith("profile: index:")
+                ],
+                "new_profile_scans": [
+                    line
+                    for line in new_profile.splitlines()
+                    if line.startswith("profile: scan:")
                 ],
             }
             records.append(record)
