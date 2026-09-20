@@ -56,6 +56,14 @@ Read in order:
 11. [`10-evidence-architecture.md`](10-evidence-architecture.md) — the
     publication-oriented architecture contract: vocabulary, polarity duality,
     identities, executable invariants, and performance boundaries.
+12. [`11-compiled-shapes-and-sessions.md`](11-compiled-shapes-and-sessions.md) —
+    proposed 0.5 ownership boundaries, APIs, graph semantics, and migration plan
+    for reusable compiled shapes and evaluation sessions, following the
+    [architecture review](0.5-architecture-review.md).
+13. [`12-shared-datasets-and-demand-driven-indexes.md`](12-shared-datasets-and-demand-driven-indexes.md)
+    — continuation of the compiled-session design: shared source storage,
+    graph views, one dataset for native and fallback execution, and index
+    selection from compiled access requirements and observed demand.
 
 > `static-analysis-plan.md` predates this branch (old spec-shaped `shacl-core`
 > approach) and is kept only as historical reference.

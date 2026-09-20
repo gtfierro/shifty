@@ -58,6 +58,7 @@ mod compiled;
 mod context;
 pub mod enumerate;
 pub mod evidence;
+mod focus;
 pub mod frozen;
 pub mod gate;
 pub mod infer;
@@ -1687,7 +1688,12 @@ mod tests {
         let parsed = shifty_parse::parse_loaded(&shapes);
         let data = shifty_parse::load_turtle(data_ttl.as_bytes(), None).unwrap();
 
+        profile::enable();
         let outcome = infer_graphs(&data.graph, &shapes.graph, &parsed.schema).unwrap();
+        let storage = profile::take().unwrap().storage().clone();
+
+        assert_eq!(storage.store_builds, 0);
+        assert_eq!(storage.dataset_builds, 1);
 
         assert!(
             outcome
@@ -1695,5 +1701,33 @@ mod tests {
                 .contains(&triple("http://ex/b", "http://ex/q", "http://ex/a"))
         );
         assert_eq!(outcome.inferred.len(), 1);
+    }
+
+    #[test]
+    fn fallback_construct_sees_next_fixpoint_round_without_store() {
+        let ttl = format!(
+            "{PREFIXES}
+            ex:S a sh:NodeShape ; sh:targetNode ex:x ;
+                sh:rule [ a sh:TripleRule ; sh:order 0 ;
+                    sh:subject sh:this ; sh:predicate ex:ready ; sh:object ex:y ] ;
+                sh:rule [ a sh:SPARQLRule ; sh:order 0 ;
+                    sh:construct \"\"\"
+                        CONSTRUCT {{ $this ex:done ?o }}
+                        WHERE {{ $this ex:ready ?o . OPTIONAL {{ ?o ex:unused ?z }} }}
+                    \"\"\" ] ."
+        );
+        let loaded = shifty_parse::load_turtle(ttl.as_bytes(), None).unwrap();
+        let parsed = shifty_parse::parse_loaded(&loaded);
+        profile::enable();
+        let outcome = infer(&loaded.graph, &parsed.schema).unwrap();
+        let storage = profile::take().unwrap().storage().clone();
+        assert!(
+            outcome
+                .graph
+                .contains(&triple("http://ex/x", "http://ex/done", "http://ex/y",))
+        );
+        assert_eq!(storage.store_builds, 0);
+        assert_eq!(storage.dataset_builds, 1);
+        assert_eq!(storage.committed_rows, 2);
     }
 }

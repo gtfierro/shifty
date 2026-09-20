@@ -1,11 +1,12 @@
 //! Shapes-document ownership and admission for reusable evaluation sessions.
 
+use crate::frozen::SourceStorage;
 use crate::sparql::FunctionDef;
 use crate::validate::NonStratifiable;
 use shifty_algebra::{Schema, ShapeId};
 use shifty_opt::{
-    PhysicalPlan, RuleDependencies, Stratification, analyze, normalize_with_mapping_and_analysis,
-    plan, rule_dependencies, rule_guard_dependencies,
+    AccessCatalog, PhysicalPlan, RuleDependencies, Stratification, analyze,
+    normalize_with_mapping_and_analysis, plan, rule_dependencies, rule_guard_dependencies,
 };
 use shifty_parse::{Diagnostic, Loaded, ParseError, parse_loaded};
 use std::fmt;
@@ -27,7 +28,9 @@ pub(crate) struct CompiledShapesInner {
     pub(crate) diagnostics: Vec<Diagnostic>,
     pub(crate) functions: Vec<FunctionDef>,
     pub(crate) rules: Vec<CompiledRuleSchedule>,
+    pub(crate) access: AccessCatalog,
     physical: OnceLock<PhysicalPlan>,
+    source_storage: OnceLock<Arc<SourceStorage>>,
 }
 
 pub(crate) struct CompiledRuleSchedule {
@@ -81,6 +84,7 @@ impl CompiledShapes {
             raw_by_normalized[normalized_id].push(authored);
         }
         let functions = shifty_parse::collect_functions(&source);
+        let access = AccessCatalog::compile(&parsed.schema, &functions);
         let mut rules: Vec<_> = normalized
             .schema
             .rules
@@ -106,13 +110,20 @@ impl CompiledShapes {
                 diagnostics: parsed.diagnostics,
                 functions,
                 rules,
+                access,
                 physical: OnceLock::new(),
+                source_storage: OnceLock::new(),
             }),
         })
     }
 
     pub fn diagnostics(&self) -> &[Diagnostic] {
         &self.inner.diagnostics
+    }
+
+    /// Data-independent graph reads associated with authored consumers.
+    pub fn access_catalog(&self) -> &AccessCatalog {
+        &self.inner.access
     }
 
     pub fn source(&self) -> &Loaded {
@@ -122,6 +133,12 @@ impl CompiledShapes {
     /// Share the authored RDF document without copying its graph.
     pub fn source_shared(&self) -> Arc<Loaded> {
         Arc::clone(&self.inner.source)
+    }
+
+    pub(crate) fn source_storage(&self) -> Arc<SourceStorage> {
+        Arc::clone(self.inner.source_storage.get_or_init(|| {
+            SourceStorage::encode_with_demand(&self.inner.source.graph, &self.inner.access)
+        }))
     }
 
     /// Mapping from authored statement IDs to normalized execution IDs.
@@ -174,6 +191,22 @@ mod tests {
     use crate::{FindingOptions, SessionData, SessionOptions};
 
     #[test]
+    fn source_encoding_is_lazy_and_shared_by_clones() {
+        let source =
+            shifty_parse::load_turtle(br#"@prefix ex: <http://ex/> . ex:a ex:p ex:b ."#, None)
+                .unwrap();
+        let compiled = CompiledShapes::compile(source).unwrap();
+        assert!(compiled.inner.source_storage.get().is_none());
+        crate::profile::enable();
+        let first = compiled.source_storage();
+        let second = compiled.clone().source_storage();
+        assert!(Arc::ptr_eq(&first, &second));
+        let storage = crate::profile::take().unwrap().storage().clone();
+        assert_eq!(storage.source_builds, 1);
+        assert_eq!(storage.source_rows, 1);
+    }
+
+    #[test]
     fn sessions_share_compilation_and_plan_only_when_validation_uses_it() {
         let source = shifty_parse::load_turtle(
             br#"
@@ -190,6 +223,7 @@ mod tests {
         assert!(Arc::ptr_eq(&compiled.inner, &clone.inner));
         assert!(compiled.inner.physical.get().is_none());
 
+        crate::profile::enable();
         let session = compiled
             .session(
                 SessionData::Embedded,
@@ -199,14 +233,36 @@ mod tests {
                 },
             )
             .unwrap();
+        assert_eq!(
+            crate::profile::take().unwrap().storage().dataset_builds,
+            0,
+            "a compilation with no executable rules needs no inference dataset",
+        );
+        assert!(
+            compiled.inner.source_storage.get().is_none(),
+            "source encoding should wait until a graph reader needs it",
+        );
         assert!(compiled.inner.physical.get().is_none());
         assert!(!session.has_prepared_dataset());
         session.validate(&FindingOptions::default()).unwrap();
+        assert!(compiled.inner.source_storage.get().is_some());
         assert!(compiled.inner.physical.get().is_some());
         assert!(session.has_prepared_dataset());
         assert!(std::ptr::eq(
             compiled.physical_plan(),
             clone.physical_plan()
         ));
+
+        crate::profile::enable();
+        let second = clone
+            .session(SessionData::Embedded, SessionOptions::default())
+            .unwrap();
+        second.validate(&FindingOptions::default()).unwrap();
+        let storage = crate::profile::take().unwrap().storage().clone();
+        assert_eq!(
+            storage.source_builds, 0,
+            "source was encoded by the first session"
+        );
+        assert_eq!(storage.dataset_builds, 1);
     }
 }

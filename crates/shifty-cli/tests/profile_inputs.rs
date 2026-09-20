@@ -98,6 +98,19 @@ fn profile_names_the_format_and_count_of_every_input() {
         stdout.contains("profile: inference: 0 triples added before validation"),
         "stdout: {stdout}"
     );
+    for stage in [
+        "shapes load",
+        "compile",
+        "data load",
+        "session and inference",
+        "first validation",
+        "export",
+    ] {
+        assert!(
+            stdout.contains(&format!("profile: stage: {stage}: ")),
+            "missing {stage} timing in stdout: {stdout}"
+        );
+    }
     // The engine's own telemetry still follows the inputs: `validate` lost its
     // `print_summary` call once already.
     assert!(stdout.contains("profile: shape cache:"), "stdout: {stdout}");
@@ -199,6 +212,54 @@ fn infer_profiles_its_inputs_too() {
         stdout.contains(&format!("profile: data: 2 triples from {data} [turtle]")),
         "stdout: {stdout}"
     );
+    for stage in [
+        "shapes load",
+        "compile",
+        "data load",
+        "session and inference",
+        "export",
+    ] {
+        assert!(
+            stdout.contains(&format!("profile: stage: {stage}:")),
+            "stdout: {stdout}"
+        );
+    }
+}
+
+#[test]
+fn validation_does_not_project_inferred_data_without_a_dump() {
+    let fx = Fixture::new("lazy-data");
+    let shapes = fx.write(
+        "shapes.ttl",
+        r#"@prefix sh: <http://www.w3.org/ns/shacl#> .
+           @prefix ex: <http://ex/> .
+           ex:S a sh:NodeShape ; sh:targetNode ex:a ;
+             sh:rule [ a sh:TripleRule ; sh:subject sh:this ;
+                       sh:predicate ex:out ; sh:object ex:value ] ."#,
+    );
+    let data = fx.write(
+        "data.ttl",
+        "<http://ex/a> <http://ex/seed> <http://ex/value> .",
+    );
+
+    for report in [false, true] {
+        let mut args = vec![
+            "validate",
+            "--shapes",
+            &shapes,
+            "--data",
+            &data,
+            "--profile",
+        ];
+        if report {
+            args.push("--report");
+        }
+        let stdout = run(&args);
+        assert!(
+            stdout.contains("0 compatibility projection(s) / 0 row(s)"),
+            "stdout: {stdout}"
+        );
+    }
 }
 
 #[test]

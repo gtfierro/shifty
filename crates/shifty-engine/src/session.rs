@@ -5,6 +5,7 @@ use crate::context;
 use crate::evidence::{
     ConformanceOptions, ConformanceRun, PreparedEvidenceValidator, SelectedPair,
 };
+use crate::frozen::FrozenIndexedDataset;
 use crate::gate::RepairOutcome;
 use crate::validate::{
     EngineOptions, NonStratifiable, UnsupportedPolicy, ValidationGraphMode, ValidationOptions,
@@ -15,7 +16,7 @@ use oxrdf::{Graph, Triple};
 use shifty_algebra::Severity;
 use shifty_parse::{DiagLevel, Diagnostic};
 use shifty_repair::GraphDelta;
-use std::cell::OnceCell;
+use std::cell::{OnceCell, RefCell};
 use std::fmt;
 use std::sync::Arc;
 
@@ -129,11 +130,12 @@ impl std::error::Error for EvaluationError {}
 pub struct EvaluationSession {
     compiled: CompiledShapes,
     asserted: Arc<Graph>,
-    evaluated: Arc<Graph>,
+    evaluated: OnceCell<Arc<Graph>>,
     separate: bool,
     options: SessionOptions,
     inferred: Vec<Triple>,
     diagnostics: Vec<ExecutionDiagnostic>,
+    inference_dataset: RefCell<Option<FrozenIndexedDataset>>,
     prepared: OnceCell<PreparedEvidenceValidator>,
     snapshot: Arc<()>,
 }
@@ -174,23 +176,23 @@ impl CompiledShapes {
             }
         }
         let asserted = Arc::new(asserted);
-        let (evaluated, inferred, diagnostics) = if options.inference {
-            let context = if separate {
-                crate::validate::graph_union(&asserted, &self.source().graph)
-            } else {
-                asserted.as_ref().clone()
-            };
-            let outcome = crate::infer::infer_with_compiled_functions(
+        // No executable rule can change this snapshot. In particular, avoid
+        // assembling a shapes/data union or encoding the source just to hand
+        // the inference driver an empty schedule.
+        let (evaluated, inferred, diagnostics, inference_dataset) = if options.inference
+            && !self.inner.rules.is_empty()
+        {
+            let run = crate::infer::infer_with_compiled_functions(
                 &asserted,
-                context,
+                None,
                 &self.inner.normalized,
                 &options.engine,
                 &self.inner.functions,
                 Some(&self.inner.rules),
-                Some(&self.source().graph),
+                Some((self.source_storage(), separate)),
             )
             .map_err(SessionError::Inference)?;
-            let diagnostics: Vec<_> = outcome
+            let diagnostics: Vec<_> = run
                 .diagnostics
                 .into_iter()
                 .map(|message| ExecutionDiagnostic { message })
@@ -198,18 +200,31 @@ impl CompiledShapes {
             if options.engine.unsupported == UnsupportedPolicy::Error && !diagnostics.is_empty() {
                 return Err(SessionError::StrictInference(diagnostics));
             }
-            (Arc::new(outcome.graph), outcome.inferred, diagnostics)
+            let mut inference_dataset = run.dataset;
+            if separate
+                && options.graph_mode == ValidationGraphMode::Data
+                && let Some(dataset) = &mut inference_dataset
+            {
+                dataset.select_data_view();
+            }
+            let graph = run.graph.map(Arc::new);
+            (graph, run.inferred, diagnostics, inference_dataset)
         } else {
-            (Arc::clone(&asserted), Vec::new(), Vec::new())
+            (Some(Arc::clone(&asserted)), Vec::new(), Vec::new(), None)
         };
+        let evaluated_cell = OnceCell::new();
+        if let Some(graph) = evaluated {
+            evaluated_cell.set(graph).expect("new evaluated graph cell");
+        }
         Ok(EvaluationSession {
             compiled: self.clone(),
             asserted,
-            evaluated,
+            evaluated: evaluated_cell,
             separate,
             options,
             inferred,
             diagnostics,
+            inference_dataset: RefCell::new(inference_dataset),
             prepared: OnceCell::new(),
             snapshot: Arc::new(()),
         })
@@ -224,26 +239,40 @@ impl EvaluationSession {
 
     fn prepared(&self) -> &PreparedEvidenceValidator {
         self.prepared.get_or_init(|| {
-            let shapes = &self.compiled.source().graph;
-            let focus = context::focus_graph(
-                &self.evaluated,
-                shapes,
-                self.separate,
-                self.options.graph_mode,
-            );
-            let frozen = context::frozen(
-                &self.evaluated,
-                shapes,
-                self.separate,
-                self.options.graph_mode,
-            );
+            let frozen = self
+                .inference_dataset
+                .borrow_mut()
+                .take()
+                .unwrap_or_else(|| {
+                    context::frozen(
+                        self.evaluated.get().expect("dataset or evaluated graph"),
+                        self.compiled.source_storage(),
+                        self.separate,
+                        self.options.graph_mode,
+                    )
+                });
             PreparedEvidenceValidator::from_compiled(
-                focus,
+                self.evaluated.get().cloned(),
                 &self.compiled,
                 frozen,
                 true,
                 self.options.engine.unsupported,
+                if self.separate && self.options.graph_mode != ValidationGraphMode::UnionAll {
+                    crate::focus::FocusScope::Data
+                } else {
+                    crate::focus::FocusScope::Default
+                },
+                self.separate && self.options.graph_mode == ValidationGraphMode::UnionAll,
             )
+        })
+    }
+
+    fn evaluated_graph(&self) -> &Arc<Graph> {
+        self.evaluated.get_or_init(|| {
+            if let Some(dataset) = self.inference_dataset.borrow().as_ref() {
+                return Arc::new(dataset.data_graph_projection());
+            }
+            self.prepared().data_graph_shared()
         })
     }
 
@@ -342,12 +371,12 @@ impl EvaluationSession {
     }
 
     pub fn data(&self) -> &Graph {
-        &self.evaluated
+        self.evaluated_graph()
     }
 
     /// Share the evaluated data graph without copying it.
     pub fn data_shared(&self) -> Arc<Graph> {
-        Arc::clone(&self.evaluated)
+        Arc::clone(self.evaluated_graph())
     }
 
     /// Share the asserted data graph used by `with_delta`.

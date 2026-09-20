@@ -23,8 +23,9 @@
 //! the crucial invariant—cache only conclusions independent of the current
 //! recursion proof, while making the recursion rule explicit in one place.
 
+use crate::focus::FocusNodes;
 use crate::frozen::FrozenIndexedDataset;
-use crate::path::{PathBackend, node_of, pred, succ};
+use crate::path::{PathBackend, pred, succ};
 use crate::profile::ShapeCacheSample;
 use crate::sparql::{SparqlDiagnostic, SparqlExecutor, SparqlViolation};
 use crate::value::{compare_terms, value_type_holds};
@@ -507,7 +508,7 @@ fn validate_with_frozen(
 }
 
 pub(crate) fn validate_with_executor(
-    data: &Graph,
+    data: &dyn FocusNodes,
     schema: &Schema,
     sparql: &SparqlExecutor,
     options: &ValidationOptions,
@@ -516,7 +517,7 @@ pub(crate) fn validate_with_executor(
 }
 
 pub(crate) fn validate_with_executor_selected(
-    data: &Graph,
+    data: &dyn FocusNodes,
     schema: &Schema,
     sparql: &SparqlExecutor,
     options: &ValidationOptions,
@@ -550,13 +551,13 @@ pub(crate) fn validate_with_executor_selected(
 }
 
 fn validate_entries<'a, S: 'a>(
-    data: &Graph,
+    data: &dyn FocusNodes,
     arena: &ShapeArena,
     prefixes: &Prefixes,
     sparql: &SparqlExecutor,
     options: &ValidationOptions,
     entries: impl IntoIterator<Item = (usize, ShapeId, &'a S, String)>,
-    focus: impl Fn(&Graph, &S, &mut ShapeEvaluator<'_>) -> Vec<Term>,
+    focus: impl Fn(&dyn FocusNodes, &S, &mut ShapeEvaluator<'_>) -> Vec<Term>,
 ) -> ValidationOutcome {
     let backend = sparql
         .frozen()
@@ -626,6 +627,7 @@ pub fn graph_union(left: &Graph, right: &Graph) -> Graph {
     for triple in extra.iter() {
         union.insert(triple);
     }
+    crate::profile::record_graph_union(union.len());
     union
 }
 
@@ -765,7 +767,7 @@ fn validate_plan_with_frozen(
 }
 
 pub(crate) fn validate_plan_with_executor(
-    data: &Graph,
+    data: &dyn FocusNodes,
     plan: &PhysicalPlan,
     sparql: &SparqlExecutor,
     options: &ValidationOptions,
@@ -800,20 +802,21 @@ pub(crate) fn validate_plan_with_executor(
 
 /// Focus nodes for a compiled [`FocusSource`].
 fn focus_for_source(
-    data: &Graph,
+    data: &dyn FocusNodes,
     source: &FocusSource,
     evaluator: &mut ShapeEvaluator<'_>,
 ) -> Vec<Term> {
     match source {
-        FocusSource::SubjectsOf(p) => subjects_of(data, p),
-        FocusSource::ObjectsOf(p) => objects_of(data, p),
+        FocusSource::SubjectsOf(p) => data.subjects_of(p),
+        FocusSource::ObjectsOf(p) => data.objects_of(p),
         FocusSource::Node(c) => vec![c.clone()],
         // the optimization: seed backward from the constant, no full scan
         FocusSource::PathToConst { path, target } => pred(evaluator.g, target, path)
             .into_iter()
-            .filter(|node| graph_contains_term(data, node))
+            .filter(|node| data.contains_term(node))
             .collect(),
-        FocusSource::ScanFilter { path, qualifier } => all_nodes(data)
+        FocusSource::ScanFilter { path, qualifier } => data
+            .all_nodes()
             .into_iter()
             .filter(|v| {
                 succ(evaluator.g, v, path)
@@ -822,7 +825,7 @@ fn focus_for_source(
             })
             .collect(),
         FocusSource::Sparql(target) => {
-            let candidates = all_nodes(data);
+            let candidates = data.all_nodes();
             evaluator
                 .sparql
                 .target_nodes(&target.query)
@@ -843,7 +846,7 @@ pub fn focus_nodes(data: &Graph, sel: &Selector, arena: &ShapeArena) -> Vec<Term
 }
 
 pub(crate) fn focus_nodes_with(
-    data: &Graph,
+    data: &dyn FocusNodes,
     backend: &dyn PathBackend,
     sel: &Selector,
     arena: &ShapeArena,
@@ -854,13 +857,13 @@ pub(crate) fn focus_nodes_with(
 }
 
 pub(crate) fn focus_nodes_with_evaluator(
-    data: &Graph,
+    data: &dyn FocusNodes,
     sel: &Selector,
     evaluator: &mut ShapeEvaluator<'_>,
 ) -> Vec<Term> {
     match sel {
-        Selector::HasOut(q) => subjects_of(data, q),
-        Selector::HasIn(q) => objects_of(data, q),
+        Selector::HasOut(q) => data.subjects_of(q),
+        Selector::HasIn(q) => data.objects_of(q),
         Selector::IsConst(c) => vec![c.clone()],
         Selector::HasPath(path, qual) => match evaluator.arena.get(*qual) {
             // Class targets are lowered to
@@ -869,9 +872,10 @@ pub(crate) fn focus_nodes_with_evaluator(
             // for every node in the data graph.
             Shape::TestConst(target) => pred(evaluator.g, target, path)
                 .into_iter()
-                .filter(|node| graph_contains_term(data, node))
+                .filter(|node| data.contains_term(node))
                 .collect(),
-            _ => all_nodes(data)
+            _ => data
+                .all_nodes()
                 .into_iter()
                 .filter(|v| {
                     succ(evaluator.g, v, path)
@@ -881,7 +885,7 @@ pub(crate) fn focus_nodes_with_evaluator(
                 .collect(),
         },
         Selector::Sparql(target) => {
-            let candidates = all_nodes(data);
+            let candidates = data.all_nodes();
             evaluator
                 .sparql
                 .target_nodes(&target.query)
@@ -1838,48 +1842,6 @@ fn dedup_reasons(reasons: &mut Vec<Reason>) {
             r.severity.as_str().to_string(),
         ))
     });
-}
-
-fn subject_term(s: oxrdf::NamedOrBlankNodeRef) -> Term {
-    crate::path::term_of(s.into_owned())
-}
-
-/// Distinct subjects of triples with predicate `p`.
-fn subjects_of(data: &Graph, p: &NamedNode) -> Vec<Term> {
-    let mut seen = HashSet::new();
-    data.triples_for_predicate(p.as_ref())
-        .filter_map(|t| {
-            let term = subject_term(t.subject);
-            seen.insert(term.clone()).then_some(term)
-        })
-        .collect()
-}
-
-/// Distinct objects of triples with predicate `p`.
-fn objects_of(data: &Graph, p: &NamedNode) -> Vec<Term> {
-    let mut seen = HashSet::new();
-    data.triples_for_predicate(p.as_ref())
-        .filter_map(|t| {
-            let term = t.object.into_owned();
-            seen.insert(term.clone()).then_some(term)
-        })
-        .collect()
-}
-
-/// All distinct terms appearing as a subject or object in the graph.
-fn all_nodes(g: &Graph) -> HashSet<Term> {
-    let mut nodes = HashSet::new();
-    for t in g.iter() {
-        nodes.insert(subject_term(t.subject));
-        nodes.insert(t.object.into_owned());
-    }
-    nodes
-}
-
-/// Whether `term` appears in the graph's node domain.
-fn graph_contains_term(g: &Graph, term: &Term) -> bool {
-    node_of(term).is_some_and(|node| g.triples_for_subject(&node).next().is_some())
-        || g.triples_for_object(term).next().is_some()
 }
 
 #[cfg(test)]

@@ -12,6 +12,7 @@
 //!
 //! Coverage is a growing subset of SHACL Core (see `docs/BACKLOG.md`).
 
+use crate::focus::FocusNodes;
 use crate::frozen::FrozenIndexedDataset;
 use crate::path::succ;
 use crate::sparql::{FunctionDef, SparqlDiagnostic, SparqlExecutor};
@@ -247,7 +248,7 @@ pub fn property_witnesses_graphs_with_mode_and_options(
 
 pub(crate) fn property_witnesses_prepared(
     shapes: &Loaded,
-    focus_data: &Graph,
+    focus_data: &dyn FocusNodes,
     sparql: &SparqlExecutor,
     key_path: Option<&Path>,
     options: &ValidationOptions,
@@ -279,7 +280,7 @@ pub(crate) fn property_witnesses_prepared(
 /// the two traversals stay in lockstep on what counts as "the shape holds".
 fn build_reporter<'a>(
     shapes: &'a Loaded,
-    focus_data: &'a Graph,
+    focus_data: &'a dyn FocusNodes,
     sparql: &'a SparqlExecutor,
     options: &'a ValidationOptions,
 ) -> Reporter<'a> {
@@ -346,7 +347,7 @@ fn validate_report_context(
 
 pub(crate) fn validate_report_prepared(
     shapes: &Loaded,
-    focus_data: &Graph,
+    focus_data: &dyn FocusNodes,
     sparql: &SparqlExecutor,
     options: &ValidationOptions,
 ) -> ValidationReport {
@@ -629,7 +630,7 @@ pub(crate) fn collect_functions(shapes: &Loaded) -> Vec<FunctionDef> {
 
 struct Reporter<'a> {
     shapes: &'a Loaded,
-    focus_data: &'a Graph,
+    focus_data: &'a dyn FocusNodes,
     sparql: &'a SparqlExecutor,
     needs_sparql: bool,
     /// `class → focus-data instances` under `rdf:type / rdfs:subClassOf*`, built
@@ -723,20 +724,12 @@ impl Reporter<'_> {
         }
         for p in self.shapes.objects(shape, vocab::SH_TARGET_SUBJECTS_OF) {
             if let Term::NamedNode(n) = p {
-                nodes.extend(
-                    self.focus_data
-                        .triples_for_predicate(n.as_ref())
-                        .map(|t| node_term(t.subject)),
-                );
+                nodes.extend(self.focus_data.subjects_of(&n));
             }
         }
         for p in self.shapes.objects(shape, vocab::SH_TARGET_OBJECTS_OF) {
             if let Term::NamedNode(n) = p {
-                nodes.extend(
-                    self.focus_data
-                        .triples_for_predicate(n.as_ref())
-                        .map(|t| t.object.into_owned()),
-                );
+                nodes.extend(self.focus_data.objects_of(&n));
             }
         }
         // SPARQL-based targets: sh:target [ sh:select "…" ]. The query selects
@@ -2206,10 +2199,10 @@ fn class_path() -> Path {
 /// each distinct type is computed at most once. Only nodes present in the focus
 /// (data) graph are indexed, matching the original target-selection semantics.
 fn build_class_index(
-    focus_data: &Graph,
+    focus_data: &dyn FocusNodes,
     frozen: &FrozenIndexedDataset,
 ) -> HashMap<Term, Vec<Term>> {
-    let focus_nodes = graph_nodes(focus_data);
+    let focus_nodes = focus_data.all_nodes();
     let subclass_star = Path::star(Path::Pred(vocab::rdfs_subclassof()));
     let mut supers: HashMap<Term, Vec<Term>> = HashMap::new();
     let mut index: HashMap<Term, Vec<Term>> = HashMap::new();
@@ -2228,19 +2221,6 @@ fn build_class_index(
         }
     }
     index
-}
-
-fn graph_nodes(graph: &Graph) -> HashSet<Term> {
-    let mut nodes = HashSet::new();
-    for triple in graph.iter() {
-        nodes.insert(node_term(triple.subject));
-        nodes.insert(triple.object.into_owned());
-    }
-    nodes
-}
-
-fn node_term(s: oxrdf::NamedOrBlankNodeRef) -> Term {
-    crate::path::term_of(s.into_owned())
 }
 
 /// Render a term for embedding in a default `sh:resultMessage`, matching

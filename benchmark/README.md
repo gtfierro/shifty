@@ -24,6 +24,34 @@ Set `BENCH_ITERS` to control the number of timed runs (default: 3). Models are
 iterated in a stable, locale-independent (sorted) order so repeated runs line up
 row-for-row.
 
+## Shared-dataset before/after comparisons
+
+`compare_shared_datasets.py` compares two release CLIs with identical
+`Cargo.lock` files. It alternates versions, discards a warmup, retains five
+timings and peak-RSS readings per condition, and records profile stages and
+index decisions. Inference output and W3C reports are compared as RDF graphs
+up to blank-node identity; validation text is compared exactly. The optional
+`--resume` flag continues an interrupted output JSON after checking the binary
+and lockfile identities.
+
+Use `--shapes benchmark/s223/223p-closure.ttl --models-dir
+benchmark/s223/models` for the s223 suite, or the corresponding
+`benchmark/brick/Brick-closure.ttl` and `benchmark/brick/models` paths for
+Brick. `generate_shared_dataset_cases.py OUTPUT_DIR` writes a deterministic
+manifest varying source/data ratio, predicate demand, graph structure, query
+mode, and inference mode; pass its `manifest.json` with `--manifest` to the
+same comparison runner.
+`summarize_shared_datasets.py` renders completed JSON files as per-workload
+median, spread, RSS, and semantic-comparison tables.
+
+`compare_shared_sessions.py` times the release `bench_sessions` examples from
+both worktrees. Each fresh process compiles once, validates two data graphs,
+repeats validation on the first, and validates an edited snapshot. It reports
+the cold and warm stages separately, plus peak RSS.
+With `--many-count`, the same runner uses `bench_many_sessions` to retain the
+requested number of validated sessions under one compilation and measure their
+memory growth.
+
 ## Evidence-tracing overhead
 
 `bench_evidence.sh` measures complete and failure-only evidence costs on top of deciding conformance across all 45 Brick and 19 223P models.

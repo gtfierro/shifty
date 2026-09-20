@@ -143,38 +143,29 @@ back, recording the first unsupported construct as the fallback reason for
 inspection and telemetry. The set above is the design target; the authoritative
 statement of what lowers today is `lower_query` itself.
 
-## Frozen indexed dataset
+## Indexed session dataset
 
-Inference runs to a fixed point before validation, so validation receives an
-immutable graph. Build one dictionary-encoded dataset at that boundary:
+`FrozenIndexedDataset` now starts during inference, accepts committed rule
+batches, and is handed directly to validation. The name reflects its published
+read snapshot; the builder phase is mutable. It implements Spareval's
+`QueryableDataset`, so native and fallback queries read the same graph views.
 
-```rust
-struct FrozenIndexedDataset {
-    terms: TermDictionary,
-    graphs: GraphCatalog,
-    triples: TripleIndexes,
-    paths: PathIndexCatalog,
-    stats: DatasetStatistics,
-}
-```
+`TermId` is the dataset's `QueryableDataset::InternalTerm`. A lazily encoded
+source dictionary and index belong to `CompiledShapes`; each session extends
+that dictionary for data, inferred facts, and query-only constants. Source
+rows and local rows retain separate membership, allowing a Data validation
+view after union-based inference without rebuilding the dataset. The named
+shapes graph reads the same source index and remains independent of data edits.
 
-`TermId` is the `QueryableDataset::InternalTerm`. Base triples are stored in
-sorted, immutable structures with efficient access for:
-
-- `(subject, predicate) -> objects`;
-- `(predicate, object) -> subjects`;
-- `predicate -> (subject, object)` pairs;
-- `subject -> (predicate, object)` pairs;
-- `object -> (predicate, subject)` pairs;
-- exact triple membership.
-
-Default and named graphs have separate ranges. Virtual path relations are not
-exposed as RDF predicates and never appear in wildcard predicate scans.
-
-`FrozenIndexedDataset` implements Spareval's `QueryableDataset`, making it the
-shared storage backend for native and fallback queries. The fallback gains
-faster immutable triple-pattern access, but property paths are still evaluated
-by Spareval. Native `PathScan` operators are what expose whole-path indexes.
+Every triple is kept in a predicate-partitioned PSO primary index, sorted by
+`(subject, object)` within each predicate. Exact membership, predicate scans,
+and known-predicate forward probes use that base. Optional per-predicate
+reverse indexes and general subject/object directories are built from compiled
+demand or observed probes under separate source and session byte budgets.
+Patterns without an optional index scan the complete primary representation;
+index selection cannot change answers. Virtual path relations are not exposed
+as RDF predicates or wildcard scan rows. Native path traversal uses the shared
+dataset, while fallback property paths remain evaluated by Spareval.
 
 Literal operations may initially use the trait's externalization defaults.
 Frequently used effective-boolean-value, numeric comparison, and string
@@ -233,17 +224,21 @@ correct fallback.
 
 ## Query planning and execution
 
-Sparopt's generic rewrites may be used before native lowering, but join ordering
-must ultimately use dataset statistics rather than fixed cardinality constants.
-The native planner:
+The native planner substitutes static SHACL parameters, lowers its supported
+query subset, and uses dataset statistics to greedily order BGP scans. It keeps
+each next scan connected to an already bound variable when possible. A
+predicate absent from initial statistics is estimated from the dataset average
+rather than assigned zero rows: inference may introduce that predicate after
+the plan is compiled. This prevents a free scan from being repeated for every
+focus node solely because its initial cardinality was zero. The current
+executor runs the resulting left-deep plan with indexed probes and handles
+supported property paths separately.
 
-1. substitutes static SHACL parameters;
-2. identifies mandatory patterns and correlated regions;
-3. canonicalizes and registers path demand;
-4. estimates cardinality for each scan and path binding mode;
-5. orders joins to bind selective endpoints before broad scans;
-6. chooses indexed nested-loop, hash, semi-join, or anti-join execution;
-7. compiles expressions and result projection.
+A worst-case-optimal join could be added for dense cyclic BGPs if measurements
+show large intermediate joins. It would still require a variable order and
+appropriate indexed access, so it would complement rather than replace access
+planning. Hash, semi-join, and anti-join operators are also possible later
+extensions; the current native executor does not implement them.
 
 Constraint execution has two modes:
 
@@ -251,8 +246,8 @@ Constraint execution has two modes:
 - `Violations`: retain projected `?value` and `?path` values for reporting.
 
 Targets return focus nodes. Rules return constructed triples and remain in the
-inference fixed-point scheduler; native rule execution is a later stage because
-its indexed dataset must support controlled updates or round snapshots.
+inference fixed-point scheduler. Native rule execution reads the indexed dataset;
+committed rule batches update it before the next order group reads.
 
 ## Correctness and fallback
 

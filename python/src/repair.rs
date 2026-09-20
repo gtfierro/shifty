@@ -963,6 +963,10 @@ impl RepairSession {
     /// Re-validate the asserted graph after `ΔG` and diff whole-session
     /// violations. Rule inference follows this session's policy; sessions
     /// returned by `advance` instead start from their materialized data.
+    /// This Python class may be called on different threads, while an
+    /// `EvaluationSession` keeps thread-local query caches. Retain the shared
+    /// compilation here and rebuild the local baseline session for each gate;
+    /// the compiled source dictionary and indexes are still reused.
     /// Decides and applies nothing; returns a [`RepairOutcome`].
     fn gate(&self, py: Python<'_>, delta: &RepairDelta) -> PyResult<RepairOutcome> {
         let outcome = py

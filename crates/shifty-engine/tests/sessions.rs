@@ -1,9 +1,11 @@
 use oxrdf::{NamedNode, Triple};
+use shifty_engine::profile;
 use shifty_engine::{
     CompiledShapes, ConformanceOptions, EngineOptions, EvaluationError, FindingOptions,
     SessionData, SessionError, SessionOptions, UnsupportedPolicy, ValidationGraphMode,
 };
 use shifty_repair::GraphDelta;
+use std::sync::Arc;
 
 fn loaded(ttl: &str) -> shifty_parse::Loaded {
     shifty_parse::load_turtle(ttl.as_bytes(), None).unwrap()
@@ -88,6 +90,53 @@ fn split_graph_modes_select_the_expected_focus_nodes() {
 }
 
 #[test]
+fn union_all_focus_uses_a_view_until_graph_compatibility_is_requested() {
+    let shapes = loaded(&format!(
+        "{SHAPES}\n@prefix ex: <http://ex/> . ex:shapeItem a ex:T ."
+    ));
+    let expected_union_rows = shapes.graph.len() + 1;
+    let compiled = CompiledShapes::compile(shapes).unwrap();
+    let data = loaded("@prefix ex: <http://ex/> . ex:dataItem a ex:T .").graph;
+    profile::enable();
+    let session = compiled
+        .session(
+            SessionData::Separate(data),
+            SessionOptions {
+                graph_mode: ValidationGraphMode::UnionAll,
+                ..SessionOptions::default()
+            },
+        )
+        .unwrap();
+    assert_eq!(
+        session
+            .validate(&FindingOptions::default())
+            .unwrap()
+            .violations
+            .len(),
+        2
+    );
+    assert_eq!(
+        session
+            .report(&FindingOptions::default())
+            .unwrap()
+            .results
+            .len(),
+        2
+    );
+    let storage = profile::take().unwrap().storage().clone();
+    assert_eq!(storage.graph_union_builds, 0);
+    assert_eq!(storage.graph_projection_builds, 0);
+
+    profile::enable();
+    let prepared = session.prepared_evidence();
+    assert_eq!(prepared.data().len(), expected_union_rows);
+    assert_eq!(prepared.data().len(), expected_union_rows);
+    let storage = profile::take().unwrap().storage().clone();
+    assert_eq!(storage.graph_projection_builds, 1);
+    assert_eq!(storage.graph_projection_rows, expected_union_rows as u64);
+}
+
+#[test]
 fn deleting_last_inference_support_recomputes_the_snapshot() {
     let shapes = loaded(
         r#"
@@ -124,6 +173,91 @@ fn deleting_last_inference_support_recomputes_the_snapshot() {
         .unwrap();
     assert!(next.inferred().is_empty());
     assert_eq!(session.inferred().len(), 1);
+}
+
+#[test]
+fn validation_reuses_inference_dataset_when_the_default_view_matches() {
+    let shapes = loaded(
+        r#"
+        @prefix sh: <http://www.w3.org/ns/shacl#> .
+        @prefix ex: <http://ex/> .
+        ex:S a sh:NodeShape ; sh:targetNode ex:a ;
+            sh:rule [ a sh:TripleRule ; sh:subject sh:this ;
+                sh:predicate ex:p ; sh:object ex:b ] ;
+            sh:property [ sh:path ex:p ; sh:minCount 1 ] .
+        "#,
+    );
+    let compiled = CompiledShapes::compile(shapes).unwrap();
+    let data = loaded("@prefix ex: <http://ex/> . ex:a ex:seed ex:b .").graph;
+    for (mode, expected_builds) in [
+        (ValidationGraphMode::Union, 1),
+        (ValidationGraphMode::UnionAll, 1),
+        (ValidationGraphMode::Data, 1),
+    ] {
+        profile::enable();
+        let session = compiled
+            .session(
+                SessionData::Separate(data.clone()),
+                SessionOptions {
+                    graph_mode: mode,
+                    inference: true,
+                    ..SessionOptions::default()
+                },
+            )
+            .unwrap();
+        assert!(
+            session
+                .validate(&FindingOptions::default())
+                .unwrap()
+                .conforms
+        );
+        let storage = profile::take().unwrap().storage().clone();
+        assert_eq!(storage.store_builds, 0);
+        assert_eq!(storage.dataset_builds, expected_builds, "mode {mode:?}");
+    }
+}
+
+#[test]
+fn data_mode_after_inference_excludes_source_only_triples() {
+    let shapes = loaded(
+        r#"
+        @prefix sh: <http://www.w3.org/ns/shacl#> .
+        @prefix ex: <http://ex/> .
+        ex:S a sh:NodeShape ; sh:targetNode ex:a ;
+            sh:rule [ a sh:TripleRule ; sh:subject sh:this ;
+                sh:predicate ex:inferred ; sh:object ex:value ] ;
+            sh:sparql [ sh:select """SELECT $this WHERE {
+                $this ex:inferred ex:value .
+                ex:sourceOnly ex:p ex:value .
+            }""" ] .
+        ex:sourceOnly ex:p ex:value .
+        "#,
+    );
+    let compiled = CompiledShapes::compile(shapes).unwrap();
+    let data = loaded("@prefix ex: <http://ex/> . ex:a ex:seed ex:value .").graph;
+    for (mode, conforms) in [
+        (ValidationGraphMode::Data, true),
+        (ValidationGraphMode::Union, false),
+    ] {
+        let session = compiled
+            .session(
+                SessionData::Separate(data.clone()),
+                SessionOptions {
+                    graph_mode: mode,
+                    inference: true,
+                    ..SessionOptions::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(session.inferred().len(), 1);
+        assert_eq!(
+            session
+                .validate(&FindingOptions::default())
+                .unwrap()
+                .conforms,
+            conforms
+        );
+    }
 }
 
 #[test]
@@ -206,6 +340,100 @@ fn compiled_inference_uses_source_functions_while_legacy_inference_reads_context
         )
         .unwrap();
     assert!(session.inferred().is_empty());
+}
+
+#[test]
+fn compiled_node_expression_uses_canonical_function_query() {
+    let shapes = loaded(
+        r#"
+        @prefix sh: <http://www.w3.org/ns/shacl#> .
+        @prefix ex: <http://ex/> .
+        ex:lookup a sh:SPARQLFunction ;
+            sh:parameter [ sh:path ex:arg ] ;
+            sh:select "SELECT ?result WHERE { ?arg ex:p ?result }" .
+        ex:S a sh:NodeShape ; sh:targetNode ex:a ;
+            sh:rule [ a sh:TripleRule ; sh:subject sh:this ;
+                sh:predicate ex:out ; sh:object [ ex:lookup ( sh:this ) ] ] .
+        "#,
+    );
+    let compiled = CompiledShapes::compile(shapes).unwrap();
+    let data = loaded("@prefix ex: <http://ex/> . ex:a ex:p ex:b .").graph;
+    let session = compiled
+        .session(
+            SessionData::Separate(data),
+            SessionOptions {
+                inference: true,
+                ..SessionOptions::default()
+            },
+        )
+        .unwrap();
+    assert_eq!(
+        session.inferred(),
+        &[Triple::new(
+            NamedNode::new_unchecked("http://ex/a"),
+            NamedNode::new_unchecked("http://ex/out"),
+            NamedNode::new_unchecked("http://ex/b")
+        )]
+    );
+}
+
+#[test]
+fn compiled_inference_reads_source_without_materializing_union() {
+    let shapes = loaded(
+        r#"
+        @prefix sh: <http://www.w3.org/ns/shacl#> .
+        @prefix ex: <http://ex/> .
+        ex:S a sh:NodeShape ; sh:targetNode ex:a ;
+            sh:rule [ a sh:SPARQLRule ; sh:construct """
+                CONSTRUCT { $this ex:out ex:value }
+                WHERE { ex:sourceOnly ex:p ex:value }
+            """ ] .
+        ex:sourceOnly ex:p ex:value .
+        "#,
+    );
+    let compiled = CompiledShapes::compile(shapes).unwrap();
+    let data = loaded("@prefix ex: <http://ex/> . ex:a ex:seed ex:value .").graph;
+    profile::enable();
+    let session = compiled
+        .session(
+            SessionData::Separate(data),
+            SessionOptions {
+                inference: true,
+                ..SessionOptions::default()
+            },
+        )
+        .unwrap();
+    assert!(
+        session
+            .validate(&FindingOptions::default())
+            .unwrap()
+            .conforms
+    );
+    let storage = profile::take().unwrap().storage().clone();
+    assert_eq!(session.inferred().len(), 1);
+    assert_eq!(storage.store_builds, 0);
+    assert_eq!(storage.graph_union_builds, 0);
+    assert_eq!(storage.graph_projection_builds, 0);
+    assert_eq!(storage.dataset_builds, 1);
+
+    profile::enable();
+    let evaluated = session.data_shared();
+    assert_eq!(evaluated.len(), 2);
+    assert!(evaluated.contains(&Triple::new(
+        NamedNode::new_unchecked("http://ex/a"),
+        NamedNode::new_unchecked("http://ex/out"),
+        NamedNode::new_unchecked("http://ex/value"),
+    )));
+    assert!(!evaluated.contains(&Triple::new(
+        NamedNode::new_unchecked("http://ex/sourceOnly"),
+        NamedNode::new_unchecked("http://ex/p"),
+        NamedNode::new_unchecked("http://ex/value"),
+    )));
+    assert!(Arc::ptr_eq(&evaluated, &session.data_shared()));
+    assert_eq!(
+        profile::take().unwrap().storage().graph_projection_builds,
+        1
+    );
 }
 
 #[test]

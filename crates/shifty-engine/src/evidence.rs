@@ -18,6 +18,7 @@
 //! statements. Keeping the fan-out here, after canonical evaluation, preserves
 //! authored provenance without making the evaluator or optimizer pay for it.
 
+use crate::focus::{FocusNodes, FocusScope, IndexedFocus};
 use crate::frozen::FrozenIndexedDataset;
 use crate::sparql::SparqlExecutor;
 use crate::validate::{
@@ -33,6 +34,7 @@ use crate::witness::{
 use oxrdf::Graph;
 use shifty_algebra::{ConstraintKind, Schema, Severity, Shape, ShapeArena, ShapeId};
 use shifty_opt::{analyze, normalize_with_mapping};
+use std::cell::OnceCell;
 use std::collections::HashSet;
 use std::sync::Arc;
 
@@ -46,7 +48,11 @@ pub struct PreparedEvidenceValidator {
     /// The graph used for focus selection. It is retained separately from the
     /// frozen context inside `sparql`: graph mode may deliberately use data-only
     /// targets while paths and SPARQL read data ∪ shapes.
-    data: Arc<Graph>,
+    data: Option<Arc<Graph>>,
+    indexed_focus: Option<FocusScope>,
+    compatibility_union: bool,
+    union_projection: OnceCell<Graph>,
+    data_projection: OnceCell<Arc<Graph>>,
     /// The authored schema is not an execution duplicate. It is the provenance
     /// layer that lets progress explain a constraint normalization removed or
     /// merged, while `schema` remains the small canonical graph to evaluate.
@@ -156,13 +162,15 @@ impl PreparedEvidenceValidator {
         key_path: Option<&shifty_algebra::Path>,
         options: &ValidationOptions,
     ) -> Vec<crate::report::PropertyWitness> {
-        crate::report::property_witnesses_prepared(
-            source,
-            &self.data,
-            &self.sparql,
-            key_path,
-            options,
-        )
+        self.with_focus(|focus| {
+            crate::report::property_witnesses_prepared(
+                source,
+                focus,
+                &self.sparql,
+                key_path,
+                options,
+            )
+        })
     }
 
     pub(crate) fn report(
@@ -170,7 +178,9 @@ impl PreparedEvidenceValidator {
         source: &shifty_parse::Loaded,
         options: &ValidationOptions,
     ) -> crate::report::ValidationReport {
-        crate::report::validate_report_prepared(source, &self.data, &self.sparql, options)
+        self.with_focus(|focus| {
+            crate::report::validate_report_prepared(source, focus, &self.sparql, options)
+        })
     }
 
     pub(crate) fn validate_findings(
@@ -187,13 +197,15 @@ impl PreparedEvidenceValidator {
                 })
             })
             .collect();
-        crate::validate::validate_plan_with_executor(
-            &self.data,
-            plan,
-            &self.sparql,
-            options,
-            Some(&selected),
-        )
+        self.with_focus(|focus| {
+            crate::validate::validate_plan_with_executor(
+                focus,
+                plan,
+                &self.sparql,
+                options,
+                Some(&selected),
+            )
+        })
     }
 
     /// Prepare embedded data/shapes validation over one graph.
@@ -291,7 +303,11 @@ impl PreparedEvidenceValidator {
         }
 
         Ok(Self {
-            data: Arc::new(data),
+            data: Some(Arc::new(data)),
+            indexed_focus: None,
+            compatibility_union: false,
+            union_projection: OnceCell::new(),
+            data_projection: OnceCell::new(),
             raw_schema: Arc::new(raw_schema.clone()),
             schema: Arc::new(normalized.schema),
             raw_by_normalized: Arc::new(raw_by_normalized),
@@ -301,16 +317,22 @@ impl PreparedEvidenceValidator {
     }
 
     pub(crate) fn from_compiled(
-        data: Arc<Graph>,
+        data: Option<Arc<Graph>>,
         compiled: &crate::compiled::CompiledShapes,
         frozen: FrozenIndexedDataset,
         has_shapes_graph: bool,
         policy: crate::validate::UnsupportedPolicy,
+        focus_scope: FocusScope,
+        compatibility_union: bool,
     ) -> Self {
         let mut sparql = SparqlExecutor::from_frozen(frozen, has_shapes_graph);
         sparql.set_functions(compiled.inner.functions.clone(), policy);
         Self {
             data,
+            indexed_focus: Some(focus_scope),
+            compatibility_union,
+            union_projection: OnceCell::new(),
+            data_projection: OnceCell::new(),
             raw_schema: Arc::clone(&compiled.inner.authored),
             schema: Arc::clone(&compiled.inner.normalized),
             raw_by_normalized: Arc::clone(&compiled.inner.raw_by_normalized),
@@ -325,7 +347,49 @@ impl PreparedEvidenceValidator {
     /// shape-map `value_paths` feature) evaluates over the same graph the run
     /// used without cloning it.
     pub fn data(&self) -> &Graph {
-        &self.data
+        if self.compatibility_union {
+            self.union_projection.get_or_init(|| {
+                self.sparql
+                    .frozen()
+                    .expect("prepared dataset")
+                    .default_graph_projection()
+            })
+        } else if let Some(data) = &self.data {
+            data
+        } else {
+            self.data_projection
+                .get_or_init(|| Arc::new(self.data_graph_projection()))
+        }
+    }
+
+    fn data_graph_projection(&self) -> Graph {
+        self.sparql
+            .frozen()
+            .expect("compiled preparation has a dataset")
+            .data_graph_projection()
+    }
+
+    pub(crate) fn data_graph_shared(&self) -> Arc<Graph> {
+        if let Some(data) = &self.data {
+            Arc::clone(data)
+        } else {
+            Arc::clone(
+                self.data_projection
+                    .get_or_init(|| Arc::new(self.data_graph_projection())),
+            )
+        }
+    }
+
+    fn with_focus<R>(&self, f: impl FnOnce(&dyn FocusNodes) -> R) -> R {
+        if let Some(scope) = self.indexed_focus {
+            let indexed = IndexedFocus::new(self.sparql.frozen().expect("prepared dataset"), scope);
+            f(&indexed)
+        } else {
+            f(self
+                .data
+                .as_deref()
+                .expect("legacy preparation has a graph"))
+        }
     }
 
     /// Decide one retained authored/raw constraint directly.
@@ -444,7 +508,9 @@ impl PreparedEvidenceValidator {
                 continue;
             }
 
-            let foci = focus_nodes_with_evaluator(&self.data, &statement.selector, &mut evaluator);
+            let foci = self.with_focus(|focus| {
+                focus_nodes_with_evaluator(focus, &statement.selector, &mut evaluator)
+            });
             prefetch_sparql_constraints(&self.schema.arena, statement.shape, &foci, &self.sparql);
 
             for focus in foci {
@@ -677,7 +743,9 @@ impl PreparedEvidenceValidator {
                     .unwrap_or_else(|| format!("@{}", statement.shape.0))
             });
             let selection_start = profiling.then(web_time::Instant::now);
-            let foci = focus_nodes_with_evaluator(&self.data, &statement.selector, &mut evaluator);
+            let foci = self.with_focus(|focus| {
+                focus_nodes_with_evaluator(focus, &statement.selector, &mut evaluator)
+            });
             prefetch_sparql_constraints(&self.schema.arena, statement.shape, &foci, &self.sparql);
             if let (Some(start), Some(label)) = (selection_start, label.as_deref()) {
                 crate::profile::record_shape_work(

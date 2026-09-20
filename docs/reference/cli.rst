@@ -235,8 +235,12 @@ graph is read.
    * - ``capability``
      - Which SPARQL constraint queries lower to the native executor and which
        fall back to Spareval.
+   * - ``access``
+     - Static default/shapes graph reads by statement, rule, and function;
+       query/path identities, function calls, and conservative coverage.
 
-``--format text`` (default) and ``--format json`` work for every stage;
+``--format text`` (default) works for every stage. ``--format json`` works
+except for ``capability``;
 ``--format dot`` emits Graphviz for the ``algebra`` and ``normalized`` stages
 and is rejected for the others.
 
@@ -268,7 +272,13 @@ format that parsed each source and the number of triples it contributed.
    conforms: true
    profile: shapes: 28 triples from shapes.ttl [turtle]
    profile: data: 633 triples from ontology.ttl.md [turtle]
+   profile: stage: shapes load: 1.234 ms
+   profile: stage: compile: 2.345 ms
+   profile: stage: data load: 3.456 ms
+   profile: stage: session and inference: 4.567 ms
    profile: inference: 0 triples added before validation
+   profile: stage: first validation: 5.678 ms
+   profile: stage: export: 0.009 ms
    profile: 2 distinct shape(s)/rule(s)
      rule[0]: 1 call(s), 24µs total, 24µs avg
    ...
@@ -293,9 +303,28 @@ each source's own contribution:
      second.ttl: 2 triples [turtle]
 
 ``validate`` also reports what rule inference added before validation, or
-``skipped (--no-infer)``. Then come the engine's own counters: per-shape and
-per-rule wall-clock time, shape-cache hit rate and peak size, and per-query
-SPARQL execution time.
+``skipped (--no-infer)``. Both commands time input loading, compilation,
+session construction (including inference), and output formatting;
+``validate`` additionally times the first validation or report. The storage
+line counts Store and encoded-dataset
+builds, source and local rows, committed inference rows, optional index bytes,
+and index builds declined by the budget. A second line attributes source and
+session encoding time plus inference commit batches and their total time. The
+primary-pair-buffer line reports allocated PSO pair capacities separately for
+shared source and session partitions; it excludes dictionary strings and map
+nodes. The graph-materialization line counts full union ``Graph`` copies and lazy
+compatibility projections; compiled validation should report zero for both
+unless a caller requests a
+public graph getter. Each optional index decision then names the source or
+session scope, index direction, predicate when applicable, compiled-demand or
+observed-probe reason, estimated
+and allocated bytes, budget, build time, and whether admission succeeded. Scan
+lines count calls and candidate rows by graph scope and bound positions
+(``S``, ``P``, ``O``); they help identify repeated broad scans even when an
+index builds successfully. Then come per-shape and per-rule wall-clock time,
+shape-cache hit rate
+and peak size, and per-query SPARQL execution time. These are timings from one run,
+rather than benchmark samples.
 
 .. _cli-dump:
 
