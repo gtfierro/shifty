@@ -131,6 +131,31 @@ need a general SPARQL engine; ``inspect --stage capability`` reports which.
 plus a selector, heads are triples built from node expressions — evaluated to a
 fixed point before validation, over the same arena and the same stratification.
 
+One compiled source, many data snapshots
+----------------------------------------
+
+``CompiledShapes`` retains the authored and normalized shapes, rule and function
+metadata, parsed query templates, and a lazily encoded source index. Sessions
+created from it share that source storage. Each ``EvaluationSession`` owns its
+asserted data and a local index extension; inferred facts are committed to that
+index at rule-group boundaries. Validation, reports, and evidence reuse the
+resulting dataset, including after inference.
+
+The dataset exposes data, shapes, and their union as graph views. Native SPARQL
+and the Spareval fallback read those same views, while ``$shapesGraph`` names the
+unchanged source graph. The source and data keep separate membership even when
+they contain an equal triple, and blank nodes from separately parsed documents
+retain distinct identities. A requested public data graph is projected lazily;
+ordinary validation does not build a second full graph or Oxigraph Store.
+
+Every triple remains available in a complete predicate-partitioned primary
+index. Reverse predicate indexes and general subject/object directories are
+admitted from compiled access demand or observed probes under byte budgets.
+Declined indexes use correct scans. ``shifty inspect --stage access`` shows the
+data-independent read demands; ``--profile`` shows runtime index decisions,
+scan work, and cache activity. The measured lifecycle and memory effects are
+recorded in ``benchmark/shared-dataset-results.md`` in the repository.
+
 Why one IR matters
 ------------------
 
