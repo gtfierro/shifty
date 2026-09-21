@@ -7,6 +7,7 @@
 use serde::Serialize;
 use shifty_algebra::{
     FunctionDef, NamedNode, NodeExpr, Path, RuleHead, Schema, Selector, Shape, ShapeArena, ShapeId,
+    Term,
 };
 use spargebra::algebra::{
     AggregateExpression, Expression, Function, GraphPattern, OrderExpression,
@@ -44,6 +45,14 @@ pub struct AccessRequirement {
     pub probes: ProbeModes,
     pub reads_node_domain: bool,
     pub incomplete: bool,
+}
+
+/// Predicates an operation might add. A wildcard is distinct from a proven
+/// empty write set and keeps later write/read planning conservative.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+pub struct WriteRequirement {
+    pub predicates: HashSet<NamedNode>,
+    pub any_predicate: bool,
 }
 
 impl AccessRequirement {
@@ -92,6 +101,7 @@ pub struct ConsumerAccess {
     pub queries: Vec<QueryId>,
     pub paths: Vec<PathId>,
     pub calls: HashSet<NamedNode>,
+    pub writes: WriteRequirement,
 }
 
 impl ConsumerAccess {
@@ -103,6 +113,7 @@ impl ConsumerAccess {
             queries: Vec::new(),
             paths: Vec::new(),
             calls: HashSet::new(),
+            writes: WriteRequirement::default(),
         }
     }
 }
@@ -184,6 +195,12 @@ impl AccessCatalog {
                     predicate,
                     object,
                 } => {
+                    match predicate {
+                        NodeExpr::Constant(Term::NamedNode(predicate)) => {
+                            access.writes.predicates.insert(predicate.clone());
+                        }
+                        _ => access.writes.any_predicate = true,
+                    }
                     for expression in [subject, predicate, object] {
                         catalog.expression(
                             expression,
@@ -195,7 +212,10 @@ impl AccessCatalog {
                         );
                     }
                 }
-                RuleHead::Sparql(query) => catalog.query(&query.query, &mut access, &mut query_ids),
+                RuleHead::Sparql(query) => {
+                    analyze_construct_writes(&query.query, &mut access.writes);
+                    catalog.query(&query.query, &mut access, &mut query_ids);
+                }
             }
             catalog.consumers.push(access);
         }
@@ -414,6 +434,21 @@ fn analyze_path(path: &Path, reverse: bool, out: &mut AccessRequirement) {
             for part in parts {
                 analyze_path(part, reverse, out);
             }
+        }
+    }
+}
+
+fn analyze_construct_writes(text: &str, writes: &mut WriteRequirement) {
+    let Ok(Query::Construct { template, .. }) = SparqlParser::new().parse_query(text) else {
+        writes.any_predicate = true;
+        return;
+    };
+    for triple in template {
+        match triple.predicate {
+            NamedNodePattern::NamedNode(predicate) => {
+                writes.predicates.insert(predicate);
+            }
+            NamedNodePattern::Variable(_) => writes.any_predicate = true,
         }
     }
 }
@@ -668,6 +703,45 @@ mod tests {
         assert!(access.any_predicate);
         assert!(access.probes.forward);
         assert!(!access.incomplete);
+    }
+
+    #[test]
+    fn rule_writes_distinguish_fixed_and_dynamic_predicates() {
+        let mut schema = Schema::new();
+        for predicate in [
+            NodeExpr::Constant(Term::NamedNode(named("fixed"))),
+            NodeExpr::This,
+        ] {
+            schema.rules.push(shifty_algebra::Rule {
+                selector: Selector::IsConst(Term::NamedNode(named("focus"))),
+                conditions: vec![],
+                head: RuleHead::Triple {
+                    subject: NodeExpr::This,
+                    predicate,
+                    object: NodeExpr::Constant(Term::NamedNode(named("value"))),
+                },
+                order: None,
+                deactivated: false,
+            });
+        }
+        let catalog = AccessCatalog::compile(&schema, &[]);
+        assert_eq!(
+            catalog.consumers[0].writes.predicates,
+            HashSet::from([named("fixed")])
+        );
+        assert!(!catalog.consumers[0].writes.any_predicate);
+        assert!(catalog.consumers[1].writes.any_predicate);
+    }
+
+    #[test]
+    fn construct_templates_record_possible_writes() {
+        let mut writes = WriteRequirement::default();
+        analyze_construct_writes(
+            "CONSTRUCT { ?s <http://ex/fixed> ?o . ?s ?p ?o } WHERE { ?s ?p ?o }",
+            &mut writes,
+        );
+        assert_eq!(writes.predicates, HashSet::from([named("fixed")]));
+        assert!(writes.any_predicate);
     }
 
     #[test]
