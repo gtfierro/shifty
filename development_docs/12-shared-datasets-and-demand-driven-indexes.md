@@ -1,8 +1,11 @@
 # 12 — Shared datasets and demand-driven indexes
 
-Status: proposed continuation of `feature/compiled-shapes-sessions`, based on
-the implementation at `c6d0b1d`, 2026-09-19. This document is an implementation
-plan; the proposed storage and planning types below do not exist yet.
+Status: implemented on `feature/compiled-shapes-sessions` through `c102812`,
+2026-09-20. This document preserves the original plan and its acceptance
+criteria; [the measured results](../benchmark/shared-dataset-results.md)
+record the completed implementation and remaining tradeoffs. Historical
+"current" and "proposed" descriptions below refer to the `c6d0b1d` starting
+point, not the branch's current code.
 
 ## 1. Outcome and scope
 
