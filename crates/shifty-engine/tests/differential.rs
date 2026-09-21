@@ -2,21 +2,18 @@
 //!
 //! ## Role of this file
 //!
-//! **Stage 1 (this file):** Establishes:
+//! This file establishes:
 //! 1. `assert_same_verdict` (conformance + violating focus set) and the stricter
 //!    `assert_same_outcome` (also reason text), order-independent. The verdict
 //!    form is for comparisons across `normalize` (which rewrites shapes); the
 //!    strict form is for stages 2–3 proving the frozen-dataset and
 //!    native-executor paths agree with the Spareval oracle over identical shapes.
 //! 2. The 223P/NIST baseline test — asserts the current validation result for
-//!    the NIST building model against the 223P shapes does not regress as later
-//!    stages land.
+//!    the NIST building model against the 223P shapes does not regress.
 //!
-//! **Stage 2** will add: `assert_same_sparql_solutions` comparing Spareval over
-//! `Store` vs. Spareval over `FrozenIndexedDataset`.
-//!
-//! **Stage 3** will add: native-executor vs. Spareval differential assertions
-//! across the `w3c_sparql` suite and the 223P/NIST workload.
+//! Store-versus-indexed fallback coverage lives in `sparql` storage tests.
+//! Native-capable queries run an internal debug-build differential against
+//! Spareval; the native smoke below proves that routing remains exercised.
 
 use shifty_engine::profile::{self, ExecutorKind};
 use shifty_engine::{ValidationGraphMode, infer_graphs, validate, validate_plan_graphs_with_mode};
@@ -74,7 +71,7 @@ pub fn assert_same_verdict(
 /// Spareval — stages 2–3), where reason text must match exactly. Not suitable
 /// for comparing across `normalize`, which rewrites shapes (see
 /// [`assert_same_verdict`]).
-#[allow(dead_code)] // reserved for the stage 2/3 executor-backend differentials
+#[allow(dead_code)] // shared by executor-backend differential tests
 pub fn assert_same_outcome(
     label: &str,
     left: &shifty_engine::ValidationOutcome,
@@ -172,7 +169,7 @@ fn nist_bdg1_known_violations_against_223p_closure() {
 }
 
 /// Smoke test: the reference evaluator and the planned executor agree on
-/// the 223P/NIST outcome. Both use the same Spareval backend in stage 1.
+/// the 223P/NIST outcome.
 #[test]
 fn reference_and_plan_agree_on_nist_bdg1() {
     let shapes = load_ws("benchmark/s223/223p.ttl");
@@ -206,7 +203,7 @@ fn reference_and_plan_agree_on_nist_bdg1() {
     assert_same_verdict("223P/NIST bdg1-1", &ref_outcome, &plan_outcome);
 }
 
-// ── Stage 3: native executor ─────────────────────────────────────────────────
+// ── Native executor ──────────────────────────────────────────────────────────
 
 /// A pure-BGP `sh:sparql` constraint must (a) actually take the native execution
 /// path and (b) produce the same result the Spareval fallback would. The

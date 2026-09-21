@@ -820,9 +820,9 @@ impl SourceView {
 
 // ── FrozenIndexedDataset ─────────────────────────────────────────────────────
 
-/// Immutable, dictionary-encoded snapshot of a post-inference RDF dataset.
-/// Intended to be built once at the inference→validation boundary and shared
-/// across all per-focus-node SPARQL evaluations.
+/// Dictionary-encoded session dataset. Inference mutates it only at committed
+/// batch boundaries; after publication, validation reuses the same allocation
+/// through the selected logical view.
 pub struct FrozenIndexedDataset {
     terms: TermDictionary,
     /// Triples outside the immutable source partition.

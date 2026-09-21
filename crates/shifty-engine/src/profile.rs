@@ -13,9 +13,9 @@ use web_time::Instant;
 pub struct QueryRecord {
     /// Stable fingerprint derived from the canonical query text (first 160 chars).
     pub fingerprint: String,
-    /// Whether the native executor handled this query (always Fallback in stage 1).
+    /// Whether the native executor or Spareval fallback handled this query.
     pub executor: ExecutorKind,
-    /// How many times this query was invoked (one per focus node in stage 1).
+    /// How many execution batches or fallback probes invoked this query.
     pub invocations: u64,
     /// Total wall-clock execution time across all invocations, in microseconds.
     pub total_exec_us: u64,
