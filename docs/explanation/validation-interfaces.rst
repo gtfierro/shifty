@@ -30,7 +30,7 @@ avoids the cost of constructing and serializing report RDF and preserves
 details that do not map directly to the W3C result vocabulary. The compiled
 evaluator also normalizes shared expressions, seeds targets from indexes, and
 orders conjunctions by estimated cost. :doc:`architecture` describes those
-optimizations, and :doc:`benchmarks` records end-to-end measurements.
+optimizations, and :doc:`../benchmarks` records end-to-end measurements.
 
 The algebraic representation supports several additional views:
 

@@ -202,7 +202,7 @@ validate against a 229k-triple shapes closure, essentially all of it setup.
 That is fine when the schema is reused and terrible when it is not. It is why
 ``PreparedValidator`` exists, why the evidence and repair sessions are objects
 you hold rather than functions you call, and why the benchmark chart in
-:doc:`benchmarks` separates setup from the rest — a release that halves
+:doc:`../benchmarks` separates setup from the rest — a release that halves
 validation time is invisible in the total if setup dominates.
 
 Further reading

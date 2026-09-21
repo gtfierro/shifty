@@ -140,6 +140,9 @@ Documentation
      - Interfaces, options, fields, and feature-support boundaries.
    * - :doc:`Explanation <explanation/index>`
      - Design, semantics, and performance tradeoffs.
+   * - :doc:`Benchmarks <benchmarks>`
+     - Validation performance across real building models, tracked per
+       release.
 
 The :doc:`documentation contribution guide <contributing>` describes the page
 conventions and preview workflow. Documentation issues can be filed on
@@ -155,6 +158,7 @@ conventions and preview workflow. Documentation issues can be filed on
    reference/index
    explanation/index
    playground
+   benchmarks
    changelog
    contributing
    Rust API (docs.rs) <https://docs.rs/shifty-engine>

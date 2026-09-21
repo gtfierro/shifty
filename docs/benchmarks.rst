@@ -347,8 +347,8 @@ Two cautions, both learned the hard way.
 **A ratio is only meaningful next to its denominator.** When an optimization
 speeds up the baseline more than the thing being measured, the reported ratio
 gets *worse* even though both arms got faster. Absolute times belong beside any
-ratio quoted from this corpus; :doc:`performance` has a worked example of that
-happening.
+ratio quoted from this corpus; :doc:`explanation/performance` has a worked
+example of that happening.
 
 **These are per-process runs.** Each model pays setup once because every
 measurement is a fresh process. That is the right model for the CLI and the
@@ -357,4 +357,4 @@ with ``PreparedValidator``. The setup segment of each bar is roughly what that
 amortization is worth.
 
 For the separate question of what *evidence* costs on top of validation, see
-:doc:`performance`.
+:doc:`explanation/performance`.

@@ -29,9 +29,6 @@ experimental repair layer.
    * - :doc:`performance`
      - What evidence costs, measured. Includes two optimizations that began as
        hypotheses the measurements contradicted.
-   * - :doc:`benchmarks`
-     - Validation performance across real building models, tracked per
-       release.
    * - :doc:`repair-design`
      - **Experimental.** Repair as the abductive dual of validation, and why
        the library computes the space of fixes but refuses to choose one.
@@ -46,5 +43,4 @@ experimental repair layer.
    recursion
    evidence-design
    performance
-   benchmarks
    repair-design

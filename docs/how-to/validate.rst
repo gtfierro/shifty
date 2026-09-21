@@ -177,7 +177,7 @@ dominates a small validation. ``PreparedValidator`` pays it once:
 
 This matters more than it sounds like it should: on the Brick corpus, whose
 models are small against a 229k-triple shapes closure, most of a per-process
-run's wall clock is this setup. See :doc:`../explanation/benchmarks`.
+run's wall clock is this setup. See :doc:`../benchmarks`.
 
 Handle unsupported constructs
 -----------------------------
