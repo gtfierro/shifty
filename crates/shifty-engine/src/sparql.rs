@@ -315,12 +315,19 @@ impl SparqlExecutor {
 
     /// Commit an inference batch after all query iterators have been consumed.
     pub(crate) fn extend_triples<'a>(&mut self, triples: impl IntoIterator<Item = &'a Triple>) {
-        if let Some(frozen) = &mut self.frozen {
+        let changed = if let Some(frozen) = &mut self.frozen {
+            let revision = frozen.revision();
             frozen.extend_triples(triples);
-        }
-        // Plans retain only static algebra; result sets depend on the revision.
-        for compiled in self.compiled.borrow().values() {
-            *compiled.batched.borrow_mut() = None;
+            frozen.revision() != revision
+        } else {
+            false
+        };
+        // Plans retain only static algebra; batched result decisions belong to
+        // the dataset revision on which they were observed.
+        if changed {
+            for compiled in self.compiled.borrow().values() {
+                *compiled.batched.borrow_mut() = None;
+            }
         }
     }
 

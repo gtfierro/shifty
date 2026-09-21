@@ -832,6 +832,9 @@ pub struct FrozenIndexedDataset {
     /// immutable source index, rather than copying its rows per session.
     named_graphs: HashMap<TermId, Arc<TripleIndex>>,
     reach_cache: RefCell<ReachCache>,
+    /// Monotonic identity for data-dependent caches and physical plans. Every
+    /// committed RDF batch and default-view change advances it.
+    revision: u64,
     pub stats: DatasetStatistics,
 }
 
@@ -938,6 +941,7 @@ impl FrozenIndexedDataset {
             source_view: Some(source_view),
             named_graphs,
             reach_cache: RefCell::new(ReachCache::default()),
+            revision: 0,
             stats,
         }
     }
@@ -955,6 +959,7 @@ impl FrozenIndexedDataset {
             source_view: None,
             named_graphs: HashMap::new(),
             reach_cache: RefCell::new(ReachCache::default()),
+            revision: 0,
             stats,
         }
     }
@@ -974,6 +979,7 @@ impl FrozenIndexedDataset {
             source_view: None,
             named_graphs: HashMap::new(),
             reach_cache: RefCell::new(ReachCache::default()),
+            revision: 0,
             stats,
         }
     }
@@ -1217,6 +1223,12 @@ impl FrozenIndexedDataset {
         }
         self.default_graph.extend(encoded);
         *self.reach_cache.borrow_mut() = ReachCache::default();
+        if committed != 0 {
+            self.revision = self
+                .revision
+                .checked_add(1)
+                .expect("dataset revision overflowed u64");
+        }
         if let Some(started) = started {
             crate::profile::record_dataset_commit(committed, started.elapsed().as_micros() as u64);
         }
@@ -1239,6 +1251,15 @@ impl FrozenIndexedDataset {
                 .chain(source.index.rows().filter(|row| source.includes(*row))),
         );
         *self.reach_cache.borrow_mut() = ReachCache::default();
+        self.revision = self
+            .revision
+            .checked_add(1)
+            .expect("dataset revision overflowed u64");
+    }
+
+    /// Current data/view revision for cache and physical-plan identities.
+    pub(crate) fn revision(&self) -> u64 {
+        self.revision
     }
 
     /// Build with `context` in the default graph and `shapes` in the named
@@ -1264,6 +1285,7 @@ impl FrozenIndexedDataset {
             source_view: None,
             named_graphs,
             reach_cache: RefCell::new(ReachCache::default()),
+            revision: 0,
             stats,
         }
     }
@@ -1290,6 +1312,7 @@ impl FrozenIndexedDataset {
             source_view: None,
             named_graphs,
             reach_cache: RefCell::new(ReachCache::default()),
+            revision: 0,
             stats,
         }
     }
@@ -1703,7 +1726,11 @@ mod tests {
         let g = small_graph();
         let mut ds = FrozenIndexedDataset::from_graph(&g);
         let added = triple_nnn("http://ex/new", "http://ex/p", "http://ex/b");
+        assert_eq!(ds.revision(), 0);
         ds.extend_triples([&added, &added]);
+        assert_eq!(ds.revision(), 1);
+        ds.extend_triples([&added]);
+        assert_eq!(ds.revision(), 1, "a no-op batch is not a commit");
 
         let s = ds.intern(&Term::NamedNode(nn("http://ex/new")));
         let p = ds.intern(&Term::NamedNode(nn("http://ex/p")));
