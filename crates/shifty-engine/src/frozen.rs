@@ -25,7 +25,7 @@ use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 
 use crate::path_plan::ReachStep;
 use crate::profile::IndexRecord;
-use oxrdf::{Graph, NamedNode, Term};
+use oxrdf::{BlankNode, Graph, NamedNode, Term};
 use shifty_opt::{AccessCatalog, ClosureKind};
 use spareval::{InternalQuad, QueryableDataset};
 use web_time::Instant;
@@ -59,6 +59,9 @@ struct TermDictInner {
 struct TermDictionary {
     source: Option<Arc<SourceStorage>>,
     local: RefCell<TermDictInner>,
+    /// Alpha-renames data blank nodes that collide with an independently
+    /// parsed source document. Repeated occurrences keep one session-local ID.
+    local_blank_aliases: RefCell<HashMap<BlankNode, BlankNode>>,
 }
 
 /// Immutable source IDs and indexes shared by sessions of one compilation.
@@ -142,6 +145,7 @@ impl TermDictionary {
                 id_to_term: Vec::new(),
                 term_to_id: HashMap::new(),
             }),
+            local_blank_aliases: RefCell::new(HashMap::new()),
         }
     }
 
@@ -152,6 +156,7 @@ impl TermDictionary {
                 id_to_term: Vec::new(),
                 term_to_id: HashMap::new(),
             }),
+            local_blank_aliases: RefCell::new(HashMap::new()),
         }
     }
 
@@ -170,6 +175,34 @@ impl TermDictionary {
         inner.term_to_id.insert(term.clone(), id);
         inner.id_to_term.push(term);
         id
+    }
+
+    /// Intern a term originating in the separately parsed data document.
+    fn intern_data(&self, term: Term) -> TermId {
+        let Term::BlankNode(blank) = term else {
+            return self.intern(term);
+        };
+        let source_term = Term::BlankNode(blank.clone());
+        if !self
+            .source
+            .as_ref()
+            .is_some_and(|source| source.term_to_id.contains_key(&source_term))
+        {
+            return self.intern(source_term);
+        }
+        if let Some(alias) = self.local_blank_aliases.borrow().get(&blank).cloned() {
+            return self.intern(Term::BlankNode(alias));
+        }
+        let alias = loop {
+            let candidate = BlankNode::default();
+            if self.get(&Term::BlankNode(candidate.clone())).is_none() {
+                break candidate;
+            }
+        };
+        self.local_blank_aliases
+            .borrow_mut()
+            .insert(blank, alias.clone());
+        self.intern(Term::BlankNode(alias))
     }
 
     fn get(&self, term: &Term) -> Option<TermId> {
@@ -879,7 +912,7 @@ impl FrozenIndexedDataset {
         let terms = TermDictionary::from_source(Arc::clone(&source));
         let mut local = Vec::new();
         let mut overlapping = HashSet::new();
-        for row in intern_graph(data, &terms) {
+        for row in intern_data_graph(data, &terms) {
             if source.index.contains(row[0], row[1], row[2]) {
                 overlapping.insert(row);
             } else {
@@ -1325,6 +1358,18 @@ fn intern_graph(graph: &Graph, terms: &TermDictionary) -> Vec<[TermId; 3]> {
             let s = terms.intern(triple.subject.into_owned().into());
             let p = terms.intern(Term::NamedNode(triple.predicate.into_owned()));
             let o = terms.intern(triple.object.into_owned());
+            [s, p, o]
+        })
+        .collect()
+}
+
+fn intern_data_graph(graph: &Graph, terms: &TermDictionary) -> Vec<[TermId; 3]> {
+    graph
+        .iter()
+        .map(|triple| {
+            let s = terms.intern_data(triple.subject.into_owned().into());
+            let p = terms.intern(Term::NamedNode(triple.predicate.into_owned()));
+            let o = terms.intern_data(triple.object.into_owned());
             [s, p, o]
         })
         .collect()
@@ -1958,6 +2003,28 @@ mod tests {
         );
         assert_eq!(union.scan(None, None, None, GraphSel::Named(g)).count(), 2);
         assert_eq!(union.stats.triple_count, 2);
+    }
+
+    #[test]
+    fn separately_loaded_blank_node_labels_keep_distinct_identity() {
+        let shapes = shifty_parse::load_turtle(
+            br#"@prefix ex: <http://ex/> . _:same ex:p ex:value ."#,
+            None,
+        )
+        .unwrap();
+        let data = shifty_parse::load_turtle(
+            br#"@prefix ex: <http://ex/> . _:same ex:p ex:value ."#,
+            None,
+        )
+        .unwrap();
+        let source = SourceStorage::encode(&shapes.graph);
+        let dataset = FrozenIndexedDataset::from_data_with_source(&data.graph, source, true);
+        let subjects: HashSet<_> = dataset
+            .scan(None, None, None, GraphSel::Default)
+            .map(|[subject, _, _]| subject)
+            .collect();
+        assert_eq!(dataset.stats.triple_count, 2);
+        assert_eq!(subjects.len(), 2);
     }
 
     #[test]
