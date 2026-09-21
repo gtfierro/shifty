@@ -1082,7 +1082,8 @@ impl FrozenIndexedDataset {
         kind: ClosureKind,
         graph: GraphSel,
     ) -> Option<Rc<HashSet<TermId>>> {
-        self.reach_cache
+        let result = self
+            .reach_cache
             .borrow()
             .entries
             .get(&ReachCacheKey {
@@ -1091,7 +1092,9 @@ impl FrozenIndexedDataset {
                 kind,
                 graph,
             })
-            .cloned()
+            .cloned();
+        crate::profile::record_reach_cache_lookup(result.is_some());
+        result
     }
 
     pub(crate) fn cache_reach(
@@ -1107,6 +1110,7 @@ impl FrozenIndexedDataset {
         // admission-only cap avoids turning a hot closure into repeated
         // allocate-and-evict churn. A miss remains correct and index-backed.
         if cache.cached_ids.saturating_add(result.len()) > MAX_CACHED_REACH_IDS {
+            crate::profile::record_reach_cache_admission(false, result.len());
             return;
         }
         let key = ReachCacheKey {
@@ -1120,6 +1124,7 @@ impl FrozenIndexedDataset {
         }
         cache.cached_ids += result.len();
         cache.entries.insert(key, result);
+        crate::profile::record_reach_cache_admission(true, 0);
     }
 
     /// Scan triples in the selected graph matching an optional S/P/O pattern,

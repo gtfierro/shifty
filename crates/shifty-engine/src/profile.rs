@@ -115,6 +115,15 @@ pub struct ScanRecord {
     pub candidate_rows: u64,
 }
 
+/// Aggregate bounded reachability-cache telemetry for one profiling session.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ReachCacheRecord {
+    pub hits: u64,
+    pub misses: u64,
+    pub insertions: u64,
+    pub declined_ids: u64,
+}
+
 /// One evaluator's cache counters, merged into [`ShapeCacheRecord`] on drop.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) struct ShapeCacheSample {
@@ -144,6 +153,7 @@ pub struct ProfileCollector {
     storage: StorageRecord,
     indexes: Vec<IndexRecord>,
     scans: [[ScanRecord; 8]; 2],
+    reach_cache: ReachCacheRecord,
 }
 
 impl ProfileCollector {
@@ -227,6 +237,10 @@ impl ProfileCollector {
         &self.scans
     }
 
+    pub fn reach_cache(&self) -> &ReachCacheRecord {
+        &self.reach_cache
+    }
+
     pub fn print_summary(&self) {
         if self.storage.store_builds + self.storage.dataset_builds + self.storage.source_builds > 0
         {
@@ -296,6 +310,15 @@ impl ProfileCollector {
                     pattern[0], pattern[1], pattern[2], scan.calls, scan.candidate_rows,
                 );
             }
+        }
+        if self.reach_cache.hits + self.reach_cache.misses > 0 {
+            println!(
+                "profile: reach cache: {} hit(s), {} miss(es), {} insertion(s), {} declined result id(s)",
+                self.reach_cache.hits,
+                self.reach_cache.misses,
+                self.reach_cache.insertions,
+                self.reach_cache.declined_ids,
+            );
         }
         if !self.shape_records.is_empty() {
             println!(
@@ -519,6 +542,30 @@ pub(crate) fn record_scan(scope: &'static str, mask: usize, candidates: usize) {
             let scan = &mut col.scans[scope][mask];
             scan.calls += 1;
             scan.candidate_rows += candidates as u64;
+        }
+    });
+}
+
+pub(crate) fn record_reach_cache_lookup(hit: bool) {
+    PROFILER.with(|p| {
+        if let Some(col) = p.borrow_mut().as_mut() {
+            if hit {
+                col.reach_cache.hits += 1;
+            } else {
+                col.reach_cache.misses += 1;
+            }
+        }
+    });
+}
+
+pub(crate) fn record_reach_cache_admission(inserted: bool, result_ids: usize) {
+    PROFILER.with(|p| {
+        if let Some(col) = p.borrow_mut().as_mut() {
+            if inserted {
+                col.reach_cache.insertions += 1;
+            } else {
+                col.reach_cache.declined_ids += result_ids as u64;
+            }
         }
     });
 }
