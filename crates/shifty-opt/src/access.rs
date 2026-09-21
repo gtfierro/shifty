@@ -124,6 +124,10 @@ pub struct QueryAccess {
     pub default: AccessRequirement,
     pub shapes: AccessRequirement,
     pub calls: HashSet<NamedNode>,
+    /// Canonical algebra retained by compilation so sessions do not reparse
+    /// the same authored query. Invalid queries remain `None` and conservative.
+    #[serde(skip)]
+    pub parsed: Option<Query>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -459,6 +463,7 @@ fn analyze_query(text: &str) -> QueryAccess {
         default: AccessRequirement::default(),
         shapes: AccessRequirement::default(),
         calls: HashSet::new(),
+        parsed: None,
     };
     let Ok(query) = SparqlParser::new().parse_query(text) else {
         result.default.unknown();
@@ -487,6 +492,7 @@ fn analyze_query(text: &str) -> QueryAccess {
         result.default.unknown();
         result.shapes.unknown();
     }
+    result.parsed = Some(query);
     result
 }
 

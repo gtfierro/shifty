@@ -9,8 +9,12 @@ use shifty_opt::{
     normalize_with_mapping_and_analysis, plan, rule_dependencies, rule_guard_dependencies,
 };
 use shifty_parse::{Diagnostic, Loaded, ParseError, parse_loaded};
+use spargebra::Query;
+use std::collections::HashMap;
 use std::fmt;
 use std::sync::{Arc, OnceLock};
+
+pub(crate) type ParsedQueries = HashMap<String, Query>;
 
 /// A shapes document compiled once for use with many data snapshots.
 #[derive(Clone)]
@@ -29,6 +33,7 @@ pub(crate) struct CompiledShapesInner {
     pub(crate) functions: Vec<FunctionDef>,
     pub(crate) rules: Vec<CompiledRuleSchedule>,
     pub(crate) access: AccessCatalog,
+    pub(crate) parsed_queries: Arc<ParsedQueries>,
     physical: OnceLock<PhysicalPlan>,
     source_storage: OnceLock<Arc<SourceStorage>>,
 }
@@ -85,6 +90,18 @@ impl CompiledShapes {
         }
         let functions = shifty_parse::collect_functions(&source);
         let access = AccessCatalog::compile(&parsed.schema, &functions);
+        let parsed_queries = Arc::new(
+            access
+                .queries
+                .iter()
+                .filter_map(|query| {
+                    query
+                        .parsed
+                        .clone()
+                        .map(|parsed| (query.text.clone(), parsed))
+                })
+                .collect(),
+        );
         let mut rules: Vec<_> = normalized
             .schema
             .rules
@@ -111,6 +128,7 @@ impl CompiledShapes {
                 functions,
                 rules,
                 access,
+                parsed_queries,
                 physical: OnceLock::new(),
                 source_storage: OnceLock::new(),
             }),
@@ -139,6 +157,10 @@ impl CompiledShapes {
         Arc::clone(self.inner.source_storage.get_or_init(|| {
             SourceStorage::encode_with_demand(&self.inner.source.graph, &self.inner.access)
         }))
+    }
+
+    pub(crate) fn parsed_queries(&self) -> Arc<ParsedQueries> {
+        Arc::clone(&self.inner.parsed_queries)
     }
 
     /// Mapping from authored statement IDs to normalized execution IDs.
@@ -204,6 +226,26 @@ mod tests {
         let storage = crate::profile::take().unwrap().storage().clone();
         assert_eq!(storage.source_builds, 1);
         assert_eq!(storage.source_rows, 1);
+    }
+
+    #[test]
+    fn canonical_query_templates_are_parsed_once_and_shared() {
+        let source = shifty_parse::load_turtle(
+            br#"
+            @prefix sh: <http://www.w3.org/ns/shacl#> .
+            @prefix ex: <http://ex/> .
+            ex:S a sh:NodeShape ; sh:targetNode ex:a ;
+                sh:sparql [ sh:select "SELECT $this WHERE { $this ex:p ?o }" ] .
+            "#,
+            None,
+        )
+        .unwrap();
+        let compiled = CompiledShapes::compile(source).unwrap();
+        assert_eq!(compiled.inner.parsed_queries.len(), 1);
+        assert!(Arc::ptr_eq(
+            &compiled.parsed_queries(),
+            &compiled.clone().parsed_queries()
+        ));
     }
 
     #[test]

@@ -27,6 +27,7 @@
 //! still tested against the current read view before commit, and no triple leaves
 //! a pass until its whole order group has finished reading its snapshot.
 
+use crate::compiled::ParsedQueries;
 use crate::focus::{FocusNodes, FocusScope, IndexedFocus};
 use crate::frozen::{FrozenIndexedDataset, SourceStorage};
 use crate::path::{node_of, succ};
@@ -149,7 +150,7 @@ pub(crate) fn infer_with_compiled_functions(
     options: &EngineOptions,
     functions: &[FunctionDef],
     schedule: Option<&[crate::compiled::CompiledRuleSchedule]>,
-    source: Option<(Arc<SourceStorage>, bool)>,
+    source: Option<(Arc<SourceStorage>, bool, Arc<ParsedQueries>)>,
 ) -> Result<InferenceRun, NonStratifiable> {
     // `CompiledShapes::compile` already admits and checks the normalized
     // arena. Legacy callers still need the analysis here; compiled sessions
@@ -182,7 +183,7 @@ pub(crate) fn infer_with_compiled_functions(
     let mut graph = source.is_none().then(|| data.clone());
     let mut context = context;
     let dataset = match &source {
-        Some((source, separate)) => {
+        Some((source, separate, _)) => {
             if *separate {
                 FrozenIndexedDataset::from_data_with_source(data, Arc::clone(source), true)
             } else {
@@ -191,7 +192,11 @@ pub(crate) fn infer_with_compiled_functions(
         }
         None => FrozenIndexedDataset::from_graph(context.as_ref().expect("legacy context")),
     };
-    let mut sparql = SparqlExecutor::from_frozen(dataset, source.is_some());
+    let mut sparql = SparqlExecutor::from_frozen_with_parsed(
+        dataset,
+        source.is_some(),
+        source.as_ref().map(|(_, _, parsed)| Arc::clone(parsed)),
+    );
     // Register sh:SPARQLFunctions so CONSTRUCT rule bodies can call them (node
     // expressions use the graph-aware call_sparql_function path separately).
     sparql.set_functions(functions.to_vec(), options.unsupported);
@@ -279,7 +284,7 @@ pub(crate) fn infer_with_compiled_functions(
                 } else {
                     context_graph.expect("legacy inference context graph")
                 };
-                let indexed_focus = source.as_ref().map(|(_, separate)| {
+                let indexed_focus = source.as_ref().map(|(_, separate, _)| {
                     IndexedFocus::new(
                         sparql.frozen().expect("compiled inference dataset"),
                         if *separate {

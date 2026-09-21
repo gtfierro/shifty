@@ -325,7 +325,11 @@ impl PreparedEvidenceValidator {
         focus_scope: FocusScope,
         compatibility_union: bool,
     ) -> Self {
-        let mut sparql = SparqlExecutor::from_frozen(frozen, has_shapes_graph);
+        let mut sparql = SparqlExecutor::from_frozen_with_parsed(
+            frozen,
+            has_shapes_graph,
+            Some(compiled.parsed_queries()),
+        );
         sparql.set_functions(compiled.inner.functions.clone(), policy);
         Self {
             data,

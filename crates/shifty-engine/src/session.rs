@@ -189,7 +189,7 @@ impl CompiledShapes {
                 &options.engine,
                 &self.inner.functions,
                 Some(&self.inner.rules),
-                Some((self.source_storage(), separate)),
+                Some((self.source_storage(), separate, self.parsed_queries())),
             )
             .map_err(SessionError::Inference)?;
             let diagnostics: Vec<_> = run

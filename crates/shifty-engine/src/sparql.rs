@@ -16,6 +16,7 @@
 //! the fast path a replaceable implementation detail rather than a separate
 //! dialect of SPARQL.
 
+use crate::compiled::ParsedQueries;
 use crate::frozen::{FrozenIndexedDataset, TermId};
 use crate::native_exec;
 use crate::profile;
@@ -37,6 +38,7 @@ use spargebra::{Query, SparqlParser};
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
+use std::sync::Arc;
 
 /// The named graph the shapes graph is loaded under so `GRAPH $shapesGraph {…}`
 /// can be evaluated; `$shapesGraph` is pre-bound to this IRI.
@@ -49,6 +51,7 @@ pub(crate) struct SparqlExecutor {
     frozen: Option<FrozenIndexedDataset>,
     prepared: RefCell<HashMap<String, PreparedSparqlQuery>>,
     parsed: RefCell<HashMap<String, Query>>,
+    shared_parsed: Option<Arc<ParsedQueries>>,
     /// Per-constraint compilation cache (doc §72): static SHACL substitutions
     /// applied once, then either a native plan or a fallback query. Keyed by the
     /// constraint's query plus its static bindings (path / shape).
@@ -213,6 +216,7 @@ impl SparqlExecutor {
             frozen: None,
             prepared: RefCell::new(HashMap::new()),
             parsed: RefCell::new(HashMap::new()),
+            shared_parsed: None,
             compiled: RefCell::new(HashMap::new()),
             constructs: RefCell::new(HashMap::new()),
             batch_construct: RefCell::new(HashSet::new()),
@@ -223,11 +227,20 @@ impl SparqlExecutor {
     }
 
     pub fn from_frozen(frozen: FrozenIndexedDataset, has_shapes_graph: bool) -> Self {
+        Self::from_frozen_with_parsed(frozen, has_shapes_graph, None)
+    }
+
+    pub(crate) fn from_frozen_with_parsed(
+        frozen: FrozenIndexedDataset,
+        has_shapes_graph: bool,
+        shared_parsed: Option<Arc<ParsedQueries>>,
+    ) -> Self {
         Self {
             store: None,
             frozen: Some(frozen),
             prepared: RefCell::new(HashMap::new()),
             parsed: RefCell::new(HashMap::new()),
+            shared_parsed,
             compiled: RefCell::new(HashMap::new()),
             constructs: RefCell::new(HashMap::new()),
             batch_construct: RefCell::new(HashSet::new()),
@@ -985,7 +998,7 @@ impl SparqlExecutor {
         if let Some(prepared) = self.prepared.borrow().get(query) {
             return Ok(prepared.clone());
         }
-        let prepared = self.evaluator().parse_query(query).map_err(err)?;
+        let prepared = self.evaluator().for_query(self.parse(query)?);
         self.prepared
             .borrow_mut()
             .insert(query.to_string(), prepared.clone());
@@ -997,6 +1010,13 @@ impl SparqlExecutor {
     /// variables into it without affecting the cache.
     fn parse(&self, query: &str) -> Result<Query, String> {
         if let Some(parsed) = self.parsed.borrow().get(query) {
+            return Ok(parsed.clone());
+        }
+        if let Some(parsed) = self
+            .shared_parsed
+            .as_ref()
+            .and_then(|queries| queries.get(query))
+        {
             return Ok(parsed.clone());
         }
         let parsed = SparqlParser::new().parse_query(query).map_err(err)?;
@@ -2141,6 +2161,20 @@ mod storage_tests {
         let executor =
             SparqlExecutor::from_frozen(FrozenIndexedDataset::from_graph(&Graph::new()), false);
         assert!(!executor.has_store());
+    }
+
+    #[test]
+    fn executor_uses_shared_canonical_query_before_local_parse_cache() {
+        let query = "SELECT * WHERE { ?s <http://ex/p> ?o }";
+        let parsed = SparqlParser::new().parse_query(query).unwrap();
+        let shared = Arc::new(HashMap::from([(query.to_owned(), parsed)]));
+        let executor = SparqlExecutor::from_frozen_with_parsed(
+            FrozenIndexedDataset::from_graph(&Graph::new()),
+            false,
+            Some(shared),
+        );
+        let _prepared = executor.prepared(query).unwrap();
+        assert!(executor.parsed.borrow().is_empty());
     }
 
     #[test]
