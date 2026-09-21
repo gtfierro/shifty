@@ -89,7 +89,11 @@ impl CompiledShapes {
             raw_by_normalized[normalized_id].push(authored);
         }
         let functions = shifty_parse::collect_functions(&source);
+        let access_started = crate::profile::is_enabled().then(web_time::Instant::now);
         let access = AccessCatalog::compile(&parsed.schema, &functions);
+        if let Some(access_started) = access_started {
+            crate::profile::record_access_catalog_time(access_started.elapsed().as_micros() as u64);
+        }
         let parsed_queries = Arc::new(
             access
                 .queries

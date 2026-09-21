@@ -66,6 +66,8 @@ pub struct ShapeCacheRecord {
 /// evidence; wall-clock costs are reported separately.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct StorageRecord {
+    /// Time spent compiling data-independent read/write demand.
+    pub access_catalog_us: u64,
     pub store_builds: u64,
     pub graph_union_builds: u64,
     pub graph_union_rows: u64,
@@ -241,7 +243,8 @@ impl ProfileCollector {
                 self.storage.index_declines,
             );
             println!(
-                "profile: storage time: {} µs shared source encode, {} µs session encode, {} µs across {} commit batch(es)",
+                "profile: storage time: {} µs access catalog, {} µs shared source encode, {} µs session encode, {} µs across {} commit batch(es)",
+                self.storage.access_catalog_us,
                 self.storage.source_encode_us,
                 self.storage.session_encode_us,
                 self.storage.commit_us,
@@ -435,6 +438,14 @@ pub(crate) fn record_source_encode_time(us: u64) {
     PROFILER.with(|p| {
         if let Some(col) = p.borrow_mut().as_mut() {
             col.storage.source_encode_us += us;
+        }
+    });
+}
+
+pub(crate) fn record_access_catalog_time(us: u64) {
+    PROFILER.with(|p| {
+        if let Some(col) = p.borrow_mut().as_mut() {
+            col.storage.access_catalog_us = col.storage.access_catalog_us.saturating_add(us);
         }
     });
 }

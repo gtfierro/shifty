@@ -309,7 +309,8 @@ session construction (including inference), and output formatting;
 line counts Store and encoded-dataset
 builds, source and local rows, committed inference rows, optional index bytes,
 and index builds declined by the budget. A second line attributes source and
-session encoding time plus inference commit batches and their total time. The
+access-catalog compilation time, source and session encoding time, plus
+inference commit batches and their total time. The
 primary-pair-buffer line reports allocated PSO pair capacities separately for
 shared source and session partitions; it excludes dictionary strings and map
 nodes. The graph-materialization line counts full union ``Graph`` copies and lazy
