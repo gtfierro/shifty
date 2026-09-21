@@ -147,6 +147,9 @@ def test_prepared_default_wrappers_do_not_read_delta(method):
         conforms = True
         report_turtle = ""
         results_text = ""
+        # Every real result type carries this; the W3C wrappers read it to
+        # warn, which is not reading the inference delta.
+        diagnostics = ()
 
         @property
         def _inferred_ntriples(self):

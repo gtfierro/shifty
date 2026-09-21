@@ -71,7 +71,21 @@ version = release
 extensions = [
     "sphinx.ext.intersphinx",
     "sphinxcontrib.programoutput",
+    # changelog.rst renders the root CHANGELOG.md in place, so the release
+    # history is searchable here rather than only on GitHub.
+    "myst_parser",
 ]
+
+# Sphinx would otherwise treat every .md file it finds as a MyST source. The
+# only Markdown this project renders is the changelog, and it is included
+# explicitly, so leave .md out of the source suffixes.
+source_suffix = {".rst": "restructuredtext"}
+
+# changelog.rst supplies its own page title and includes CHANGELOG.md from its
+# second line, so the Markdown's own `# Changelog` heading is skipped rather
+# than rendered as a second H1. MyST then sees a fragment whose headings start
+# at H2 and says so, once per release section.
+suppress_warnings = ["myst.header"]
 
 # Executable documentation examples use the debug CLI built from this checkout.
 # The Pages workflow builds it before invoking Sphinx. This also makes a local

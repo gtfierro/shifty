@@ -1267,9 +1267,7 @@ pub fn _validate_algebra(
                 inference.run,
                 options.engine,
             )?;
-            let outcome = session
-                .validate(&finding_options(&options))
-                .map_err(|error| error.to_string())?;
+            let outcome = session.validate(&finding_options(&options));
             Ok(raw_algebra_result(
                 outcome,
                 compiled.normalized_schema(),
@@ -1349,9 +1347,7 @@ pub fn _validate_w3c(
             inference.run,
             options.engine,
         )?;
-        let report = session
-            .report(&finding_options(&options))
-            .map_err(|error| error.to_string())?;
+        let report = session.report(&finding_options(&options));
         let report_graph = report_to_graph(&report);
         Ok(build_w3c_result(
             &report,
@@ -1537,9 +1533,7 @@ impl PreparedValidator {
                         },
                     )
                     .map_err(|error| error.to_string())?;
-                let outcome = session
-                    .validate(&finding_options(&options))
-                    .map_err(|error| error.to_string())?;
+                let outcome = session.validate(&finding_options(&options));
                 Ok(raw_algebra_result(
                     outcome,
                     self.compiled.normalized_schema(),
@@ -1604,9 +1598,7 @@ impl PreparedValidator {
                     },
                 )
                 .map_err(|error| error.to_string())?;
-            let report = session
-                .report(&finding_options(&options))
-                .map_err(|error| error.to_string())?;
+            let report = session.report(&finding_options(&options));
             let report_graph = report_to_graph(&report);
             Ok(build_w3c_result(
                 &report,
@@ -1671,9 +1663,7 @@ impl PreparedValidator {
                         },
                     )
                     .map_err(|error| error.to_string())?;
-                session
-                    .property_witnesses(key_path.as_ref(), &FindingOptions::default())
-                    .map_err(|error| error.to_string())
+                Ok(session.property_witnesses(key_path.as_ref(), &FindingOptions::default()))
             })
             .map_err(py_value_error)?;
         Ok(witnesses.into_iter().map(property_witness_to_py).collect())

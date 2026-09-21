@@ -2538,11 +2538,7 @@ impl EvidenceSession {
         entry_shape_names: Option<Vec<String>>,
     ) -> PyResult<PyConformanceRun> {
         let options = conformance_options(entry_shape_names);
-        Ok(conformance_to_py(
-            self.session
-                .conformance(&options)
-                .map_err(|error| py_value_error(error.to_string()))?,
-        ))
+        Ok(conformance_to_py(self.session.conformance(&options)))
     }
 
     /// The same pass as `validate_conformance`, also returning a handle for each
@@ -2558,10 +2554,7 @@ impl EvidenceSession {
         entry_shape_names: Option<Vec<String>>,
     ) -> PyResult<(PyConformanceRun, Vec<Py<PySelectedPair>>)> {
         let options = conformance_options(entry_shape_names);
-        let (run, failures) = self
-            .session
-            .find_failures(&options)
-            .map_err(|error| py_value_error(error.to_string()))?;
+        let (run, failures) = self.session.find_failures(&options);
         let pairs = failures
             .into_iter()
             .map(|pair| Py::new(py, PySelectedPair { inner: pair }))

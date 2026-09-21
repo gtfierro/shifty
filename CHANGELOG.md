@@ -1,6 +1,13 @@
 # Changelog
 
-## Unreleased
+## 0.5.0-alpha.2
+
+Second alpha for 0.5.0.
+To try the Python package, run `pip install pyshifty==0.5.0a2`.
+The three validation interfaces — W3C, algebra, and evidence — now share one
+compilation boundary, so a schema they previously disagreed about is admitted
+or rejected the same way by all of them. Two of those agreements are reached by
+*rejecting* input that used to produce an answer; see **Changed** below.
 
 ### Added
 
@@ -23,6 +30,29 @@
   predicate never occurs in the data — was indistinguishable from a document
   that had not been read. The format reported is the one that succeeded, not the
   one the extension suggests: a literate-Turtle `.md` document reports `turtle`.
+- Added `shifty inspect --stage access`, which prints the data-independent read
+  demand a shapes document places on a graph: per consumer (statement, rule, or
+  function) the predicates and probe directions it reads from the default and
+  shapes graphs, the query and path identities it shares, and what it writes.
+  This is what index selection is now driven from, so it is also how to see why
+  a given index was or was not built. `--format json` is supported;
+  `--format dot` is not.
+- Added inference diagnostics to every validation result, not just `infer()`.
+  Python `AlgebraResult.diagnostics` and `W3cResult.diagnostics`, Wasm
+  `validate()` and `validateW3c()`, the C ABI's
+  `shifty_validation_result_diagnostics_json`, and C++
+  `ValidationResult::diagnostics_json()` all report the unsupported-feature and
+  rule-execution diagnostics raised while validating. A run whose rules silently
+  did nothing previously looked identical to one whose rules had nothing to do,
+  unless the caller made a separate `infer()` call to find out.
+- Added `shifty.ShaclDiagnosticWarning`. Python's `validate()` and
+  `PreparedValidator.validate()` return pyshacl's
+  `(conforms, report_graph, results_text)` tuple, which has nowhere to put a
+  diagnostic, so they now warn once per diagnostic instead of dropping it — a
+  skipped rule no longer reads as a clean `conforms=True`. Silence it with
+  `warnings.filterwarnings("ignore", category=shifty.ShaclDiagnosticWarning)`,
+  or use `validate_algebra()`, whose `.diagnostics` is a plain list. The tuple
+  is unchanged.
 
 ### Changed
 
@@ -39,6 +69,39 @@
   types no longer carry an automatic `FromPyObject`: pyo3 is making it opt-in,
   nothing in the crate extracted these types from Python, and they are values
   the bindings hand out rather than accept.
+- The W3C report path now applies the same schema admission rule as algebraic
+  validation and evidence. A schema with recursion through negation is rejected
+  by all three; previously `validate()` returned a conformance verdict for a
+  schema the other two interfaces refused as non-stratifiable, which is the more
+  dangerous of the two answers because nothing said the result was unsound.
+- SHACL functions are now compiled once alongside the schema and registered with
+  every executor. A constraint calling a `sh:SPARQLFunction` previously passed
+  through W3C validation and failed through algebra and evidence, where the
+  reason given was that the function was unsupported.
+- `on_unsupported` now reaches the inference that runs automatically before
+  validation. `validate(..., on_unsupported="error")` and its variants
+  previously ran that inference under the default lenient policy, so a rule
+  calling an unsupported function could derive and write triples in a call that
+  had asked to fail instead. Strict callers that relied on the lenient behavior
+  will now see `ValueError: strict inference failed: …`.
+- Validation and inference now share one indexed dataset across a compiled
+  shapes document and select secondary indexes from compiled access demand and
+  observed probes, under a byte budget, instead of building a fixed set. Every
+  triple stays in a complete predicate-partitioned primary index and a declined
+  index falls back to a correct scan, so this changes cost rather than answers.
+  Against 0.4.4 on the recorded suites, Brick end-to-end geomean went from
+  3311.6 ms to 2232.5 ms over 45 models and s223 from 2308.9 ms to 1383.6 ms
+  over 19; `benchmark/shared-dataset-results.md` has the measurements and their
+  limits.
+- Bumped `SHIFTY_ABI_VERSION` to 6. The C ABI gained
+  `shifty_validation_result_diagnostics_json` without a bump, and the C++
+  header compares the header's constant against the library's
+  `shifty_abi_version()` for exact equality — so a 0.5 header against a 0.4.4
+  library reported a match and then failed to link, with nothing saying why.
+  Both definitions now carry a comment pointing at the other.
+- Published crates now carry the workspace README. `readme` was declared in
+  `[workspace.package]` but no member inherited it, so every crates.io page was
+  blank.
 
 ### Fixed
 

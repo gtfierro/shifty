@@ -6,6 +6,7 @@ license.workspace = true
 edition.workspace = true
 description = "CLI for the formalism-first SHACL engine: inspect, validate, infer"
 repository.workspace = true
+readme.workspace = true
 
 [[bin]]
 name = "shifty"

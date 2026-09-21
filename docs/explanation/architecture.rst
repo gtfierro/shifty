@@ -170,10 +170,22 @@ you. The shape enum has around fifteen variants and is already in
 negation-normal form, so each of these folds is a manageable match rather than a
 sprawl.
 
-This is why the interfaces cannot disagree about whether a graph conforms.
-Evidence uses the validation evaluator as its oracle; the repair gate is the
-validator run again over a proposed edit. There is no second implementation of
-SHACL to drift.
+This is why the algebraic interfaces cannot disagree about whether a graph
+conforms. Evidence uses the validation evaluator as its oracle; the repair gate
+is the validator run again over a proposed edit. They are the same fold.
+
+The W3C report path is the exception, and worth being precise about. It
+projects results in terms of the authored SHACL components — which constraint
+component fired, on which shape node — so it still interprets the source RDF
+rather than reading judgments off the algebra. It is a second traversal, and it
+is the one place where a change to a constraint's behavior has to be made
+twice. What it no longer decides for itself is the setup around that traversal:
+since 0.5 every interface compiles its shapes through ``CompiledShapes``, so
+schema admission, the data/shapes/``$shapesGraph`` roles, and the SHACL function
+registry are decided once and shared. Those were the three things the
+interfaces used to disagree about, and each disagreement now has a regression
+test. Unifying the remaining semantic branches is staged work, not a claim this
+page should make in advance.
 
 It also explains the shape of the limitations. Repair is undefined for
 ``sh:sparql`` not because nobody has written that case yet, but because an

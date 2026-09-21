@@ -62,6 +62,7 @@ type or the final URL suffix; Turtle is the fallback.
        graph_mode="union",
        shape_names=None,
        infer=True,
+       in_place=False,
        minimum_severity="info",
        sort_results=True,
        on_unsupported="ignore",
@@ -204,11 +205,19 @@ program — rather than a person or another SHACL tool — is the consumer.
      - This reason's effective SHACL severity.
    * - ``constraint``
      - The ``Constraint`` for the algebra node that produced this cause, with
-       ``id``, ``kind``, ``render``, ``definition``, and ``json``.
+       ``id``, ``kind``, ``render``, ``definition``, ``definition_pretty``, and
+       ``json``. ``definition_pretty`` is the same text broken and indented by
+       nesting depth, and is byte-identical to ``definition`` when the one-line
+       form already fits, so it can be used unconditionally.
    * - ``constraint_id``
      - The specific **nested** algebra node responsible. Differs from
        ``Violation.constraint_id`` whenever the shape is a conjunction,
        disjunction, or other composite — which is nearly always.
+   * - ``observed_count``
+     - For a cardinality failure, how many values along the path satisfied the
+       qualifier; ``None`` for every other kind. The bound is already in
+       ``constraint``, so this is the one number needed to state a shortfall
+       without parsing ``message``.
    * - ``statement_id``
      - The statement this reason belongs to.
    * - ``sparql_diagnostic``
@@ -236,7 +245,7 @@ distinguish them.
 .. code-block:: python
 
    shifty.infer(data_graph, shapes_graph=None, *,
-                on_unsupported="ignore", base=None) -> InferResult
+                in_place=False, on_unsupported="ignore", base=None) -> InferResult
 
 Runs SHACL-AF ``sh:rule`` entries to a fixed point. Note it takes no
 ``graph_mode``.
@@ -247,8 +256,21 @@ Runs SHACL-AF ``sh:rule`` entries to a fixed point. Note it takes no
 
    result.inferred_count      # number of newly derived triples
    result.diagnostics         # non-fatal lowering warnings / unsupported features
+   result.inferred_ntriples   # just the derived delta, as N-Triples text
    result.graph_ntriples      # original + inferred, as N-Triples text
    result.graph()             # the same, as an rdflib.Graph
+
+``in_place``
+~~~~~~~~~~~~
+
+``infer()``, ``validate()``, ``validate_algebra()``, and the two
+``PreparedValidator`` methods accept ``in_place=True``, which writes the triples
+SHACL-AF inference derived straight into a caller-owned ``rdflib.Graph`` passed
+as the data graph, rather than returning a separate copy. Only the derived delta
+crosses back from Rust, and a triple derived about a blank node lands on the
+blank node the caller's graph already holds. It requires an ``rdflib.Graph``
+input and is off by default, so existing calls are unaffected. See
+:doc:`../how-to/infer` and :doc:`../how-to/validate`.
 
 ``PreparedValidator``
 ---------------------
@@ -350,9 +372,28 @@ partial bindings for non-conforming nodes, see :doc:`shape-maps`.
 Diagnostics
 -----------
 
-``PreparedValidator``, ``EvidenceSession``, ``RepairSession``, and
-``InferResult`` all expose ``.diagnostics`` for **non-fatal** lowering warnings
-and unsupported features. Invalid shapes diagnostics — for example, a malformed
-SPARQL query or an unresolved query prefix — raise ``ValueError`` while the
-operation is prepared. They never leave an API call running with that
-constraint or rule omitted.
+``PreparedValidator``, ``EvidenceSession``, ``RepairSession``,
+``InferResult``, and — since 0.5 — the ``AlgebraResult`` returned by
+``validate_algebra()`` all expose ``.diagnostics`` for **non-fatal** lowering
+warnings and unsupported features.
+
+``validate()`` and ``PreparedValidator.validate()`` return the
+pyshacl-compatible ``(conforms, report_graph, results_text)`` tuple, which has
+nowhere to put a diagnostic. They instead emit one
+``shifty.ShaclDiagnosticWarning`` per diagnostic, so a rule that could not run
+does not read as a clean pass:
+
+.. code-block:: python
+
+   import warnings
+
+   with warnings.catch_warnings(record=True) as raised:
+       warnings.simplefilter("always")
+       conforms, report, text = shifty.validate(data, shapes)
+
+   # Or silence them:
+   warnings.filterwarnings("ignore", category=shifty.ShaclDiagnosticWarning)
+
+Invalid shapes diagnostics are different: a malformed SPARQL query or an
+unresolved query prefix raises ``ValueError`` while the operation is prepared.
+They never leave an API call running with that constraint or rule omitted.

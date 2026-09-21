@@ -45,8 +45,8 @@ The structured Python interface returns the same validation decision:
 .. program-output:: python validate.py
    :cwd: examples/quick-start
 
-The `playground <https://shifty.gtf.fyi/playground/>`_ runs the WebAssembly
-build locally in the browser, so graphs entered there do not leave the machine.
+The :doc:`playground <playground>` runs the WebAssembly build locally in the
+browser, so graphs entered there do not leave the machine.
 
 Validation interfaces
 ---------------------
@@ -96,7 +96,7 @@ Interface support
      - Link the C++17 static library and use its prepared-validator API.
    * - `Rust <https://docs.rs/shifty-engine>`_
      - Use the engine crates directly; API details live on docs.rs.
-   * - :doc:`Browser / WebAssembly <how-to/browser>`
+   * - :doc:`Browser / WebAssembly <playground>`
      - Run Shifty locally in the browser.
 
 Common tasks
@@ -149,9 +149,12 @@ conventions and preview workflow. Documentation issues can be filed on
    :maxdepth: 2
    :hidden:
 
+   install
    tutorials/index
    how-to/index
    reference/index
    explanation/index
+   playground
+   changelog
    contributing
    Rust API (docs.rs) <https://docs.rs/shifty-engine>

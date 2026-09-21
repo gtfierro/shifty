@@ -378,6 +378,75 @@ impl fmt::Display for NonStratifiable {
 
 impl std::error::Error for NonStratifiable {}
 
+impl NonStratifiable {
+    /// The same message, naming shapes as the document named them.
+    ///
+    /// [`Display`](fmt::Display) has only arena slot ids to work with, so it
+    /// prints `{@0 @1}` — meaningless outside a debugging dump, and the reader
+    /// has no way to map it back to the shape they wrote. Given the schema the
+    /// analysis ran over, a slot can be named: its authored IRI compacted
+    /// against the document's own prefixes, else the blank node it was lowered
+    /// from, else the slot id as a last resort for a shape lowering synthesized.
+    pub fn describe(&self, schema: &Schema) -> String {
+        let mut out = String::from("non-stratifiable schema (recursion through negation): ");
+        for (i, component) in self.components.iter().enumerate() {
+            if i > 0 {
+                out.push_str("; ");
+            }
+            out.push('{');
+            for (j, id) in component.iter().enumerate() {
+                if j > 0 {
+                    // Comma, not space: a synthesized slot's label is several
+                    // words, so space-separated members run together.
+                    out.push_str(", ");
+                }
+                out.push_str(&describe_shape_id(schema, *id));
+            }
+            out.push('}');
+        }
+        out
+    }
+}
+
+fn describe_shape_id(schema: &Schema, id: ShapeId) -> String {
+    if let Some(name) = schema.name_of(id) {
+        return schema.prefixes.compact(name);
+    }
+    match schema.sources.get(&id) {
+        Some(Term::BlankNode(node)) => format!("_:{}", node.as_str()),
+        Some(Term::NamedNode(node)) => schema.prefixes.compact(node.as_str()),
+        // A slot lowering synthesized, with no node of its own in the document.
+        // Its operator is the only thing about it the reader can recognize, and
+        // it is what makes the cycle: `ex:S` through `negation` back to `ex:S`
+        // says where the negation is. The id stays as a suffix so a debugging
+        // dump still lines up with the arena.
+        _ => format!("{} @{}", constraint_kind_label(schema, id), id.0),
+    }
+}
+
+fn constraint_kind_label(schema: &Schema, id: ShapeId) -> &'static str {
+    match ConstraintKind::of(&schema.arena, id) {
+        ConstraintKind::Top => "top",
+        ConstraintKind::Constant => "constant",
+        ConstraintKind::ClassMembership => "class",
+        ConstraintKind::ValueType => "value type",
+        ConstraintKind::NodeKind => "node kind",
+        ConstraintKind::Closed => "closed",
+        ConstraintKind::Equals => "equals",
+        ConstraintKind::Disjoint => "disjoint",
+        ConstraintKind::LessThan => "less than",
+        ConstraintKind::LessThanOrEquals => "less than or equals",
+        ConstraintKind::UniqueLang => "unique lang",
+        ConstraintKind::Negation => "negation",
+        ConstraintKind::Conjunction => "conjunction",
+        ConstraintKind::Disjunction => "disjunction",
+        ConstraintKind::Cardinality => "cardinality",
+        ConstraintKind::Sparql => "sparql",
+        ConstraintKind::Expression => "expression",
+        ConstraintKind::Unknown => "shape",
+    }
+}
+
 /// Validate `data` against `schema`.
 ///
 /// Honors the decided recursion semantics (`docs/03-recursion-semantics.md`):

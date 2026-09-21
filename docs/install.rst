@@ -55,10 +55,11 @@ Check what you have with ``shifty version``.
 Browser / WebAssembly
 ---------------------
 
-The hosted `playground <https://shifty.gtf.fyi/playground/>`_ needs no
-installation at all — see :doc:`browser`.
+The hosted playground needs no installation at all — see
+:doc:`playground`.
 
-To build the module yourself, for embedding in your own page:
+To build the module yourself, for embedding in your own page — see
+:doc:`how-to/browser` for the JavaScript API:
 
 .. code-block:: bash
 
@@ -75,7 +76,7 @@ C++
 
 A C++17 static library lives in ``cpp/``, built with CMake, exposing the full
 SDK — dataset and SPARQL, validation, evidence-carrying validation, and the
-shape-map vocabulary. See :doc:`../reference/cpp` for the API and
+shape-map vocabulary. See :doc:`reference/cpp` for the API and
 ``cpp/README.md`` for build instructions.
 
 Rust

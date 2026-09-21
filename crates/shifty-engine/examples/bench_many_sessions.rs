@@ -51,7 +51,7 @@ fn main() {
         let session = compiled
             .session(SessionData::Separate(data.clone()), options)
             .expect("session");
-        black_box(session.validate(&findings).expect("validation"));
+        black_box(session.validate(&findings));
         sessions.push(session);
         if index == 0 {
             first_rss_kib = rss_kib();

@@ -1146,7 +1146,7 @@ fn validate(args: ValidateArgs) -> Result<(), Box<dyn Error>> {
     // W3C report mode: component-granular validator + RDF report output.
     if args.report {
         let stage_start = Instant::now();
-        let report = session.report(&finding_options)?;
+        let report = session.report(&finding_options);
         profile_stage(
             &mut input_lines,
             args.profile,
@@ -1171,7 +1171,7 @@ fn validate(args: ValidateArgs) -> Result<(), Box<dyn Error>> {
 
     let physical = compiled.physical_plan();
     let stage_start = Instant::now();
-    let mut outcome = session.validate(&finding_options)?;
+    let mut outcome = session.validate(&finding_options);
     profile_stage(
         &mut input_lines,
         args.profile,

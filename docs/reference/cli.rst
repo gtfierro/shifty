@@ -9,7 +9,7 @@ CLI reference
    * - Stability
      - Stable
    * - Related
-     - :doc:`../how-to/install`, :doc:`../how-to/validate`,
+     - :doc:`../install`, :doc:`../how-to/validate`,
        :doc:`feature-support`
 
 .. code-block:: text

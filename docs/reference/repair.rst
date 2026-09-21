@@ -56,6 +56,10 @@ default. ``data_graph=None`` means the shapes graph embeds the data.
    * - ``describe_shape(shape_id)``
      - A fully expanded, human-readable definition of that shape, every child
        inlined and no ``@id`` indirection.
+   * - ``describe_shape_pretty(shape_id, width=100)``
+     - The same definition broken and indented by nesting depth once it exceeds
+       ``width``. Returns the one-line form byte-identical when it already fits,
+       so it is safe to call unconditionally.
    * - ``diagnostics``
      - Non-fatal lowering warnings and unsupported features. Invalid shapes
        diagnostics raise while constructing the session.

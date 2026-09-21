@@ -48,14 +48,29 @@ pub(crate) struct CompiledRuleSchedule {
 #[derive(Debug)]
 pub enum CompileError {
     Invalid(ParseError),
-    NonStratifiable(NonStratifiable),
+    /// The offending cycle, plus the message naming its shapes as the document
+    /// named them. The error outlives the schema it was derived from, and
+    /// [`NonStratifiable`]'s own `Display` can only print arena slot ids, so
+    /// the readable form is rendered at the point where the schema is still in
+    /// hand.
+    NonStratifiable(NonStratifiable, String),
+}
+
+impl CompileError {
+    /// The cycle itself, for a caller that wants the shape ids rather than prose.
+    pub fn non_stratifiable(&self) -> Option<&NonStratifiable> {
+        match self {
+            Self::NonStratifiable(error, _) => Some(error),
+            Self::Invalid(_) => None,
+        }
+    }
 }
 
 impl fmt::Display for CompileError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Invalid(error) => write!(f, "{error}"),
-            Self::NonStratifiable(error) => write!(f, "{error}"),
+            Self::NonStratifiable(_, described) => write!(f, "{described}"),
         }
     }
 }
@@ -67,14 +82,16 @@ fn check_strata(schema: &Schema) -> Result<Stratification, CompileError> {
     if analysis.stratifiable {
         return Ok(analysis);
     }
-    Err(CompileError::NonStratifiable(NonStratifiable {
+    let error = NonStratifiable {
         components: analysis
             .strata
             .into_iter()
             .filter(|stratum| !stratum.stratifiable)
             .map(|stratum| stratum.shapes)
             .collect(),
-    }))
+    };
+    let described = error.describe(schema);
+    Err(CompileError::NonStratifiable(error, described))
 }
 
 impl CompiledShapes {
@@ -290,7 +307,7 @@ mod tests {
         );
         assert!(compiled.inner.physical.get().is_none());
         assert!(!session.has_prepared_dataset());
-        session.validate(&FindingOptions::default()).unwrap();
+        session.validate(&FindingOptions::default());
         assert!(compiled.inner.source_storage.get().is_some());
         assert!(compiled.inner.physical.get().is_some());
         assert!(session.has_prepared_dataset());
@@ -303,7 +320,7 @@ mod tests {
         let second = clone
             .session(SessionData::Embedded, SessionOptions::default())
             .unwrap();
-        second.validate(&FindingOptions::default()).unwrap();
+        second.validate(&FindingOptions::default());
         let storage = crate::profile::take().unwrap().storage().clone();
         assert_eq!(
             storage.source_builds, 0,

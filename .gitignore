@@ -36,6 +36,12 @@ shapes.ir
 /benchmark/*.csv
 /benchmark/*.html
 /benchmark/phase1-results-summary.md
+# bench_evidence.sh writes here by default (docs/explanation/performance.rst).
+/results.csv
+/results-machine.txt
+# Task prompts and handoff notes kept beside the checkout, not in it.
+/prompt.txt
+/HANDOFF.md
 /MEMOIZATION_BENCHMARK_RESULTS.md
 /integration/artifacts/
 /report.json

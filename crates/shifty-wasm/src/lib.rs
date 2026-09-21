@@ -190,9 +190,7 @@ pub fn validate(
     let mode = opts.graph_mode()?;
 
     let (compiled, session) = make_session(shapes_ttl, data_text(&data_ttl), mode, opts.infer)?;
-    let outcome = session
-        .validate(&finding_options(&vopts))
-        .map_err(|error| JsError::new(&error.to_string()))?;
+    let outcome = session.validate(&finding_options(&vopts));
     let schema = compiled.normalized_schema();
 
     let result = AlgebraResult {
@@ -226,9 +224,7 @@ pub fn validate_w3c(
     let mode = opts.graph_mode()?;
 
     let (compiled, session) = make_session(shapes_ttl, data_text(&data_ttl), mode, opts.infer)?;
-    let report = session
-        .report(&finding_options(&vopts))
-        .map_err(|error| JsError::new(&error.to_string()))?;
+    let report = session.report(&finding_options(&vopts));
 
     let report_graph = report_to_graph(&report);
     let result = W3cResult {

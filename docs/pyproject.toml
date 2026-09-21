@@ -10,6 +10,8 @@ dependencies = [
     "sphinx>=7.0",
     "furo>=2024.1",
     "sphinxcontrib-programoutput>=0.18",
+    # changelog.rst includes the root CHANGELOG.md, which is Markdown.
+    "myst-parser>=3.0",
     "pyshifty",
 ]
 
@@ -18,6 +20,7 @@ dev = [
     "sphinx>=7.0",
     "furo>=2024.1",
     "sphinxcontrib-programoutput>=0.18",
+    "myst-parser>=3.0",
 ]
 
 [tool.uv.sources]

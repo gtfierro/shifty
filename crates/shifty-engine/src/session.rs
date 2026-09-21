@@ -112,6 +112,8 @@ impl fmt::Display for SessionError {
 
 impl std::error::Error for SessionError {}
 
+/// Only `explain` and `explain_canonical` can fail: every other evaluation on a
+/// constructed session is total, so those return their value directly.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EvaluationError {
     ForeignPair,
@@ -281,60 +283,54 @@ impl EvaluationSession {
         self.prepared()
     }
 
-    pub fn validate(&self, options: &FindingOptions) -> Result<ValidationOutcome, EvaluationError> {
-        Ok(self.prepared().validate_findings(
+    pub fn validate(&self, options: &FindingOptions) -> ValidationOutcome {
+        self.prepared().validate_findings(
             self.compiled.physical_plan(),
             &options.validation(self.options.engine),
-        ))
+        )
     }
 
-    pub fn report(
-        &self,
-        options: &FindingOptions,
-    ) -> Result<crate::report::ValidationReport, EvaluationError> {
-        Ok(self.prepared().report(
+    pub fn report(&self, options: &FindingOptions) -> crate::report::ValidationReport {
+        self.prepared().report(
             self.compiled.source(),
             &options.validation(self.options.engine),
-        ))
+        )
     }
 
     pub fn property_witnesses(
         &self,
         key_path: Option<&shifty_algebra::Path>,
         options: &FindingOptions,
-    ) -> Result<Vec<crate::report::PropertyWitness>, EvaluationError> {
-        Ok(self.prepared().property_witnesses(
+    ) -> Vec<crate::report::PropertyWitness> {
+        self.prepared().property_witnesses(
             self.compiled.source(),
             key_path,
             &options.validation(self.options.engine),
-        ))
+        )
     }
 
-    pub fn evidence(&self, options: &EvidenceOptions) -> Result<EvidenceRun, EvaluationError> {
+    pub fn evidence(&self, options: &EvidenceOptions) -> EvidenceRun {
         let validation = options.findings.validation(self.options.engine);
-        Ok(if options.include_progress {
+        if options.include_progress {
             self.prepared().validate(&validation)
         } else {
             self.prepared().validate_canonical(&validation)
-        })
+        }
     }
 
-    pub fn conformance(
-        &self,
-        options: &ConformanceOptions,
-    ) -> Result<ConformanceRun, EvaluationError> {
-        Ok(self.prepared().validate_conformance(options))
+    pub fn conformance(&self, options: &ConformanceOptions) -> ConformanceRun {
+        self.prepared().validate_conformance(options)
     }
 
     pub fn find_failures(
         &self,
         options: &ConformanceOptions,
-    ) -> Result<(ConformanceRun, Vec<SelectedPair>), EvaluationError> {
+    ) -> (ConformanceRun, Vec<SelectedPair>) {
         let (run, mut pairs) = self.prepared().find_failures(options);
         for pair in &mut pairs {
             pair.snapshot = Some(Arc::clone(&self.snapshot));
         }
-        Ok((run, pairs))
+        (run, pairs)
     }
 
     pub fn explain(
@@ -393,13 +389,9 @@ impl EvaluationSession {
     }
 
     pub fn gate(&self, delta: &GraphDelta) -> Result<RepairOutcome, SessionError> {
-        let baseline = self
-            .validate(&FindingOptions::default())
-            .expect("valid session");
+        let baseline = self.validate(&FindingOptions::default());
         let candidate = self.with_delta(delta)?;
-        let patched = candidate
-            .validate(&FindingOptions::default())
-            .expect("valid session");
+        let patched = candidate.validate(&FindingOptions::default());
         Ok(crate::gate::diff(baseline.violations, patched.violations))
     }
 }

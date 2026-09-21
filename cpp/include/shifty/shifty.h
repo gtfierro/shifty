@@ -8,7 +8,8 @@
 extern "C" {
 #endif
 
-#define SHIFTY_ABI_VERSION 5u
+/* Must equal `shifty_abi_version()` in cpp/src/lib.rs; bump both together. */
+#define SHIFTY_ABI_VERSION 6u
 
 typedef uint32_t ShiftyStatus;
 enum {

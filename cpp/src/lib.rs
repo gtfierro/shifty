@@ -635,13 +635,11 @@ fn validate_dataset(
             },
         )
         .map_err(|error| ApiError::new(ShiftyStatus::ValidationError, error.to_string()))?;
-    let report = session
-        .report(&FindingOptions {
-            entry_shape_names: options.entry_shape_names.clone(),
-            minimum_severity: options.minimum_severity.clone(),
-            sort_results: options.sort_results,
-        })
-        .map_err(|error| ApiError::new(ShiftyStatus::ValidationError, error.to_string()))?;
+    let report = session.report(&FindingOptions {
+        entry_shape_names: options.entry_shape_names.clone(),
+        minimum_severity: options.minimum_severity.clone(),
+        sort_results: options.sort_results,
+    });
     let report_graph = report_to_graph(&report);
     Ok(ShiftyValidationResult {
         conforms: report.conforms,
@@ -765,13 +763,11 @@ fn validate_algebra_dataset(
             },
         )
         .map_err(|error| ApiError::new(ShiftyStatus::ValidationError, error.to_string()))?;
-    let outcome = session
-        .validate(&FindingOptions {
-            entry_shape_names: options.entry_shape_names.clone(),
-            minimum_severity: options.minimum_severity.clone(),
-            sort_results: options.sort_results,
-        })
-        .map_err(|error| ApiError::new(ShiftyStatus::ValidationError, error.to_string()))?;
+    let outcome = session.validate(&FindingOptions {
+        entry_shape_names: options.entry_shape_names.clone(),
+        minimum_severity: options.minimum_severity.clone(),
+        sort_results: options.sort_results,
+    });
     Ok(build_algebra_result(
         outcome,
         validator.compiled.normalized_schema(),
@@ -1347,9 +1343,14 @@ fn string_view(value: &str) -> ShiftyStringView {
     }
 }
 
+/// Must equal `SHIFTY_ABI_VERSION` in `cpp/include/shifty/shifty.h`. The C++
+/// header compares the two for exact equality and throws when they differ, so
+/// bump both together — including when the change is only an added function,
+/// which a header-newer-than-library build would otherwise fail to link with
+/// no explanation.
 #[unsafe(no_mangle)]
 pub extern "C" fn shifty_abi_version() -> u32 {
-    5
+    6
 }
 
 #[unsafe(no_mangle)]
