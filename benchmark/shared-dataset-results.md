@@ -17,15 +17,16 @@ The compiled path's profiling output shows zero full-data Store builds, one shar
 
 ## Warm-session ownership comparison
 
-These release examples compare `c102812` with `c6d0b1d`, using the same s223 shapes and data fixtures, one warmup, five alternating samples, and one compilation per process. Lifecycle mode builds two sessions, validates repeatedly, and edits a snapshot. Many-session mode retains 20 live sessions sharing the compilation. JSON results are `/private/tmp/shifty-sessions-{lifecycle,many20-infer,many20-noinfer}-c102812-vsc6.json`.
+These release examples compare `c102812` with `c6d0b1d`, using the same s223 shapes and data fixtures, one warmup, five alternating samples, and one compilation per process. Lifecycle mode builds two sessions, validates repeatedly, and edits a snapshot. Many-session mode retains 20 live sessions sharing the compilation. JSON results are `/private/tmp/shifty-sessions-{lifecycle,lifecycle-noinfer,many20-infer,many20-noinfer}-c102812-vsc6.json`.
 
 | Condition | Old / new median elapsed (ms) | Old / new peak RSS (MiB) |
 | --- | ---: | ---: |
 | Lifecycle with inference and edited snapshot | 3280 / 1567 | 610 / 255 |
+| Lifecycle without inference | 1340 / 1206 | 313 / 252 |
 | 20 live sessions with inference | 16106 / 4596 | 1330 / 311 |
 | 20 live sessions without inference | 4837 / 3232 | 935 / 298 |
 
-The lifecycle substage for repeated validation rose from 57.7 to 71.0 ms despite lower end-to-end time. First validation fell from 223.9 to 135.8 ms, second-session validation from 357.9 to 276.1 ms, and edited-session validation from 223.0 to 133.9 ms. This measured repeated-call cost remains a tuning target; it is not hidden by the aggregate result. Source storage stays shared, while session-local query state and the asserted-data snapshot still have per-session cost.
+The lifecycle substage for repeated validation rose from 57.7 to 71.0 ms despite lower end-to-end time. First validation fell from 223.9 to 135.8 ms, second-session validation from 357.9 to 276.1 ms, and edited-session validation from 223.0 to 133.9 ms. Repeating the lifecycle benchmark without inference still shows the repeated-call regression (51.2 to 65.2 ms), so inference batch commits are not its cause. This measured validation cost remains a tuning target; the responsible validation operator has not yet been isolated. Source storage stays shared, while session-local query state and the asserted-data snapshot still have per-session cost.
 
 ## Full-suite per-workload measurements
 
