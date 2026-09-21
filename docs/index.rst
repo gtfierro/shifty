@@ -37,7 +37,7 @@ Run SHACL-AF rules to a fixed point:
 
    shifty infer --shapes rules.ttl --data data.ttl
 
-The structured Python interface returns the same validation decision:
+The structured Python interface returns a validation decision and reasons:
 
 .. literalinclude:: examples/quick-start/validate.py
    :language: python
@@ -77,7 +77,7 @@ Two result interfaces are available:
 The native representation also supports :doc:`evidence
 <reference/evidence>`, passing-node :ref:`property witnesses
 <python-property-witnesses>`, and :doc:`shape-map bindings
-<reference/shape-maps>`. See :doc:`explanation/validation-interfaces` for the
+<reference/shape-maps>`. See :ref:`architecture-result-paths` for the
 tradeoffs between the two result models and `Introducing the Shifty SHACL
 Engine <https://gtf.fyi/posts/shacl/shifty/>`_ for the original rationale.
 

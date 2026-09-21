@@ -41,7 +41,7 @@ A plain object; every field is optional:
 
 ```sh
 rustup target add wasm32-unknown-unknown
-cargo install wasm-bindgen-cli --version 0.2.125   # must match Cargo.lock
+cargo install wasm-bindgen-cli --version 0.2.128   # must match Cargo.lock
 # optional, for a smaller bundle: install binaryen (provides wasm-opt)
 ```
 

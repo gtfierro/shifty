@@ -12,17 +12,16 @@ Validation asks: does ``G, v ⊨ φ``? Repair asks the inverse question:
 
    repair(φ, v)  =  { ΔG : (G ⊕ ΔG), v ⊨ φ }
 
-Given a graph that fails, what set of edits would make it pass? This is
-abduction — inferring the premises that would produce a desired conclusion —
-and it is computed by the same structural recursion over φ that decides
-validation in the first place.
+The expression describes the ideal repair set. The implementation synthesizes
+candidates for constraint kinds it can invert, then checks a chosen candidate
+against the whole graph. This is abduction: inferring premises that would
+produce the desired conclusion.
 
-Shifty's repair layer computes that set and describes it. It does not pick a
-member. This page is about why that line is drawn there, because it is the
-decision that shapes the whole API.
+Shifty's repair layer describes candidate edits for the constraint kinds it
+can invert. The driver chooses candidates and checks them with ``gate()``.
 
-The library decides nothing
----------------------------
+Where the driver chooses
+------------------------
 
 Every repair involves choices that the data and the schema do not determine:
 
@@ -40,8 +39,9 @@ constraint solver, using no information about the domain. It would produce
 plausible, wrong data — the worst possible output for a data-quality tool,
 because it is expensive to detect later.
 
-So the split is: the library is a set of pure functions that decide nothing,
-and a **driver** supplies data, choices, and control flow.
+The repair API exposes templates and a validation gate. A **driver** supplies
+data, choices, and control flow; the CLI includes an optional enumeration
+driver for inspection.
 
 .. list-table::
    :widths: 50 50
@@ -69,8 +69,8 @@ almost certainly not yours.
 The template is the interesting artifact
 ----------------------------------------
 
-The central object is a ``RepairTree``: a parametric, *inspectable* description
-of the entire repair space for one violation. Four constructs, mirroring φ on
+The central object is a ``RepairTree``: a parametric, inspectable description
+of supported candidate edits for one violation. Four constructs, mirroring φ on
 purpose, because a repair tree is the skeleton of a satisfaction proof:
 
 - ``All`` — satisfy every child (from a conjunction).
@@ -153,7 +153,8 @@ and the reasons propagate the way the logic requires: an ``All`` with any blocke
 child is blocked, since the conjunction is unsatisfiable in scope; an ``Any``
 drops blocked children and is blocked only when all of them are. A driver
 therefore never has to reason around a dead branch inside a live one, and a
-blocked root is an unambiguous statement that no data repair exists in scope.
+blocked root means the synthesizer has no supported data repair for that focus
+in its current scope.
 
 The gate is whole-graph
 -----------------------

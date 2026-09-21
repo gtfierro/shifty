@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1120 470" role="img" aria-labelledby="title desc">
   <title id="title">Shifty compilation and evaluation pipeline</title>
-  <desc id="desc">A shapes graph is lowered, normalized, analyzed, and planned. A data graph is indexed and may be extended by inference. The compiled plan and indexed evaluation graph meet in the evaluator, which returns validation results and evidence. Evidence can feed the experimental repair workflow, whose candidates are validated again.</desc>
+  <desc id="desc">A shapes graph is lowered, normalized, analyzed, and planned. Compiled rules feed optional inference over each indexed data snapshot. The inferred data and compiled plan meet in algebraic validation, which returns structured findings and can also provide evidence. Evidence feeds experimental repair candidates, which return to validation. The separate W3C report traversal is described in the text.</desc>
   <defs>
     <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
       <path d="M 0 0 L 10 5 L 0 10 z" fill="#52606d"/>
@@ -15,6 +15,8 @@
       .small { fill: #34495e; font-family: sans-serif; font-size: 14px; text-anchor: middle; }
       .lane { fill: #34495e; font-family: sans-serif; font-size: 15px; font-weight: 600; }
       .arrow { fill: none; stroke: #52606d; stroke-width: 2.2; marker-end: url(#arrow); }
+      .rule-arrow { fill: none; stroke: #7a3d8c; stroke-width: 2.2; stroke-dasharray: 6 4; marker-end: url(#arrow); }
+      .rule-label { fill: #68347a; font-family: sans-serif; font-size: 13px; font-weight: 600; text-anchor: middle; }
     </style>
   </defs>
 
@@ -66,10 +68,12 @@
   <text class="small" x="739" y="332">visible triples</text>
   <path class="arrow" d="M554 298 H654"/>
   <path class="arrow" d="M859 146 V194 Q859 214 839 222 L787 246"/>
+  <path class="rule-arrow" d="M784 146 V178 H518 V260"/>
+  <text class="rule-label" x="645" y="169">compiled rules</text>
 
   <rect class="output-box" x="870" y="218" width="220" height="76" rx="10"/>
-  <text class="label" x="980" y="249">Validation results</text>
-  <text class="small" x="980" y="273">report or structured findings</text>
+  <text class="label" x="980" y="249">Algebraic findings</text>
+  <text class="small" x="980" y="273">structured results</text>
   <rect class="output-box" x="870" y="320" width="220" height="76" rx="10"/>
   <text class="label" x="980" y="351">Evidence</text>
   <text class="small" x="980" y="375">derivations + shape maps</text>

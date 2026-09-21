@@ -46,7 +46,7 @@ Open a session over the two graphs and validate:
 .. code-block:: text
 
    conforms: False
-   class(<http://example.org/Person>) selected 2
+   class(ex:Person) selected 2
       pass <http://example.org/alice>
       fail <http://example.org/bob>
 
@@ -54,6 +54,14 @@ The evidence includes Alice even though the validation report did not. A
 statement whose target selected nothing has an empty ``selected_foci`` list. A
 selected node has ``status == "pass"`` or ``status == "fail"`` according to its
 validation result.
+
+.. figure:: ../_static/evidence-tree.svg
+   :alt: The Person shape selects Alice and Bob. Alice passes; Bob fails because an email is missing and his name value has the wrong datatype. Bob's two failures form branches of an evidence tree.
+   :align: center
+   :width: 100%
+
+   The report lists Bob's failures. Evidence also records Alice's pass and the
+   nested reasons for Bob's failure.
 
 Now ask why Bob failed:
 
@@ -67,11 +75,11 @@ Now ask why Bob failed:
 .. code-block:: text
 
    All — fix every:
-     CountLow along <http://example.org/email>: have 0, need 1
      All — fix every:
-       CountHigh along <http://example.org/name>: 1 match(es), max 0
+       CountHigh along ex:name: 1 match(es), max 0
          value "123"^^<http://www.w3.org/2001/XMLSchema#integer>:
-           Atom at "123"^^<http://www.w3.org/2001/XMLSchema#integer> via <http://example.org/name> [cuttable]
+           Atom at "123"^^<http://www.w3.org/2001/XMLSchema#integer> via ex:name [cuttable]
+     CountLow along ex:email: have 0, need 1
 
 This is a tree, not a list, and its shape is the shape of the constraint. The
 outer ``All`` is the conjunction of Bob's two property obligations: both
@@ -119,9 +127,9 @@ work identically on both polarities:
 .. code-block:: text
 
    pass <http://example.org/alice>
-      matched:  ['"alice@example.org"', '"Alice"']
-      support:  ['<http://example.org/alice> <http://example.org/email> "alice@example.org"',
-                 '<http://example.org/alice> <http://example.org/name> "Alice"']
+      matched:  ['"Alice"', '"alice@example.org"']
+      support:  ['<http://example.org/alice> <http://example.org/name> "Alice"',
+                 '<http://example.org/alice> <http://example.org/email> "alice@example.org"']
    fail <http://example.org/bob>
       matched:  ['"123"^^<http://www.w3.org/2001/XMLSchema#integer>']
       support:  ['<http://example.org/bob> <http://example.org/name> "123"^^<http://www.w3.org/2001/XMLSchema#integer>']
@@ -180,11 +188,11 @@ obligations are met" is useful to a person, and is not what a proof contains.
 .. code-block:: text
 
    <http://example.org/alice>
-       1 ConstraintKind.Cardinality pass
-       4 ConstraintKind.Conjunction pass
+       1 ConstraintKind.Conjunction pass
+       8 ConstraintKind.Cardinality pass
    <http://example.org/bob>
-       1 ConstraintKind.Cardinality fail
-       4 ConstraintKind.Conjunction fail
+       1 ConstraintKind.Conjunction fail
+       8 ConstraintKind.Cardinality fail
 
 Progress reports *that* each child passed or failed without materializing
 *why* — that is what makes it cheap. When you need the full evidence for one of

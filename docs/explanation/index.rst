@@ -8,12 +8,8 @@ experimental repair layer.
    :widths: 30 70
 
    * - :doc:`architecture`
-     - Shapes are compiled, not interpreted. What the algebra is, what each
-       layer of the pipeline does, and why one IR drives validation,
-       inference, and the richer result formats alike.
-   * - :doc:`validation-interfaces`
-     - The native algebraic result model and W3C ``sh:ValidationReport``
-       compatibility interface, including their reporting tradeoffs.
+     - How shapes are compiled, how rules feed inference, and how algebraic
+       findings differ from the W3C report path.
    * - :doc:`shapes-and-data`
      - The distinction between the shapes graph and the data graph, and the
        separate question of which triples are visible during evaluation. The
@@ -27,8 +23,7 @@ experimental repair layer.
        and why it deliberately omits things, and what it honestly cannot
        explain.
    * - :doc:`performance`
-     - What evidence costs, measured. Includes two optimizations that began as
-       hypotheses the measurements contradicted.
+     - Choose an evidence entry point using measured runtime and size costs.
    * - :doc:`repair-design`
      - **Experimental.** Repair as the abductive dual of validation, and why
        the library computes the space of fixes but refuses to choose one.
@@ -43,4 +38,5 @@ experimental repair layer.
    recursion
    evidence-design
    performance
+   evidence-performance-study
    repair-design

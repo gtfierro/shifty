@@ -2,15 +2,13 @@ Benchmarks
 ==========
 
 Performance of Shifty's ``validate`` pipeline — inference plus validation —
-across real building models, tracked over each release.
+across real building models and tagged releases. The chart can also include a
+``HEAD`` run from the current checkout.
 
-The headline number is misleading on its own, and it is worth understanding why
-before reading the chart. Wall-clock ``validate`` time is dominated by a
-**fixed setup cost**: preparing the shapes graph, paid in full no matter how
-small the data graph is. A 16-triple Brick model still takes about 3.7 seconds.
-So the raw number mostly reflects the size of the *shapes*, and an average
-across a corpus hides which part of the engine a release actually improved — a
-change that halves validation time barely moves a total that is mostly startup.
+The chart splits each ``validate`` run into setup, inference, and validation.
+Preparing a large shapes graph is a fixed cost paid even for a small data
+graph. Read the segments when comparing versions: a change in validation work
+may be small relative to setup in a fresh process.
 
 Each bar below is therefore split into the three things the time is spent on.
 
@@ -255,7 +253,8 @@ Each bar below is therefore split into the three things the time is spent on.
 Per-model results
 -----------------
 
-These tables show exact ``validate`` times for the two most recent releases.
+These tables show exact ``validate`` times for the latest measured version and
+its predecessor, which may be a ``HEAD`` checkout rather than a release.
 The ``%`` column flags regressions or improvements per model, and the
 ``geomean`` row summarises the overall change between the two versions.
 
@@ -347,7 +346,7 @@ Two cautions, both learned the hard way.
 **A ratio is only meaningful next to its denominator.** When an optimization
 speeds up the baseline more than the thing being measured, the reported ratio
 gets *worse* even though both arms got faster. Absolute times belong beside any
-ratio quoted from this corpus; :doc:`explanation/performance` has a worked
+ratio quoted from this corpus; :doc:`explanation/evidence-performance-study` has a worked
 example of that happening.
 
 **These are per-process runs.** Each model pays setup once because every

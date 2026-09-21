@@ -1,20 +1,10 @@
 How shapes are compiled
 =======================
 
-Most SHACL validators walk the shapes graph at validation time: for each focus
-node, look up its constraints in RDF, dispatch on the constraint component,
-recurse. It is a direct reading of the specification and it works.
-
-Shifty does something else. It compiles the shapes graph into an algebra
-first, optimizes that, plans it, and only then looks at any data. This page
-explains what the algebra is and what the compilation buys.
-
-The short answer is that SHACL's vocabulary is much larger than its semantics.
-There are dozens of constraint components, and a validator that dispatches on
-all of them has dozens of code paths to keep consistent — and every new
-capability, like evidence or repair, has to be implemented dozens of times.
-Reduce the vocabulary to a handful of operators first, and each capability is
-written once.
+Shifty compiles a shapes graph into a smaller path and shape algebra, then
+normalizes and plans it before evaluating data. Several SHACL constraint
+components become the same algebra operator, so validation, evidence, and
+repair can share their core traversal.
 
 The core algebra
 ----------------
@@ -80,12 +70,13 @@ The pipeline
 ------------
 
 .. figure:: ../_static/pipeline.svg
-   :alt: Shapes pass through compile stages while data passes through indexing and inference; both meet at evaluation, which produces reports and evidence, with evidence feeding the optional repair workflow.
+   :alt: Shapes and rules are compiled once. Each data snapshot is indexed, optionally extended by rule inference, and evaluated with the compiled algebraic plan. Findings and evidence are output; repair candidates return to validation. The W3C report path is separate.
    :align: center
    :width: 100%
 
    Compilation is paid once per shapes graph. Prepared validators reuse the
-   compiled plan across data graphs.
+   compiled plan across data graphs. The W3C report traversal is described under
+   :ref:`architecture-result-paths`.
 
 ``shifty inspect --stage <stage>`` prints the output of each layer; see
 :doc:`../how-to/inspect-pipeline` for worked output.
@@ -131,6 +122,10 @@ need a general SPARQL engine; ``inspect --stage capability`` reports which.
 plus a selector, heads are triples built from node expressions — evaluated to a
 fixed point before validation, over the same arena and the same stratification.
 
+The compiled rules come from the shapes graph; inference reads the data and
+shapes graph when the inputs are separate. The resulting data snapshot is what
+validation checks.
+
 One compiled source, many data snapshots
 ----------------------------------------
 
@@ -159,35 +154,46 @@ recorded in ``benchmark/shared-dataset-results.md`` in the repository.
 Why one IR matters
 ------------------
 
-The pipeline is the visible payoff, but the structural one is that validation,
-inference, evidence, and repair are all folds over the same arena.
+The pipeline is the visible payoff, but the structural one is that algebraic
+validation, evidence, and repair traverse the same shape arena. Inference uses
+its own compiled rule program over the shared dataset.
 
-Validation is a fold computing a boolean. Evidence is a fold computing a proof
-tree — same traversal, same memo, richer result. Repair is a fold over that
+Algebraic validation computes a boolean over the shape arena. Evidence
+materializes a derivation from the same constraints. Repair is a fold over that
 proof tree in the opposite direction: to describe how to fix ``φ₁ ∧ φ₂`` you
 need the repair spaces of both conjuncts, which is exactly what a fold gives
 you. The shape enum has around fifteen variants and is already in
 negation-normal form, so each of these folds is a manageable match rather than a
 sprawl.
 
-This is why the algebraic interfaces cannot disagree about whether a graph
-conforms. Evidence uses the validation evaluator as its oracle; the repair gate
-is the validator run again over a proposed edit. They are the same fold.
+Evidence uses the algebraic evaluator to decide conformance, and the repair gate
+checks a proposed edit with that evaluator. The W3C report path has a separate
+constraint traversal, described below.
 
-The W3C report path is the exception, and worth being precise about. It
-projects results in terms of the authored SHACL components — which constraint
-component fired, on which shape node — so it still interprets the source RDF
-rather than reading judgments off the algebra. It is a second traversal, and it
-is the one place where a change to a constraint's behavior has to be made
-twice. What it no longer decides for itself is the setup around that traversal:
-since 0.5 every interface compiles its shapes through ``CompiledShapes``, so
-schema admission, the data/shapes/``$shapesGraph`` roles, and the SHACL function
-registry are decided once and shared. Those were the three things the
-interfaces used to disagree about, and each disagreement now has a regression
-test. Unifying the remaining semantic branches is staged work, not a claim this
-page should make in advance.
+.. _architecture-result-paths:
 
-It also explains the shape of the limitations. Repair is undefined for
+Result interfaces
+-----------------
+
+``validate_algebra()`` returns structured violations and nested algebraic
+reasons. The CLI's default text and JSON summaries render this result model.
+This path does not build a W3C report graph. :doc:`Evidence
+<../reference/evidence>` adds passing evaluations and derivations;
+:doc:`shape maps <../reference/shape-maps>` extract typed property bindings.
+
+``validate()`` returns ``(conforms, report_graph, results_text)``. The report
+graph uses the W3C ``sh:ValidationReport`` vocabulary and requires ``rdflib``
+in Python; ``shifty validate --report`` emits the graph as Turtle. This path
+projects authored SHACL components through a separate traversal of the source
+RDF. It does not expose passing nodes or their derivations.
+
+Both paths use ``CompiledShapes`` for schema admission, graph roles, and the
+function registry. Their remaining constraint evaluation branches are separate,
+so an implementation change must be checked in both. Choose the W3C path for
+interoperability with SHACL tools and the algebraic path for structured
+application findings. Exact fields are in :doc:`../reference/python`.
+
+The algebra also explains the shape of the limitations. Repair is undefined for
 ``sh:sparql`` not because nobody has written that case yet, but because an
 arbitrary SPARQL query is opaque to the algebra — there is nothing to fold
 over. The features that are hard are exactly the ones that escape the IR.

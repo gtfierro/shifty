@@ -33,7 +33,7 @@ Get a machine-readable report
 -----------------------------
 
 The default CLI output is a summary for a human. For a W3C
-``sh:ValidationReport`` graph, serialized as N-Triples:
+``sh:ValidationReport`` graph, serialized as Turtle:
 
 .. code-block:: bash
 
@@ -158,8 +158,9 @@ ones:
        data, shapes, minimum_severity="violation",
    )
 
-Results below the threshold are still computed and still appear in the report;
-the flag only decides which ones flip ``conforms`` to false.
+Results below the threshold remain in the W3C report and Python result objects;
+the threshold controls their ``conforms`` value. The CLI's default text and JSON
+summaries omit below-threshold findings.
 
 Validate many graphs against one schema
 ---------------------------------------

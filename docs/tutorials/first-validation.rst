@@ -14,7 +14,7 @@ engine, so installing it needs no Rust toolchain:
 
 .. code-block:: bash
 
-   pip install pyshifty
+   pip install "pyshifty[rdflib]"
 
 The distribution is named ``pyshifty`` but the module is ``shifty``:
 
@@ -76,17 +76,12 @@ nodes and values as bindings, use :doc:`shape maps <../reference/shape-maps>`.
 The :doc:`failure-explanation tutorial <explaining-a-failure>` demonstrates
 the evidence workflow.
 
-The report groups by *focus node* — the node being checked — rather than by
-constraint. Bob is one violation with two reasons under it. Each reason names
-the property path in parentheses, then the value that offended, then what was
-expected. The second line quotes ``"123"^^xsd:integer`` back at you, showing
-the datatype that made it fail; the first has no offending value to quote,
-because the problem is an absence, so it names the focus node instead.
-
-``target: class(<http://example.org/Person>)`` is the selector that pulled Bob
-in. That is Shifty's compiled form of ``sh:targetClass``, and you will see this
-algebraic vocabulary in several places — see :doc:`../explanation/architecture`
-if you want to know what it is.
+The CLI groups by *finding*: one for the missing email and one for the wrong
+name datatype. Both affect Bob, so the summary says one violation in two
+findings. ``value node`` identifies ``"123"^^xsd:integer`` for the datatype
+failure; the missing email has no offending value. ``target class(ex:Person)``
+shows why Bob was checked. See :doc:`../explanation/architecture` for the
+compiled constraint notation.
 
 Fix the data
 ------------
@@ -114,9 +109,10 @@ come from this difference.
 Validate from Python
 --------------------
 
-``shifty.validate`` takes the data graph first and the shapes graph second —
-the argument order of ``pyshacl.validate``, so existing code can switch by
-changing the import:
+``shifty.validate`` takes the data graph first and the shapes graph second and
+returns the same three kinds of values as ``pyshacl.validate``. Check keyword
+arguments when migrating an existing call; :doc:`../reference/python` lists
+the accepted Shifty signature.
 
 .. code-block:: python
 
@@ -141,33 +137,32 @@ rendered for a human:
    Validation Report
    Conforms: False
    Results (2):
-   Constraint Violation in MinCountConstraintComponent
-     Severity: sh:Violation
-     Source Shape: _:d321972bccd14812550776ed4b7e38e7
-     Focus Node: <http://example.org/bob>
-     Result Path: <http://example.org/email>
-     Message: Fewer than 1 values on path <http://example.org/email>
-
    Constraint Violation in DatatypeConstraintComponent
      Severity: sh:Violation
-     Source Shape: _:fb1fe0806f4b62bba984f3fac3413f0c
+     Source Shape: _:...
      Focus Node: <http://example.org/bob>
      Result Path: <http://example.org/name>
      Value: "123"^^<http://www.w3.org/2001/XMLSchema#integer>
      Message: Value 123 does not have datatype <http://www.w3.org/2001/XMLSchema#string>
 
+   Constraint Violation in MinCountConstraintComponent
+     Severity: sh:Violation
+     Source Shape: _:...
+     Focus Node: <http://example.org/bob>
+     Result Path: <http://example.org/email>
+     Message: Fewer than 1 values on path <http://example.org/email>
+
 This is the standard SHACL report vocabulary rather than the CLI's compact
-summary, so the two commands print different text for the same result. The
+summary, so the two commands print different text for the same input. The
 ``Source Shape`` is a blank-node identifier because the property shapes in
 ``shapes.ttl`` were written inline with ``[ ... ]`` and so have no IRI of their
-own.
+own. The blank-node identifiers and result order can vary between runs.
 
 .. note::
 
    This tutorial uses ``validate()`` because it returns the standard W3C report
    vocabulary. Shifty also provides ``validate_algebra()``, its native
-   structured result interface. Both return the same conformance decision, but
-   expose different report models. See :doc:`validation interfaces
+   structured result interface. See :doc:`validation interfaces
    <../explanation/validation-interfaces>` before choosing an interface for an
    application.
 
