@@ -647,6 +647,30 @@ mod tests {
     }
 
     #[test]
+    fn arbitrary_graph_variables_are_conservative_in_both_scopes() {
+        let q = analyze_query("SELECT * WHERE { GRAPH ?g { ?s <http://ex/p> ?o } }");
+        assert!(q.default.incomplete);
+        assert!(q.default.any_predicate);
+        assert!(q.shapes.incomplete);
+        assert!(q.shapes.any_predicate);
+    }
+
+    #[test]
+    fn closed_shapes_demand_unknown_predicate_subject_scans() {
+        let mut schema = Schema::new();
+        let closed = schema.arena.insert(Shape::Closed(Default::default()));
+        schema.statements.push(shifty_algebra::Statement {
+            selector: Selector::HasOut(named("seed")),
+            shape: closed,
+        });
+        let catalog = AccessCatalog::compile(&schema, &[]);
+        let access = &catalog.consumers[0].default;
+        assert!(access.any_predicate);
+        assert!(access.probes.forward);
+        assert!(!access.incomplete);
+    }
+
+    #[test]
     fn paths_record_direction_and_domain() {
         let mut r = AccessRequirement::default();
         analyze_path(
