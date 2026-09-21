@@ -1863,6 +1863,19 @@ fn print_access(catalog: &shifty_opt::AccessCatalog) {
             calls.sort_unstable();
             println!("  functions: {}", calls.join(", "));
         }
+        if consumer.writes.any_predicate || !consumer.writes.predicates.is_empty() {
+            let mut writes: Vec<_> = consumer
+                .writes
+                .predicates
+                .iter()
+                .map(|iri| iri.as_str())
+                .collect();
+            writes.sort_unstable();
+            if consumer.writes.any_predicate {
+                writes.push("*");
+            }
+            println!("  writes: {}", writes.join(", "));
+        }
     }
     for (index, query) in catalog.queries.iter().enumerate() {
         println!("query[{index}]: {}", query.text.replace(['\r', '\n'], " "));

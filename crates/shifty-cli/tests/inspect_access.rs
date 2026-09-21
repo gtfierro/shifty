@@ -12,6 +12,8 @@ fn inspect_access_exposes_graph_scope_and_function_demand() {
         ex:reads a sh:SPARQLFunction ;
             sh:ask "ASK { ?s <http://ex/fromFunction> ?o }" .
         ex:S a sh:NodeShape ; sh:targetNode ex:a ;
+            sh:rule [ a sh:TripleRule ; sh:subject sh:this ;
+                sh:predicate ex:derived ; sh:object ex:value ] ;
             sh:sparql [ sh:select """SELECT $this WHERE {
                 GRAPH $shapesGraph { ?s <http://ex/fromShapes> ?o }
                 FILTER(<http://ex/reads>())
@@ -41,4 +43,19 @@ fn inspect_access_exposes_graph_scope_and_function_demand() {
         "http://ex/fromShapes"
     );
     assert_eq!(statement["calls"][0]["value"], "http://ex/reads");
+    let rule = catalog["consumers"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|consumer| {
+            !consumer["writes"]["predicates"]
+                .as_array()
+                .unwrap()
+                .is_empty()
+        })
+        .unwrap();
+    assert_eq!(
+        rule["writes"]["predicates"][0]["value"],
+        "http://ex/derived"
+    );
 }
