@@ -5,6 +5,7 @@
 //! `docs/03-recursion-semantics.md` (stratified; diagnose non-stratifiable).
 //! Normalization and logical→physical planning follow.
 
+pub mod access;
 pub mod deps;
 pub mod normalize;
 pub mod plan;
@@ -12,8 +13,14 @@ pub mod rule_deps;
 pub mod sparql_native;
 pub mod strata;
 
+pub use access::{
+    AccessCatalog, AccessRequirement, Consumer, ConsumerAccess, PathAccess, PathId, ProbeModes,
+    QueryAccess, QueryId, ReadScope,
+};
 pub use deps::{DepEdge, Polarity, dependency_edges};
-pub use normalize::{NormalizedSchema, normalize, normalize_with_mapping};
+pub use normalize::{
+    NormalizedSchema, normalize, normalize_with_mapping, normalize_with_mapping_and_analysis,
+};
 pub use plan::{FocusSource, PhysicalPlan, StatementPlan, plan, plan_no_seeding, plan_no_sort};
 pub use rule_deps::{
     RuleDependencies, rule_dependencies, rule_guard_dependencies, selector_dependencies,

@@ -175,6 +175,26 @@ from .shapemap import (
 )
 from .terms import BNode, Iri, Literal, Term
 
+
+class ShaclDiagnosticWarning(UserWarning):
+    """A non-fatal diagnostic raised while validating or inferring.
+
+    The W3C-compatible entry points return ``(conforms, report_graph,
+    results_text)`` for pyshacl compatibility, which has nowhere to put a
+    diagnostic. Without a warning, a rule that could not execute leaves
+    ``conforms`` looking like a clean pass — the exact confusion diagnostics
+    exist to prevent. Suppress with
+    ``warnings.filterwarnings("ignore", category=shifty.ShaclDiagnosticWarning)``,
+    or use :func:`validate_algebra`, whose
+    :attr:`~AlgebraResult.diagnostics` are a plain list.
+    """
+
+
+def _warn_diagnostics(diagnostics: "Sequence[str]", stacklevel: int) -> None:
+    for message in diagnostics:
+        warnings.warn(message, ShaclDiagnosticWarning, stacklevel=stacklevel)
+
+
 if TYPE_CHECKING:
     import rdflib
 
@@ -185,6 +205,7 @@ __all__ = [
     "validate",
     "validate_algebra",
     "infer",
+    "ShaclDiagnosticWarning",
     "expand_evidence",
     "shape_map",
     "ShapeMap",
@@ -818,6 +839,7 @@ class PreparedValidator:
             in_place,
         )
         _write_back_derived(target, lambda: result._inferred_ntriples)
+        _warn_diagnostics(result.diagnostics, stacklevel=2)
         graph = rdflib.Graph()
         graph.parse(data=result.report_turtle, format="turtle")
         return (result.conforms, graph, result.results_text)
@@ -1463,6 +1485,7 @@ def validate(
     )
 
     _write_back_derived(target, lambda: result._inferred_ntriples)
+    _warn_diagnostics(result.diagnostics, stacklevel=2)
 
     g = rdflib.Graph()
     g.parse(data=result.report_turtle, format="turtle")

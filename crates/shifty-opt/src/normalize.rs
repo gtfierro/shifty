@@ -21,7 +21,7 @@
 //! compact schema, while evidence uses the maps to recover every contributing
 //! source statement and constraint without reverse-engineering CSE decisions.
 
-use crate::strata::analyze;
+use crate::strata::{Stratification, analyze};
 use shifty_algebra::{
     NodeExpr, NodeKindSet, Path, Rule, RuleHead, Schema, Selector, Shape, ShapeArena, ShapeId,
     Statement, ValueType,
@@ -49,7 +49,16 @@ pub fn normalize(schema: &Schema) -> Schema {
 /// Normalize a schema and retain explicit raw-to-normalized statement
 /// provenance.
 pub fn normalize_with_mapping(schema: &Schema) -> NormalizedSchema {
-    let mut z = Interner::new(&schema.arena);
+    let analysis = analyze(&schema.arena);
+    normalize_with_mapping_and_analysis(schema, &analysis)
+}
+
+/// Reuse an authored-arena analysis already computed during admission.
+pub fn normalize_with_mapping_and_analysis(
+    schema: &Schema,
+    analysis: &Stratification,
+) -> NormalizedSchema {
+    let mut z = Interner::new(&schema.arena, analysis);
     // dedup identical (selector, shape) pairs after normalization
     let mut seen: HashMap<(Selector, ShapeId), usize> = HashMap::new();
     let mut statements = Vec::new();
@@ -206,8 +215,7 @@ struct Interner<'a> {
 }
 
 impl<'a> Interner<'a> {
-    fn new(src: &'a ShapeArena) -> Self {
-        let strat = analyze(src);
+    fn new(src: &'a ShapeArena, strat: &Stratification) -> Self {
         let cyclic = strat
             .strata
             .iter()

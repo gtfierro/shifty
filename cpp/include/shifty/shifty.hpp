@@ -151,20 +151,28 @@ public:
         return results_text_;
     }
 
+    /// Returns inference diagnostics from this validation as a JSON string array.
+    [[nodiscard]] const std::string &diagnostics_json() const noexcept {
+        return diagnostics_json_;
+    }
+
 private:
     friend class PreparedValidator;
 
     ValidationResult(
         bool conforms,
         std::string report_turtle,
-        std::string results_text)
+        std::string results_text,
+        std::string diagnostics_json)
         : conforms_(conforms),
           report_turtle_(std::move(report_turtle)),
-          results_text_(std::move(results_text)) {}
+          results_text_(std::move(results_text)),
+          diagnostics_json_(std::move(diagnostics_json)) {}
 
     bool conforms_;
     std::string report_turtle_;
     std::string results_text_;
+    std::string diagnostics_json_;
 };
 
 /// One failed atomic constraint within an AlgebraViolation. An absent `path`
@@ -1684,7 +1692,8 @@ public:
         return ValidationResult(
             shifty_validation_result_conforms(result.get()) != 0,
             detail::copy(shifty_validation_result_report_turtle(result.get())),
-            detail::copy(shifty_validation_result_results_text(result.get())));
+            detail::copy(shifty_validation_result_results_text(result.get())),
+            detail::copy(shifty_validation_result_diagnostics_json(result.get())));
     }
 
     /// Extracts typed key/value bindings directly from the shapes and data.

@@ -39,9 +39,9 @@ Read in order:
    recursion semantics (stratified; gfp validation / lfp inference).
 5. [`04-normalization.md`](04-normalization.md) — semantics-preserving Layer 4
    rewrites and their correctness boundaries.
-6. [`05-sparql-execution.md`](05-sparql-execution.md) — the planned
-   Spargebra-native query compiler, indexed dataset, path acceleration, and
-   Oxigraph/Spareval fallback.
+6. [`05-sparql-execution.md`](05-sparql-execution.md) — the implemented
+   Spargebra-native query subset, shared indexed dataset, and Spareval fallback,
+   with future join and path-index options separated from current behavior.
 7. [`06-repair.md`](06-repair.md) — symbolic repair, the **library API**:
    witness violations, expose the repair space as `RepairTree` templates (typed
    holes, variadic blocks) by abduction over `φ`, instantiate a caller's `Plan`,
@@ -56,6 +56,16 @@ Read in order:
 11. [`10-evidence-architecture.md`](10-evidence-architecture.md) — the
     publication-oriented architecture contract: vocabulary, polarity duality,
     identities, executable invariants, and performance boundaries.
+12. [`11-compiled-shapes-and-sessions.md`](11-compiled-shapes-and-sessions.md) —
+    implemented 0.5 ownership boundaries, APIs, graph semantics, and historical
+    migration plan for reusable compiled shapes and evaluation sessions, following the
+    [architecture review](0.5-architecture-review.md).
+13. [`12-shared-datasets-and-demand-driven-indexes.md`](12-shared-datasets-and-demand-driven-indexes.md)
+    — implemented continuation of the compiled-session design: shared source
+    storage, graph views, one dataset for native and fallback execution, and
+    index selection from compiled access requirements and observed demand.
+    [Measured results](../benchmark/shared-dataset-results.md) cover Brick,
+    s223, generated workloads, and many-session reuse.
 
 > `static-analysis-plan.md` predates this branch (old spec-shaped `shacl-core`
 > approach) and is kept only as historical reference.

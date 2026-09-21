@@ -6,7 +6,7 @@
 //! them back into the algebra.
 
 use crate::path::Path;
-use oxrdf::Term;
+use oxrdf::{NamedNode, Term};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -51,4 +51,16 @@ pub struct SparqlTarget {
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct SparqlConstruct {
     pub query: String,
+}
+
+/// Canonical definition of a document-authored `sh:SPARQLFunction`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FunctionDef {
+    pub iri: NamedNode,
+    /// Parameter variable names in positional call order.
+    pub params: Vec<String>,
+    /// Prefix-expanded `sh:select` or `sh:ask` body.
+    pub query: String,
+    /// Whether the body reads RDF data rather than only computing a value.
+    pub reads_graph: bool,
 }

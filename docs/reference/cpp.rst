@@ -15,9 +15,9 @@ RAII layer over a stable C ABI. The public API is a single header,
    * - Stability
      - Stable, except interfaces explicitly marked experimental
    * - Related
-     - :doc:`../how-to/install`, :doc:`evidence`, :doc:`shape-maps`
+     - :doc:`../install`, :doc:`evidence`, :doc:`shape-maps`
 
-:doc:`../how-to/install` covers building with CMake and linking. This page
+:doc:`../install` covers building with CMake and linking. This page
 describes the API surface; the shape-map vocabulary (typed keys, bindings, and
 terms) has its own section below and mirrors the Python
 :doc:`shape-maps` reference.

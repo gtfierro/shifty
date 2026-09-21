@@ -1,11 +1,11 @@
 # 05 - Spargebra-Native SPARQL Execution
 
-This document defines the planned optimized execution path for SHACL-SPARQL
-constraints, targets, and rules. The current engine parses queries with
-Spargebra and executes them with Oxigraph/Spareval. That remains the correctness
-fallback, but profiling of the 223P/NIST workload shows that validation-side
-SPARQL evaluation dominates runtime, particularly repeated quad scans and
-property-path traversal.
+This document records the implemented native SPARQL subset and shared indexed
+dataset, then identifies possible extensions. Queries are parsed with Spargebra.
+Supported queries run through the native executor; other queries run through
+Spareval over the same dataset. The original 223P/NIST profile found that
+validation-side SPARQL evaluation dominated runtime, particularly repeated
+quad scans and property-path traversal.
 
 The decision is to compile a useful Spargebra subset into a native physical
 plan over immutable, specialized indexes. Queries outside that subset execute
@@ -69,9 +69,12 @@ capability + demand analysis
 Parsing and prefix resolution remain in `shifty-parse`. Planning belongs in
 `shifty-opt`; indexed storage and execution belong in `shifty-engine`.
 
-Each canonical query is parsed once. The compilation cache key contains the
-canonical query, static SHACL substitutions, graph mode, and index-plan version.
-The cached result is either a native plan or a prepared fallback query.
+The compiled shapes owner retains parsed canonical query bodies that access
+analysis found. Each session reuses those bodies where available and caches
+operation-specific static substitutions and native lowering locally. The
+constraint cache key includes the canonical query, path, and shape bindings;
+the session's dataset and graph policy fix the remaining context. `$this`
+remains dynamic. Runtime statistics and term-ID lowering are session-specific.
 
 ## SHACL prebindings
 
@@ -94,22 +97,23 @@ where differential tests prove it equivalent.
 
 ## Native physical plan
 
-The initial physical IR is deliberately small:
+The native physical IR is deliberately small (shown here without its fields):
 
 ```rust
 enum NativeOp {
     InputFocus,
-    Scan(TripleScan),
-    PathScan(PathScan),
-    Join { left: OpId, right: OpId, kind: JoinKind },
-    Exists { input: OpId, probe: OpId, negated: bool },
-    Union(Vec<OpId>),
-    Filter { input: OpId, expression: ExprPlan },
-    Extend { input: OpId, variable: VarId, expression: ExprPlan },
-    Project { input: OpId, variables: Vec<VarId> },
-    Distinct(OpId),
+    Scan { input: OpId, pattern: TripleScan },
+    PathScan { input: OpId, scan: PathScan },
+    Union { left: OpId, right: OpId },
+    Filter { input: OpId, expr: ExprPlan },
+    Extend { input: OpId, var: VarId, expr: ExprPlan },
+    Project { input: OpId, vars: Vec<VarId> },
+    Distinct { input: OpId },
 }
 ```
+
+BGP joins lower by threading the output of one scan into the next; correlated
+`EXISTS` is an expression node evaluated against a subplan.
 
 `TripleScan` supports constants, variables, and parameter operands in subject,
 predicate, object, and graph positions. `PathScan` contains a canonical path and
@@ -120,13 +124,14 @@ supports all endpoint binding modes:
 - bound end: reverse lookup;
 - open endpoints: relation scan.
 
-Joins use indexed nested-loop execution when one side binds an indexed probe
-and hash joins otherwise. `Exists` is a correlated semi-join; negated `Exists`
-is an anti-join and stops its probe at the first match. Binding batches retain
+The implemented native executor uses a left-deep pipeline of indexed scans.
+`EXISTS` and `NOT EXISTS` evaluate correlated subplans and stop after the first
+match. Hash joins and dedicated semi-/anti-join operators remain possible
+extensions. Binding batches retain
 `FocusId`, allowing results from many `$this` values to be evaluated together
 without losing their owning focus node.
 
-The first native capability set is:
+The implemented native capability set includes:
 
 - `SELECT` and `ASK`;
 - basic graph patterns and fixed named-graph patterns;
@@ -143,47 +148,38 @@ back, recording the first unsupported construct as the fallback reason for
 inspection and telemetry. The set above is the design target; the authoritative
 statement of what lowers today is `lower_query` itself.
 
-## Frozen indexed dataset
+## Indexed session dataset
 
-Inference runs to a fixed point before validation, so validation receives an
-immutable graph. Build one dictionary-encoded dataset at that boundary:
+`FrozenIndexedDataset` now starts during inference, accepts committed rule
+batches, and is handed directly to validation. The name reflects its published
+read snapshot; the builder phase is mutable. It implements Spareval's
+`QueryableDataset`, so native and fallback queries read the same graph views.
 
-```rust
-struct FrozenIndexedDataset {
-    terms: TermDictionary,
-    graphs: GraphCatalog,
-    triples: TripleIndexes,
-    paths: PathIndexCatalog,
-    stats: DatasetStatistics,
-}
-```
+`TermId` is the dataset's `QueryableDataset::InternalTerm`. A lazily encoded
+source dictionary and index belong to `CompiledShapes`; each session extends
+that dictionary for data, inferred facts, and query-only constants. Source
+rows and local rows retain separate membership, allowing a Data validation
+view after union-based inference without rebuilding the dataset. The named
+shapes graph reads the same source index and remains independent of data edits.
 
-`TermId` is the `QueryableDataset::InternalTerm`. Base triples are stored in
-sorted, immutable structures with efficient access for:
+Every triple is kept in a predicate-partitioned PSO primary index, sorted by
+`(subject, object)` within each predicate. Exact membership, predicate scans,
+and known-predicate forward probes use that base. Optional per-predicate
+reverse indexes and general subject/object directories are built from compiled
+demand or observed probes under separate source and session byte budgets.
+Patterns without an optional index scan the complete primary representation;
+index selection cannot change answers. Virtual path relations are not exposed
+as RDF predicates or wildcard scan rows. Native path traversal uses the shared
+dataset, while fallback property paths remain evaluated by Spareval.
 
-- `(subject, predicate) -> objects`;
-- `(predicate, object) -> subjects`;
-- `predicate -> (subject, object)` pairs;
-- `subject -> (predicate, object)` pairs;
-- `object -> (predicate, subject)` pairs;
-- exact triple membership.
-
-Default and named graphs have separate ranges. Virtual path relations are not
-exposed as RDF predicates and never appear in wildcard predicate scans.
-
-`FrozenIndexedDataset` implements Spareval's `QueryableDataset`, making it the
-shared storage backend for native and fallback queries. The fallback gains
-faster immutable triple-pattern access, but property paths are still evaluated
-by Spareval. Native `PathScan` operators are what expose whole-path indexes.
-
-Literal operations may initially use the trait's externalization defaults.
-Frequently used effective-boolean-value, numeric comparison, and string
-operations should later operate directly on dictionary entries.
+Literal operations still use the dataset trait's externalization where needed.
+Moving more expression work onto dictionary entries is a possible extension.
 
 ## Path demand and index planning
 
-Planning analyzes paths from both native SHACL algebra and Spargebra queries.
-Equivalent paths share one canonical `PathId`.
+Compilation analyzes paths from both authored SHACL and parsed SPARQL queries.
+Equal paths share a compilation-local identity. The following demand sketch
+describes the information retained, rather than a literal public Rust type:
 
 ```rust
 struct PathDemand {
@@ -197,9 +193,9 @@ struct PathDemand {
 }
 ```
 
-Dataset statistics include predicate cardinality, distinct subjects and
-objects, degree distributions, and class/subclass counts. The planner chooses
-one strategy per path:
+The current dataset tracks predicate cardinality and graph node domains. Native
+path execution traverses selected graph views and keeps a bounded cache of
+endpoint results. The following richer strategies are future options:
 
 - `Traverse`: use base indexes directly for cheap or rarely used paths;
 - `Memoized`: cache forward and reverse result bitmaps per endpoint;
@@ -208,42 +204,34 @@ one strategy per path:
 - `SccClosure`: condense a transitive graph into SCCs and store component
   reachability bitmaps.
 
-The initial specializations are:
+The current executor caches native `*`, `+`, and `?` endpoint results. Keys
+include the start term, compiled reachability step, closure kind, and graph
+selection. The cache admits at most one million result IDs and is cleared on a
+committed data batch or default-view change. It does not materialize whole-path
+relations or SCC closures, and has no ontology-specific predicate cases.
 
-1. `rdfs:subClassOf*`: SCC condensation plus component reachability.
-2. `rdf:type/rdfs:subClassOf*`: materialized instance-to-class and reverse
-   class-to-instance relations.
-3. `s223:contains+`, `s223:mapsTo+`, and `s223:cnx+`: memoized endpoint
-   closures first; promote to materialized relations only when observed demand
-   and estimated relation size justify it.
-4. Small fixed sequences such as `sh:property/sh:path`: materialize when the
-   estimated output is bounded and reused.
-
-The current executor implements bounded per-start memoization for native `*`
-and `+` closures. Cache keys include the start term, compiled reachability step,
-closure kind, and graph selection. Endpoint sets are shared between repeated
-probes, capped at one million stored endpoint IDs, and cleared if inference
-extends the dataset. Demand-driven promotion to materialized or SCC indexes
-remains planned work.
-
-Index selection is budgeted. The planner estimates construction work and
-relation size, ranks candidates by avoided traversal work per byte, and admits
-them until the configured memory budget is exhausted. `Traverse` is always the
-correct fallback.
+Optional *triple* indexes are selected from compiled demand, dataset size, and
+observed probes under separate source and session byte budgets. A declined
+index leaves a correct primary-index scan fallback. Path-result caching has a
+separate bounded admission rule.
 
 ## Query planning and execution
 
-Sparopt's generic rewrites may be used before native lowering, but join ordering
-must ultimately use dataset statistics rather than fixed cardinality constants.
-The native planner:
+The native planner substitutes static SHACL parameters, lowers its supported
+query subset, and uses dataset statistics to greedily order BGP scans. It keeps
+each next scan connected to an already bound variable when possible. A
+predicate absent from initial statistics is estimated from the dataset average
+rather than assigned zero rows: inference may introduce that predicate after
+the plan is compiled. This prevents a free scan from being repeated for every
+focus node solely because its initial cardinality was zero. The current
+executor runs the resulting left-deep plan with indexed probes and handles
+supported property paths separately.
 
-1. substitutes static SHACL parameters;
-2. identifies mandatory patterns and correlated regions;
-3. canonicalizes and registers path demand;
-4. estimates cardinality for each scan and path binding mode;
-5. orders joins to bind selective endpoints before broad scans;
-6. chooses indexed nested-loop, hash, semi-join, or anti-join execution;
-7. compiles expressions and result projection.
+A worst-case-optimal join could be added for dense cyclic BGPs if measurements
+show large intermediate joins. It would still require a variable order and
+appropriate indexed access, so it would complement rather than replace access
+planning. Hash, semi-join, and anti-join operators are also possible later
+extensions; the current native executor does not implement them.
 
 Constraint execution has two modes:
 
@@ -251,8 +239,8 @@ Constraint execution has two modes:
 - `Violations`: retain projected `?value` and `?path` values for reporting.
 
 Targets return focus nodes. Rules return constructed triples and remain in the
-inference fixed-point scheduler; native rule execution is a later stage because
-its indexed dataset must support controlled updates or round snapshots.
+inference fixed-point scheduler. Native rule execution reads the indexed dataset;
+committed rule batches update it before the next order group reads.
 
 ## Correctness and fallback
 
@@ -275,7 +263,10 @@ planning decision, which keeps behavior deterministic and debuggable.
 
 ## Instrumentation
 
-Per-query telemetry should report:
+Current opt-in telemetry reports per-query executor and execution time,
+per-shape/rule work, source/session encoding and commit time, optional-index
+admissions, scan candidate rows, and shape/reach-cache activity. These proposed
+additional details are not yet recorded per physical operator:
 
 - source shape or rule and stable query fingerprint;
 - native or fallback executor and fallback reason;
@@ -286,10 +277,14 @@ Per-query telemetry should report:
 - path-cache hits, misses, and materialized relation sizes;
 - early exits in conformance mode.
 
-`inspect` should expose capability decisions, the native physical plan, path
-demands, selected indexes, estimated cardinalities, and memory estimates.
+`inspect --stage capability` reports native/fallback admission, and
+`inspect --stage access` reports static graph scope, predicates, probe direction,
+query/path identities, function calls, and conservative coverage. Runtime
+`--profile` output reports the selected indexes with estimated and actual
+bytes, budgets, build time, and scan work. There is no data-dependent index
+selection in `inspect`, because that command reads only shapes.
 
-## Implementation stages
+## Historical implementation stages
 
 1. **Measure and classify.** Add per-query timing, AST capability reports, path
    demand extraction, and differential-test infrastructure.
@@ -305,6 +300,8 @@ demands, selected indexes, estimated cardinalities, and memory estimates.
 6. **Broaden coverage.** Add expressions and operators in measured priority
    order while preserving whole-query fallback.
 
-Every stage must preserve W3C conformance and the 223P validation result. Speed
-claims require release benchmarks that report index-build time and peak memory,
-not only steady-state query execution.
+The native subset, shared dataset, and demand-driven triple indexes described
+above are implemented. Whole-path materialization, SCC indexes, hash joins,
+and additional native SPARQL features remain future work. The release
+measurements and semantic comparisons for the current storage design are in
+[`benchmark/shared-dataset-results.md`](../benchmark/shared-dataset-results.md).

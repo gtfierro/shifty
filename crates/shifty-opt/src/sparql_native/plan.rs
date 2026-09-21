@@ -409,7 +409,16 @@ fn reorder_bgp(scans: &mut Vec<TripleScan>, focus_var: VarId, stats: &PlanStats)
         let best = remaining
             .iter()
             .enumerate()
-            .min_by_key(|(_, s)| estimate_scan_cost(s, &bound, stats))
+            // A disconnected first scan is repeated for every input focus.
+            // Prefer a scan sharing a bound variable before comparing the
+            // estimated fan-out, especially when inference may add predicates
+            // that were absent from the initial statistics.
+            .min_by_key(|(_, s)| {
+                (
+                    !scan_joins_bound(s, &bound),
+                    estimate_scan_cost(s, &bound, stats),
+                )
+            })
             .map(|(i, _)| i)
             .unwrap();
         let scan = remaining.remove(best);
@@ -419,6 +428,12 @@ fn reorder_bgp(scans: &mut Vec<TripleScan>, focus_var: VarId, stats: &PlanStats)
         ordered.push(scan);
     }
     *scans = ordered;
+}
+
+fn scan_joins_bound(scan: &TripleScan, bound: &HashSet<VarId>) -> bool {
+    [&scan.subject, &scan.predicate, &scan.object]
+        .into_iter()
+        .any(|term| matches!(term, ScanTerm::Var(v) if bound.contains(v)))
 }
 
 /// Variables in `scan` that are not yet in `bound` (they become bound after
@@ -472,11 +487,11 @@ fn is_bound(term: &ScanTerm, bound: &HashSet<VarId>) -> bool {
 }
 
 /// Predicate cardinality for a constant-predicate scan term, `None` for
-/// variable predicates (caller uses average) or unknown predicates (cost = 0,
-/// the scan will immediately produce no rows — pick it first).
+/// variable predicates (caller uses average). Unknown predicates use the
+/// average too: inference may add them after a plan is compiled.
 fn pred_card(term: &ScanTerm, stats: &PlanStats) -> Option<u64> {
     match term {
-        ScanTerm::Const(t) => Some(*stats.predicate_cardinality.get(t).unwrap_or(&0)),
+        ScanTerm::Const(t) => stats.predicate_cardinality.get(t).copied(),
         ScanTerm::Var(_) => None,
     }
 }
@@ -1105,6 +1120,67 @@ mod tests {
             rare_pos < free_pos,
             "expected rare-predicate scan first; got rare={rare_pos:?} free={free_pos:?}",
         );
+    }
+
+    #[test]
+    fn bgp_reorder_anchors_unknown_inferred_predicates_to_focus() {
+        let q = parse(
+            "SELECT ?equipment WHERE { ?cp <http://ex/isOf> ?equipment . \
+             ?this <http://ex/connectsAt> ?cp . ?cp a <http://ex/Type> }",
+        );
+        let stats = PlanStats {
+            total_triples: 100_000,
+            distinct_subjects: 10_000,
+            distinct_objects: 10_000,
+            distinct_predicates: 50,
+            predicate_cardinality: HashMap::new(),
+        };
+        let plan = lower_query_with_stats(&q, Some(&stats)).expect("should lower");
+        let first = plan.nodes.iter().find_map(|op| {
+            if let NativeOp::Scan { pattern, .. } = op {
+                Some(pattern)
+            } else {
+                None
+            }
+        });
+        assert!(matches!(
+            first,
+            Some(TripleScan {
+                subject: ScanTerm::Var(v),
+                ..
+            }) if *v == plan.focus_var
+        ));
+    }
+
+    #[test]
+    fn unknown_predicate_does_not_look_cheaper_than_known_rare_predicate() {
+        let q = parse(
+            "SELECT ?a WHERE { ?a <http://ex/inferred-later> ?b . \
+             ?c <http://ex/rare> ?d }",
+        );
+        let rare = Term::NamedNode(NamedNode::new_unchecked("http://ex/rare"));
+        let stats = PlanStats {
+            total_triples: 100_000,
+            distinct_subjects: 10_000,
+            distinct_objects: 10_000,
+            distinct_predicates: 50,
+            predicate_cardinality: HashMap::from([(rare.clone(), 1)]),
+        };
+        let plan = lower_query_with_stats(&q, Some(&stats)).expect("should lower");
+        let first = plan.nodes.iter().find_map(|op| {
+            if let NativeOp::Scan { pattern, .. } = op {
+                Some(pattern)
+            } else {
+                None
+            }
+        });
+        assert!(matches!(
+            first,
+            Some(TripleScan {
+                predicate: ScanTerm::Const(predicate),
+                ..
+            }) if predicate == &rare
+        ));
     }
 
     /// `Join(Join(Bgp1, Bgp2), Bgp3)` — a nested join where the outer left arm

@@ -16,10 +16,49 @@
 //!
 //! Public APIs expose shallow operations; the caches and semantic translations
 //! that make them fast and correct remain in their owning modules.
+//!
+//! # Reusable document sessions
+//!
+//! [`CompiledShapes::compile`] admits a loaded shapes document once and retains
+//! its authored schema, normalized schema, function definitions, and rule
+//! schedule. Cloning the handle shares those resources. A physical validation
+//! plan is built lazily, so inference-only sessions do not pay for it.
+//!
+//! Create an [`EvaluationSession`] with [`CompiledShapes::session`], choosing
+//! [`SessionData::Separate`] or [`SessionData::Embedded`] and fixed
+//! [`SessionOptions`] for inference, graph mode, and engine policy. In Separate
+//! mode, Data evaluates data alone, Union also reads shapes, and UnionAll also
+//! selects focus nodes from shapes. Embedded mode evaluates the evolving data
+//! graph. Every mode binds the authored shapes source as the named
+//! `$shapesGraph`, including after inference.
+//! [`SessionOptions::default`] uses Union mode, disables inference, and ignores
+//! unsupported features. [`FindingOptions::default`] selects all entry shapes,
+//! considers all severities, and sorts findings.
+//!
+//! A session owns an immutable asserted-data snapshot. Inference runs at
+//! construction; the frozen index is built on the first validation, report,
+//! or evidence operation. [`EvaluationSession::with_delta`] edits asserted
+//! data and creates a new session, recomputing inference under the same policy.
+//! The original session and its results remain valid. A selected evidence pair
+//! belongs to exactly one session; passing it to another session's `explain`
+//! returns [`EvaluationError::ForeignPair`].
+//!
+//! Compilation diagnostics are available from [`CompiledShapes::diagnostics`]
+//! and inference diagnostics from [`EvaluationSession::diagnostics`]. Strict
+//! unsupported-feature policy can reject session construction. Conformance
+//! scans count logical failures, while finding-based validation applies its
+//! selected minimum severity; their `conforms` values can therefore differ.
+//!
+//! [`CompiledShapes`] is `Send + Sync` and may be shared across workers.
+//! Sessions retain operation-local `Rc`/`RefCell` executor state and should be
+//! created separately on each worker.
 
 pub mod compact;
+mod compiled;
+mod context;
 pub mod enumerate;
 pub mod evidence;
+mod focus;
 pub mod frozen;
 pub mod gate;
 pub mod infer;
@@ -28,6 +67,7 @@ pub mod path;
 mod path_plan;
 pub mod profile;
 pub mod report;
+mod session;
 pub mod sharing;
 mod sparql;
 pub use sparql::SparqlDiagnostic;
@@ -40,6 +80,7 @@ pub use compact::{
     CompactError, Sharing, compact, compact_value, expand, expand_value, expand_with_catalog,
     sharing, to_compact_json,
 };
+pub use compiled::{CompileError, CompiledShapes};
 pub use enumerate::{
     EnumOptions, FixpointResult, RepairSolution, candidates, enumerate_repair, repair_to_fixpoint,
 };
@@ -60,6 +101,10 @@ pub use report::{
     property_witnesses_graphs_with_mode, property_witnesses_graphs_with_mode_and_options,
     report_to_graph, validate_report, validate_report_graphs, validate_report_graphs_with_mode,
     validate_report_graphs_with_mode_and_options, validate_report_with_options,
+};
+pub use session::{
+    EvaluationError, EvaluationSession, EvidenceOptions, ExecutionDiagnostic, FindingOptions,
+    SessionData, SessionError, SessionOptions,
 };
 pub use sharing::{ResultSharing, result_sharing};
 pub use synthesize::{
@@ -1643,7 +1688,12 @@ mod tests {
         let parsed = shifty_parse::parse_loaded(&shapes);
         let data = shifty_parse::load_turtle(data_ttl.as_bytes(), None).unwrap();
 
+        profile::enable();
         let outcome = infer_graphs(&data.graph, &shapes.graph, &parsed.schema).unwrap();
+        let storage = profile::take().unwrap().storage().clone();
+
+        assert_eq!(storage.store_builds, 0);
+        assert_eq!(storage.dataset_builds, 1);
 
         assert!(
             outcome
@@ -1651,5 +1701,33 @@ mod tests {
                 .contains(&triple("http://ex/b", "http://ex/q", "http://ex/a"))
         );
         assert_eq!(outcome.inferred.len(), 1);
+    }
+
+    #[test]
+    fn fallback_construct_sees_next_fixpoint_round_without_store() {
+        let ttl = format!(
+            "{PREFIXES}
+            ex:S a sh:NodeShape ; sh:targetNode ex:x ;
+                sh:rule [ a sh:TripleRule ; sh:order 0 ;
+                    sh:subject sh:this ; sh:predicate ex:ready ; sh:object ex:y ] ;
+                sh:rule [ a sh:SPARQLRule ; sh:order 0 ;
+                    sh:construct \"\"\"
+                        CONSTRUCT {{ $this ex:done ?o }}
+                        WHERE {{ $this ex:ready ?o . OPTIONAL {{ ?o ex:unused ?z }} }}
+                    \"\"\" ] ."
+        );
+        let loaded = shifty_parse::load_turtle(ttl.as_bytes(), None).unwrap();
+        let parsed = shifty_parse::parse_loaded(&loaded);
+        profile::enable();
+        let outcome = infer(&loaded.graph, &parsed.schema).unwrap();
+        let storage = profile::take().unwrap().storage().clone();
+        assert!(
+            outcome
+                .graph
+                .contains(&triple("http://ex/x", "http://ex/done", "http://ex/y",))
+        );
+        assert_eq!(storage.store_builds, 0);
+        assert_eq!(storage.dataset_builds, 1);
+        assert_eq!(storage.committed_rows, 2);
     }
 }

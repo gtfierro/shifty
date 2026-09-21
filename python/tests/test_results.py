@@ -49,6 +49,19 @@ ex:PersonShape a sh:NodeShape ;
 """
 )
 
+
+def test_validation_result_exposes_inference_diagnostics():
+    shapes = b"""
+        @prefix sh: <http://www.w3.org/ns/shacl#> .
+        @prefix ex: <http://ex/> .
+        ex:S a sh:NodeShape ; sh:targetNode ex:x ;
+            sh:rule [ a sh:SPARQLRule ;
+                sh:construct "CONSTRUCT { $this ex:p [] } WHERE {}" ] .
+    """
+    result = shifty.validate_algebra(b"", shapes)
+    assert any("blank nodes" in message for message in result.diagnostics)
+
+
 VALID_DATA = (
     PREFIXES
     + """\

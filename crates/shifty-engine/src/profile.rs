@@ -11,11 +11,11 @@ use web_time::Instant;
 /// Per-query performance record.
 #[derive(Debug, Clone)]
 pub struct QueryRecord {
-    /// Stable fingerprint derived from the canonical query text (first 64 chars).
+    /// Stable fingerprint derived from the canonical query text (first 160 chars).
     pub fingerprint: String,
-    /// Whether the native executor handled this query (always Fallback in stage 1).
+    /// Whether the native executor or Spareval fallback handled this query.
     pub executor: ExecutorKind,
-    /// How many times this query was invoked (one per focus node in stage 1).
+    /// How many execution batches or fallback probes invoked this query.
     pub invocations: u64,
     /// Total wall-clock execution time across all invocations, in microseconds.
     pub total_exec_us: u64,
@@ -62,6 +62,68 @@ pub struct ShapeCacheRecord {
     pub estimated_peak_bytes: usize,
 }
 
+/// Storage work counted only while profiling is enabled. Counts are structural
+/// evidence; wall-clock costs are reported separately.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct StorageRecord {
+    /// Time spent compiling data-independent read/write demand.
+    pub access_catalog_us: u64,
+    pub store_builds: u64,
+    pub graph_union_builds: u64,
+    pub graph_union_rows: u64,
+    pub graph_projection_builds: u64,
+    pub graph_projection_rows: u64,
+    pub source_builds: u64,
+    pub source_rows: u64,
+    pub dataset_builds: u64,
+    pub encoded_rows: u64,
+    pub committed_rows: u64,
+    pub commit_batches: u64,
+    pub commit_us: u64,
+    pub index_builds: u64,
+    pub index_bytes: u64,
+    pub index_declines: u64,
+    /// Allocated PSO pair-buffer capacity, excluding map nodes and dictionaries.
+    pub source_primary_bytes: u64,
+    pub session_primary_bytes: u64,
+    /// Time spent encoding the lazily shared source storage.
+    pub source_encode_us: u64,
+    /// Time spent encoding session datasets from data graphs.
+    pub session_encode_us: u64,
+}
+
+/// One optional-index admission decision. The base PSO index is mandatory and
+/// therefore does not appear here.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IndexRecord {
+    pub scope: &'static str,
+    pub kind: &'static str,
+    pub predicate: Option<String>,
+    pub reason: &'static str,
+    pub rows: usize,
+    pub estimated_bytes: usize,
+    pub actual_bytes: usize,
+    pub budget_bytes: usize,
+    pub build_us: u64,
+    pub accepted: bool,
+}
+
+/// Candidate rows visited by one scan pattern. The mask uses S=1, P=2, O=4.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ScanRecord {
+    pub calls: u64,
+    pub candidate_rows: u64,
+}
+
+/// Aggregate bounded reachability-cache telemetry for one profiling session.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ReachCacheRecord {
+    pub hits: u64,
+    pub misses: u64,
+    pub insertions: u64,
+    pub declined_ids: u64,
+}
+
 /// One evaluator's cache counters, merged into [`ShapeCacheRecord`] on drop.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) struct ShapeCacheSample {
@@ -88,6 +150,10 @@ pub struct ProfileCollector {
     records: Vec<QueryRecord>,
     shape_records: Vec<ShapeRecord>,
     shape_cache: ShapeCacheRecord,
+    storage: StorageRecord,
+    indexes: Vec<IndexRecord>,
+    scans: [[ScanRecord; 8]; 2],
+    reach_cache: ReachCacheRecord,
 }
 
 impl ProfileCollector {
@@ -159,7 +225,101 @@ impl ProfileCollector {
         &self.shape_cache
     }
 
+    pub fn storage(&self) -> &StorageRecord {
+        &self.storage
+    }
+
+    pub fn indexes(&self) -> &[IndexRecord] {
+        &self.indexes
+    }
+
+    pub fn scans(&self) -> &[[ScanRecord; 8]; 2] {
+        &self.scans
+    }
+
+    pub fn reach_cache(&self) -> &ReachCacheRecord {
+        &self.reach_cache
+    }
+
     pub fn print_summary(&self) {
+        if self.storage.store_builds + self.storage.dataset_builds + self.storage.source_builds > 0
+        {
+            println!(
+                "profile: storage: {} Store build(s), {} source build(s) / {} row(s), {} dataset build(s), {} encoded row(s), {} committed row(s), {} index build(s) / {} byte(s), {} declined",
+                self.storage.store_builds,
+                self.storage.source_builds,
+                self.storage.source_rows,
+                self.storage.dataset_builds,
+                self.storage.encoded_rows,
+                self.storage.committed_rows,
+                self.storage.index_builds,
+                self.storage.index_bytes,
+                self.storage.index_declines,
+            );
+            println!(
+                "profile: storage time: {} µs access catalog, {} µs shared source encode, {} µs session encode, {} µs across {} commit batch(es)",
+                self.storage.access_catalog_us,
+                self.storage.source_encode_us,
+                self.storage.session_encode_us,
+                self.storage.commit_us,
+                self.storage.commit_batches,
+            );
+            println!(
+                "profile: primary pair buffers: {} source byte(s), {} session byte(s)",
+                self.storage.source_primary_bytes, self.storage.session_primary_bytes,
+            );
+            println!(
+                "profile: graph materialization: {} union build(s) / {} row(s), {} compatibility projection(s) / {} row(s)",
+                self.storage.graph_union_builds,
+                self.storage.graph_union_rows,
+                self.storage.graph_projection_builds,
+                self.storage.graph_projection_rows,
+            );
+        }
+        for index in &self.indexes {
+            let predicate = index
+                .predicate
+                .as_deref()
+                .map_or(String::new(), |predicate| format!(" <{predicate}>"));
+            println!(
+                "profile: index: {} {}{}: {}, {} row(s), {} estimated byte(s), {} allocated byte(s), {} byte budget, {} µs build, {}",
+                index.scope,
+                index.kind,
+                predicate,
+                index.reason,
+                index.rows,
+                index.estimated_bytes,
+                index.actual_bytes,
+                index.budget_bytes,
+                index.build_us,
+                if index.accepted { "built" } else { "declined" },
+            );
+        }
+        for (scope, patterns) in ["source", "session"].into_iter().zip(&self.scans) {
+            for (mask, scan) in patterns.iter().enumerate() {
+                if scan.calls == 0 {
+                    continue;
+                }
+                let pattern = [
+                    if mask & 1 != 0 { 'S' } else { '-' },
+                    if mask & 2 != 0 { 'P' } else { '-' },
+                    if mask & 4 != 0 { 'O' } else { '-' },
+                ];
+                println!(
+                    "profile: scan: {scope} {}{}{}: {} call(s), {} candidate row(s)",
+                    pattern[0], pattern[1], pattern[2], scan.calls, scan.candidate_rows,
+                );
+            }
+        }
+        if self.reach_cache.hits + self.reach_cache.misses > 0 {
+            println!(
+                "profile: reach cache: {} hit(s), {} miss(es), {} insertion(s), {} declined result id(s)",
+                self.reach_cache.hits,
+                self.reach_cache.misses,
+                self.reach_cache.insertions,
+                self.reach_cache.declined_ids,
+            );
+        }
         if !self.shape_records.is_empty() {
             println!(
                 "profile: {} distinct shape(s)/rule(s)",
@@ -262,6 +422,154 @@ pub fn record_shape(label: &str, exec_us: u64) {
     });
 }
 
+pub(crate) fn record_store_build() {
+    PROFILER.with(|p| {
+        if let Some(col) = p.borrow_mut().as_mut() {
+            col.storage.store_builds += 1;
+        }
+    });
+}
+
+pub(crate) fn record_graph_union(rows: usize) {
+    PROFILER.with(|p| {
+        if let Some(col) = p.borrow_mut().as_mut() {
+            col.storage.graph_union_builds += 1;
+            col.storage.graph_union_rows += rows as u64;
+        }
+    });
+}
+
+pub(crate) fn record_graph_projection(rows: usize) {
+    PROFILER.with(|p| {
+        if let Some(col) = p.borrow_mut().as_mut() {
+            col.storage.graph_projection_builds += 1;
+            col.storage.graph_projection_rows += rows as u64;
+        }
+    });
+}
+
+pub(crate) fn record_source_build(rows: usize) {
+    PROFILER.with(|p| {
+        if let Some(col) = p.borrow_mut().as_mut() {
+            col.storage.source_builds += 1;
+            col.storage.source_rows += rows as u64;
+        }
+    });
+}
+
+pub(crate) fn record_source_encode_time(us: u64) {
+    PROFILER.with(|p| {
+        if let Some(col) = p.borrow_mut().as_mut() {
+            col.storage.source_encode_us += us;
+        }
+    });
+}
+
+pub(crate) fn record_access_catalog_time(us: u64) {
+    PROFILER.with(|p| {
+        if let Some(col) = p.borrow_mut().as_mut() {
+            col.storage.access_catalog_us = col.storage.access_catalog_us.saturating_add(us);
+        }
+    });
+}
+
+pub(crate) fn record_dataset_build(rows: usize) {
+    PROFILER.with(|p| {
+        if let Some(col) = p.borrow_mut().as_mut() {
+            col.storage.dataset_builds += 1;
+            col.storage.encoded_rows += rows as u64;
+        }
+    });
+}
+
+pub(crate) fn record_session_encode_time(us: u64) {
+    PROFILER.with(|p| {
+        if let Some(col) = p.borrow_mut().as_mut() {
+            col.storage.session_encode_us += us;
+        }
+    });
+}
+
+pub(crate) fn record_dataset_commit(rows: usize, us: u64) {
+    PROFILER.with(|p| {
+        if let Some(col) = p.borrow_mut().as_mut() {
+            col.storage.committed_rows += rows as u64;
+            col.storage.commit_batches += 1;
+            col.storage.commit_us += us;
+        }
+    });
+}
+
+pub(crate) fn record_index_decision(record: IndexRecord) {
+    PROFILER.with(|p| {
+        if let Some(col) = p.borrow_mut().as_mut() {
+            if record.accepted {
+                col.storage.index_builds += 1;
+                col.storage.index_bytes += record.actual_bytes as u64;
+            } else {
+                col.storage.index_declines += 1;
+            }
+            col.indexes.push(record);
+        }
+    });
+}
+
+pub(crate) fn record_primary_index_bytes(scope: &'static str, old: usize, new: usize) {
+    PROFILER.with(|p| {
+        if let Some(col) = p.borrow_mut().as_mut() {
+            let bytes = if scope == "source" {
+                &mut col.storage.source_primary_bytes
+            } else {
+                &mut col.storage.session_primary_bytes
+            };
+            *bytes = bytes.saturating_sub(old as u64) + new as u64;
+        }
+    });
+}
+
+pub(crate) fn observe_shared_source_primary_bytes(bytes: usize) {
+    PROFILER.with(|p| {
+        if let Some(col) = p.borrow_mut().as_mut() {
+            col.storage.source_primary_bytes = col.storage.source_primary_bytes.max(bytes as u64);
+        }
+    });
+}
+
+pub(crate) fn record_scan(scope: &'static str, mask: usize, candidates: usize) {
+    PROFILER.with(|p| {
+        if let Some(col) = p.borrow_mut().as_mut() {
+            let scope = usize::from(scope == "session");
+            let scan = &mut col.scans[scope][mask];
+            scan.calls += 1;
+            scan.candidate_rows += candidates as u64;
+        }
+    });
+}
+
+pub(crate) fn record_reach_cache_lookup(hit: bool) {
+    PROFILER.with(|p| {
+        if let Some(col) = p.borrow_mut().as_mut() {
+            if hit {
+                col.reach_cache.hits += 1;
+            } else {
+                col.reach_cache.misses += 1;
+            }
+        }
+    });
+}
+
+pub(crate) fn record_reach_cache_admission(inserted: bool, result_ids: usize) {
+    PROFILER.with(|p| {
+        if let Some(col) = p.borrow_mut().as_mut() {
+            if inserted {
+                col.reach_cache.insertions += 1;
+            } else {
+                col.reach_cache.declined_ids += result_ids as u64;
+            }
+        }
+    });
+}
+
 /// Record one evaluation plus its evidence-node visits. No-op when profiling
 /// is disabled.
 pub(crate) fn record_shape_work(label: &str, exec_us: u64, visits: u64) {
@@ -336,7 +644,7 @@ pub fn timed<T>(fingerprint: &str, f: impl FnOnce() -> T) -> T {
 /// Derive a short fingerprint from a canonical query string.
 pub fn fingerprint(query: &str) -> String {
     let trimmed = query.trim();
-    let preview: String = trimmed.chars().take(60).collect();
+    let preview: String = trimmed.chars().take(160).collect();
     // Replace newlines/runs of whitespace with a single space for readability.
     preview.split_whitespace().collect::<Vec<_>>().join(" ")
 }

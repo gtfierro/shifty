@@ -6,6 +6,7 @@ license.workspace = true
 edition.workspace = true
 description = "Core SHACL formalism IR: path algebra, shape grammar, selectors, schema, and reference semantics"
 repository.workspace = true
+readme.workspace = true
 
 [dependencies]
 oxrdf.workspace = true

@@ -23,8 +23,9 @@
 //! the crucial invariant—cache only conclusions independent of the current
 //! recursion proof, while making the recursion rule explicit in one place.
 
+use crate::focus::FocusNodes;
 use crate::frozen::FrozenIndexedDataset;
-use crate::path::{PathBackend, node_of, pred, succ};
+use crate::path::{PathBackend, pred, succ};
 use crate::profile::ShapeCacheSample;
 use crate::sparql::{SparqlDiagnostic, SparqlExecutor, SparqlViolation};
 use crate::value::{compare_terms, value_type_holds};
@@ -377,6 +378,75 @@ impl fmt::Display for NonStratifiable {
 
 impl std::error::Error for NonStratifiable {}
 
+impl NonStratifiable {
+    /// The same message, naming shapes as the document named them.
+    ///
+    /// [`Display`](fmt::Display) has only arena slot ids to work with, so it
+    /// prints `{@0 @1}` — meaningless outside a debugging dump, and the reader
+    /// has no way to map it back to the shape they wrote. Given the schema the
+    /// analysis ran over, a slot can be named: its authored IRI compacted
+    /// against the document's own prefixes, else the blank node it was lowered
+    /// from, else the slot id as a last resort for a shape lowering synthesized.
+    pub fn describe(&self, schema: &Schema) -> String {
+        let mut out = String::from("non-stratifiable schema (recursion through negation): ");
+        for (i, component) in self.components.iter().enumerate() {
+            if i > 0 {
+                out.push_str("; ");
+            }
+            out.push('{');
+            for (j, id) in component.iter().enumerate() {
+                if j > 0 {
+                    // Comma, not space: a synthesized slot's label is several
+                    // words, so space-separated members run together.
+                    out.push_str(", ");
+                }
+                out.push_str(&describe_shape_id(schema, *id));
+            }
+            out.push('}');
+        }
+        out
+    }
+}
+
+fn describe_shape_id(schema: &Schema, id: ShapeId) -> String {
+    if let Some(name) = schema.name_of(id) {
+        return schema.prefixes.compact(name);
+    }
+    match schema.sources.get(&id) {
+        Some(Term::BlankNode(node)) => format!("_:{}", node.as_str()),
+        Some(Term::NamedNode(node)) => schema.prefixes.compact(node.as_str()),
+        // A slot lowering synthesized, with no node of its own in the document.
+        // Its operator is the only thing about it the reader can recognize, and
+        // it is what makes the cycle: `ex:S` through `negation` back to `ex:S`
+        // says where the negation is. The id stays as a suffix so a debugging
+        // dump still lines up with the arena.
+        _ => format!("{} @{}", constraint_kind_label(schema, id), id.0),
+    }
+}
+
+fn constraint_kind_label(schema: &Schema, id: ShapeId) -> &'static str {
+    match ConstraintKind::of(&schema.arena, id) {
+        ConstraintKind::Top => "top",
+        ConstraintKind::Constant => "constant",
+        ConstraintKind::ClassMembership => "class",
+        ConstraintKind::ValueType => "value type",
+        ConstraintKind::NodeKind => "node kind",
+        ConstraintKind::Closed => "closed",
+        ConstraintKind::Equals => "equals",
+        ConstraintKind::Disjoint => "disjoint",
+        ConstraintKind::LessThan => "less than",
+        ConstraintKind::LessThanOrEquals => "less than or equals",
+        ConstraintKind::UniqueLang => "unique lang",
+        ConstraintKind::Negation => "negation",
+        ConstraintKind::Conjunction => "conjunction",
+        ConstraintKind::Disjunction => "disjunction",
+        ConstraintKind::Cardinality => "cardinality",
+        ConstraintKind::Sparql => "sparql",
+        ConstraintKind::Expression => "expression",
+        ConstraintKind::Unknown => "shape",
+    }
+}
+
 /// Validate `data` against `schema`.
 ///
 /// Honors the decided recursion semantics (`docs/03-recursion-semantics.md`):
@@ -503,40 +573,88 @@ fn validate_with_frozen(
     }
 
     let sparql = SparqlExecutor::from_frozen(frozen, has_shapes_graph);
-    let backend = sparql
-        .frozen()
-        .expect("validation executor always has a frozen dataset");
-    let mut evaluator = ShapeEvaluator::new(backend, &schema.arena, &schema.prefixes, &sparql);
-    let mut violations = Vec::new();
-    for (i, st) in schema.statements.iter().enumerate() {
-        if !entry_shape_any_name_selected(&options.entry_shape_names, schema.names_of(st.shape)) {
-            continue;
+    Ok(validate_with_executor(data, schema, &sparql, options))
+}
+
+pub(crate) fn validate_with_executor(
+    data: &dyn FocusNodes,
+    schema: &Schema,
+    sparql: &SparqlExecutor,
+    options: &ValidationOptions,
+) -> ValidationOutcome {
+    validate_with_executor_selected(data, schema, sparql, options, None)
+}
+
+pub(crate) fn validate_with_executor_selected(
+    data: &dyn FocusNodes,
+    schema: &Schema,
+    sparql: &SparqlExecutor,
+    options: &ValidationOptions,
+    selected: Option<&[bool]>,
+) -> ValidationOutcome {
+    let entries = schema.statements.iter().enumerate().filter_map(|(i, st)| {
+        if selected.is_some_and(|selected| !selected[i])
+            || (selected.is_none()
+                && !entry_shape_any_name_selected(
+                    &options.entry_shape_names,
+                    schema.names_of(st.shape),
+                ))
+        {
+            return None;
         }
         let label = schema
             .name_of(st.shape)
             .map(str::to_string)
             .unwrap_or_else(|| format!("@{}", st.shape.0));
-        let foci = focus_nodes_with_evaluator(data, &st.selector, &mut evaluator);
-        prefetch_sparql_constraints(&schema.arena, st.shape, &foci, &sparql);
-        for v in foci {
-            let t = web_time::Instant::now();
+        Some((i, st.shape, &st.selector, label))
+    });
+    validate_entries(
+        data,
+        &schema.arena,
+        &schema.prefixes,
+        sparql,
+        options,
+        entries,
+        focus_nodes_with_evaluator,
+    )
+}
+
+fn validate_entries<'a, S: 'a>(
+    data: &dyn FocusNodes,
+    arena: &ShapeArena,
+    prefixes: &Prefixes,
+    sparql: &SparqlExecutor,
+    options: &ValidationOptions,
+    entries: impl IntoIterator<Item = (usize, ShapeId, &'a S, String)>,
+    focus: impl Fn(&dyn FocusNodes, &S, &mut ShapeEvaluator<'_>) -> Vec<Term>,
+) -> ValidationOutcome {
+    let backend = sparql
+        .frozen()
+        .expect("validation executor always has a frozen dataset");
+    let mut evaluator = ShapeEvaluator::new(backend, arena, prefixes, sparql);
+    let mut violations = Vec::new();
+    for (statement, shape, source, label) in entries {
+        let foci = focus(data, source, &mut evaluator);
+        prefetch_sparql_constraints(arena, shape, &foci, sparql);
+        for focus in foci {
+            let start = web_time::Instant::now();
             let mut stack = HashSet::new();
             let mut reasons = explain(
                 &mut evaluator,
-                &v,
-                st.shape,
+                &focus,
+                shape,
                 None,
                 &Severity::Violation,
                 &mut stack,
             );
-            crate::profile::record_shape(&label, t.elapsed().as_micros() as u64);
+            crate::profile::record_shape(&label, start.elapsed().as_micros() as u64);
             dedup_reasons(&mut reasons);
-            stamp_statement_id(&mut reasons, i);
+            stamp_statement_id(&mut reasons, statement);
             if !reasons.is_empty() {
                 let severity = most_severe(&reasons);
                 violations.push(Violation {
-                    focus: v,
-                    statement: i,
+                    focus,
+                    statement,
                     severity,
                     reasons,
                 });
@@ -544,10 +662,10 @@ fn validate_with_frozen(
         }
     }
     sort_violations(&mut violations, options.sort_results);
-    Ok(ValidationOutcome {
+    ValidationOutcome {
         conforms: conforms_at_threshold(&violations, &options.minimum_severity),
         violations,
-    })
+    }
 }
 
 /// Whether any `sh:sparql` constraint references `$shapesGraph`, requiring the
@@ -578,6 +696,7 @@ pub fn graph_union(left: &Graph, right: &Graph) -> Graph {
     for triple in extra.iter() {
         union.insert(triple);
     }
+    crate::profile::record_graph_union(union.len());
     union
 }
 
@@ -711,69 +830,62 @@ fn validate_plan_with_frozen(
     }
 
     let sparql = SparqlExecutor::from_frozen(frozen, has_shapes_graph);
-    let backend = sparql
-        .frozen()
-        .expect("validation executor always has a frozen dataset");
-    let mut evaluator = ShapeEvaluator::new(backend, &plan.arena, &plan.prefixes, &sparql);
-    let mut violations = Vec::new();
-    for (i, sp) in plan.statements.iter().enumerate() {
-        if !entry_shape_any_name_selected(&options.entry_shape_names, plan.names_of(sp.shape)) {
-            continue;
+    Ok(validate_plan_with_executor(
+        data, plan, &sparql, options, None,
+    ))
+}
+
+pub(crate) fn validate_plan_with_executor(
+    data: &dyn FocusNodes,
+    plan: &PhysicalPlan,
+    sparql: &SparqlExecutor,
+    options: &ValidationOptions,
+    selected: Option<&[bool]>,
+) -> ValidationOutcome {
+    let entries = plan.statements.iter().enumerate().filter_map(|(i, sp)| {
+        if selected.is_some_and(|selected| !selected[i])
+            || (selected.is_none()
+                && !entry_shape_any_name_selected(
+                    &options.entry_shape_names,
+                    plan.names_of(sp.shape),
+                ))
+        {
+            return None;
         }
         let label = plan
             .name_of(sp.shape)
             .map(str::to_string)
             .unwrap_or_else(|| format!("@{}", sp.shape.0));
-        let foci = focus_for_source(data, &sp.source, &mut evaluator);
-        prefetch_sparql_constraints(&plan.arena, sp.shape, &foci, &sparql);
-        for v in foci {
-            let t = web_time::Instant::now();
-            let mut stack = HashSet::new();
-            let mut reasons = explain(
-                &mut evaluator,
-                &v,
-                sp.shape,
-                None,
-                &Severity::Violation,
-                &mut stack,
-            );
-            crate::profile::record_shape(&label, t.elapsed().as_micros() as u64);
-            dedup_reasons(&mut reasons);
-            stamp_statement_id(&mut reasons, i);
-            if !reasons.is_empty() {
-                let severity = most_severe(&reasons);
-                violations.push(Violation {
-                    focus: v,
-                    statement: i,
-                    severity,
-                    reasons,
-                });
-            }
-        }
-    }
-    sort_violations(&mut violations, options.sort_results);
-    Ok(ValidationOutcome {
-        conforms: conforms_at_threshold(&violations, &options.minimum_severity),
-        violations,
-    })
+        Some((i, sp.shape, &sp.source, label))
+    });
+    validate_entries(
+        data,
+        &plan.arena,
+        &plan.prefixes,
+        sparql,
+        options,
+        entries,
+        focus_for_source,
+    )
 }
 
 /// Focus nodes for a compiled [`FocusSource`].
 fn focus_for_source(
-    data: &Graph,
+    data: &dyn FocusNodes,
     source: &FocusSource,
     evaluator: &mut ShapeEvaluator<'_>,
 ) -> Vec<Term> {
     match source {
-        FocusSource::SubjectsOf(p) => subjects_of(data, p),
-        FocusSource::ObjectsOf(p) => objects_of(data, p),
+        FocusSource::SubjectsOf(p) => data.subjects_of(p),
+        FocusSource::ObjectsOf(p) => data.objects_of(p),
         FocusSource::Node(c) => vec![c.clone()],
         // the optimization: seed backward from the constant, no full scan
         FocusSource::PathToConst { path, target } => pred(evaluator.g, target, path)
             .into_iter()
-            .filter(|node| graph_contains_term(data, node))
+            .filter(|node| data.contains_term(node))
             .collect(),
-        FocusSource::ScanFilter { path, qualifier } => all_nodes(data)
+        FocusSource::ScanFilter { path, qualifier } => data
+            .all_nodes()
             .into_iter()
             .filter(|v| {
                 succ(evaluator.g, v, path)
@@ -782,7 +894,7 @@ fn focus_for_source(
             })
             .collect(),
         FocusSource::Sparql(target) => {
-            let candidates = all_nodes(data);
+            let candidates = data.all_nodes();
             evaluator
                 .sparql
                 .target_nodes(&target.query)
@@ -803,7 +915,7 @@ pub fn focus_nodes(data: &Graph, sel: &Selector, arena: &ShapeArena) -> Vec<Term
 }
 
 pub(crate) fn focus_nodes_with(
-    data: &Graph,
+    data: &dyn FocusNodes,
     backend: &dyn PathBackend,
     sel: &Selector,
     arena: &ShapeArena,
@@ -814,13 +926,13 @@ pub(crate) fn focus_nodes_with(
 }
 
 pub(crate) fn focus_nodes_with_evaluator(
-    data: &Graph,
+    data: &dyn FocusNodes,
     sel: &Selector,
     evaluator: &mut ShapeEvaluator<'_>,
 ) -> Vec<Term> {
     match sel {
-        Selector::HasOut(q) => subjects_of(data, q),
-        Selector::HasIn(q) => objects_of(data, q),
+        Selector::HasOut(q) => data.subjects_of(q),
+        Selector::HasIn(q) => data.objects_of(q),
         Selector::IsConst(c) => vec![c.clone()],
         Selector::HasPath(path, qual) => match evaluator.arena.get(*qual) {
             // Class targets are lowered to
@@ -829,9 +941,10 @@ pub(crate) fn focus_nodes_with_evaluator(
             // for every node in the data graph.
             Shape::TestConst(target) => pred(evaluator.g, target, path)
                 .into_iter()
-                .filter(|node| graph_contains_term(data, node))
+                .filter(|node| data.contains_term(node))
                 .collect(),
-            _ => all_nodes(data)
+            _ => data
+                .all_nodes()
                 .into_iter()
                 .filter(|v| {
                     succ(evaluator.g, v, path)
@@ -841,7 +954,7 @@ pub(crate) fn focus_nodes_with_evaluator(
                 .collect(),
         },
         Selector::Sparql(target) => {
-            let candidates = all_nodes(data);
+            let candidates = data.all_nodes();
             evaluator
                 .sparql
                 .target_nodes(&target.query)
@@ -1798,48 +1911,6 @@ fn dedup_reasons(reasons: &mut Vec<Reason>) {
             r.severity.as_str().to_string(),
         ))
     });
-}
-
-fn subject_term(s: oxrdf::NamedOrBlankNodeRef) -> Term {
-    crate::path::term_of(s.into_owned())
-}
-
-/// Distinct subjects of triples with predicate `p`.
-fn subjects_of(data: &Graph, p: &NamedNode) -> Vec<Term> {
-    let mut seen = HashSet::new();
-    data.triples_for_predicate(p.as_ref())
-        .filter_map(|t| {
-            let term = subject_term(t.subject);
-            seen.insert(term.clone()).then_some(term)
-        })
-        .collect()
-}
-
-/// Distinct objects of triples with predicate `p`.
-fn objects_of(data: &Graph, p: &NamedNode) -> Vec<Term> {
-    let mut seen = HashSet::new();
-    data.triples_for_predicate(p.as_ref())
-        .filter_map(|t| {
-            let term = t.object.into_owned();
-            seen.insert(term.clone()).then_some(term)
-        })
-        .collect()
-}
-
-/// All distinct terms appearing as a subject or object in the graph.
-fn all_nodes(g: &Graph) -> HashSet<Term> {
-    let mut nodes = HashSet::new();
-    for t in g.iter() {
-        nodes.insert(subject_term(t.subject));
-        nodes.insert(t.object.into_owned());
-    }
-    nodes
-}
-
-/// Whether `term` appears in the graph's node domain.
-fn graph_contains_term(g: &Graph, term: &Term) -> bool {
-    node_of(term).is_some_and(|node| g.triples_for_subject(&node).next().is_some())
-        || g.triples_for_object(term).next().is_some()
 }
 
 #[cfg(test)]

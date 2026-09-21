@@ -6,6 +6,7 @@ license.workspace = true
 edition.workspace = true
 description = "Lower an RDF shapes graph into the SHACL formalism IR"
 repository.workspace = true
+readme.workspace = true
 
 [dependencies]
 shifty-algebra.workspace = true

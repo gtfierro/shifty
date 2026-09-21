@@ -1,15 +1,11 @@
-//! Shared SPARQL execution over an Oxigraph default graph.
+//! Shared SPARQL execution over a queryable RDF dataset.
 //!
 //! Queries are parsed and canonicalized by `shifty-parse`. This layer caches
-//! Oxigraph's prepared form, applies SHACL prebindings, and executes against a
-//! store that is kept in sync with rule inference.
+//! Oxigraph's prepared form, applies SHACL prebindings, and executes against
+//! the indexed dataset used by both native and fallback evaluators.
 //!
-//! During inference, the executor owns a mutable Oxigraph `Store`: rules add
-//! triples between firings, so the store is the authoritative query dataset.
-//! During validation, it instead owns a [`FrozenIndexedDataset`], allowing the
-//! supported relational subset to run over Shifty's compact indexes without
-//! allocating a second mutable store. The public methods hide that split; their
-//! result semantics are the same in either mode.
+//! Legacy entry points can still construct an Oxigraph `Store`. Compiled
+//! sessions use a [`FrozenIndexedDataset`] throughout inference and validation.
 //!
 //! A constraint query first receives static SHACL rewriting: `$PATH` is
 //! substituted for property-shape queries, while the shape, component
@@ -20,6 +16,7 @@
 //! the fast path a replaceable implementation detail rather than a separate
 //! dialect of SPARQL.
 
+use crate::compiled::ParsedQueries;
 use crate::frozen::{FrozenIndexedDataset, TermId};
 use crate::native_exec;
 use crate::profile;
@@ -41,20 +38,20 @@ use spargebra::{Query, SparqlParser};
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
+use std::sync::Arc;
 
 /// The named graph the shapes graph is loaded under so `GRAPH $shapesGraph {…}`
 /// can be evaluated; `$shapesGraph` is pre-bound to this IRI.
 pub(crate) use crate::frozen::SHAPES_GRAPH_IRI;
 
 pub(crate) struct SparqlExecutor {
-    /// Mutable store used by inference. Validation evaluates directly over
-    /// `frozen`, so it does not allocate this second indexed representation.
+    /// Compatibility store for legacy callers and differential tests.
     store: Option<Store>,
-    /// Frozen dataset used for constraint/target SPARQL during validation. `None`
-    /// during inference (where the store mutates between rule firings).
+    /// Indexed dataset used for compiled-session inference and validation.
     frozen: Option<FrozenIndexedDataset>,
     prepared: RefCell<HashMap<String, PreparedSparqlQuery>>,
     parsed: RefCell<HashMap<String, Query>>,
+    shared_parsed: Option<Arc<ParsedQueries>>,
     /// Per-constraint compilation cache (doc §72): static SHACL substitutions
     /// applied once, then either a native plan or a fallback query. Keyed by the
     /// constraint's query plus its static bindings (path / shape).
@@ -85,19 +82,7 @@ pub(crate) struct SparqlExecutor {
 /// the frozen dataset is `Rc`-based and cannot cross the `Send + Sync` boundary
 /// the custom-function closure requires. (Node-expression function calls keep
 /// full graph access via [`SparqlExecutor::call_sparql_function`].)
-#[derive(Clone)]
-pub(crate) struct FunctionDef {
-    pub iri: NamedNode,
-    /// Parameter variable names, in positional call order.
-    pub params: Vec<String>,
-    /// The function body (`sh:select` or `sh:ask`), prefix-expanded.
-    pub query: String,
-    /// Whether the body reads the data graph (has a non-trivial WHERE pattern).
-    /// Such functions only return correct results in node expressions, where the
-    /// real dataset is available; from a SPARQL context they run over an empty
-    /// dataset, so `UnsupportedPolicy::Error` declines to register them.
-    pub reads_graph: bool,
-}
+pub(crate) use shifty_algebra::FunctionDef;
 
 /// Cache key for a compiled constraint: the canonical query plus the static
 /// bindings that change its plan. `$this` is bound per focus and so is *not*
@@ -191,8 +176,14 @@ impl SparqlExecutor {
         Self::build(graph, None)
     }
 
+    #[cfg(test)]
+    pub(crate) fn new_with_shapes(context: &Graph, shapes: &Graph) -> Result<Self, String> {
+        Self::build(context, Some(shapes))
+    }
+
     fn build(context: &Graph, shapes: Option<&Graph>) -> Result<Self, String> {
         let store = Store::new().map_err(|e| e.to_string())?;
+        profile::record_store_build();
         store
             .extend(context.iter().map(|triple| {
                 Quad::new(
@@ -225,6 +216,7 @@ impl SparqlExecutor {
             frozen: None,
             prepared: RefCell::new(HashMap::new()),
             parsed: RefCell::new(HashMap::new()),
+            shared_parsed: None,
             compiled: RefCell::new(HashMap::new()),
             constructs: RefCell::new(HashMap::new()),
             batch_construct: RefCell::new(HashSet::new()),
@@ -235,11 +227,20 @@ impl SparqlExecutor {
     }
 
     pub fn from_frozen(frozen: FrozenIndexedDataset, has_shapes_graph: bool) -> Self {
+        Self::from_frozen_with_parsed(frozen, has_shapes_graph, None)
+    }
+
+    pub(crate) fn from_frozen_with_parsed(
+        frozen: FrozenIndexedDataset,
+        has_shapes_graph: bool,
+        shared_parsed: Option<Arc<ParsedQueries>>,
+    ) -> Self {
         Self {
             store: None,
             frozen: Some(frozen),
             prepared: RefCell::new(HashMap::new()),
             parsed: RefCell::new(HashMap::new()),
+            shared_parsed,
             compiled: RefCell::new(HashMap::new()),
             constructs: RefCell::new(HashMap::new()),
             batch_construct: RefCell::new(HashSet::new()),
@@ -316,13 +317,34 @@ impl SparqlExecutor {
         }
     }
 
-    /// The attached frozen snapshot, if any. Validation uses it as the indexed
-    /// `PathBackend` for `sh:path` traversal; inference leaves it `None` and
-    /// falls back to its mutable graph.
+    /// The indexed snapshot, when this executor runs without a Store.
     pub(crate) fn frozen(&self) -> Option<&FrozenIndexedDataset> {
         self.frozen.as_ref()
     }
 
+    pub(crate) fn into_frozen(self) -> Option<FrozenIndexedDataset> {
+        self.frozen
+    }
+
+    /// Commit an inference batch after all query iterators have been consumed.
+    pub(crate) fn extend_triples<'a>(&mut self, triples: impl IntoIterator<Item = &'a Triple>) {
+        let changed = if let Some(frozen) = &mut self.frozen {
+            let revision = frozen.revision();
+            frozen.extend_triples(triples);
+            frozen.revision() != revision
+        } else {
+            false
+        };
+        // Plans retain only static algebra; batched result decisions belong to
+        // the dataset revision on which they were observed.
+        if changed {
+            for compiled in self.compiled.borrow().values() {
+                *compiled.batched.borrow_mut() = None;
+            }
+        }
+    }
+
+    #[cfg(test)]
     pub fn insert(&self, triple: &Triple) -> Result<(), String> {
         self.store()?
             .insert(QuadRef::new(
@@ -838,17 +860,24 @@ impl SparqlExecutor {
                 }
             }
 
-            let store = self.store()?;
-            triples.retain(|triple| {
-                !store
-                    .contains(QuadRef::new(
-                        triple.subject.as_ref(),
-                        triple.predicate.as_ref(),
-                        triple.object.as_ref(),
-                        GraphNameRef::DefaultGraph,
-                    ))
-                    .unwrap_or(false)
-            });
+            if let Some(frozen) = frozen {
+                triples.retain(|triple| {
+                    let [s, p, o] = frozen.encode_triple(triple);
+                    !frozen.contains_ids(s, p, o)
+                });
+            } else {
+                let store = self.store()?;
+                triples.retain(|triple| {
+                    !store
+                        .contains(QuadRef::new(
+                            triple.subject.as_ref(),
+                            triple.predicate.as_ref(),
+                            triple.object.as_ref(),
+                            GraphNameRef::DefaultGraph,
+                        ))
+                        .unwrap_or(false)
+                });
+            }
             profile::ExecutorKind::Fallback { reason: None }
         };
 
@@ -918,7 +947,15 @@ impl SparqlExecutor {
         let mut query = self.parse(query)?;
         substitute_query(&mut query, &variable("this"), focus);
         let prepared = self.evaluator().for_query(query);
-        match prepared.on_store(self.store()?).execute().map_err(err)? {
+        let results = if let Some(frozen) = &self.frozen {
+            prepared
+                .on_queryable_dataset(frozen)
+                .execute()
+                .map_err(err)?
+        } else {
+            prepared.on_store(self.store()?).execute().map_err(err)?
+        };
+        match results {
             QueryResults::Graph(triples) => triples.map(|triple| triple.map_err(err)).collect(),
             _ => Err("SPARQL rule did not produce CONSTRUCT graph results".to_string()),
         }
@@ -934,13 +971,16 @@ impl SparqlExecutor {
         foci_set: &HashSet<Term>,
         out: &mut Vec<Triple>,
     ) -> Result<(), String> {
-        match self
-            .evaluator()
-            .for_query(self.parse(query)?)
-            .on_store(self.store()?)
-            .execute()
-            .map_err(err)?
-        {
+        let prepared = self.evaluator().for_query(self.parse(query)?);
+        let results = if let Some(frozen) = &self.frozen {
+            prepared
+                .on_queryable_dataset(frozen)
+                .execute()
+                .map_err(err)?
+        } else {
+            prepared.on_store(self.store()?).execute().map_err(err)?
+        };
+        match results {
             QueryResults::Graph(iter) => {
                 for triple in iter {
                     let triple = triple.map_err(err)?;
@@ -958,7 +998,7 @@ impl SparqlExecutor {
         if let Some(prepared) = self.prepared.borrow().get(query) {
             return Ok(prepared.clone());
         }
-        let prepared = self.evaluator().parse_query(query).map_err(err)?;
+        let prepared = self.evaluator().for_query(self.parse(query)?);
         self.prepared
             .borrow_mut()
             .insert(query.to_string(), prepared.clone());
@@ -970,6 +1010,13 @@ impl SparqlExecutor {
     /// variables into it without affecting the cache.
     fn parse(&self, query: &str) -> Result<Query, String> {
         if let Some(parsed) = self.parsed.borrow().get(query) {
+            return Ok(parsed.clone());
+        }
+        if let Some(parsed) = self
+            .shared_parsed
+            .as_ref()
+            .and_then(|queries| queries.get(query))
+        {
             return Ok(parsed.clone());
         }
         let parsed = SparqlParser::new().parse_query(query).map_err(err)?;
@@ -2095,11 +2142,106 @@ fn assert_violations_match(
 mod storage_tests {
     use super::*;
 
+    fn node(local: &str) -> NamedNode {
+        NamedNode::new(format!("http://ex/{local}")).unwrap()
+    }
+
+    fn triple(s: &str, p: &str, o: &str) -> Triple {
+        Triple::new(node(s), node(p), node(o))
+    }
+
+    fn sorted(mut triples: Vec<Triple>) -> Vec<String> {
+        let mut result: Vec<_> = triples.drain(..).map(|t| t.to_string()).collect();
+        result.sort();
+        result
+    }
+
     #[test]
     fn validation_executor_does_not_allocate_mutable_store() {
         let executor =
             SparqlExecutor::from_frozen(FrozenIndexedDataset::from_graph(&Graph::new()), false);
         assert!(!executor.has_store());
+    }
+
+    #[test]
+    fn executor_uses_shared_canonical_query_before_local_parse_cache() {
+        let query = "SELECT * WHERE { ?s <http://ex/p> ?o }";
+        let parsed = SparqlParser::new().parse_query(query).unwrap();
+        let shared = Arc::new(HashMap::from([(query.to_owned(), parsed)]));
+        let executor = SparqlExecutor::from_frozen_with_parsed(
+            FrozenIndexedDataset::from_graph(&Graph::new()),
+            false,
+            Some(shared),
+        );
+        let _prepared = executor.prepared(query).unwrap();
+        assert!(executor.parsed.borrow().is_empty());
+    }
+
+    #[test]
+    fn fallback_variable_graph_query_sees_empty_named_shapes_graph() {
+        let executor = SparqlExecutor::from_frozen(
+            FrozenIndexedDataset::from_graphs(&Graph::new(), &Graph::new()),
+            true,
+        );
+        let results = executor
+            .evaluator()
+            .parse_query("SELECT ?g WHERE { GRAPH ?g {} }")
+            .unwrap()
+            .on_queryable_dataset(executor.frozen().unwrap())
+            .execute()
+            .unwrap();
+        let QueryResults::Solutions(solutions) = results else {
+            panic!("expected SELECT results");
+        };
+        let graphs: Vec<_> = solutions
+            .map(|row| row.unwrap().get("g").cloned().unwrap())
+            .collect();
+        assert_eq!(
+            graphs,
+            vec![Term::NamedNode(NamedNode::new(SHAPES_GRAPH_IRI).unwrap())]
+        );
+    }
+
+    #[test]
+    fn indexed_fallback_construct_matches_store_across_commits_and_named_shapes() {
+        let mut data = Graph::new();
+        data.insert(&triple("a", "p", "b"));
+        let mut shapes = Graph::new();
+        shapes.insert(&triple("p", "inverse", "q"));
+        // OPTIONAL keeps this query on Spareval; GRAPH exercises the named
+        // shapes view while the data edge changes between inference rounds.
+        let query = "PREFIX ex: <http://ex/> \
+            CONSTRUCT { ?this ex:found ?o } WHERE { \
+              ?this ?p ?o . GRAPH <urn:x-shacl:shapes-graph> { ?p ex:inverse ?q } \
+              OPTIONAL { ?o ex:unused ?z } \
+            }";
+        let focus = vec![Term::NamedNode(node("a"))];
+        let store = SparqlExecutor::new_with_shapes(&data, &shapes).unwrap();
+        let mut indexed =
+            SparqlExecutor::from_frozen(FrozenIndexedDataset::from_graphs(&data, &shapes), true);
+        assert!(!indexed.has_store());
+        assert_eq!(
+            sorted(store.construct_many(query, &focus, None).unwrap()),
+            sorted(
+                indexed
+                    .construct_many(query, &focus, indexed.frozen())
+                    .unwrap()
+            ),
+        );
+
+        let added = triple("a", "p", "c");
+        store.insert(&added).unwrap();
+        indexed.extend_triples([&added]);
+        let expected = sorted(store.construct_many(query, &focus, None).unwrap());
+        assert_eq!(expected.len(), 2);
+        assert_eq!(
+            expected,
+            sorted(
+                indexed
+                    .construct_many(query, &focus, indexed.frozen())
+                    .unwrap()
+            ),
+        );
     }
 }
 

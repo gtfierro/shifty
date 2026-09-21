@@ -14,7 +14,7 @@ const repoRoot = resolve(here, "../../.."); // crates/shifty-wasm/ci -> repo roo
 const fixtures = resolve(repoRoot, "testdata/fixtures");
 const read = (p) => readFileSync(resolve(fixtures, p), "utf8");
 
-const { validate, infer, version } = await import("../pkg-node/shifty_wasm.js");
+const { validate, validateW3c, infer, version } = await import("../pkg-node/shifty_wasm.js");
 
 let failures = 0;
 function check(name, cond, detail = "") {
@@ -39,12 +39,20 @@ check("version is exported", typeof version() === "string" && version().length >
     check("validate returns without trapping", r && typeof r.conforms === "boolean");
     check("non-conforming as expected", r.conforms === false, `conforms=${r.conforms}`);
     check("reports at least one violation", (r.violations?.length ?? 0) >= 1);
+    check("validate returns diagnostics", Array.isArray(r.diagnostics));
   } catch (e) {
     check("validate returns without trapping", false, String(e).split("\n")[0]);
   }
   try {
+    const r = validateW3c(shapes, data, { infer: true });
+    check("W3C validation returns diagnostics", Array.isArray(r.diagnostics));
+  } catch (e) {
+    check("W3C validation returns diagnostics", false, String(e).split("\n")[0]);
+  }
+  try {
     const i = infer(shapes, data);
     check("infer returns without trapping", i && typeof i.inferredCount === "number");
+    check("infer returns diagnostics", Array.isArray(i.diagnostics));
   } catch (e) {
     check("infer returns without trapping", false, String(e).split("\n")[0]);
   }

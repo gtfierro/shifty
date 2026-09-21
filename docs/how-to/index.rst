@@ -12,7 +12,6 @@ starting point.
 .. toctree::
    :maxdepth: 1
 
-   install
    validate
    infer
    explain-failures

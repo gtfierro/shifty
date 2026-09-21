@@ -3,25 +3,77 @@ use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::pybacked::PyBackedBytes;
 use shifty_engine::{
-    EngineOptions, UnsupportedPolicy, ValidationGraphMode, ValidationOptions, ValidationReport,
-    property_witnesses_graphs_with_mode_and_options, report_to_graph,
-    validate_plan_graphs_with_mode_and_options, validate_plan_with_options,
-    validate_report_graphs_with_mode_and_options, validate_report_with_options,
+    CompiledShapes, EngineOptions, EvaluationSession, FindingOptions, SessionData, SessionOptions,
+    UnsupportedPolicy, ValidationGraphMode, ValidationOptions, ValidationReport, report_to_graph,
 };
 use std::path::PathBuf;
 use std::sync::OnceLock;
 
 mod repair;
 
-type ValidationInputs = (
-    shifty_parse::Loaded,
-    Option<shifty_parse::Loaded>,
-    shifty_algebra::Schema,
-    shifty_opt::PhysicalPlan,
-    Vec<shifty_parse::Diagnostic>,
-);
-
 const VERSION: &str = env!("CARGO_PKG_VERSION");
+
+fn finding_options(options: &ValidationOptions) -> FindingOptions {
+    FindingOptions {
+        entry_shape_names: options.entry_shape_names.clone(),
+        minimum_severity: options.minimum_severity.clone(),
+        sort_results: options.sort_results,
+    }
+}
+
+fn session_diagnostics(compiled: &CompiledShapes, session: &EvaluationSession) -> Vec<String> {
+    compiled
+        .diagnostics()
+        .iter()
+        .map(ToString::to_string)
+        .chain(
+            session
+                .diagnostics()
+                .iter()
+                .map(|diagnostic| diagnostic.message.clone()),
+        )
+        .collect()
+}
+
+fn compiled_session(
+    data: InputSpec,
+    shapes: Option<InputSpec>,
+    base: Option<&str>,
+    mode: ValidationGraphMode,
+    run_infer: bool,
+    engine: EngineOptions,
+) -> Result<(CompiledShapes, EvaluationSession), String> {
+    let data_loaded = data.load(base)?;
+    let shapes_loaded = shapes.map(|input| input.load(base)).transpose()?;
+    compiled_session_loaded(data_loaded, shapes_loaded, mode, run_infer, engine)
+}
+
+fn compiled_session_loaded(
+    data_loaded: shifty_parse::Loaded,
+    shapes_loaded: Option<shifty_parse::Loaded>,
+    mode: ValidationGraphMode,
+    run_infer: bool,
+    engine: EngineOptions,
+) -> Result<(CompiledShapes, EvaluationSession), String> {
+    let (source, session_data) = if let Some(source) = shapes_loaded {
+        check_explicit_shapes_not_empty(Some(&source))?;
+        (source, SessionData::Separate(data_loaded.graph))
+    } else {
+        (data_loaded, SessionData::Embedded)
+    };
+    let compiled = CompiledShapes::compile(source).map_err(|error| error.to_string())?;
+    let session = compiled
+        .session(
+            session_data,
+            SessionOptions {
+                graph_mode: mode,
+                inference: run_infer,
+                engine,
+            },
+        )
+        .map_err(|error| error.to_string())?;
+    Ok((compiled, session))
+}
 
 // ── Algebra-path types ────────────────────────────────────────────────────────
 
@@ -209,29 +261,39 @@ pub(crate) fn constraint_kind_to_py(kind: shifty_algebra::ConstraintKind) -> Con
     }
 }
 
-#[pyclass(get_all, name = "Constraint", skip_from_py_object)]
+#[pyclass(name = "Constraint", skip_from_py_object)]
 #[derive(Clone)]
 pub struct Constraint {
     /// Algebra arena id for this constraint.
+    #[pyo3(get)]
     pub id: u32,
     /// Stable semantic operator kind.
+    #[pyo3(get)]
     pub kind: ConstraintKind,
     /// One-level algebra rendering. Child constraints appear as `@id`.
+    #[pyo3(get)]
     pub render: String,
     /// Fully-expanded human description, on one line.
+    #[pyo3(get)]
     pub definition: String,
     /// The same description laid out over several lines and indented by nesting
     /// depth. Identical to `definition` whenever that already fits on a line, so
     /// a caller can render this unconditionally; only a genuinely nested
     /// constraint comes back broken.
+    #[pyo3(get)]
     pub definition_pretty: String,
-    /// JSON serialization of the algebra node. Child constraints are represented
-    /// by their arena ids, matching `render`.
-    pub json: String,
+    shape: shifty_algebra::Shape,
 }
 
 #[pymethods]
 impl Constraint {
+    /// JSON serialization of the algebra node, computed when requested.
+    #[getter]
+    fn json(&self) -> String {
+        serde_json::to_string(&self.shape)
+            .unwrap_or_else(|error| format!("{{\"error\":\"{error}\"}}"))
+    }
+
     fn __repr__(&self) -> String {
         format!(
             "Constraint(id={}, kind={:?}, render={:?})",
@@ -263,8 +325,7 @@ pub(crate) fn constraint_to_py(
                 px,
                 shifty_algebra::render::PRETTY_WIDTH,
             ),
-            json: serde_json::to_string(arena.get(id))
-                .unwrap_or_else(|error| format!("{{\"error\":\"{error}\"}}")),
+            shape: arena.get(id).clone(),
         },
     )
 }
@@ -349,6 +410,8 @@ impl Violation {
 pub struct AlgebraResult {
     #[pyo3(get)]
     pub conforms: bool,
+    #[pyo3(get)]
+    pub diagnostics: Vec<String>,
     violations: Vec<Py<Violation>>,
     results_text_cache: OnceLock<String>,
     /// Triples added by SHACL-AF inference before validation ran. Only an
@@ -431,6 +494,8 @@ pub struct W3cResult {
     /// Whether the data graph conforms to all shapes.
     #[pyo3(get)]
     pub conforms: bool,
+    #[pyo3(get)]
+    pub diagnostics: Vec<String>,
     /// The `sh:ValidationReport` serialized as Turtle.
     #[pyo3(get)]
     pub report_turtle: String,
@@ -695,58 +760,6 @@ pub(crate) fn py_value_error(message: String) -> PyErr {
     PyValueError::new_err(message)
 }
 
-/// Parse, normalize, and plan a shapes graph; return (Loaded, Schema, PhysicalPlan, diagnostics).
-fn prepare_loaded_shapes(
-    loaded: shifty_parse::Loaded,
-) -> Result<
-    (
-        shifty_parse::Loaded,
-        shifty_algebra::Schema,
-        shifty_opt::PhysicalPlan,
-        Vec<shifty_parse::Diagnostic>,
-    ),
-    String,
-> {
-    let parse_out = shifty_parse::parse_loaded(&loaded);
-    parse_out
-        .require_valid()
-        .map_err(|error| error.to_string())?;
-    let schema = shifty_opt::normalize(&parse_out.schema);
-    let plan = shifty_opt::plan(&schema);
-    Ok((loaded, schema, plan, parse_out.diagnostics))
-}
-
-/// Optionally run SHACL-AF inference; returns the outcome (graph to
-/// validate against, plus the inferred delta) when it ran.
-fn maybe_infer(
-    data: &Graph,
-    shapes: &Graph,
-    schema: &shifty_algebra::Schema,
-    run_infer: bool,
-) -> Result<Option<shifty_engine::InferenceOutcome>, String> {
-    if run_infer && !schema.rules.is_empty() {
-        let out = shifty_engine::infer_graphs(data, shapes, schema)
-            .map_err(|e| format!("non-stratifiable schema: {e}"))?;
-        Ok(Some(out))
-    } else {
-        Ok(None)
-    }
-}
-
-fn maybe_infer_embedded(
-    data: &Graph,
-    schema: &shifty_algebra::Schema,
-    run_infer: bool,
-) -> Result<Option<shifty_engine::InferenceOutcome>, String> {
-    if run_infer && !schema.rules.is_empty() {
-        let out = shifty_engine::infer(data, schema)
-            .map_err(|e| format!("non-stratifiable schema: {e}"))?;
-        Ok(Some(out))
-    } else {
-        Ok(None)
-    }
-}
-
 /// Validation uses the inferred graph when requested, but only an in-place
 /// caller needs to retain the delta after evaluation.
 #[derive(Clone, Copy)]
@@ -856,9 +869,11 @@ fn build_w3c_result(
     report: &ValidationReport,
     report_graph: &Graph,
     inferred: Option<Vec<Triple>>,
+    diagnostics: Vec<String>,
 ) -> W3cResult {
     W3cResult {
         conforms: report.conforms,
+        diagnostics,
         report_turtle: graph_to_turtle(report_graph),
         results_text: format_report_text(report),
         inferred: inferred.unwrap_or_default(),
@@ -987,7 +1002,7 @@ struct RawConstraint {
     render: String,
     definition: String,
     definition_pretty: String,
-    json: String,
+    shape: shifty_algebra::Shape,
 }
 
 impl RawConstraint {
@@ -1007,8 +1022,7 @@ impl RawConstraint {
                 px,
                 shifty_algebra::render::PRETTY_WIDTH,
             ),
-            json: serde_json::to_string(arena.get(id))
-                .unwrap_or_else(|error| format!("{{\"error\":\"{error}\"}}")),
+            shape: arena.get(id).clone(),
         }
     }
 
@@ -1021,7 +1035,7 @@ impl RawConstraint {
                 render: self.render,
                 definition: self.definition,
                 definition_pretty: self.definition_pretty,
-                json: self.json,
+                shape: self.shape,
             },
         )
     }
@@ -1052,6 +1066,7 @@ struct RawViolation {
 
 struct RawAlgebraResult {
     conforms: bool,
+    diagnostics: Vec<String>,
     violations: Vec<RawViolation>,
     inferred: Vec<Triple>,
 }
@@ -1103,6 +1118,7 @@ impl RawAlgebraResult {
             .collect::<PyResult<Vec<_>>>()?;
         Ok(AlgebraResult {
             conforms: self.conforms,
+            diagnostics: self.diagnostics,
             violations,
             results_text_cache: OnceLock::new(),
             inferred: self.inferred,
@@ -1116,6 +1132,7 @@ fn raw_algebra_result(
     schema: &shifty_algebra::Schema,
     arena: &shifty_algebra::ShapeArena,
     inferred: Option<Vec<Triple>>,
+    diagnostics: Vec<String>,
 ) -> RawAlgebraResult {
     let violations = outcome
         .violations
@@ -1158,133 +1175,10 @@ fn raw_algebra_result(
         .collect();
     RawAlgebraResult {
         conforms: outcome.conforms,
+        diagnostics,
         violations,
         inferred: inferred.unwrap_or_default(),
     }
-}
-
-fn validate_algebra_loaded(
-    data_loaded: &shifty_parse::Loaded,
-    shapes_loaded: &shifty_parse::Loaded,
-    schema: &shifty_algebra::Schema,
-    plan: &shifty_opt::PhysicalPlan,
-    mode: ValidationGraphMode,
-    inference: ValidationInference,
-    options: &ValidationOptions,
-) -> Result<RawAlgebraResult, String> {
-    let inferred = maybe_infer(
-        &data_loaded.graph,
-        &shapes_loaded.graph,
-        schema,
-        inference.run,
-    )?;
-    let eval_data = inferred.as_ref().map_or(&data_loaded.graph, |o| &o.graph);
-    let outcome = validate_plan_graphs_with_mode_and_options(
-        eval_data,
-        &shapes_loaded.graph,
-        plan,
-        mode,
-        options,
-    )
-    .map_err(|e| format!("non-stratifiable schema: {e}"))?;
-    Ok(raw_algebra_result(
-        outcome,
-        schema,
-        &plan.arena,
-        inferred
-            .filter(|_| inference.keep_delta)
-            .map(|o| o.inferred),
-    ))
-}
-
-fn validate_algebra_embedded(
-    loaded: &shifty_parse::Loaded,
-    schema: &shifty_algebra::Schema,
-    plan: &shifty_opt::PhysicalPlan,
-    inference: ValidationInference,
-    options: &ValidationOptions,
-) -> Result<RawAlgebraResult, String> {
-    let inferred = maybe_infer_embedded(&loaded.graph, schema, inference.run)?;
-    let eval_data = inferred.as_ref().map_or(&loaded.graph, |o| &o.graph);
-    let outcome = validate_plan_with_options(eval_data, plan, options)
-        .map_err(|e| format!("non-stratifiable schema: {e}"))?;
-    Ok(raw_algebra_result(
-        outcome,
-        schema,
-        &plan.arena,
-        inferred
-            .filter(|_| inference.keep_delta)
-            .map(|o| o.inferred),
-    ))
-}
-
-fn validate_w3c_loaded(
-    data_loaded: &shifty_parse::Loaded,
-    shapes_loaded: &shifty_parse::Loaded,
-    schema: &shifty_algebra::Schema,
-    mode: ValidationGraphMode,
-    inference: ValidationInference,
-    options: &ValidationOptions,
-) -> Result<W3cResult, String> {
-    let inferred = maybe_infer(
-        &data_loaded.graph,
-        &shapes_loaded.graph,
-        schema,
-        inference.run,
-    )?;
-    let eval_data = inferred.as_ref().map_or(&data_loaded.graph, |o| &o.graph);
-    let report =
-        validate_report_graphs_with_mode_and_options(shapes_loaded, eval_data, mode, options);
-    let report_graph = report_to_graph(&report);
-    Ok(build_w3c_result(
-        &report,
-        &report_graph,
-        inferred
-            .filter(|_| inference.keep_delta)
-            .map(|outcome| outcome.inferred),
-    ))
-}
-
-fn validate_w3c_embedded(
-    loaded: &shifty_parse::Loaded,
-    schema: &shifty_algebra::Schema,
-    inference: ValidationInference,
-    options: &ValidationOptions,
-) -> Result<W3cResult, String> {
-    let inferred = maybe_infer_embedded(&loaded.graph, schema, inference.run)?;
-    let eval_data = inferred.as_ref().map_or(&loaded.graph, |o| &o.graph);
-    let report = validate_report_with_options(loaded, eval_data, options);
-    let report_graph = report_to_graph(&report);
-    Ok(build_w3c_result(
-        &report,
-        &report_graph,
-        inferred
-            .filter(|_| inference.keep_delta)
-            .map(|outcome| outcome.inferred),
-    ))
-}
-
-fn load_validation_inputs(
-    data: InputSpec,
-    shapes: Option<InputSpec>,
-    base: Option<&str>,
-) -> Result<ValidationInputs, String> {
-    let data_loaded = data.load(base)?;
-    let shapes_loaded = shapes.map(|spec| spec.load(base)).transpose()?;
-    let shapes_ref = shapes_loaded.as_ref().unwrap_or(&data_loaded);
-    let parse_out = shifty_parse::parse_loaded(shapes_ref);
-    parse_out
-        .require_valid()
-        .map_err(|error| error.to_string())?;
-    let schema = shifty_opt::normalize(&parse_out.schema);
-    let plan = shifty_opt::plan(&schema);
-    Ok((
-        data_loaded,
-        shapes_loaded,
-        schema,
-        plan,
-        parse_out.diagnostics,
-    ))
 }
 
 fn check_explicit_shapes_not_empty(shapes: Option<&shifty_parse::Loaded>) -> Result<(), String> {
@@ -1296,33 +1190,6 @@ fn check_explicit_shapes_not_empty(shapes: Option<&shifty_parse::Loaded>) -> Res
         );
     }
     Ok(())
-}
-
-/// Apply `UnsupportedPolicy` to parse-time diagnostics. Returns `Err` with a
-/// combined message if the policy is `Error` and any `Unsupported` diagnostics
-/// are present; otherwise returns `Ok(())`.
-fn check_unsupported_diagnostics(
-    diagnostics: &[shifty_parse::Diagnostic],
-    policy: UnsupportedPolicy,
-) -> Result<(), String> {
-    if policy != UnsupportedPolicy::Error {
-        return Ok(());
-    }
-    let unsupported: Vec<_> = diagnostics
-        .iter()
-        .filter(|d| d.level == shifty_parse::DiagLevel::Unsupported)
-        .collect();
-    if unsupported.is_empty() {
-        return Ok(());
-    }
-    let msgs = unsupported
-        .iter()
-        .map(|d| d.to_string())
-        .collect::<Vec<_>>()
-        .join("; ");
-    Err(format!(
-        "unsupported features with on_unsupported='error': {msgs}"
-    ))
 }
 
 // ── Exported functions ────────────────────────────────────────────────────────
@@ -1392,24 +1259,22 @@ pub fn _validate_algebra(
     };
     let raw = py
         .detach(move || {
-            let (data_loaded, shapes_loaded, schema, plan, diagnostics) =
-                load_validation_inputs(data, shapes, base.as_deref())?;
-            check_explicit_shapes_not_empty(shapes_loaded.as_ref())?;
-            check_unsupported_diagnostics(&diagnostics, options.engine.unsupported)?;
-            match shapes_loaded.as_ref() {
-                Some(shapes_loaded) => validate_algebra_loaded(
-                    &data_loaded,
-                    shapes_loaded,
-                    &schema,
-                    &plan,
-                    mode,
-                    inference,
-                    &options,
-                ),
-                None => {
-                    validate_algebra_embedded(&data_loaded, &schema, &plan, inference, &options)
-                }
-            }
+            let (compiled, session) = compiled_session(
+                data,
+                shapes,
+                base.as_deref(),
+                mode,
+                inference.run,
+                options.engine,
+            )?;
+            let outcome = session.validate(&finding_options(&options));
+            Ok(raw_algebra_result(
+                outcome,
+                compiled.normalized_schema(),
+                &compiled.normalized_schema().arena,
+                inference.keep_delta.then(|| session.inferred().to_vec()),
+                session_diagnostics(&compiled, &session),
+            ))
         })
         .map_err(py_value_error)?;
     raw.into_python(py)
@@ -1474,20 +1339,22 @@ pub fn _validate_w3c(
         keep_delta: keep_inferred,
     };
     py.detach(move || {
-        let (data_loaded, shapes_loaded, schema, _, _) =
-            load_validation_inputs(data, shapes, base.as_deref())?;
-        check_explicit_shapes_not_empty(shapes_loaded.as_ref())?;
-        match shapes_loaded.as_ref() {
-            Some(shapes_loaded) => validate_w3c_loaded(
-                &data_loaded,
-                shapes_loaded,
-                &schema,
-                mode,
-                inference,
-                &options,
-            ),
-            None => validate_w3c_embedded(&data_loaded, &schema, inference, &options),
-        }
+        let (compiled, session) = compiled_session(
+            data,
+            shapes,
+            base.as_deref(),
+            mode,
+            inference.run,
+            options.engine,
+        )?;
+        let report = session.report(&finding_options(&options));
+        let report_graph = report_to_graph(&report);
+        Ok(build_w3c_result(
+            &report,
+            &report_graph,
+            inference.keep_delta.then(|| session.inferred().to_vec()),
+            session_diagnostics(&compiled, &session),
+        ))
     })
     .map_err(py_value_error)
 }
@@ -1526,23 +1393,40 @@ pub fn _infer(
     };
     let engine = engine_options(on_unsupported).map_err(py_value_error)?;
     py.detach(move || {
-        let (data_loaded, shapes_loaded, schema, _, _) =
-            load_validation_inputs(data, shapes, base.as_deref())?;
-        let outcome = match shapes_loaded.as_ref() {
-            Some(shapes_loaded) => shifty_engine::infer_with_context_and_options(
-                &data_loaded.graph,
-                &shifty_engine::graph_union(&data_loaded.graph, &shapes_loaded.graph),
-                &schema,
-                &engine,
-            ),
-            None => shifty_engine::infer_with_options(&data_loaded.graph, &schema, &engine),
+        let data_loaded = data.load(base.as_deref())?;
+        let shapes_loaded = shapes
+            .map(|input| input.load(base.as_deref()))
+            .transpose()?;
+        if shapes_loaded
+            .as_ref()
+            .is_some_and(|source| source.graph.is_empty())
+        {
+            return Ok(InferResult {
+                inferred_count: 0,
+                diagnostics: Vec::new(),
+                graph: data_loaded.graph,
+                inferred: Vec::new(),
+                graph_ntriples_cache: OnceLock::new(),
+                inferred_ntriples_cache: OnceLock::new(),
+            });
         }
-        .map_err(|e| format!("non-stratifiable schema: {e}"))?;
+        let (_, session) = compiled_session_loaded(
+            data_loaded,
+            shapes_loaded,
+            ValidationGraphMode::Data,
+            true,
+            engine,
+        )?;
+        let inferred = session.inferred().to_vec();
         Ok(InferResult {
-            inferred_count: outcome.inferred.len(),
-            diagnostics: outcome.diagnostics,
-            graph: outcome.graph,
-            inferred: outcome.inferred,
+            inferred_count: inferred.len(),
+            diagnostics: session
+                .diagnostics()
+                .iter()
+                .map(|diagnostic| diagnostic.message.clone())
+                .collect(),
+            graph: session.data().clone(),
+            inferred,
             graph_ntriples_cache: OnceLock::new(),
             inferred_ntriples_cache: OnceLock::new(),
         })
@@ -1552,10 +1436,7 @@ pub fn _infer(
 
 #[pyclass]
 pub struct PreparedValidator {
-    shapes: shifty_parse::Loaded,
-    schema: shifty_algebra::Schema,
-    plan: shifty_opt::PhysicalPlan,
-    diagnostics: Vec<shifty_parse::Diagnostic>,
+    compiled: CompiledShapes,
     base: Option<String>,
 }
 
@@ -1582,14 +1463,9 @@ impl PreparedValidator {
             move || {
                 let loaded = input.load(base.as_deref())?;
                 check_explicit_shapes_not_empty(Some(&loaded))?;
-                let (shapes, schema, plan, diagnostics) = prepare_loaded_shapes(loaded)?;
-                Ok(Self {
-                    shapes,
-                    schema,
-                    plan,
-                    diagnostics,
-                    base,
-                })
+                let compiled =
+                    CompiledShapes::compile(loaded).map_err(|error| error.to_string())?;
+                Ok(Self { compiled, base })
             }
         })
         .map_err(py_value_error)
@@ -1597,7 +1473,11 @@ impl PreparedValidator {
 
     #[getter]
     fn diagnostics(&self) -> Vec<String> {
-        self.diagnostics.iter().map(ToString::to_string).collect()
+        self.compiled
+            .diagnostics()
+            .iter()
+            .map(ToString::to_string)
+            .collect()
     }
 
     #[pyo3(signature = (
@@ -1639,20 +1519,28 @@ impl PreparedValidator {
             run: run_infer,
             keep_delta: keep_inferred,
         };
-        let diagnostics = self.diagnostics.clone();
         let raw = py
             .detach(|| {
-                check_unsupported_diagnostics(&diagnostics, options.engine.unsupported)?;
                 let data_loaded = data.load(self.base.as_deref())?;
-                validate_algebra_loaded(
-                    &data_loaded,
-                    &self.shapes,
-                    &self.schema,
-                    &self.plan,
-                    mode,
-                    inference,
-                    &options,
-                )
+                let session = self
+                    .compiled
+                    .session(
+                        SessionData::Separate(data_loaded.graph),
+                        SessionOptions {
+                            graph_mode: mode,
+                            inference: inference.run,
+                            engine: options.engine,
+                        },
+                    )
+                    .map_err(|error| error.to_string())?;
+                let outcome = session.validate(&finding_options(&options));
+                Ok(raw_algebra_result(
+                    outcome,
+                    self.compiled.normalized_schema(),
+                    &self.compiled.normalized_schema().arena,
+                    inference.keep_delta.then(|| session.inferred().to_vec()),
+                    session_diagnostics(&self.compiled, &session),
+                ))
             })
             .map_err(py_value_error)?;
         raw.into_python(py)
@@ -1699,14 +1587,25 @@ impl PreparedValidator {
         };
         py.detach(|| {
             let data_loaded = data.load(self.base.as_deref())?;
-            validate_w3c_loaded(
-                &data_loaded,
-                &self.shapes,
-                &self.schema,
-                mode,
-                inference,
-                &options,
-            )
+            let session = self
+                .compiled
+                .session(
+                    SessionData::Separate(data_loaded.graph),
+                    SessionOptions {
+                        graph_mode: mode,
+                        inference: inference.run,
+                        engine: options.engine,
+                    },
+                )
+                .map_err(|error| error.to_string())?;
+            let report = session.report(&finding_options(&options));
+            let report_graph = report_to_graph(&report);
+            Ok(build_w3c_result(
+                &report,
+                &report_graph,
+                inference.keep_delta.then(|| session.inferred().to_vec()),
+                session_diagnostics(&self.compiled, &session),
+            ))
         })
         .map_err(py_value_error)
     }
@@ -1744,32 +1643,27 @@ impl PreparedValidator {
     ) -> PyResult<Vec<PropertyWitness>> {
         let data = InputSpec::new(data, data_path, data_format, "data").map_err(py_value_error)?;
         let mode = parse_mode(graph_mode).map_err(py_value_error)?;
-        let options = ValidationOptions {
-            engine: engine_options(on_unsupported).map_err(py_value_error)?,
-            ..ValidationOptions::default()
-        };
+        let engine = engine_options(on_unsupported).map_err(py_value_error)?;
         let key_path = key_path
-            .map(|expr| shifty_parse::parse_property_path(&expr, &self.shapes))
+            .map(|expr| shifty_parse::parse_property_path(&expr, self.compiled.source()))
             .transpose()
             .map_err(|e| format!("invalid key_path: {e}"))
             .map_err(py_value_error)?;
         let witnesses = py
             .detach(|| {
                 let data_loaded = data.load(self.base.as_deref())?;
-                let inferred = maybe_infer(
-                    &data_loaded.graph,
-                    &self.shapes.graph,
-                    &self.schema,
-                    run_infer,
-                )?;
-                let eval_data = inferred.as_ref().map_or(&data_loaded.graph, |o| &o.graph);
-                Ok::<_, String>(property_witnesses_graphs_with_mode_and_options(
-                    &self.shapes,
-                    eval_data,
-                    mode,
-                    key_path.as_ref(),
-                    &options,
-                ))
+                let session = self
+                    .compiled
+                    .session(
+                        SessionData::Separate(data_loaded.graph),
+                        SessionOptions {
+                            graph_mode: mode,
+                            inference: run_infer,
+                            engine,
+                        },
+                    )
+                    .map_err(|error| error.to_string())?;
+                Ok(session.property_witnesses(key_path.as_ref(), &FindingOptions::default()))
             })
             .map_err(py_value_error)?;
         Ok(witnesses.into_iter().map(property_witness_to_py).collect())
@@ -1778,8 +1672,8 @@ impl PreparedValidator {
     fn __repr__(&self) -> String {
         format!(
             "PreparedValidator(statements={}, rules={})",
-            self.schema.statements.len(),
-            self.schema.rules.len()
+            self.compiled.normalized_schema().statements.len(),
+            self.compiled.normalized_schema().rules.len()
         )
     }
 }

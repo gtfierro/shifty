@@ -11,8 +11,8 @@ dependencies also use response content type and URL extension hints.
 | Function | Returns |
 | --- | --- |
 | `version()` | package version string |
-| `validate(shapesRdf, dataRdf, options)` | `{ conforms, violations: [...], resultsText }` — structured "algebra" findings |
-| `validateW3c(shapesRdf, dataRdf, options)` | `{ conforms, reportTurtle, resultsText }` — a W3C `sh:ValidationReport` |
+| `validate(shapesRdf, dataRdf, options)` | `{ conforms, violations: [...], resultsText, diagnostics }` — structured "algebra" findings |
+| `validateW3c(shapesRdf, dataRdf, options)` | `{ conforms, reportTurtle, resultsText, diagnostics }` — a W3C `sh:ValidationReport` |
 | `infer(shapesRdf, dataRdf)` | `{ inferredCount, totalCount, graphNtriples, inferredNtriples, diagnostics }` — the union graph plus just the inferred delta, as N-Triples |
 | `ntriplesToTurtle(ntriples)` | a prettified Turtle string — re-serialize a graph the UI only holds as N-Triples (e.g. the inference union) without re-running the engine |
 
@@ -20,7 +20,7 @@ dependencies also use response content type and URL extension hints.
 shapes+data graph (matching the embedded mode of the Python/CLI bindings).
 An invalid shapes graph, including a malformed or unresolved SPARQL prefix,
 rejects the call; it is never treated as though the affected constraint or rule
-were absent. Non-fatal unsupported-feature diagnostics remain on `infer()`.
+were absent. Non-fatal unsupported-feature diagnostics are returned by all three evaluation functions.
 
 ### `options`
 

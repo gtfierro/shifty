@@ -14,9 +14,9 @@ is running natively.
 
    shifty inspect --stage <stage> shapes.ttl
 
-Every stage supports ``--format text`` (default) and ``--format json``. The
-``algebra`` and ``normalized`` stages also accept ``--format dot`` for
-Graphviz. Note that
+Every stage except ``capability`` supports ``--format text`` (default) and
+``--format json``; ``capability`` is text-only. The ``algebra`` and
+``normalized`` stages also accept ``--format dot`` for Graphviz. Note that
 ``inspect`` takes the shapes file as a positional argument, not ``--shapes``,
 and reads no data graph — it is entirely about the schema.
 
@@ -158,8 +158,28 @@ Whether SPARQL runs natively
 
 Shifty executes a subset of ``sh:sparql`` constraints and CONSTRUCT rules
 directly against its own indexes, and falls back to a general SPARQL engine for
-the rest. This stage classifies each query. A constraint that fell back is
-usually the slow one, and this tells you before you spend time measuring.
+the rest. This stage classifies each query. A fallback may cost more on a given
+dataset; use ``--profile`` to measure its actual impact.
+
+Which accesses compilation expects
+-----------------------------------
+
+.. code-block:: bash
+
+   shifty inspect --stage access shapes.ttl
+
+This stage lists each statement, rule, and function's possible reads from the
+default evaluation graph and named shapes graph. It identifies fixed or any
+predicates, forward/reverse/membership/open probes, node-domain reads, and
+whether analysis is complete or conservative. Rule entries also show possible
+predicate writes. Query and path IDs link repeated uses of the same compiled
+body. Use ``--format json`` to consume the catalog programmatically.
+
+These are data-independent requirements, not indexes already built. Runtime
+``--profile`` output shows which source or session indexes were admitted, their
+estimated and allocated bytes, the byte budget, and scan work. A conservative
+or unknown requirement keeps a correct scan fallback; it does not restrict
+which triples a query can read.
 
 See also
 --------

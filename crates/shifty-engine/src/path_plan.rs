@@ -312,10 +312,15 @@ mod tests {
         let a = id("http://ex/a", &ds);
         let step = ReachStep::FwdPred(p_id);
 
+        crate::profile::enable();
         let first = apply_closure(a, &step, ClosureKind::Star, &ds, GraphSel::Default);
         let second = apply_closure(a, &step, ClosureKind::Star, &ds, GraphSel::Default);
+        let profile = crate::profile::take().unwrap();
 
         assert!(Rc::ptr_eq(&first, &second));
+        assert_eq!(profile.reach_cache().misses, 1);
+        assert_eq!(profile.reach_cache().hits, 1);
+        assert_eq!(profile.reach_cache().insertions, 1);
     }
 
     #[test]

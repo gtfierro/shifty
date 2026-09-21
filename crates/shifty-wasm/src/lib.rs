@@ -14,10 +14,8 @@ use oxrdf::{Graph, Term, Triple};
 use serde::Serialize;
 use shifty_algebra::{Schema, Severity};
 use shifty_engine::{
-    InferenceOutcome, ValidationGraphMode, ValidationOptions, ValidationReport, Violation, infer,
-    infer_graphs, report_to_graph, validate_graphs_with_mode_and_options,
-    validate_report_graphs_with_mode_and_options, validate_report_with_options,
-    validate_with_options,
+    CompiledShapes, EvaluationSession, FindingOptions, SessionData, SessionOptions,
+    ValidationGraphMode, ValidationOptions, ValidationReport, Violation, report_to_graph,
 };
 use shifty_parse::Loaded;
 use wasm_bindgen::prelude::*;
@@ -112,6 +110,7 @@ struct AlgebraResult {
     conforms: bool,
     violations: Vec<JsViolation>,
     results_text: String,
+    diagnostics: Vec<String>,
 }
 
 #[derive(Serialize)]
@@ -144,6 +143,7 @@ struct W3cResult {
     conforms: bool,
     report_turtle: String,
     results_text: String,
+    diagnostics: Vec<String>,
 }
 
 #[derive(Serialize)]
@@ -189,32 +189,19 @@ pub fn validate(
     let vopts = opts.validation_options()?;
     let mode = opts.graph_mode()?;
 
-    let shapes = load(shapes_ttl, "shapes")?;
-    let schema = parse_shapes(&shapes).map_err(|error| JsError::new(&error))?;
-
-    let outcome = match data_text(&data_ttl) {
-        Some(data_ttl) => {
-            let data = load(data_ttl, "data")?;
-            let inferred = maybe_infer_graphs(&data.graph, &shapes.graph, &schema, opts.infer)?;
-            let eval_data = inferred.as_ref().unwrap_or(&data.graph);
-            validate_graphs_with_mode_and_options(eval_data, &shapes.graph, &schema, mode, &vopts)
-        }
-        None => {
-            let inferred = maybe_infer(&shapes.graph, &schema, opts.infer)?;
-            let eval_data = inferred.as_ref().unwrap_or(&shapes.graph);
-            validate_with_options(eval_data, &schema, &vopts)
-        }
-    }
-    .map_err(|e| JsError::new(&e.to_string()))?;
+    let (compiled, session) = make_session(shapes_ttl, data_text(&data_ttl), mode, opts.infer)?;
+    let outcome = session.validate(&finding_options(&vopts));
+    let schema = compiled.normalized_schema();
 
     let result = AlgebraResult {
         conforms: outcome.conforms,
         violations: outcome
             .violations
             .iter()
-            .map(|v| violation_to_js(v, &schema))
+            .map(|v| violation_to_js(v, schema))
             .collect(),
-        results_text: format_algebra_text(&outcome.conforms, &outcome.violations, &schema),
+        results_text: format_algebra_text(&outcome.conforms, &outcome.violations, schema),
+        diagnostics: session_diagnostics(&compiled, &session),
     };
     to_js(&result)
 }
@@ -236,28 +223,15 @@ pub fn validate_w3c(
     let vopts = opts.validation_options()?;
     let mode = opts.graph_mode()?;
 
-    let shapes = load(shapes_ttl, "shapes")?;
-    let schema = parse_shapes(&shapes).map_err(|error| JsError::new(&error))?;
-
-    let report = match data_text(&data_ttl) {
-        Some(data_ttl) => {
-            let data = load(data_ttl, "data")?;
-            let inferred = maybe_infer_graphs(&data.graph, &shapes.graph, &schema, opts.infer)?;
-            let eval_data = inferred.as_ref().unwrap_or(&data.graph);
-            validate_report_graphs_with_mode_and_options(&shapes, eval_data, mode, &vopts)
-        }
-        None => {
-            let inferred = maybe_infer(&shapes.graph, &schema, opts.infer)?;
-            let eval_data = inferred.as_ref().unwrap_or(&shapes.graph);
-            validate_report_with_options(&shapes, eval_data, &vopts)
-        }
-    };
+    let (compiled, session) = make_session(shapes_ttl, data_text(&data_ttl), mode, opts.infer)?;
+    let report = session.report(&finding_options(&vopts));
 
     let report_graph = report_to_graph(&report);
     let result = W3cResult {
         conforms: report.conforms,
         report_turtle: graph_to_turtle(&report_graph),
         results_text: format_report_text(&report),
+        diagnostics: session_diagnostics(&compiled, &session),
     };
     to_js(&result)
 }
@@ -267,24 +241,19 @@ pub fn validate_w3c(
 /// Invalid shapes diagnostics reject the call instead of dropping a rule.
 #[wasm_bindgen(js_name = infer)]
 pub fn infer_js(shapes_ttl: &str, data_ttl: Option<String>) -> Result<JsValue, JsError> {
-    let shapes = load(shapes_ttl, "shapes")?;
-    let schema = parse_shapes(&shapes).map_err(|error| JsError::new(&error))?;
-
-    let outcome: InferenceOutcome = match data_text(&data_ttl) {
-        Some(data_ttl) => {
-            let data = load(data_ttl, "data")?;
-            infer_graphs(&data.graph, &shapes.graph, &schema)
-        }
-        None => infer(&shapes.graph, &schema),
-    }
-    .map_err(|e| JsError::new(&e.to_string()))?;
+    let (compiled, session) = make_session(
+        shapes_ttl,
+        data_text(&data_ttl),
+        ValidationGraphMode::Data,
+        true,
+    )?;
 
     let result = InferResult {
-        inferred_count: outcome.inferred.len(),
-        total_count: outcome.graph.len(),
-        graph_ntriples: graph_to_ntriples(&outcome.graph),
-        inferred_ntriples: triples_to_ntriples(&outcome.inferred),
-        diagnostics: outcome.diagnostics,
+        inferred_count: session.inferred().len(),
+        total_count: session.data().len(),
+        graph_ntriples: graph_to_ntriples(session.data()),
+        inferred_ntriples: triples_to_ntriples(session.inferred()),
+        diagnostics: session_diagnostics(&compiled, &session),
     };
     to_js(&result)
 }
@@ -331,33 +300,52 @@ fn load(ttl: &str, label: &str) -> Result<Loaded, JsError> {
         .map_err(|e| JsError::new(&format!("failed to parse {label} graph: {e}")))
 }
 
-fn parse_shapes(shapes: &Loaded) -> Result<Schema, String> {
-    let parsed = shifty_parse::parse_loaded(shapes);
-    parsed.require_valid().map_err(|error| error.to_string())?;
-    Ok(shifty_opt::normalize(&parsed.schema))
-}
-
-fn maybe_infer(graph: &Graph, schema: &Schema, run_infer: bool) -> Result<Option<Graph>, JsError> {
-    if run_infer && !schema.rules.is_empty() {
-        let out = infer(graph, schema).map_err(|e| JsError::new(&e.to_string()))?;
-        Ok(Some(out.graph))
-    } else {
-        Ok(None)
+fn finding_options(options: &ValidationOptions) -> FindingOptions {
+    FindingOptions {
+        entry_shape_names: options.entry_shape_names.clone(),
+        minimum_severity: options.minimum_severity.clone(),
+        sort_results: options.sort_results,
     }
 }
 
-fn maybe_infer_graphs(
-    data: &Graph,
-    shapes: &Graph,
-    schema: &Schema,
-    run_infer: bool,
-) -> Result<Option<Graph>, JsError> {
-    if run_infer && !schema.rules.is_empty() {
-        let out = infer_graphs(data, shapes, schema).map_err(|e| JsError::new(&e.to_string()))?;
-        Ok(Some(out.graph))
-    } else {
-        Ok(None)
-    }
+fn make_session(
+    shapes_ttl: &str,
+    data_ttl: Option<&str>,
+    mode: ValidationGraphMode,
+    inference: bool,
+) -> Result<(CompiledShapes, EvaluationSession), JsError> {
+    let shapes = load(shapes_ttl, "shapes")?;
+    let compiled =
+        CompiledShapes::compile(shapes).map_err(|error| JsError::new(&error.to_string()))?;
+    let data = match data_ttl {
+        Some(data_ttl) => SessionData::Separate(load(data_ttl, "data")?.graph),
+        None => SessionData::Embedded,
+    };
+    let session = compiled
+        .session(
+            data,
+            SessionOptions {
+                graph_mode: mode,
+                inference,
+                engine: Default::default(),
+            },
+        )
+        .map_err(|error| JsError::new(&error.to_string()))?;
+    Ok((compiled, session))
+}
+
+fn session_diagnostics(compiled: &CompiledShapes, session: &EvaluationSession) -> Vec<String> {
+    compiled
+        .diagnostics()
+        .iter()
+        .map(ToString::to_string)
+        .chain(
+            session
+                .diagnostics()
+                .iter()
+                .map(|diagnostic| diagnostic.message.clone()),
+        )
+        .collect()
 }
 
 // ── Serialization helpers ─────────────────────────────────────────────────────
@@ -573,6 +561,6 @@ mod tests {
             "shapes",
         )
         .unwrap();
-        assert!(parse_shapes(&shapes).is_err());
+        assert!(CompiledShapes::compile(shapes).is_err());
     }
 }

@@ -1,12 +1,59 @@
+Contributing
+============
+
+This page covers both halves of contributing: the quality gates a code change
+has to pass, and the conventions the documentation follows.
+
+Develop Shifty
+--------------
+
+Rust changes run the same gates CI does, from the repository root:
+
+.. code-block:: bash
+
+   cargo fmt --all -- --check
+   cargo clippy --workspace --all-targets --all-features -- -D warnings
+   cargo test --workspace
+
+Python changes work from ``python/`` against the locked development
+environment:
+
+.. code-block:: bash
+
+   uv sync --dev --frozen --reinstall-package pyshifty
+   uv run ruff check .
+   uv run ruff format --check .
+   uv run ty check shifty
+   uv run pytest -q
+
+``--reinstall-package pyshifty`` is not optional when Rust sources have
+changed. The extension is installed as an editable build, and a plain
+``uv sync`` will not rebuild it, so ``pytest`` silently exercises whichever
+``_shifty`` shared object was compiled last. That produces failures against
+code you already fixed, and — more dangerously — passes against code you have
+not. Continuous integration is immune, because it always starts from a fresh
+checkout.
+
+Fix diagnostics rather than weakening or skipping a check, unless a documented
+compatibility constraint requires a narrow exception.
+
+The C++ SDK and the WebAssembly module have their own gates:
+
+.. code-block:: bash
+
+   cmake -S cpp -B build/cpp -DSHIFTY_CPP_BUILD_TESTS=ON
+   cmake --build build/cpp
+   ctest --test-dir build/cpp --output-on-failure
+
 Contribute to the documentation
-===============================
+-------------------------------
 
 Shifty's documentation uses Diátaxis to keep pages focused, then applies the
 same lookup-friendly conventions throughout its reference material. Before
 writing, decide what the reader is doing.
 
 Choose the page type
---------------------
+~~~~~~~~~~~~~~~~~~~~
 
 .. list-table::
    :widths: 20 35 45
@@ -33,7 +80,7 @@ Choose the page type
        page into a procedure or an API inventory.
 
 Page conventions
-----------------
+~~~~~~~~~~~~~~~~
 
 - Give each page one primary reader goal and use that goal in its opening.
 - Write at the level of the subject. State the technical fact directly; avoid
@@ -52,7 +99,7 @@ Page conventions
   alternative text in the Sphinx ``figure`` directive.
 
 Executable examples
--------------------
+~~~~~~~~~~~~~~~~~~~
 
 Key examples live in ``docs/examples`` as runnable files. Include their source
 with ``literalinclude`` and their output with ``program-output`` so the page
@@ -65,7 +112,7 @@ installation commands, network access, and operations that are too expensive
 or environment-dependent to run during every documentation build.
 
 Preview your changes
---------------------
+~~~~~~~~~~~~~~~~~~~~
 
 From the repository root:
 

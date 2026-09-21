@@ -9,6 +9,7 @@ use std::collections::{BTreeSet, HashMap};
 use std::error::Error;
 use std::path::PathBuf;
 use std::process::ExitCode;
+use std::time::{Duration, Instant};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -163,6 +164,8 @@ enum Stage {
     /// SPARQL capability classification: which constraint queries lower to the
     /// native executor vs. fall back to Spareval.
     Capability,
+    /// Static graph reads, query/path identities, and function-call demand.
+    Access,
 }
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -437,20 +440,40 @@ fn print_profile(input_lines: &[String]) {
     }
 }
 
+fn profile_stage(lines: &mut Vec<String>, enabled: bool, stage: &str, elapsed: Duration) {
+    if enabled {
+        lines.push(format!(
+            "profile: stage: {stage}: {:.3} ms",
+            elapsed.as_secs_f64() * 1_000.0
+        ));
+    }
+}
+
 fn infer(args: InferArgs) -> Result<(), Box<dyn Error>> {
     if args.profile {
         shifty_engine::profile::enable();
     }
     let base = args.base.as_deref();
+    let stage_start = Instant::now();
     let (shapes, shape_stats) = load_sources_profiled(&args.shapes, base)?;
-    let parsed = shifty_parse::parse_loaded(&shapes);
-    parsed.require_valid()?;
-    let normalized = shifty_opt::normalize(&parsed.schema);
-    for d in &parsed.diagnostics {
+    let shapes_load_time = stage_start.elapsed();
+    let stage_start = Instant::now();
+    let compiled = shifty_engine::CompiledShapes::compile(shapes)?;
+    let compile_time = stage_start.elapsed();
+    for d in compiled.diagnostics() {
         eprintln!("{d}");
     }
 
-    let mut input_lines = input_profile_lines("shapes", &shape_stats, shapes.graph.len());
+    let mut input_lines =
+        input_profile_lines("shapes", &shape_stats, compiled.source().graph.len());
+    profile_stage(
+        &mut input_lines,
+        args.profile,
+        "shapes load",
+        shapes_load_time,
+    );
+    profile_stage(&mut input_lines, args.profile, "compile", compile_time);
+    let stage_start = Instant::now();
     let data = if args.data.is_empty() {
         input_lines
             .push("profile: data: none given; the shapes graph is also the data graph".to_string());
@@ -460,24 +483,43 @@ fn infer(args: InferArgs) -> Result<(), Box<dyn Error>> {
         input_lines.extend(input_profile_lines("data", &data_stats, data.graph.len()));
         Some(data)
     };
+    profile_stage(
+        &mut input_lines,
+        args.profile,
+        "data load",
+        stage_start.elapsed(),
+    );
 
-    let outcome = match data.as_ref() {
-        None => shifty_engine::infer(&shapes.graph, &normalized),
-        Some(data) => shifty_engine::infer_graphs(&data.graph, &shapes.graph, &normalized),
-    };
-    let outcome = match outcome {
-        Ok(o) => o,
+    let session_data = data.map_or(shifty_engine::SessionData::Embedded, |data| {
+        shifty_engine::SessionData::Separate(data.graph)
+    });
+    let stage_start = Instant::now();
+    let session = match compiled.session(
+        session_data,
+        shifty_engine::SessionOptions {
+            inference: true,
+            ..Default::default()
+        },
+    ) {
+        Ok(session) => session,
         Err(e) => return Err(format!("{e}; cannot infer (see `inspect --stage strata`)").into()),
     };
-    for d in &outcome.diagnostics {
-        eprintln!("warning: {d}");
+    profile_stage(
+        &mut input_lines,
+        args.profile,
+        "session and inference",
+        stage_start.elapsed(),
+    );
+    for d in session.diagnostics() {
+        eprintln!("warning: {}", d.message);
     }
 
+    let stage_start = Instant::now();
     match args.format {
         Format::Dot => return Err("--format dot is not supported for infer".into()),
         Format::Json => {
-            let triples: Vec<_> = outcome
-                .inferred
+            let triples: Vec<_> = session
+                .inferred()
                 .iter()
                 .map(|t| {
                     serde_json::json!({
@@ -490,14 +532,20 @@ fn infer(args: InferArgs) -> Result<(), Box<dyn Error>> {
             println!("{}", serde_json::to_string_pretty(&triples)?);
         }
         Format::Text => {
-            println!("inferred {} triple(s):", outcome.inferred.len());
-            let mut lines: Vec<String> = outcome.inferred.iter().map(|t| t.to_string()).collect();
+            println!("inferred {} triple(s):", session.inferred().len());
+            let mut lines: Vec<String> = session.inferred().iter().map(|t| t.to_string()).collect();
             lines.sort();
             for line in lines {
                 println!("  {line}");
             }
         }
     }
+    profile_stage(
+        &mut input_lines,
+        args.profile,
+        "export",
+        stage_start.elapsed(),
+    );
     if args.profile {
         print_profile(&input_lines);
     }
@@ -993,29 +1041,40 @@ fn validate(args: ValidateArgs) -> Result<(), Box<dyn Error>> {
         shifty_engine::profile::enable();
     }
     let base = args.base.as_deref();
+    let stage_start = Instant::now();
     let (shapes_loaded, shape_stats) = load_sources_profiled(&args.shapes, base)?;
+    let shapes_load_time = stage_start.elapsed();
     if shapes_loaded.graph.is_empty() {
         return Err("explicit shapes graph is empty".into());
     }
-    let parsed = shifty_parse::parse_loaded(&shapes_loaded);
-    parsed.require_valid()?;
-    let normalized = shifty_opt::normalize(&parsed.schema);
-    for d in &parsed.diagnostics {
+    let stage_start = Instant::now();
+    let compiled = shifty_engine::CompiledShapes::compile(shapes_loaded)?;
+    let compile_time = stage_start.elapsed();
+    let shapes_loaded = compiled.source();
+    let authored = compiled.authored_schema();
+    for d in compiled.diagnostics() {
         eprintln!("{d}");
     }
     let graph_mode = args.graph_mode.into();
     let threshold: shifty_algebra::Severity = args.minimum_severity.into();
-    let validation_options = shifty_engine::ValidationOptions {
+    let finding_options = shifty_engine::FindingOptions {
         minimum_severity: threshold.clone(),
         sort_results: true,
         entry_shape_names: args.entry_shape_names.clone(),
-        ..Default::default()
     };
 
     // Input telemetry is collected as the graphs load but printed at the very
     // end: `--report` and `--format json` own stdout, and a profile line ahead
     // of either would land inside the document.
     let mut input_lines = input_profile_lines("shapes", &shape_stats, shapes_loaded.graph.len());
+    profile_stage(
+        &mut input_lines,
+        args.profile,
+        "shapes load",
+        shapes_load_time,
+    );
+    profile_stage(&mut input_lines, args.profile, "compile", compile_time);
+    let stage_start = Instant::now();
     let data_loaded = if args.data.is_empty() {
         input_lines
             .push("profile: data: none given; the shapes graph is also the data graph".to_string());
@@ -1025,6 +1084,12 @@ fn validate(args: ValidateArgs) -> Result<(), Box<dyn Error>> {
         input_lines.extend(input_profile_lines("data", &data_stats, data.graph.len()));
         Some(data)
     };
+    profile_stage(
+        &mut input_lines,
+        args.profile,
+        "data load",
+        stage_start.elapsed(),
+    );
     // Report display draws on both documents: focus and value nodes are
     // data-graph terms, constraints are shapes-graph terms, and each reads best
     // spelled the way its own document spelled it.
@@ -1035,98 +1100,85 @@ fn validate(args: ValidateArgs) -> Result<(), Box<dyn Error>> {
             .unwrap_or_default(),
         shapes_loaded.prefixes.clone(),
     ]);
-    let inference = if args.no_infer {
-        None
-    } else {
-        let outcome = match data_loaded.as_ref() {
-            Some(data) => {
-                shifty_engine::infer_graphs(&data.graph, &shapes_loaded.graph, &normalized)
-            }
-            None => shifty_engine::infer(&shapes_loaded.graph, &normalized),
-        };
-        match outcome {
-            Ok(outcome) => Some(outcome),
-            Err(e) => {
-                return Err(format!(
-                    "{e}; cannot infer before validation (see `inspect --stage strata`)"
-                )
-                .into());
-            }
-        }
-    };
-    match &inference {
-        Some(inference) => {
-            for d in &inference.diagnostics {
-                eprintln!("warning: {d}");
-            }
-            input_lines.push(format!(
-                "profile: inference: {} added before validation",
-                plural(inference.inferred.len(), "triple")
-            ));
-        }
-        None => input_lines.push("profile: inference: skipped (--no-infer)".to_string()),
-    }
-    let data_graph = inference.as_ref().map_or_else(
-        || {
-            data_loaded
-                .as_ref()
-                .map_or(&shapes_loaded.graph, |data| &data.graph)
-        },
-        |inference| &inference.graph,
+    let stage_start = Instant::now();
+    let session_data = data_loaded
+        .as_ref()
+        .map_or(shifty_engine::SessionData::Embedded, |data| {
+            shifty_engine::SessionData::Separate(data.graph.clone())
+        });
+    let session = compiled
+        .session(
+            session_data,
+            shifty_engine::SessionOptions {
+                graph_mode,
+                inference: !args.no_infer,
+                engine: Default::default(),
+            },
+        )
+        .map_err(|e| format!("{e}; cannot prepare validation (see `inspect --stage strata`)"))?;
+    profile_stage(
+        &mut input_lines,
+        args.profile,
+        "session and inference",
+        stage_start.elapsed(),
     );
-
+    if args.no_infer {
+        input_lines.push("profile: inference: skipped (--no-infer)".to_string());
+    } else {
+        for d in session.diagnostics() {
+            eprintln!("warning: {}", d.message);
+        }
+        input_lines.push(format!(
+            "profile: inference: {} added before validation",
+            plural(session.inferred().len(), "triple")
+        ));
+    }
     // Dumps come before the result: they describe the run's input, and writing
     // them first means a run that later fails to validate still produced them.
-    let prefixes = output_prefixes(&shapes_loaded, data_loaded.as_ref());
+    let prefixes = output_prefixes(shapes_loaded, data_loaded.as_ref());
     if let Some(dest) = &args.dump_shapes {
         dump_graph(dest, &shapes_loaded.graph, &prefixes)?;
     }
     if let Some(dest) = &args.dump_data {
-        dump_graph(dest, data_graph, &prefixes)?;
+        dump_graph(dest, session.data(), &prefixes)?;
     }
 
     // W3C report mode: component-granular validator + RDF report output.
     if args.report {
-        let report = if data_loaded.is_some() {
-            shifty_engine::validate_report_graphs_with_mode_and_options(
-                &shapes_loaded,
-                data_graph,
-                graph_mode,
-                &validation_options,
-            )
-        } else {
-            shifty_engine::validate_report_with_options(
-                &shapes_loaded,
-                data_graph,
-                &validation_options,
-            )
-        };
+        let stage_start = Instant::now();
+        let report = session.report(&finding_options);
+        profile_stage(
+            &mut input_lines,
+            args.profile,
+            "first report",
+            stage_start.elapsed(),
+        );
+        let stage_start = Instant::now();
         let graph = shifty_engine::report_to_graph(&report);
         let bytes = turtle_bytes(&graph, &prefixes)?;
         print!("{}", String::from_utf8_lossy(&bytes));
+        profile_stage(
+            &mut input_lines,
+            args.profile,
+            "export",
+            stage_start.elapsed(),
+        );
         if args.profile {
             print_profile(&input_lines);
         }
         return Ok(());
     }
 
-    let physical = shifty_opt::plan(&normalized);
-    let mut outcome = match if data_loaded.is_some() {
-        shifty_engine::validate_plan_graphs_with_mode_and_options(
-            data_graph,
-            &shapes_loaded.graph,
-            &physical,
-            graph_mode,
-            &validation_options,
-        )
-    } else {
-        shifty_engine::validate_plan_with_options(data_graph, &physical, &validation_options)
-    } {
-        Ok(o) => o,
-        Err(e) => {
-            return Err(format!("{e}; cannot validate (see `inspect --stage strata`)").into());
-        }
-    };
+    let physical = compiled.physical_plan();
+    let stage_start = Instant::now();
+    let mut outcome = session.validate(&finding_options);
+    profile_stage(
+        &mut input_lines,
+        args.profile,
+        "first validation",
+        stage_start.elapsed(),
+    );
+    let stage_start = Instant::now();
 
     // The engine retains every finding; `--minimum-severity` scopes both
     // `conforms` (already applied) and what we display/serialize here. Drop
@@ -1140,7 +1192,7 @@ fn validate(args: ValidateArgs) -> Result<(), Box<dyn Error>> {
     match args.format {
         Format::Dot => return Err("--format dot is not supported for validate".into()),
         Format::Json => {
-            let doc = json_report(&outcome, &parsed.schema, &physical, &display_prefixes)?;
+            let doc = json_report(&outcome, authored, physical, &display_prefixes)?;
             println!("{}", serde_json::to_string_pretty(&doc)?);
         }
         Format::Text => {
@@ -1155,20 +1207,19 @@ fn validate(args: ValidateArgs) -> Result<(), Box<dyn Error>> {
             let mut findings: Vec<Finding> = Vec::new();
             let mut index: HashMap<(usize, String, String, String), usize> = HashMap::new();
             for v in &outcome.violations {
-                let st = &parsed.schema.statements[v.statement];
+                let st = &authored.statements[v.statement];
                 let focus = shifty_algebra::render::term_to_string_in(&v.focus, &display_prefixes);
                 let target = shifty_algebra::render::selector_to_string_in_px(
                     &st.selector,
-                    &parsed.schema.arena,
-                    &parsed.schema.prefixes,
+                    &authored.arena,
+                    &authored.prefixes,
                 );
                 // The source shape's IRI. Printed even when the target line
                 // already names it — an implicit class target renders as
                 // `class(<that same IRI>)` — because which shape a finding came
                 // from is the first thing a reader goes to fix, and it should
                 // not be conditional on how the target happened to render.
-                let shape = parsed
-                    .schema
+                let shape = authored
                     .name_of(st.shape)
                     .map(|name| display_prefixes.compact(name));
 
@@ -1246,6 +1297,13 @@ fn validate(args: ValidateArgs) -> Result<(), Box<dyn Error>> {
         }
     }
 
+    profile_stage(
+        &mut input_lines,
+        args.profile,
+        "export",
+        stage_start.elapsed(),
+    );
+
     if args.profile {
         print_profile(&input_lines);
     }
@@ -1254,13 +1312,12 @@ fn validate(args: ValidateArgs) -> Result<(), Box<dyn Error>> {
 
 fn repair(args: RepairArgs) -> Result<(), Box<dyn Error>> {
     let base = args.base.as_deref();
-    let shapes_loaded = load_sources(&args.shapes, base)?;
-    let parsed = shifty_parse::parse_loaded(&shapes_loaded);
-    parsed.require_valid()?;
-    for d in &parsed.diagnostics {
+    let compiled = shifty_engine::CompiledShapes::compile(load_sources(&args.shapes, base)?)?;
+    let shapes_loaded = compiled.source();
+    for d in compiled.diagnostics() {
         eprintln!("{d}");
     }
-    let schema = &parsed.schema;
+    let schema = compiled.authored_schema();
 
     let data_loaded = if args.data.is_empty() {
         None
@@ -1268,27 +1325,24 @@ fn repair(args: RepairArgs) -> Result<(), Box<dyn Error>> {
         Some(load_sources(&args.data, base)?)
     };
 
-    // Witness/synthesize against the (optionally inferred) data graph.
-    let inference = if args.no_infer {
-        None
-    } else {
-        let outcome = match data_loaded.as_ref() {
-            Some(data) => shifty_engine::infer_graphs(&data.graph, &shapes_loaded.graph, schema),
-            None => shifty_engine::infer(&shapes_loaded.graph, schema),
-        };
-        match outcome {
-            Ok(o) => Some(o),
-            Err(e) => {
-                return Err(format!("{e}; cannot infer (see `inspect --stage strata`)").into());
-            }
-        }
-    };
-    let data_graph = match inference {
-        Some(inf) => inf.graph,
-        None => data_loaded
-            .as_ref()
-            .map_or_else(|| shapes_loaded.graph.clone(), |d| d.graph.clone()),
-    };
+    let session_data = data_loaded
+        .as_ref()
+        .map_or(shifty_engine::SessionData::Embedded, |data| {
+            shifty_engine::SessionData::Separate(data.graph.clone())
+        });
+    let session = compiled
+        .session(
+            session_data,
+            shifty_engine::SessionOptions {
+                inference: !args.no_infer,
+                ..Default::default()
+            },
+        )
+        .map_err(|e| format!("{e}; cannot prepare repair (see `inspect --stage strata`)"))?;
+    for diagnostic in session.diagnostics() {
+        eprintln!("warning: {}", diagnostic.message);
+    }
+    let data_graph = session.data().clone();
     // Witness/gate against `data ∪ shapes` so paths and the class hierarchy
     // (e.g. `rdfs:subClassOf` for `sh:class`) resolve against the shapes/ontology
     // graph, while focus and the emitted repair stay the data graph. When the
@@ -1768,8 +1822,103 @@ fn inspect(args: InspectArgs) -> Result<(), Box<dyn Error>> {
                 eprintln!("{d}");
             }
         }
+        Stage::Access => {
+            if matches!(args.format, Format::Dot) {
+                return Err("--format dot is not supported for --stage access".into());
+            }
+            let functions = shifty_parse::collect_functions(&loaded);
+            let catalog = shifty_opt::AccessCatalog::compile(&out.schema, &functions);
+            match args.format {
+                Format::Text => print_access(&catalog),
+                Format::Json => println!("{}", serde_json::to_string_pretty(&catalog)?),
+                Format::Dot => unreachable!(),
+            }
+            for d in &out.diagnostics {
+                eprintln!("{d}");
+            }
+        }
     }
     Ok(())
+}
+
+fn print_access(catalog: &shifty_opt::AccessCatalog) {
+    println!(
+        "access: {} consumer(s), {} query identity/identities, {} path identity/identities",
+        catalog.consumers.len(),
+        catalog.queries.len(),
+        catalog.paths.len()
+    );
+    for consumer in &catalog.consumers {
+        println!("{:?}", consumer.consumer);
+        println!("  default: {}", access_requirement(&consumer.default));
+        println!("  shapes:  {}", access_requirement(&consumer.shapes));
+        if !consumer.queries.is_empty() {
+            println!("  queries: {:?}", consumer.queries);
+        }
+        if !consumer.paths.is_empty() {
+            println!("  paths: {:?}", consumer.paths);
+        }
+        if !consumer.calls.is_empty() {
+            let mut calls: Vec<_> = consumer.calls.iter().map(|iri| iri.as_str()).collect();
+            calls.sort_unstable();
+            println!("  functions: {}", calls.join(", "));
+        }
+        if consumer.writes.any_predicate || !consumer.writes.predicates.is_empty() {
+            let mut writes: Vec<_> = consumer
+                .writes
+                .predicates
+                .iter()
+                .map(|iri| iri.as_str())
+                .collect();
+            writes.sort_unstable();
+            if consumer.writes.any_predicate {
+                writes.push("*");
+            }
+            println!("  writes: {}", writes.join(", "));
+        }
+    }
+    for (index, query) in catalog.queries.iter().enumerate() {
+        println!("query[{index}]: {}", query.text.replace(['\r', '\n'], " "));
+    }
+    for (index, path) in catalog.paths.iter().enumerate() {
+        println!("path[{index}]: {:?}", path.path);
+    }
+}
+
+fn access_requirement(requirement: &shifty_opt::AccessRequirement) -> String {
+    let mut predicates: Vec<_> = requirement
+        .predicates
+        .iter()
+        .map(|predicate| predicate.as_str())
+        .collect();
+    predicates.sort_unstable();
+    let mut probes = Vec::new();
+    for (enabled, name) in [
+        (requirement.probes.forward, "forward"),
+        (requirement.probes.reverse, "reverse"),
+        (requirement.probes.membership, "membership"),
+        (requirement.probes.open_scan, "open scan"),
+    ] {
+        if enabled {
+            probes.push(name);
+        }
+    }
+    format!(
+        "predicates [{}{}]; probes [{}]; node domain {}; {}",
+        predicates.join(", "),
+        if requirement.any_predicate {
+            if predicates.is_empty() { "*" } else { ", *" }
+        } else {
+            ""
+        },
+        probes.join(", "),
+        requirement.reads_node_domain,
+        if requirement.incomplete {
+            "conservative/unknown"
+        } else {
+            "complete"
+        }
+    )
 }
 
 fn print_strata(strat: &shifty_opt::Stratification) {

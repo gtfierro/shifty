@@ -6,8 +6,8 @@
 //!
 //! Both are generic over a [`PathBackend`]: the leaf `Path::Pred` arms dispatch
 //! through the trait's two adjacency lookups, so the same evaluator runs over a
-//! linear `oxrdf::Graph` (inference's growing graph) or the dictionary-encoded
-//! [`FrozenIndexedDataset`] (the report and algebra validation paths). Every
+//! linear `oxrdf::Graph` (legacy calls) or the dictionary-encoded
+//! [`FrozenIndexedDataset`] (compiled inference and validation). Every
 //! other arm (`Id`/`Seq`/`Alt`/`Star`/`Inverse`) is pure combinator logic and is
 //! backend-agnostic.
 
@@ -108,8 +108,8 @@ fn once(t: Term) -> HashSet<Term> {
 
 // ── Backends ─────────────────────────────────────────────────────────────────
 
-/// Linear backend over oxrdf's B-tree indexes. Used by inference, whose graph
-/// grows during forward chaining and so cannot share an immutable snapshot.
+/// Linear backend over oxrdf's B-tree indexes. Legacy inference retains a
+/// mutable graph context; compiled sessions use the dataset backend below.
 impl PathBackend for Graph {
     fn objects(&self, subject: &Term, predicate: &NamedNode) -> HashSet<Term> {
         match node_of(subject) {

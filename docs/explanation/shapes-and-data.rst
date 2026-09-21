@@ -136,7 +136,13 @@ contains instances you intend to validate too. It can also select ontology
 resources in the shapes graph as validation targets.
 
 ``infer()`` takes no ``graph_mode``. Graph modes describe what validation can
-see; inference always reads and extends the data graph.
+see; inference derives additions to the data graph. With separate inputs, rules
+can read the data and shapes graphs while selecting their focus nodes from data.
+With combined input, rules read the evolving data graph.
+
+SPARQL ``$shapesGraph`` always names the original shapes source. It does not
+grow when inference adds data triples, even when one input file supplies both
+shapes and data. To change the named shapes graph, compile a new shapes source.
 
 Note that expanding the evaluation graph can flip a result in either direction.
 It usually makes a constraint easier to satisfy — more triples to traverse —

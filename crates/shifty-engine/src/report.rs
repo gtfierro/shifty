@@ -12,6 +12,7 @@
 //!
 //! Coverage is a growing subset of SHACL Core (see `docs/BACKLOG.md`).
 
+use crate::focus::FocusNodes;
 use crate::frozen::FrozenIndexedDataset;
 use crate::path::succ;
 use crate::sparql::{FunctionDef, SparqlDiagnostic, SparqlExecutor};
@@ -240,7 +241,19 @@ pub fn property_witnesses_graphs_with_mode_and_options(
             focus_data = &union_owner;
         }
     }
-    let r = build_reporter(shapes, focus_data, frozen, has_shapes_graph, options);
+    let mut sparql = SparqlExecutor::from_frozen(frozen, has_shapes_graph);
+    sparql.set_functions(collect_functions(shapes), options.engine.unsupported);
+    property_witnesses_prepared(shapes, focus_data, &sparql, key_path, options)
+}
+
+pub(crate) fn property_witnesses_prepared(
+    shapes: &Loaded,
+    focus_data: &dyn FocusNodes,
+    sparql: &SparqlExecutor,
+    key_path: Option<&Path>,
+    options: &ValidationOptions,
+) -> Vec<PropertyWitness> {
+    let r = build_reporter(shapes, focus_data, sparql, options);
     let mut out = Vec::new();
     for shape in r.target_shapes() {
         let foci = r.focus_nodes(&shape);
@@ -267,9 +280,8 @@ pub fn property_witnesses_graphs_with_mode_and_options(
 /// the two traversals stay in lockstep on what counts as "the shape holds".
 fn build_reporter<'a>(
     shapes: &'a Loaded,
-    focus_data: &'a Graph,
-    frozen: FrozenIndexedDataset,
-    has_shapes_graph: bool,
+    focus_data: &'a dyn FocusNodes,
+    sparql: &'a SparqlExecutor,
     options: &'a ValidationOptions,
 ) -> Reporter<'a> {
     // Only execute SPARQL target/constraint work when the shapes graph contains
@@ -284,8 +296,6 @@ fn build_reporter<'a>(
             .triples_for_predicate(vocab::SH_TARGET)
             .next()
             .is_some();
-    let mut sparql = SparqlExecutor::from_frozen(frozen, needs_sparql && has_shapes_graph);
-    sparql.set_functions(collect_functions(shapes), options.engine.unsupported);
     // Index class membership once (instead of a forward scan over every node per
     // class-target shape): this is the report path's analogue of the plan's
     // backward `PathToConst` focus source, amortized across all shapes.
@@ -330,7 +340,18 @@ fn validate_report_context(
     has_shapes_graph: bool,
     options: &ValidationOptions,
 ) -> ValidationReport {
-    let r = build_reporter(shapes, focus_data, frozen, has_shapes_graph, options);
+    let mut sparql = SparqlExecutor::from_frozen(frozen, has_shapes_graph);
+    sparql.set_functions(collect_functions(shapes), options.engine.unsupported);
+    validate_report_prepared(shapes, focus_data, &sparql, options)
+}
+
+pub(crate) fn validate_report_prepared(
+    shapes: &Loaded,
+    focus_data: &dyn FocusNodes,
+    sparql: &SparqlExecutor,
+    options: &ValidationOptions,
+) -> ValidationReport {
+    let r = build_reporter(shapes, focus_data, sparql, options);
     let mut results = Vec::new();
     for shape in r.target_shapes() {
         let foci = r.focus_nodes(&shape);
@@ -604,66 +625,13 @@ fn local_name(iri: &str) -> &str {
 /// names in positional order (`sh:order`, then local name), and its prefix-
 /// expanded `sh:select`/`sh:ask` body.
 pub(crate) fn collect_functions(shapes: &Loaded) -> Vec<FunctionDef> {
-    let mut out = Vec::new();
-    for func in shapes
-        .graph
-        .subjects_for_predicate_object(vocab::RDF_TYPE, vocab::SH_SPARQL_FUNCTION)
-        .map(|s| s.into_owned())
-        .collect::<Vec<_>>()
-    {
-        let NamedOrBlankNode::NamedNode(iri) = &func else {
-            continue;
-        };
-        let raw = match shapes
-            .object(&func, vocab::SH_SELECT)
-            .or_else(|| shapes.object(&func, vocab::SH_ASK))
-        {
-            Some(Term::Literal(q)) => q.value().to_string(),
-            _ => continue,
-        };
-        let Ok((_, query)) = canonical_sparql_query(shapes, &func, &raw) else {
-            continue;
-        };
-        out.push(FunctionDef {
-            iri: iri.clone(),
-            params: function_param_names(shapes, &func),
-            reads_graph: crate::sparql::query_reads_graph(&query),
-            query,
-        });
-    }
-    out
-}
-
-/// Parameter variable names of a function, ordered by `sh:order` then by the
-/// local name of `sh:path` (matching the node-expression evaluator).
-fn function_param_names(shapes: &Loaded, func: &NamedOrBlankNode) -> Vec<String> {
-    let mut params: Vec<(i64, String)> = shapes
-        .objects(func, vocab::SH_PARAMETER)
-        .iter()
-        .filter_map(|p| {
-            let pn = term_to_node(p)?;
-            let order = match shapes.object(&pn, vocab::SH_ORDER) {
-                Some(Term::Literal(l)) => l.value().parse::<i64>().unwrap_or(0),
-                _ => 0,
-            };
-            let name = match shapes.object(&pn, vocab::SH_NAME) {
-                Some(Term::Literal(l)) => l.value().to_string(),
-                _ => match shapes.object(&pn, vocab::SH_PATH) {
-                    Some(Term::NamedNode(n)) => local_name(n.as_str()).to_string(),
-                    _ => return None,
-                },
-            };
-            Some((order, name))
-        })
-        .collect();
-    params.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.cmp(&b.1)));
-    params.into_iter().map(|(_, name)| name).collect()
+    shifty_parse::collect_functions(shapes)
 }
 
 struct Reporter<'a> {
     shapes: &'a Loaded,
-    focus_data: &'a Graph,
-    sparql: SparqlExecutor,
+    focus_data: &'a dyn FocusNodes,
+    sparql: &'a SparqlExecutor,
     needs_sparql: bool,
     /// `class → focus-data instances` under `rdf:type / rdfs:subClassOf*`, built
     /// once and shared by every `sh:targetClass` / implicit-class lookup.
@@ -756,20 +724,12 @@ impl Reporter<'_> {
         }
         for p in self.shapes.objects(shape, vocab::SH_TARGET_SUBJECTS_OF) {
             if let Term::NamedNode(n) = p {
-                nodes.extend(
-                    self.focus_data
-                        .triples_for_predicate(n.as_ref())
-                        .map(|t| node_term(t.subject)),
-                );
+                nodes.extend(self.focus_data.subjects_of(&n));
             }
         }
         for p in self.shapes.objects(shape, vocab::SH_TARGET_OBJECTS_OF) {
             if let Term::NamedNode(n) = p {
-                nodes.extend(
-                    self.focus_data
-                        .triples_for_predicate(n.as_ref())
-                        .map(|t| t.object.into_owned()),
-                );
+                nodes.extend(self.focus_data.objects_of(&n));
             }
         }
         // SPARQL-based targets: sh:target [ sh:select "…" ]. The query selects
@@ -2239,10 +2199,10 @@ fn class_path() -> Path {
 /// each distinct type is computed at most once. Only nodes present in the focus
 /// (data) graph are indexed, matching the original target-selection semantics.
 fn build_class_index(
-    focus_data: &Graph,
+    focus_data: &dyn FocusNodes,
     frozen: &FrozenIndexedDataset,
 ) -> HashMap<Term, Vec<Term>> {
-    let focus_nodes = graph_nodes(focus_data);
+    let focus_nodes = focus_data.all_nodes();
     let subclass_star = Path::star(Path::Pred(vocab::rdfs_subclassof()));
     let mut supers: HashMap<Term, Vec<Term>> = HashMap::new();
     let mut index: HashMap<Term, Vec<Term>> = HashMap::new();
@@ -2261,19 +2221,6 @@ fn build_class_index(
         }
     }
     index
-}
-
-fn graph_nodes(graph: &Graph) -> HashSet<Term> {
-    let mut nodes = HashSet::new();
-    for triple in graph.iter() {
-        nodes.insert(node_term(triple.subject));
-        nodes.insert(triple.object.into_owned());
-    }
-    nodes
-}
-
-fn node_term(s: oxrdf::NamedOrBlankNodeRef) -> Term {
-    crate::path::term_of(s.into_owned())
 }
 
 /// Render a term for embedding in a default `sh:resultMessage`, matching

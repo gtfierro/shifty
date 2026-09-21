@@ -759,6 +759,15 @@ def test_find_failures_hands_back_exactly_the_failing_pairs():
     assert "<http://ex/good>" not in {p.focus for p in pairs}
 
 
+def test_selected_pair_rejects_another_evidence_snapshot():
+    first = ondemand_fixture()
+    second = ondemand_fixture()
+    _, pairs = first.find_failures()
+
+    with pytest.raises(ValueError, match="another session"):
+        second.explain(pairs[0])
+
+
 def test_a_selected_pair_separates_normalized_from_authored_statements():
     session = ondemand_fixture()
     _, pairs = session.find_failures()
