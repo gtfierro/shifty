@@ -324,7 +324,24 @@ impl AccessCatalog {
             Selector::HasIn(p) => access.default.edge(p, true),
             Selector::IsConst(_) => {}
             Selector::HasPath(path, shape) => {
-                self.path(path, access, paths);
+                let id = *paths.entry(path.clone()).or_insert_with(|| {
+                    let id = PathId(self.paths.len());
+                    let mut requirement = AccessRequirement::default();
+                    analyze_path(path, false, &mut requirement);
+                    self.paths.push(PathAccess {
+                        path: path.clone(),
+                        requirement,
+                    });
+                    id
+                });
+                if matches!(arena.get(*shape), Shape::TestConst(_)) {
+                    // Class-like targets are evaluated backward from their
+                    // known endpoint rather than forward from every node.
+                    analyze_path(path, true, &mut access.default);
+                } else {
+                    access.default.merge(&self.paths[id.0].requirement);
+                }
+                access.paths.push(id);
                 if nullable(path) {
                     access.default.reads_node_domain = true;
                 }
@@ -760,6 +777,23 @@ mod tests {
         );
         assert!(r.probes.reverse);
         assert!(r.reads_node_domain);
+    }
+
+    #[test]
+    fn constant_endpoint_targets_record_the_executed_reverse_direction() {
+        let mut schema = Schema::new();
+        let class = schema
+            .arena
+            .insert(Shape::TestConst(Term::NamedNode(named("Class"))));
+        schema.statements.push(shifty_algebra::Statement {
+            selector: Selector::HasPath(Path::Pred(named("type")), class),
+            shape: schema.arena.insert(Shape::Top),
+        });
+        let catalog = AccessCatalog::compile(&schema, &[]);
+        let target = &catalog.consumers[0].default;
+        assert!(target.probes.reverse);
+        assert!(!target.probes.forward);
+        assert_eq!(catalog.consumers[0].paths, vec![PathId(0)]);
     }
 
     #[test]
