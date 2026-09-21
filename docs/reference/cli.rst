@@ -237,7 +237,9 @@ graph is read.
        fall back to Spareval.
    * - ``access``
      - Static default/shapes graph reads by statement, rule, and function;
-       query/path identities, function calls, and conservative coverage.
+       query/path identities, function calls, possible rule writes, and
+       conservative coverage. This stage does not read a data graph or report
+       runtime index choices.
 
 ``--format text`` (default) works for every stage. ``--format json`` works
 except for ``capability``;
@@ -322,8 +324,9 @@ observed-probe reason, estimated
 and allocated bytes, budget, build time, and whether admission succeeded. Scan
 lines count calls and candidate rows by graph scope and bound positions
 (``S``, ``P``, ``O``); they help identify repeated broad scans even when an
-index builds successfully. Then come per-shape and per-rule wall-clock time,
-shape-cache hit rate
+index builds successfully. Reach-cache lines count hits, misses, insertions,
+and result IDs declined by its separate admission cap. Then come per-shape and
+per-rule wall-clock time, shape-cache hit rate
 and peak size, and per-query SPARQL execution time. These are timings from one run,
 rather than benchmark samples.
 

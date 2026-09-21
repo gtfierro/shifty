@@ -7,6 +7,17 @@ record the completed implementation and remaining tradeoffs. Historical
 "current" and "proposed" descriptions below refer to the `c6d0b1d` starting
 point, not the branch's current code.
 
+The implemented storage remains in `shifty-engine/src/frozen.rs` rather than a
+new `dataset/` module. During compiled inference, `SparqlExecutor` owns the one
+mutable `FrozenIndexedDataset` so native and fallback query iterators borrow the
+same snapshot; publication moves that dataset into the session and then into
+prepared validation. It never maintains a second dataset or full-data Store on
+that path. This ownership differs from the borrowed-executor sketch in §4 but
+preserves its one-dataset contract. `BaseOnly` and `AllIndexes` remain internal
+test policies; release comparisons use the demand-driven policy. The measured
+results and remaining repeated-validation cost are recorded in the linked
+benchmark report.
+
 ## 1. Outcome and scope
 
 Keep the public `CompiledShapes` / `EvaluationSession` model from
@@ -156,10 +167,11 @@ Use one graph-view implementation beneath these consumers:
 - Native ID-based scans and path traversal: use the same storage, IDs, and
   graph selector as the fallback adapter.
 
-`SparqlExecutor` should own preparation/plan caches and function policy. Supply
-the dataset/view when executing a query; it should not own an independent
-dataset or Store. Prefer short-lived borrows during each operation over a
-self-referential executor/session structure.
+`SparqlExecutor` owns preparation/plan caches and function policy. The
+implemented inference executor also temporarily owns the *one* mutable dataset
+that both native and fallback queries borrow during execution. Once inference
+finishes, it moves that allocation into the session for validation. It does
+not own an independent dataset or production Store.
 
 The builder consumes all query iterators and evaluation borrows before committing
 a batch. A builder method is the single place that changes data membership,
@@ -188,14 +200,12 @@ Keep the existing crates. Suggested implementation locations:
 | `session.rs`, `context.rs`, `evidence.rs` | Session publication, graph-role selection, and prepared consumers |
 | `profile.rs` and benchmark examples/scripts | Work counters, cost attribution, and comparison harness |
 
-The builder owns mutable session storage directly. On publication, move it into
-an `Rc<SessionDataset>` shared by the session and prepared consumers. Create
-short-lived borrowed `DatasetView` values for evaluation; prepared consumers
-retain the dataset handle and view descriptor, never a reference into the
-enclosing session. Source storage is separately shared with `Arc`. This keeps
-the immutable compiled owner thread-safe and avoids changing the existing
-thread-confined session contract. Retain the public `FrozenIndexedDataset`
-constructor surface through adapters while its internals migrate.
+The implemented builder mutates the dataset owned by `SparqlExecutor` and moves
+it into `EvaluationSession` after inference. First validation moves it again
+into `PreparedEvidenceValidator`; short-lived graph selectors choose the view.
+Source storage is separately shared with `Arc`. This keeps the immutable
+compiled owner thread-safe and the session thread-confined. Legacy
+`FrozenIndexedDataset` constructors remain for compatibility adapters.
 
 ## 5. Shared term identity and graph membership
 

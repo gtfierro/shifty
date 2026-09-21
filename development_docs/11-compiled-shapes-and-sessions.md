@@ -1,10 +1,15 @@
 # CompiledShapes and EvaluationSession
 
-Status: proposed implementation plan for 0.5, 2026-09-18.
+Status: implemented on `feature/compiled-shapes-sessions`. This document
+preserves the original API and migration decisions; future-tense implementation
+slices below are historical. The storage design that followed is documented in
+[12](12-shared-datasets-and-demand-driven-indexes.md), with measured results in
+[the benchmark report](../benchmark/shared-dataset-results.md).
 
 This develops the ownership changes recommended in the
-[architecture review](0.5-architecture-review.md). Names and signatures below
-describe the proposed API; they are not implemented yet.
+[architecture review](0.5-architecture-review.md). The principal
+`CompiledShapes` and `EvaluationSession` APIs below are implemented; code
+remains authoritative for their exact signatures.
 
 ## The two contracts
 
@@ -60,7 +65,7 @@ Persistent boolean/evidence memoization can be assessed separately.
 
 ## CompiledShapes
 
-Proposed small construction interface:
+The construction interface:
 
 ```rust,ignore
 #[derive(Clone)]
@@ -198,10 +203,10 @@ it into validation. The physical validation plan is still lazy.
 
 Internally use shared ownership for the asserted graph and lazy evaluated-data
 compatibility projection. With inference off, both refer to the same graph.
-Compiled inference keeps a growing evaluated-data graph while rules execute,
-then retains the dataset; it reads the data/shapes union through that dataset
-and builds no full-data Oxigraph Store or materialized union graph. A public
-evaluated-data getter projects the data membership once on demand.
+Compiled inference updates the shared indexed dataset at rule-group commit
+boundaries. It reads the data/shapes union through graph views and builds no
+full-data Oxigraph Store, growing evaluated-data `Graph`, or materialized union
+graph. A public evaluated-data getter projects data membership once on demand.
 Legacy inference retains its graph context. `SparqlExecutor` owns query caches
 and temporarily owns the dataset during inference; the session receives that
 dataset on publication and moves it into prepared validation on first use.
@@ -444,5 +449,5 @@ with warnings denied, and workspace tests), C++ CMake/CTest gates, and the exist
 Wasm build/smoke workflow as the affected adapters migrate. For Python changes,
 use `uv sync --dev --frozen` in `python/`, format with `uv run ruff format .`, then
 run the repository-required Ruff checks, `uv run ty check shifty`, and
-`uv run pytest -q`. No implementation tests have been run for this design-only
-document.
+`uv run pytest -q`. The completed implementation and adapter checks are
+recorded in the benchmark report linked above.

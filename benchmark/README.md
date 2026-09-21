@@ -26,6 +26,12 @@ row-for-row.
 
 ## Shared-dataset before/after comparisons
 
+The completed Brick, s223, generated-workload, and many-session measurements
+for the shared-dataset implementation are in
+[shared-dataset-results.md](shared-dataset-results.md). That report records
+baseline commits, semantic comparison limits, per-case medians and spread,
+peak RSS, and the remaining repeated-validation cost.
+
 `compare_shared_datasets.py` compares two release CLIs with identical
 `Cargo.lock` files. It alternates versions, discards a warmup, retains five
 timings and peak-RSS readings per condition, and records profile stages and
