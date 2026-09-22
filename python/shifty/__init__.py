@@ -692,7 +692,9 @@ def _write_back_derived(
 
     A label the engine reports is read back through the same encoding it was
     written with, so a node whose name could not be spelled in RDF syntax
-    rejoins the graph under the name it actually has.
+    rejoins the graph under the name it actually has. Before this point the
+    engine restores data-node labels and gives colliding shapes-graph nodes
+    distinct labels, so pinning cannot merge those two nodes.
 
     Text with no blank nodes needs none of this and is parsed directly. The
     parser's ability to pin labels is settled in :func:`_in_place_target`
@@ -1612,5 +1614,5 @@ def infer(
         on_unsupported,
         base,
     )
-    _write_back_derived(target, lambda: inner.inferred_ntriples)
+    _write_back_derived(target, lambda: inner._inferred_ntriples)
     return InferResult(inner, _target=target)

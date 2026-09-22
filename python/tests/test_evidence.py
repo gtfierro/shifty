@@ -692,6 +692,37 @@ def test_revalidate_defaults_to_the_sessions_own_inference_setting():
     assert session.revalidate(delta, infer=True).conforms
 
 
+def test_revalidate_inference_override_reuses_named_shapes_graph():
+    shapes = (
+        PREFIXES
+        + """
+    ex:S a sh:NodeShape ; sh:targetNode ex:a ;
+        sh:property [ sh:path ex:uses ; sh:minCount 1 ] ;
+        sh:rule [ a sh:SPARQLRule ;
+            sh:construct "CONSTRUCT { $this ex:uses ?option } WHERE { GRAPH $shapesGraph { ex:Config ex:option ?option } }" ] .
+    ex:Config ex:option [ ex:kind ex:K ] .
+    """
+    )
+    data = PREFIXES + "ex:a ex:marker ex:v ."
+    session = shifty.EvidenceSession(shapes, data, infer=False)
+    delta = shifty.RepairDelta.from_ntriples(
+        add="<http://ex/a> <http://ex/added> <http://ex/v> ."
+    )
+
+    assert not session.validate().conforms
+    assert session.revalidate(delta, infer=True).conforms
+
+
+def test_revalidate_inference_override_with_embedded_data():
+    session = shifty.EvidenceSession(
+        RULE_SHAPES + PREFIXES + "ex:ahu1 a ex:AHU .", infer=False
+    )
+    delta = shifty.RepairDelta.from_ntriples(add=ADD_SENSOR)
+
+    assert not session.validate().conforms
+    assert session.revalidate(delta, infer=True).conforms
+
+
 def test_revalidate_takes_the_same_options_as_validate():
     data = PREFIXES + "ex:ahu1 a ex:AHU . ex:v1 a ex:Vav ."
     shapes = (

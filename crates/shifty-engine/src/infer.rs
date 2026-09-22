@@ -7,11 +7,13 @@
 //! groups, and output from a later group may reactivate an earlier group in the
 //! next pass. Predicate-level delta scheduling avoids rerunning rules whose
 //! graph reads cannot observe the newly added triples. Triple rules only
-//! combine existing terms, and SPARQL `CONSTRUCT` results containing fresh
-//! blank nodes are rejected, preserving termination for the supported subset.
+//! combine existing terms. SPARQL `CONSTRUCT` may reuse blank nodes from the
+//! input data or shapes graph, but results containing fresh blank nodes are
+//! rejected.
 //!
-//! Compiled sessions resolve function node expressions from their source-owned
-//! registry. Legacy calls retain graph-based function discovery.
+//! Rule inference runs only through compiled sessions. This keeps graph roles,
+//! parsed queries, function definitions, and blank-node identities identical
+//! across every public interface.
 //!
 //! The outer loop represents one least-fixpoint pass. Within a pass, rules with
 //! the same `sh:order` read the same snapshot and contribute a deduplicated
@@ -31,207 +33,65 @@ use crate::compiled::ParsedQueries;
 use crate::focus::{FocusNodes, FocusScope, IndexedFocus};
 use crate::frozen::{FrozenIndexedDataset, SourceStorage};
 use crate::path::{node_of, succ};
-use crate::sparql::{FunctionDef, SparqlExecutor, query_reads_graph};
-use crate::validate::{
-    EngineOptions, NonStratifiable, ShapeEvaluator, focus_nodes_with, graph_union,
-};
-use oxrdf::{Graph, NamedNode, NamedOrBlankNode, Term, Triple};
+use crate::sparql::{FunctionDef, SparqlExecutor};
+use crate::validate::{EngineOptions, ShapeEvaluator, focus_nodes_with};
+use oxrdf::{BlankNode, NamedNode, NamedOrBlankNode, Term, Triple};
 use shifty_algebra::{NodeExpr, Rule, RuleHead, Schema, Selector, ShapeArena};
-use shifty_opt::{RuleDependencies, analyze, rule_dependencies, rule_guard_dependencies};
-use shifty_parse::vocab;
-use std::borrow::Cow;
+use shifty_opt::RuleDependencies;
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::sync::Arc;
 
-/// The result of running inference over a data graph.
-pub struct InferenceOutcome {
-    /// The data graph augmented with all inferred triples.
-    pub graph: Graph,
-    /// The triples that were newly inferred (not already asserted).
-    pub inferred: Vec<Triple>,
-    /// Unsupported rule features encountered (deduplicated).
-    pub diagnostics: Vec<String>,
-}
-
-/// Compiled inference publishes its indexed dataset directly. Legacy inference
-/// still returns an eagerly updated `Graph` through `into_outcome`.
 pub(crate) struct InferenceRun {
-    pub graph: Option<Graph>,
     pub inferred: Vec<Triple>,
     pub diagnostics: Vec<String>,
-    pub dataset: Option<FrozenIndexedDataset>,
+    pub dataset: FrozenIndexedDataset,
 }
 
-impl InferenceRun {
-    fn into_outcome(self) -> InferenceOutcome {
-        InferenceOutcome {
-            graph: self.graph.expect("legacy inference returns a graph"),
-            inferred: self.inferred,
-            diagnostics: self.diagnostics,
-        }
-    }
-}
-
-/// Run rule inference to a least fixpoint, ordered by `sh:order`.
-pub fn infer(data: &Graph, schema: &Schema) -> Result<InferenceOutcome, NonStratifiable> {
-    infer_with_context(data, data, schema)
-}
-
-/// Run inference with explicit [`EngineOptions`] (e.g. the `UnsupportedPolicy`
-/// for graph-reading SHACL functions called from CONSTRUCT rule bodies).
-pub fn infer_with_options(
-    data: &Graph,
-    schema: &Schema,
-    options: &EngineOptions,
-) -> Result<InferenceOutcome, NonStratifiable> {
-    infer_with_context_and_options(data, data, schema, options)
-}
-
-/// Run inference over split data and shapes graphs.
-///
-/// Rule focus nodes come from `data`, while class hierarchy, paths, conditions,
-/// and SPARQL rule bodies see the RDF union of `data` and `shapes`.
-pub fn infer_graphs(
-    data: &Graph,
-    shapes: &Graph,
-    schema: &Schema,
-) -> Result<InferenceOutcome, NonStratifiable> {
-    // The union is freshly built and owned by this call, so hand it over rather
-    // than letting the callee clone it -- on a large shapes graph that copy is
-    // pure overhead (~150 ms for Brick's 228k triples).
-    let context = graph_union(data, shapes);
-    infer_with_owned_context_and_options(data, context, schema, &EngineOptions::default())
-}
-
-/// Run inference with data-scoped focus discovery and a broader execution
-/// context. `context` should contain `data`; newly inferred triples are added to
-/// both the returned data graph and the mutable execution context.
-pub fn infer_with_context(
-    data: &Graph,
-    context: &Graph,
-    schema: &Schema,
-) -> Result<InferenceOutcome, NonStratifiable> {
-    infer_with_context_and_options(data, context, schema, &EngineOptions::default())
-}
-
-/// [`infer_with_context`] with an explicit feature-handling policy.
-pub fn infer_with_context_and_options(
-    data: &Graph,
-    context: &Graph,
-    schema: &Schema,
-    options: &EngineOptions,
-) -> Result<InferenceOutcome, NonStratifiable> {
-    infer_with_owned_context_and_options(data, context.clone(), schema, options)
-}
-
-/// [`infer_with_context_and_options`] taking ownership of the execution context.
-///
-/// Inference mutates the context as it commits inferred triples, so a borrowed
-/// context has to be copied first. Callers that build the context themselves
-/// (see [`infer_graphs`]) can pass it by value and skip that copy.
-pub fn infer_with_owned_context_and_options(
-    data: &Graph,
-    context: Graph,
-    schema: &Schema,
-    options: &EngineOptions,
-) -> Result<InferenceOutcome, NonStratifiable> {
-    let functions = collect_functions(&context);
-    infer_with_compiled_functions(data, Some(context), schema, options, &functions, None, None)
-        .map(InferenceRun::into_outcome)
-}
-
-/// The document-session path reads the indexed union view and uses functions
-/// fixed by the compiled shapes source. Legacy callers retain their mutable
-/// graph context and dynamic function discovery.
+/// Run one compiled document session over an asserted data snapshot.
 pub(crate) fn infer_with_compiled_functions(
-    data: &Graph,
-    context: Option<Graph>,
+    data: &oxrdf::Graph,
     schema: &Schema,
     options: &EngineOptions,
     functions: &[FunctionDef],
-    schedule: Option<&[crate::compiled::CompiledRuleSchedule]>,
-    source: Option<(Arc<SourceStorage>, bool, Arc<ParsedQueries>)>,
-) -> Result<InferenceRun, NonStratifiable> {
-    // `CompiledShapes::compile` already admits and checks the normalized
-    // arena. Legacy callers still need the analysis here; compiled sessions
-    // pass their admitted rule schedule and must not pay for a second SCC
-    // traversal on every data snapshot.
-    if schedule.is_none() {
-        let strat = analyze(&schema.arena);
-        if !strat.stratifiable {
-            let components = strat
-                .strata
-                .iter()
-                .filter(|s| !s.stratifiable)
-                .map(|s| s.shapes.clone())
-                .collect();
-            return Err(NonStratifiable { components });
-        }
-    }
-
-    if schedule.is_some_and(|rules| rules.is_empty())
-        || (schedule.is_none() && schema.rules.iter().all(|rule| rule.deactivated))
-    {
-        return Ok(InferenceRun {
-            graph: source.is_none().then(|| data.clone()),
-            inferred: Vec::new(),
-            diagnostics: Vec::new(),
-            dataset: None,
-        });
-    }
-
-    let mut graph = source.is_none().then(|| data.clone());
-    let mut context = context;
-    let dataset = match &source {
-        Some((source, separate, _)) => {
-            if *separate {
-                FrozenIndexedDataset::from_data_with_source(data, Arc::clone(source), true)
-            } else {
-                FrozenIndexedDataset::from_data_with_source(data, Arc::clone(source), false)
-            }
-        }
-        None => FrozenIndexedDataset::from_graph(context.as_ref().expect("legacy context")),
-    };
-    let mut sparql = SparqlExecutor::from_frozen_with_parsed(
-        dataset,
-        source.is_some(),
-        source.as_ref().map(|(_, _, parsed)| Arc::clone(parsed)),
-    );
+    schedule: &[crate::compiled::CompiledRuleSchedule],
+    source: (Arc<SourceStorage>, bool, Arc<ParsedQueries>),
+) -> InferenceRun {
+    let (source_storage, separate, parsed_queries) = source;
+    let dataset =
+        FrozenIndexedDataset::from_data_with_source(data, source_storage, separate, separate);
+    let mut sparql = SparqlExecutor::from_frozen_with_parsed(dataset, true, Some(parsed_queries));
     // Register sh:SPARQLFunctions so CONSTRUCT rule bodies can call them (node
     // expressions use the graph-aware call_sparql_function path separately).
     sparql.set_functions(functions.to_vec(), options.unsupported);
     let mut inferred: Vec<Triple> = Vec::new();
     let mut diags: BTreeSet<String> = BTreeSet::new();
 
-    let mut rules: Vec<ScheduledRule<'_>> = if let Some(schedule) = schedule {
-        schedule
-            .iter()
-            .map(|entry| ScheduledRule {
-                index: entry.index,
-                order: entry.order,
-                dependencies: entry.dependencies.clone(),
-                guard_dependencies: entry.guard_dependencies.clone(),
-                rule: &schema.rules[entry.index],
-            })
-            .collect()
+    let rules: Vec<ScheduledRule<'_>> = schedule
+        .iter()
+        .map(|entry| ScheduledRule {
+            order: entry.order,
+            dependencies: entry.dependencies.clone(),
+            guard_dependencies: entry.guard_dependencies.clone(),
+            rule: &schema.rules[entry.index],
+        })
+        .collect();
+
+    // Capture input graph identities before the first inference commit. In a
+    // compiled session, the indexed dataset may alias data blank nodes whose
+    // labels collide with the shapes source, so use its internalized terms.
+    // This finite set permits CONSTRUCT rules to describe existing nodes while
+    // excluding fresh template and BNODE() nodes on every fixpoint pass.
+    let input_blank_nodes: HashSet<BlankNode> = if rules
+        .iter()
+        .any(|scheduled| matches!(scheduled.rule.head, RuleHead::Sparql(_)))
+    {
+        sparql
+            .frozen()
+            .expect("inference dataset")
+            .input_blank_nodes()
     } else {
-        schema
-            .rules
-            .iter()
-            .enumerate()
-            .filter(|(_, rule)| !rule.deactivated)
-            .map(|(index, rule)| ScheduledRule {
-                index,
-                order: rule.order.unwrap_or(0),
-                dependencies: rule_dependencies(rule, &schema.arena),
-                guard_dependencies: rule_guard_dependencies(rule, &schema.arena),
-                rule,
-            })
-            .collect()
+        HashSet::new()
     };
-    if schedule.is_none() {
-        rules.sort_by_key(|scheduled| (scheduled.order, scheduled.index));
-    }
 
     // The first pass evaluates every rule. Later passes are semi-naive at rule
     // granularity: only rules that may read a changed predicate are active.
@@ -278,27 +138,16 @@ pub(crate) fn infer_with_compiled_functions(
                 if selector_stale(sel, &pass_changed) {
                     focus_cache.remove(sel);
                 }
-                let context_graph = context.as_ref().or(graph.as_ref());
-                let backend: &dyn crate::path::PathBackend = if source.is_some() {
-                    sparql.frozen().expect("compiled inference dataset")
-                } else {
-                    context_graph.expect("legacy inference context graph")
-                };
-                let indexed_focus = source.as_ref().map(|(_, separate, _)| {
-                    IndexedFocus::new(
-                        sparql.frozen().expect("compiled inference dataset"),
-                        if *separate {
-                            FocusScope::Data
-                        } else {
-                            FocusScope::Default
-                        },
-                    )
-                });
-                let focus: &dyn FocusNodes = if let Some(indexed) = &indexed_focus {
-                    indexed
-                } else {
-                    graph.as_ref().expect("legacy inference data graph")
-                };
+                let backend = sparql.frozen().expect("compiled inference dataset");
+                let indexed_focus = IndexedFocus::new(
+                    backend,
+                    if separate {
+                        FocusScope::Data
+                    } else {
+                        FocusScope::Default
+                    },
+                );
+                let focus: &dyn FocusNodes = &indexed_focus;
                 let focus_nodes = focus_cache.entry(sel.clone()).or_insert_with(|| {
                     focus_nodes_with(focus, backend, sel, &schema.arena, &sparql)
                 });
@@ -337,15 +186,17 @@ pub(crate) fn infer_with_compiled_functions(
                 };
                 let rule_label = format!("rule[{}]", start + position);
                 let rule_t = web_time::Instant::now();
+                let runtime = RuleRuntime {
+                    backend,
+                    arena: &schema.arena,
+                    sparql: &sparql,
+                    functions,
+                    input_blank_nodes: &input_blank_nodes,
+                };
                 fire_rule(
                     execution_focus_nodes,
-                    context_graph,
-                    backend,
-                    &schema.arena,
                     scheduled.rule,
-                    &sparql,
-                    sparql.frozen(),
-                    source.as_ref().map(|_| functions),
+                    &runtime,
                     &mut candidates,
                     &mut diags,
                 );
@@ -355,12 +206,6 @@ pub(crate) fn infer_with_compiled_functions(
             for t in candidates {
                 pass_changed.insert(t.predicate.clone());
                 visible_changed.insert(t.predicate.clone());
-                if let Some(graph) = &mut graph {
-                    graph.insert(&t);
-                }
-                if let Some(context) = &mut context {
-                    context.insert(&t);
-                }
                 changed_predicates.insert(t.predicate.clone());
                 inferred.push(t);
                 added = true;
@@ -386,16 +231,14 @@ pub(crate) fn infer_with_compiled_functions(
         }
     }
 
-    Ok(InferenceRun {
-        graph,
+    InferenceRun {
         inferred,
         diagnostics: diags.into_iter().collect(),
-        dataset: sparql.into_frozen(),
-    })
+        dataset: sparql.into_frozen().expect("compiled inference dataset"),
+    }
 }
 
 struct ScheduledRule<'a> {
-    index: usize,
     order: i64,
     dependencies: RuleDependencies,
     guard_dependencies: RuleDependencies,
@@ -416,21 +259,27 @@ fn selector_stale(sel: &Selector, pass_changed: &HashSet<NamedNode>) -> bool {
     }
 }
 
-#[allow(clippy::too_many_arguments)]
+struct RuleRuntime<'a> {
+    backend: &'a dyn crate::path::PathBackend,
+    arena: &'a ShapeArena,
+    sparql: &'a SparqlExecutor,
+    functions: &'a [FunctionDef],
+    input_blank_nodes: &'a HashSet<BlankNode>,
+}
+
 fn fire_rule(
     focus_nodes: &[Term],
-    context: Option<&Graph>,
-    backend: &dyn crate::path::PathBackend,
-    arena: &ShapeArena,
     rule: &shifty_algebra::Rule,
-    sparql: &SparqlExecutor,
-    frozen: Option<&FrozenIndexedDataset>,
-    compiled_functions: Option<&[FunctionDef]>,
+    runtime: &RuleRuntime<'_>,
     out: &mut HashSet<Triple>,
     diags: &mut BTreeSet<String>,
 ) {
-    let mut evaluator =
-        ShapeEvaluator::new(backend, arena, shifty_algebra::Prefixes::empty(), sparql);
+    let mut evaluator = ShapeEvaluator::new(
+        runtime.backend,
+        runtime.arena,
+        shifty_algebra::Prefixes::empty(),
+        runtime.sparql,
+    );
     let eligible: Vec<&Term> = focus_nodes
         .iter()
         .filter(|v| rule.conditions.iter().all(|c| evaluator.holds(v, *c)))
@@ -444,30 +293,27 @@ fn fire_rule(
         } => {
             for v in eligible {
                 let subjects = eval_node_expr(
-                    context,
-                    backend,
+                    runtime.backend,
                     v,
                     subject,
                     &mut evaluator,
-                    compiled_functions,
+                    runtime.functions,
                     diags,
                 );
                 let predicates = eval_node_expr(
-                    context,
-                    backend,
+                    runtime.backend,
                     v,
                     predicate,
                     &mut evaluator,
-                    compiled_functions,
+                    runtime.functions,
                     diags,
                 );
                 let objects = eval_node_expr(
-                    context,
-                    backend,
+                    runtime.backend,
                     v,
                     object,
                     &mut evaluator,
-                    compiled_functions,
+                    runtime.functions,
                     diags,
                 );
                 for s in &subjects {
@@ -476,7 +322,7 @@ fn fire_rule(
                         let Term::NamedNode(pred) = p else { continue };
                         for o in &objects {
                             let t = Triple::new(subj.clone(), pred.clone(), o.clone());
-                            if !backend.contains(s, pred, o) {
+                            if !runtime.backend.contains(s, pred, o) {
                                 out.insert(t);
                             }
                         }
@@ -486,14 +332,18 @@ fn fire_rule(
         }
         RuleHead::Sparql(construct) => {
             let eligible: Vec<Term> = eligible.into_iter().cloned().collect();
-            match sparql.construct_many(&construct.query, &eligible, frozen) {
+            match runtime.sparql.construct_many(
+                &construct.query,
+                &eligible,
+                runtime.sparql.frozen(),
+            ) {
                 Ok(triples) => {
                     for triple in triples {
-                        if matches!(triple.subject, oxrdf::NamedOrBlankNode::BlankNode(_))
-                            || matches!(triple.object, Term::BlankNode(_))
+                        if matches!(&triple.subject, NamedOrBlankNode::BlankNode(node) if !runtime.input_blank_nodes.contains(node))
+                            || matches!(&triple.object, Term::BlankNode(node) if !runtime.input_blank_nodes.contains(node))
                         {
                             diags.insert(
-                                "sh:SPARQLRule CONSTRUCT blank nodes are not supported because \
+                                "sh:SPARQLRule CONSTRUCT fresh blank nodes are not supported because \
                                  they can prevent fixpoint termination"
                                     .to_string(),
                             );
@@ -512,12 +362,11 @@ fn fire_rule(
 
 /// Evaluate a node expression at focus node `v` to its set of result terms.
 fn eval_node_expr(
-    g: Option<&Graph>,
     backend: &dyn crate::path::PathBackend,
     v: &Term,
     expr: &NodeExpr,
     evaluator: &mut ShapeEvaluator<'_>,
-    compiled_functions: Option<&[FunctionDef]>,
+    functions: &[FunctionDef],
     diags: &mut BTreeSet<String>,
 ) -> HashSet<Term> {
     match expr {
@@ -525,7 +374,7 @@ fn eval_node_expr(
         NodeExpr::Constant(t) => once(t.clone()),
         NodeExpr::Path(p) => succ(backend, v, p),
         NodeExpr::Filter { input, shape } => {
-            eval_node_expr(g, backend, v, input, evaluator, compiled_functions, diags)
+            eval_node_expr(backend, v, input, evaluator, functions, diags)
                 .into_iter()
                 .filter(|x| evaluator.holds(x, *shape))
                 .collect()
@@ -534,11 +383,9 @@ fn eval_node_expr(
             let mut iter = es.iter();
             match iter.next() {
                 Some(first) => {
-                    let mut acc =
-                        eval_node_expr(g, backend, v, first, evaluator, compiled_functions, diags);
+                    let mut acc = eval_node_expr(backend, v, first, evaluator, functions, diags);
                     for e in iter {
-                        let s =
-                            eval_node_expr(g, backend, v, e, evaluator, compiled_functions, diags);
+                        let s = eval_node_expr(backend, v, e, evaluator, functions, diags);
                         acc.retain(|x| s.contains(x));
                     }
                     acc
@@ -549,15 +396,7 @@ fn eval_node_expr(
         NodeExpr::Union(es) => {
             let mut acc = HashSet::new();
             for e in es {
-                acc.extend(eval_node_expr(
-                    g,
-                    backend,
-                    v,
-                    e,
-                    evaluator,
-                    compiled_functions,
-                    diags,
-                ));
+                acc.extend(eval_node_expr(backend, v, e, evaluator, functions, diags));
             }
             acc
         }
@@ -565,53 +404,26 @@ fn eval_node_expr(
             // Evaluate arguments before borrowing evaluator for sparql().
             let arg_values: Vec<HashSet<Term>> = args
                 .iter()
-                .map(|a| eval_node_expr(g, backend, v, a, evaluator, compiled_functions, diags))
+                .map(|a| eval_node_expr(backend, v, a, evaluator, functions, diags))
                 .collect();
 
-            let (query_text, params): (Cow<'_, str>, Cow<'_, [String]>) = if let Some(functions) =
-                compiled_functions
-            {
-                let Some(function) = functions.iter().find(|function| function.iri == *iri) else {
-                    diags.insert(format!("function <{}> has no sh:select", iri.as_str()));
-                    return HashSet::new();
-                };
-                (
-                    Cow::Borrowed(function.query.as_str()),
-                    Cow::Borrowed(&function.params),
-                )
-            } else {
-                // Legacy inference discovers function bodies and parameter
-                // order from the caller's mutable context graph.
-                let g = g.expect("legacy inference context graph");
-                let func = NamedOrBlankNode::NamedNode(iri.clone());
-                let Some(query_text) = g
-                    .object_for_subject_predicate(&func, vocab::SH_SELECT)
-                    .map(|t| t.into_owned())
-                    .and_then(|t| match t {
-                        Term::Literal(l) => Some(l.value().to_string()),
-                        _ => None,
-                    })
-                else {
-                    diags.insert(format!("function <{}> has no sh:select", iri.as_str()));
-                    return HashSet::new();
-                };
-                (
-                    Cow::Owned(query_text),
-                    Cow::Owned(function_params(g, &func)),
-                )
+            let Some(function) = functions.iter().find(|function| function.iri == *iri) else {
+                diags.insert(format!("function <{}> has no sh:select", iri.as_str()));
+                return HashSet::new();
             };
             let sparql = evaluator.sparql();
             let mut results = HashSet::new();
             for combo in cartesian_product(&arg_values) {
-                if combo.len() != params.len() {
+                if combo.len() != function.params.len() {
                     continue;
                 }
-                let bindings: Vec<(String, Term)> = params
+                let bindings: Vec<(String, Term)> = function
+                    .params
                     .iter()
                     .zip(combo)
                     .map(|(name, val)| (name.clone(), val))
                     .collect();
-                match sparql.call_sparql_function(&query_text, &bindings) {
+                match sparql.call_sparql_function(&function.query, &bindings) {
                     Ok(terms) => results.extend(terms),
                     Err(e) => {
                         diags.insert(format!("function <{}> error: {e}", iri.as_str()));
@@ -627,78 +439,6 @@ fn once(t: Term) -> HashSet<Term> {
     let mut s = HashSet::with_capacity(1);
     s.insert(t);
     s
-}
-
-/// Return the local name of an IRI (the part after the last `#` or `/`).
-fn local_name(iri: &str) -> &str {
-    iri.rsplit(['#', '/']).next().unwrap_or(iri)
-}
-
-/// Build registrable [`FunctionDef`]s for every `sh:SPARQLFunction` in the
-/// context graph (raw bodies; node-expression calls handle their own prefixes).
-fn collect_functions(g: &Graph) -> Vec<FunctionDef> {
-    let mut out = Vec::new();
-    for func in g
-        .subjects_for_predicate_object(vocab::RDF_TYPE, vocab::SH_SPARQL_FUNCTION)
-        .map(|s| s.into_owned())
-        .collect::<Vec<_>>()
-    {
-        let NamedOrBlankNode::NamedNode(iri) = &func else {
-            continue;
-        };
-        let raw = match g
-            .object_for_subject_predicate(&func, vocab::SH_SELECT)
-            .or_else(|| g.object_for_subject_predicate(&func, vocab::SH_ASK))
-            .map(|t| t.into_owned())
-        {
-            Some(Term::Literal(l)) => l.value().to_string(),
-            _ => continue,
-        };
-        out.push(FunctionDef {
-            iri: iri.clone(),
-            params: function_params(g, &func),
-            reads_graph: query_reads_graph(&raw),
-            query: raw,
-        });
-    }
-    out
-}
-
-/// Resolve a SPARQL function's parameter names from the context graph,
-/// sorted by `sh:order` then by local name of `sh:path` (or `sh:name`).
-fn function_params(g: &Graph, func: &NamedOrBlankNode) -> Vec<String> {
-    let mut params: Vec<(i64, String)> = g
-        .objects_for_subject_predicate(func, vocab::SH_PARAMETER)
-        .filter_map(|param_ref| {
-            let param_node = node_of(&param_ref.into_owned())?;
-            let order = g
-                .object_for_subject_predicate(&param_node, vocab::SH_ORDER)
-                .map(|t| t.into_owned())
-                .and_then(|t| match t {
-                    Term::Literal(l) => l.value().parse::<i64>().ok(),
-                    _ => None,
-                })
-                .unwrap_or(0);
-            let name = g
-                .object_for_subject_predicate(&param_node, vocab::SH_NAME)
-                .map(|t| t.into_owned())
-                .and_then(|t| match t {
-                    Term::Literal(l) => Some(l.value().to_string()),
-                    _ => None,
-                })
-                .or_else(|| {
-                    g.object_for_subject_predicate(&param_node, vocab::SH_PATH)
-                        .map(|t| t.into_owned())
-                        .and_then(|t| match t {
-                            Term::NamedNode(n) => Some(local_name(n.as_str()).to_string()),
-                            _ => None,
-                        })
-                })?;
-            Some((order, name))
-        })
-        .collect();
-    params.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.cmp(&b.1)));
-    params.into_iter().map(|(_, name)| name).collect()
 }
 
 /// Cartesian product of term sets — one arg combo per returned vec.

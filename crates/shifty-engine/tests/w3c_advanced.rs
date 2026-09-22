@@ -17,7 +17,7 @@
 
 use oxrdf::{Graph, NamedNode, NamedNodeRef, NamedOrBlankNode, Term, Triple};
 use shifty_algebra::render::path_to_string;
-use shifty_engine::ValidationResult;
+use shifty_engine::{CompiledShapes, SessionData, SessionOptions, ValidationResult};
 use shifty_parse::vocab;
 use std::path::{Path, PathBuf};
 
@@ -346,7 +346,7 @@ fn w3c_advanced_conformance() {
                 inf_skip += 1;
                 continue;
             }
-            let parsed = match shifty_parse::parse_turtle(&bytes, Some(&base)) {
+            match shifty_parse::parse_turtle(&bytes, Some(&base)) {
                 Ok(p) if p.diagnostics.is_empty() => p,
                 _ => {
                     inf_skip += 1;
@@ -361,11 +361,24 @@ fn w3c_advanced_conformance() {
                 inf_skip += 1;
                 continue;
             }
-            match shifty_engine::infer(&loaded.graph, &parsed.schema) {
-                Ok(outcome) if outcome.diagnostics.is_empty() => {
-                    if expected.iter().all(|t| outcome.graph.contains(t)) {
+            let inferred = CompiledShapes::compile(loaded)
+                .map_err(|error| error.to_string())
+                .and_then(|compiled| {
+                    compiled
+                        .session(
+                            SessionData::Embedded,
+                            SessionOptions {
+                                inference: true,
+                                ..SessionOptions::default()
+                            },
+                        )
+                        .map_err(|error| error.to_string())
+                });
+            match inferred {
+                Ok(outcome) if outcome.diagnostics().is_empty() => {
+                    if expected.iter().all(|t| outcome.data().contains(t)) {
                         inf_pass += 1;
-                    } else if outcome.inferred.is_empty() {
+                    } else if outcome.inferred().is_empty() {
                         // No new triples produced — likely missing data from
                         // unresolved owl:imports; skip rather than fail.
                         inf_skip += 1;

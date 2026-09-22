@@ -793,7 +793,7 @@ impl SparqlExecutor {
             // passes skip the probe instead of re-paying the budget each time.
             const PROBE_BUDGET: std::time::Duration = std::time::Duration::from_secs(2);
             let this_var = variable("this");
-            let parsed = self.parse(query)?;
+            let parsed = self.parse_construct(query)?;
             let body_binds_this = matches!(
                 &parsed,
                 Query::Construct { pattern, .. } if this_required(pattern, &this_var)
@@ -911,7 +911,7 @@ impl SparqlExecutor {
         if let Some(compiled) = self.constructs.borrow().get(query) {
             return Ok(compiled.clone());
         }
-        let parsed = self.parse(query)?;
+        let parsed = self.parse_construct(query)?;
         let Query::Construct {
             template,
             dataset,
@@ -944,7 +944,7 @@ impl SparqlExecutor {
     }
 
     fn construct_one(&self, query: &str, focus: &Term) -> Result<Vec<Triple>, String> {
-        let mut query = self.parse(query)?;
+        let mut query = self.parse_construct(query)?;
         substitute_query(&mut query, &variable("this"), focus);
         let prepared = self.evaluator().for_query(query);
         let results = if let Some(frozen) = &self.frozen {
@@ -971,7 +971,7 @@ impl SparqlExecutor {
         foci_set: &HashSet<Term>,
         out: &mut Vec<Triple>,
     ) -> Result<(), String> {
-        let prepared = self.evaluator().for_query(self.parse(query)?);
+        let prepared = self.evaluator().for_query(self.parse_construct(query)?);
         let results = if let Some(frozen) = &self.frozen {
             prepared
                 .on_queryable_dataset(frozen)
@@ -1023,6 +1023,20 @@ impl SparqlExecutor {
         self.parsed
             .borrow_mut()
             .insert(query.to_string(), parsed.clone());
+        Ok(parsed)
+    }
+
+    /// Apply the static SHACL shapes-graph prebinding to a rule query. The
+    /// cached parsed query stays unchanged; `$this` is bound per focus later.
+    fn parse_construct(&self, query: &str) -> Result<Query, String> {
+        let mut parsed = self.parse(query)?;
+        if let Some(graph) = &self.shapes_graph {
+            substitute_query(
+                &mut parsed,
+                &variable("shapesGraph"),
+                &Term::NamedNode(graph.clone()),
+            );
+        }
         Ok(parsed)
     }
 
@@ -1641,44 +1655,6 @@ fn pattern_has_group_or_slice(p: &GraphPattern) -> bool {
 
 fn term_pattern_is(t: &TermPattern, var: &Variable) -> bool {
     matches!(t, TermPattern::Variable(v) if v == var)
-}
-
-/// Substitute every occurrence of `var` with the pre-bound `value` throughout a
-/// query, implementing SHACL-SPARQL pre-binding by algebra substitution.
-/// Whether a function body reads the data graph: it contains a non-empty BGP, a
-/// property path, a named `GRAPH`, or a `SERVICE`. A pure function (only
-/// `BIND`/`FILTER`/`VALUES` over no triples) returns `false` and is safe to run
-/// over an empty dataset. Unparseable queries are treated as graph-reading
-/// (conservative). Used to decide registration under `UnsupportedPolicy`.
-pub(crate) fn query_reads_graph(query: &str) -> bool {
-    let Ok(parsed) = SparqlParser::new().parse_query(query) else {
-        return true;
-    };
-    fn walk(pattern: &GraphPattern) -> bool {
-        use GraphPattern::*;
-        match pattern {
-            Bgp { patterns } => !patterns.is_empty(),
-            Path { .. } | Graph { .. } | Service { .. } => true,
-            Join { left, right }
-            | Union { left, right }
-            | Minus { left, right }
-            | Lateral { left, right } => walk(left) || walk(right),
-            LeftJoin { left, right, .. } => walk(left) || walk(right),
-            Filter { inner, .. }
-            | Extend { inner, .. }
-            | Project { inner, .. }
-            | Distinct { inner }
-            | Reduced { inner }
-            | Slice { inner, .. }
-            | OrderBy { inner, .. }
-            | Group { inner, .. } => walk(inner),
-            _ => false,
-        }
-    }
-    match &parsed {
-        Query::Select { pattern, .. } | Query::Ask { pattern, .. } => walk(pattern),
-        _ => true,
-    }
 }
 
 /// Evaluate a SHACL function body as a pure function of `args`: substitute the
