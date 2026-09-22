@@ -227,16 +227,47 @@ jobs:
           name: wheels-linux-x86_64
           path: dist
       - name: Install wheel
-        run: python -m pip install dist/*.whl
-      - name: Import and validate
+        run: |
+          wheels=(dist/*.whl)
+          python -m pip install "${wheels[0]}[rdflib]"
+      - name: Exercise validation and inference from the wheel
         env:
           EXPECTED_VERSION: ${{ needs.validate-release.outputs.version }}
-        run: >-
-          python -c
-          "import os, shifty;
-          assert shifty.__version__ == os.environ['EXPECTED_VERSION'];
-          graph = '@prefix sh: <http://www.w3.org/ns/shacl#>. @prefix ex: <http://example.org/>. ex:S a sh:NodeShape; sh:targetNode ex:x; sh:nodeKind sh:IRI.';
-          assert shifty.validate_algebra(graph, infer=False).conforms"
+        run: |
+          python - <<'PY'
+          import os
+
+          from rdflib import Literal, Namespace
+          from rdflib.namespace import RDF
+
+          import shifty
+
+          assert shifty.__version__ == os.environ["EXPECTED_VERSION"]
+          sh = Namespace("http://www.w3.org/ns/shacl#")
+          shapes = """
+          @prefix sh: <http://www.w3.org/ns/shacl#> .
+          @prefix ex: <http://example.org/> .
+          ex:PersonShape a sh:NodeShape ;
+              sh:targetClass ex:Person ;
+              sh:property [ sh:path ex:status ; sh:minCount 1 ] ;
+              sh:rule [ a sh:TripleRule ; sh:subject sh:this ;
+                        sh:predicate ex:status ; sh:object ex:ready ] .
+          """
+          data = "@prefix ex: <http://example.org/> . ex:alice a ex:Person ."
+
+          assert not shifty.validate_algebra(data, shapes, infer=False).conforms
+          conforms, report, _ = shifty.validate(data, shapes, infer=False)
+          assert not conforms
+          assert next(report.subjects(RDF.type, sh.ValidationResult), None) is not None
+
+          inferred = shifty.infer(data, shapes)
+          assert inferred.inferred_count == 1
+          assert "<http://example.org/status> <http://example.org/ready>" in inferred.inferred_ntriples
+          assert shifty.validate_algebra(data, shapes).conforms
+          conforms, report, _ = shifty.validate(data, shapes)
+          assert conforms
+          assert (None, sh.conforms, Literal(True)) in report
+          PY
 
   release:
     name: Create GitHub Release

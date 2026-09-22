@@ -41,7 +41,10 @@ compiled extension in place. See :doc:`contributing` for the quality checks.
 Command line
 ------------
 
-There are no pre-built binaries yet, so the CLI needs a Rust toolchain:
+Download a CLI archive for Linux x86-64, Windows x86-64, or macOS arm64 from
+`GitHub Releases <https://github.com/gtfierro/shifty/releases>`_. Extract the
+``shifty`` executable (``shifty.exe`` on Windows) and put it on your ``PATH``.
+For other platforms, or to build from a checkout, use Rust:
 
 .. code-block:: bash
 

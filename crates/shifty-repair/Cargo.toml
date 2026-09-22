@@ -6,6 +6,7 @@ license.workspace = true
 edition.workspace = true
 description = "Symbolic repair template IR (RepairTree) and instantiation for shifty"
 repository.workspace = true
+documentation.workspace = true
 readme.workspace = true
 
 [dependencies]

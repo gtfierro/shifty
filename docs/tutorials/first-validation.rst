@@ -22,8 +22,11 @@ The distribution is named ``pyshifty`` but the module is ``shifty``:
 
    import shifty
 
-For the command-line tool you do need Rust, because there are no pre-built
-binaries yet:
+For the command-line tool, download an archive from `GitHub Releases
+<https://github.com/gtfierro/shifty/releases>`_ and put the extracted
+``shifty`` executable on your ``PATH``. Linux x86-64, Windows x86-64, and macOS
+arm64 archives are built by the release workflow. To build from source instead,
+use Rust:
 
 .. code-block:: bash
 
@@ -32,8 +35,8 @@ binaries yet:
    cargo install --path crates/shifty-cli
 
 This tutorial uses the CLI for the first half and Python for the second. If
-you would rather not install the Rust toolchain, skip to `Validate from
-Python`_ — nothing in the CLI half is a prerequisite.
+you want to use only Python, skip to `Validate from Python`_ — nothing in the
+CLI half is a prerequisite.
 
 Create the shapes and data graphs
 ---------------------------------

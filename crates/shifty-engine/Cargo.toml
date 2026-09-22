@@ -6,6 +6,7 @@ license.workspace = true
 edition.workspace = true
 description = "SHACL validation and SHACL-AF inference execution over the IR"
 repository.workspace = true
+documentation.workspace = true
 readme.workspace = true
 
 [dependencies]

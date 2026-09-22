@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 description = "Python bindings for the shifty SHACL engine"
 license = "BSD-3-Clause"
-documentation = "https://github.com/gtfierro/shifty#readme"
+documentation.workspace = true
 homepage = "https://github.com/gtfierro/shifty"
 repository = "https://github.com/gtfierro/shifty"
 
