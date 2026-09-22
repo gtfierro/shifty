@@ -69,7 +69,8 @@ type or the final URL suffix; Turtle is the fallback.
        base=None,
    ) -> tuple[bool, rdflib.Graph, str]
 
-The ``pyshacl``-compatible signature and report model. Returns ``(conforms,
+The report model and three-value return form used by ``pyshacl.validate``.
+Compare keyword arguments when migrating existing code. Returns ``(conforms,
 report_graph, results_text)``: the boolean, a W3C ``sh:ValidationReport`` as an
 ``rdflib.Graph``, and that report rendered for a human. Shifty additionally
 rejects an explicitly empty shapes graph by default.
@@ -88,13 +89,16 @@ Requires ``rdflib`` at call time, since it constructs the report graph.
      - The shapes graph. ``None`` means shapes live in ``data_graph``.
    * - ``graph_mode``
      - ``"union"`` (default), ``"data"``, or ``"union-all"`` — which triples
-       path traversal, class hierarchy, and SPARQL can see.
+       can select focus nodes and which are visible to constraint evaluation.
    * - ``shape_names``
      - Named shape IRIs to use as top-level entry points. Referenced helper
        shapes are still evaluated normally. Bare or angle-bracketed.
    * - ``infer``
      - Run SHACL-AF ``sh:rule`` entries to a fixed point before validating.
        Default ``True``.
+   * - ``in_place``
+     - Add inferred triples to a caller-owned ``rdflib.Graph``. Requires
+       ``infer=True`` and a single ``rdflib.Graph`` data input. Default ``False``.
    * - ``minimum_severity``
      - ``"info"`` (default), ``"warning"``, or ``"violation"`` — the lowest
        severity that makes ``conforms`` false. Findings below it are still
@@ -124,9 +128,10 @@ Requires ``rdflib`` at call time, since it constructs the report graph.
    shifty.validate_algebra(data_graph, shacl_graph=None, **same_keywords)
        -> AlgebraResult
 
-The same validation, returning structured objects instead of an RDF report. It
-does not require ``rdflib``, and it is the entry point to reach for when your
-program — rather than a person or another SHACL tool — is the consumer.
+The algebraic evaluator returns structured objects instead of an RDF report.
+Its constraint traversal differs from ``validate()``; see
+:ref:`architecture-result-paths`. It does not require ``rdflib`` and is useful
+when a program consumes the findings directly.
 
 .. code-block:: python
 
@@ -294,7 +299,7 @@ An explicitly empty shapes graph raises ``ValueError``.
    result = validator.validate_algebra(data, infer=False)
 
 ``validate`` and ``validate_algebra`` take the data graph positionally and
-accept ``graph_mode``, ``shape_names``, ``infer``, ``minimum_severity``,
+accept ``graph_mode``, ``shape_names``, ``infer``, ``in_place``, ``minimum_severity``,
 ``sort_results``, and ``on_unsupported`` as keywords, with the same meanings as
 the module-level functions.
 
@@ -378,7 +383,7 @@ Diagnostics
 warnings and unsupported features.
 
 ``validate()`` and ``PreparedValidator.validate()`` return the
-pyshacl-compatible ``(conforms, report_graph, results_text)`` tuple, which has
+``(conforms, report_graph, results_text)`` tuple, which has
 nowhere to put a diagnostic. They instead emit one
 ``shifty.ShaclDiagnosticWarning`` per diagnostic, so a rule that could not run
 does not read as a clean pass:

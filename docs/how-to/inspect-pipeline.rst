@@ -40,29 +40,13 @@ What the shapes compiled to
 
    shifty inspect --stage algebra shapes.ttl
 
-.. code-block:: text
+.. program-output:: shifty inspect --stage algebra shapes.ttl
+   :cwd: ../examples/quick-start
 
-   schema: 1 statement(s), 0 rule(s), 13/13 shape(s)
-   shapes:
-     @0 = severity(Violation, @11)  # <http://example.org/PersonShape>
-     @1 = severity(Violation, @3)
-     @2 = ⊤
-     @3 = ∃[1..] <http://example.org/email> . ⊤
-     @4 = severity(Violation, @10)
-     @5 = test(datatype(xsd:string))
-     @6 = ¬@5
-     @7 = ∃[..0] <http://example.org/name> . @6
-     @8 = ⊤
-     @9 = ∃[1..] <http://example.org/name> . ⊤
-     @10 = @7 ∧ @9
-     @11 = @1 ∧ @4
-
-Shapes are numbered nodes in an arena, referring to each other by id. Reading
-it back: ``@3`` is "at least one value along ``ex:email``", the direct
-translation of ``sh:minCount 1``. ``@9`` is the same for ``ex:name``, and
-``@7`` is the datatype constraint — expressed, as every universal is, as "at
-most zero values along ``ex:name`` fail the datatype test". ``@10`` conjoins
-those two, ``@11`` conjoins both property shapes, and ``@0`` is the named shape.
+Shapes are numbered nodes in an arena, referring to each other by id. The
+``ex:email`` lower count comes directly from ``sh:minCount 1``. The datatype
+constraint appears as an upper count of zero values that fail the datatype
+test: that is how the algebra expresses "every value has this datatype".
 
 If a constraint you wrote is missing here, it was not understood. That is the
 fastest way to catch a misspelled SHACL predicate, which is otherwise silent —
@@ -75,18 +59,11 @@ What the optimizer did to it
 
    shifty inspect --stage normalized shapes.ttl
 
-.. code-block:: text
+.. program-output:: shifty inspect --stage normalized shapes.ttl
+   :cwd: ../examples/quick-start
 
-   schema: 1 statement(s), 0 rule(s), 12/12 shape(s)
-   shapes:
-     @0 = test(<http://example.org/Person>)
-     ...
-     @11 = severity(Violation, @10)  # <http://example.org/PersonShape>
-   statements:
-     ∃≥1 rdf:type/rdfs:subClassOf* . φ  ⇒  @11
-
-Thirteen shapes became twelve: the two structurally identical ``⊤`` nodes were
-hash-consed into one. On a real shapes graph this stage collapses far more, and
+The identical ``⊤`` nodes in this example are hash-consed into one. On a larger
+shapes graph this stage may collapse more, and
 also flattens boolean nesting, folds contradictory facets to ⊥, tightens
 overlapping ranges, and pushes negation to the leaves.
 
@@ -106,9 +83,8 @@ Whether recursion is well-founded
 
    shifty inspect --stage strata shapes.ttl
 
-.. code-block:: text
-
-   strata: stratifiable = true; 13 shape(s) in 13 stratum(strata); 0 recursive component(s)
+.. program-output:: shifty inspect --stage strata shapes.ttl
+   :cwd: ../examples/quick-start
 
 Shapes may reference each other cyclically. Shifty evaluates such a schema in
 strata and refuses one whose recursion runs through a negation, because that has
@@ -122,28 +98,13 @@ What will actually be executed
 
    shifty inspect --stage plan shapes.ttl
 
-.. code-block:: text
-
-   plan: 1 statement(s)
-     [0] seed <http://example.org/Person> ⟵ rdf:type/rdfs:subClassOf*  ⇒  @11
-   shapes (cost-ordered):
-     @1 [cost 1] = test(datatype(xsd:string))
-     @2 [cost 1] = ¬@1
-     @3 [cost 2] = ∃[..0] <http://example.org/name> . @2
-     @4 [cost 0] = ⊤
-     @5 [cost 1] = ∃[1..] <http://example.org/name> . ⊤
-     @6 [cost 3] = @5 ∧ @3
-     @7 [cost 3] = severity(Violation, @6)
-     @8 [cost 1] = ∃[1..] <http://example.org/email> . ⊤
-     @9 [cost 1] = severity(Violation, @8)
-     @10 [cost 4] = @9 ∧ @7
-     @11 [cost 4] = severity(Violation, @10)
+.. program-output:: shifty inspect --stage plan shapes.ttl
+   :cwd: ../examples/quick-start
 
 Two things are decided here. The ``seed`` line is how focus nodes are found —
 an index lookup rather than a scan over the graph. And the conjunctions are
-reordered by estimated cost: ``@10`` checks ``@9`` (cost 1, the email
-minCount) before ``@7`` (cost 3, the name constraints), so a node missing its
-email short-circuits without touching the more expensive branch.
+reordered by estimated cost: the email lower count runs before the name
+constraints, so a node missing its email can short-circuit.
 
 The plan exposes two common sources of runtime cost: a conjunction whose cheap
 branch is not first, and target selection that seeds from a scan rather than an

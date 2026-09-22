@@ -63,7 +63,7 @@ or rule. ``inspect`` remains diagnostic-oriented and shows lowering output.
    * - ``--format <FORMAT>``
      - ``text`` (default) or ``json``.
    * - ``--report``
-     - Emit a W3C ``sh:ValidationReport`` graph as N-Triples instead of the
+     - Emit a W3C ``sh:ValidationReport`` graph as Turtle instead of the
        summary.
    * - ``--no-infer``
      - Skip SHACL-AF rule inference before validating.
@@ -75,7 +75,8 @@ or rule. ``inspect`` remains diagnostic-oriented and shows lowering output.
        Alias: ``--entry-shape``.
    * - ``--minimum-severity <LEVEL>``
      - ``info`` (default), ``warning``, or ``violation``. The lowest severity
-       that makes the run non-conforming.
+       that makes the run non-conforming. Lower-severity findings are omitted
+       from the default text and JSON output, but retained in ``--report``.
    * - ``--dump-data <PATH>``
      - Write the data graph validation actually read, as Turtle, to ``PATH``
        (``-`` for stdout). See :ref:`cli-dump`.
@@ -86,20 +87,15 @@ or rule. ``inspect`` remains diagnostic-oriented and shows lowering output.
      - Print input, shape, cache, and SPARQL execution telemetry afterwards.
        See :ref:`cli-profile`.
 
-Default output:
+Default output for the :doc:`first-validation example
+<../tutorials/first-validation>`:
 
-.. code-block:: text
+.. program-output:: bash validate.sh
+   :cwd: ../examples/quick-start
 
-   conforms: false
-   violations: 1
-     <http://example.org/bob>  [severity: Violation; target: class(<http://example.org/Person>)]
-         - [Violation] (<http://example.org/email>) <http://example.org/bob> → at least 1 value(s) required along <http://example.org/email>, found 0
-         - [Violation] (<http://example.org/name>) "123"^^<http://www.w3.org/2001/XMLSchema#integer> → test(datatype(xsd:string)) not satisfied
-
-Results are grouped by focus node, with one line per reason. The parenthesised
-term is the property path; then the offending value, or the focus node itself
-when the failure is an absence; then the constraint that was not satisfied, in
-the engine's algebraic notation.
+The summary groups by finding. ``affects`` lists the focus nodes with that
+failure; ``value node`` identifies an offending value when one exists. One
+focus node can appear under several findings.
 
 Graph modes
 ~~~~~~~~~~~
@@ -151,10 +147,8 @@ bare or in angle brackets.
      - Print input, shape, cache, and SPARQL execution telemetry afterwards.
        See :ref:`cli-profile`.
 
-.. code-block:: text
-
-   inferred 1 triple(s):
-     <http://example.org/r1> <http://example.org/area> "3"^^<http://www.w3.org/2001/XMLSchema#integer>
+.. program-output:: bash infer.sh
+   :cwd: ../examples/inference
 
 Only the derived triples are printed. The CLI does not write a merged graph;
 use the Python API's ``InferResult.graph()`` for that (:doc:`../how-to/infer`).

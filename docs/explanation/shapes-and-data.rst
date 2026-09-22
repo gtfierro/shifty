@@ -103,6 +103,14 @@ fixed. It is controlled by ``graph_mode`` (``--graph-mode`` on the CLI), and it
 governs both where focus nodes are selected and what path traversal,
 class-hierarchy lookup, and SPARQL can see.
 
+.. figure:: ../_static/graph-visibility.svg
+   :alt: Data mode selects and evaluates using data. Union mode selects using data and evaluates using data plus shapes. Union-all uses both graphs for selection and evaluation. The named shapes graph always stays the original shapes source.
+   :align: center
+   :width: 100%
+
+   Graph visibility with separate shapes and data inputs. Inference extends the
+   data side before validation; ``$shapesGraph`` keeps naming the shapes source.
+
 .. list-table::
    :widths: 20 35 45
    :header-rows: 1

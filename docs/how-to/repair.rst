@@ -7,11 +7,11 @@ Repair a graph
    Shifty. Expect the API to change, and expect gaps: several constraint kinds
    have no invertible form yet, ``sh:equals`` reconciliation is coarse, and
    repairs edit data graphs only. Validation and inference are stable; this is
-   not. Gate anything it produces before applying it — the API makes that
-   step mandatory for a reason.
+   not. Call ``gate()`` to check a candidate against the whole graph before
+   accepting it.
 
-Shifty can compute the set of edits that would make a failing node conform. It
-will not choose among them: which term fills a hole, how many values to add,
+Shifty synthesizes candidate edit templates for a failing node. You choose
+among them: which term fills a hole, how many values to add,
 which alternative to take, whether to accept the result — all of those are
 yours. The library computes; you decide. :doc:`../explanation/repair-design`
 argues why that line is where it is.
@@ -27,18 +27,8 @@ Look at the repair space without writing code
 
    shifty repair --shapes shapes.ttl --data data.ttl
 
-.. code-block:: text
-
-   <http://example.org/bob>  [target: class(<http://example.org/Person>)]
-     All — do all:
-       Edits:
-         del <http://example.org/bob> <http://example.org/name> "123"^^<http://www.w3.org/2001/XMLSchema#integer>
-         add <http://example.org/bob> <http://example.org/name> ?0
-         ?0 : typed value
-       Repeat [1..∞]:
-         Edits:
-           add <http://example.org/bob> <http://example.org/email> ?1
-           ?1 : any node
+.. program-output:: shifty repair --shapes shapes.ttl --data data.ttl
+   :cwd: ../examples/quick-start
 
 ``--stage`` picks which structure to print:
 
@@ -88,19 +78,24 @@ Fill in a repair template
    print(tree.explain())
 
    plan = shifty.RepairPlan()
+   choices = {choice.node_id: choice for choice in tree.choices()}
    instance = tree.instantiate(plan)
    while not instance.is_complete:
        for node_id in instance.open_choices:
-           plan.count(node_id, 1)
+           choice = choices[node_id]
+           if choice.kind == shifty.ChoiceKind.Repeat:
+               plan.count(node_id, choice.min or 0)
+           else:
+               plan.choose(node_id, choose_branch(choice))
+       instance = tree.instantiate(plan)
        for hole in instance.open_holes:
            plan.bind(hole.id, choose_a_term(hole))
        instance = tree.instantiate(plan)
 
-The loop is not decoration. Setting a ``Repeat`` count stamps out that many
-copies of its body, and each copy gets **fresh holes with new ids**. Bind the
-holes you saw before fixing the count and you will bind a template hole that no
-longer corresponds to anything. Resolve choices first, re-instantiate, then bind
-whatever appears.
+``choose_branch`` and ``choose_a_term`` stand for application policies: select
+an ``Any`` branch and supply a term for a hole. Setting a ``Repeat`` count stamps
+out that many copies of its body, and each copy gets **fresh holes with new
+ids**. Resolve choices, re-instantiate, then bind the holes in that instance.
 
 A ``RepairPlan`` is just data — ``choose(node_id, branch)`` at an alternative,
 ``count(node_id, n)`` at a repeat, ``bind(hole_id, term)`` at a hole, and
@@ -216,7 +211,7 @@ data. A support reached only through a recursive back-edge has no finite set of
 facts to delete. A conjunction with any blocked child is blocked; an alternative
 drops its blocked branches, and is blocked only when all of them are. So a
 subtree you are handed never contains a dead branch inside a live one, and a
-blocked root means no data repair exists in scope for that focus.
+blocked root means Shifty has no supported repair template for that focus.
 
 The scope limit is deliberate: repairs edit the data graph, never the schema.
 Widening a ``closed`` list or lowering a ``minCount`` would often be the right

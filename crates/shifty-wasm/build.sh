@@ -3,7 +3,7 @@
 #
 # Requirements:
 #   rustup target add wasm32-unknown-unknown
-#   cargo install wasm-bindgen-cli --version 0.2.125   # must match Cargo.lock
+#   cargo install wasm-bindgen-cli --version 0.2.128   # must match Cargo.lock
 #   (optional) wasm-opt from binaryen, for a smaller bundle
 #
 # Usage: crates/shifty-wasm/build.sh [--target web|bundler|nodejs]

@@ -35,7 +35,7 @@ rdflib = ["rdflib>=6.0"]
 [project.urls]
 Repository = "https://github.com/gtfierro/shifty"
 Homepage = "https://github.com/gtfierro/shifty"
-Documentation = "https://github.com/gtfierro/shifty#readme"
+Documentation = "https://shifty.gtf.fyi/"
 
 [tool.maturin]
 features = ["pyo3/extension-module"]

@@ -13,7 +13,7 @@ The playground needs the compiled WebAssembly module:
 
 .. code-block:: bash
 
-   # requires wasm-pack: https://rustwasm.github.io/wasm-pack/
+   # requires the wasm32 target and wasm-bindgen-cli version in Cargo.lock
    ./crates/shifty-wasm/build.sh
 
    python3 -m http.server -d crates/shifty-wasm
@@ -22,8 +22,28 @@ The playground needs the compiled WebAssembly module:
 Embed it in your own page
 -------------------------
 
-``crates/shifty-wasm/README.md`` documents the JavaScript API and the embedding
-details. In outline:
+Serve the generated ``pkg/`` directory beside a page with a module script:
+
+.. code-block:: html
+
+   <script type="module">
+     import init, { validate } from "./pkg/shifty_wasm.js";
+
+     await init();
+     const shapes = `@prefix sh: <http://www.w3.org/ns/shacl#> .
+       @prefix ex: <http://example.org/> .
+       ex:PersonShape a sh:NodeShape ; sh:targetClass ex:Person ;
+         sh:property [ sh:path ex:name ; sh:minCount 1 ] .`;
+     const data = `@prefix ex: <http://example.org/> .
+       ex:bob a ex:Person .`;
+     const result = validate(shapes, data, { graphMode: "data" });
+     console.log(result.conforms, result.violations);
+   </script>
+
+``graphMode`` defaults to ``"data"`` in JavaScript. Pass ``"union"`` when
+validation should also see ontology triples in the shapes graph. The
+`crate README <https://github.com/gtfierro/shifty/blob/main/crates/shifty-wasm/README.md>`_
+covers the remaining options and build prerequisites. The other exports are:
 
 .. list-table::
    :widths: 34 66
@@ -44,13 +64,9 @@ details. In outline:
      - Re-serializes a graph held only as N-Triples, without re-running the
        engine.
 
-``diagnostics`` is a string array of non-fatal unsupported-feature and
-rule-execution diagnostics. All three evaluation functions return it; before
-0.5 only ``infer()`` did, so a run whose rules silently did nothing was
-indistinguishable from one whose rules had nothing to do. An invalid shapes
-graph — including a malformed or unresolved SPARQL prefix — rejects the call
-instead, and is never treated as though the affected constraint or rule were
-absent.
+``diagnostics`` contains non-fatal unsupported-feature and rule-execution
+messages. Invalid shapes, including malformed or unresolved SPARQL prefixes,
+reject the call.
 
 Limits
 ------

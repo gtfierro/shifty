@@ -58,8 +58,8 @@ Keys render as strings for logs and table headings:
    print(key)      # hasPoint→SupplyAirTemperatureSensor
 
 Do not use that string as a program interface — it compacts IRIs to local names,
-so it is not globally unique, and it depends on rendering choices. The key is
-structured data, and pattern matching over it is the intended access:
+so it is not globally unique. The key is structured data. This pattern-matching
+example requires Python 3.10 or newer; the package also supports Python 3.9:
 
 .. code-block:: python
 

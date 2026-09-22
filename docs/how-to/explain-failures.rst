@@ -25,20 +25,8 @@ than rebuilding it.
        for focus in statement.selected_foci:
            print(focus.status, focus.focus)
 
-``EvidenceSession`` accepts the same graph inputs as everything else — Turtle
-text, ``bytes``, a ``pathlib.Path``, an ``rdflib.Graph``, or a list of those to
-be merged:
-
-``rdflib.Graph`` inputs retain their namespace bindings when converted to a
-shapes graph, so ``sh:sparql`` constraints and SHACL-AF SPARQL rules may use
-the prefixes declared on the graph. An unresolved prefix is an invalid shapes
-graph error; it never silently removes a constraint.
-
-For a string input, an existing path is read from disk; a directory raises
-``IsADirectoryError`` and a missing filename ending in a recognized RDF suffix
-such as ``.ttl`` or ``.nt`` raises ``FileNotFoundError``. Long or multiline
-strings are treated directly as Turtle and are never probed as filesystem
-paths. This policy applies to every member of a list or tuple as well.
+``EvidenceSession`` accepts the graph input forms in :doc:`../reference/python`.
+Pass lists when a schema or data snapshot spans several files:
 
 .. code-block:: python
 
