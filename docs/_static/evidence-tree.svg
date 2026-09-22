@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 390" role="img" aria-labelledby="title desc">
+  <title id="title">Selected focus nodes and Bob's evidence tree</title>
+  <desc id="desc">The Person target selects Alice and Bob. Alice passes and has satisfaction evidence. Bob fails. His canonical failure tree has an All node with a CountLow branch for a missing email and a CountHigh branch for a name value that fails the string datatype test. The validation report lists Bob's failures but omits Alice's pass.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#52606d"/>
+    </marker>
+    <style>
+      .root { fill: #e7f1ff; stroke: #2767a5; stroke-width: 2; }
+      .pass { fill: #e7f7ef; stroke: #25734f; stroke-width: 2; }
+      .fail { fill: #fff0e9; stroke: #b55328; stroke-width: 2; }
+      .neutral { fill: #f7f9fb; stroke: #52606d; stroke-width: 2; }
+      .label { fill: #17202a; font-family: sans-serif; font-size: 17px; font-weight: 600; text-anchor: middle; }
+      .small { fill: #34495e; font-family: sans-serif; font-size: 14px; text-anchor: middle; }
+      .note { fill: #34495e; font-family: sans-serif; font-size: 14px; }
+      .arrow { fill: none; stroke: #52606d; stroke-width: 2; marker-end: url(#arrow); }
+    </style>
+  </defs>
+  <rect class="root" x="322" y="20" width="256" height="58" rx="10"/>
+  <text class="label" x="450" y="46">targetClass ex:Person</text>
+  <text class="small" x="450" y="65">select focus nodes</text>
+
+  <rect class="pass" x="80" y="118" width="232" height="66" rx="10"/>
+  <text class="label" x="196" y="145">ex:alice · pass</text>
+  <text class="small" x="196" y="166">satisfaction evidence</text>
+  <rect class="fail" x="588" y="118" width="232" height="66" rx="10"/>
+  <text class="label" x="704" y="145">ex:bob · fail</text>
+  <text class="small" x="704" y="166">failure evidence</text>
+  <path class="arrow" d="M380 78 L245 118"/>
+  <path class="arrow" d="M520 78 L655 118"/>
+
+  <rect class="neutral" x="604" y="214" width="200" height="55" rx="10"/>
+  <text class="label" x="704" y="239">All</text>
+  <text class="small" x="704" y="258">both obligations fail</text>
+  <path class="arrow" d="M704 184 V214"/>
+
+  <rect class="fail" x="340" y="305" width="225" height="65" rx="10"/>
+  <text class="label" x="452" y="332">CountLow · ex:email</text>
+  <text class="small" x="452" y="352">0 values; at least 1 required</text>
+  <rect class="fail" x="610" y="305" width="260" height="65" rx="10"/>
+  <text class="label" x="740" y="332">CountHigh · ex:name</text>
+  <text class="small" x="740" y="352">123 fails xsd:string; max 0</text>
+  <path class="arrow" d="M660 269 L495 305"/>
+  <path class="arrow" d="M748 269 L741 305"/>
+
+  <text class="note" x="34" y="246">W3C report: Bob's failures</text>
+  <text class="note" x="34" y="268">Evidence run: Alice and Bob</text>
+  <text class="note" x="34" y="290">Progress: immediate authored children</text>
+</svg>

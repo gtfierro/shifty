@@ -157,6 +157,7 @@ That is why the interface is a set of graded entry points rather than one
 function: decide conformance, find which pairs failed, explain one pair, or
 explain everything. Most callers want to know why something *failed*, and
 failures are a small minority of pairs — so finding the failures and explaining
-each one costs a few percent over plain conformance rather than several times
-it. :doc:`performance` has the measurements, the attribution, and an account of
-which optimizations worked.
+each one cost 3–34% over plain conformance on measured Brick models, compared
+with 2.5–5.4 times for full evidence. :doc:`performance` gives the choice of
+entry point; :doc:`evidence-performance-study` has the measurements and
+attribution.

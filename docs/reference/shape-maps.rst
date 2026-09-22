@@ -195,6 +195,9 @@ Immutable and hashable, so it works as a dictionary key or set member.
 compacts IRIs to local names, so it is not globally unique and is intended for
 logs and table headings, not program logic.
 
+The pattern-matching example requires Python 3.10 or newer. The package also
+supports Python 3.9.
+
 .. code-block:: python
 
    from shifty import Cls, Key, Pred

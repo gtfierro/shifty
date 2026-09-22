@@ -1,659 +1,101 @@
-# shifty
+# Shifty
 
-A formalism-first SHACL validation and SHACL-AF inference engine written in Rust, grounded in the algebraic treatment of *Common Foundations for SHACL, ShEx, and PG-Schema* (arXiv:2502.01295). Available as a command-line tool, Python bindings (`pyshifty`), a C++17 static-library SDK, and a WebAssembly module that runs in the browser.
+Shifty validates RDF graphs against SHACL shapes and runs SHACL-AF rules to a
+fixed point. It compiles shapes into a path and shape algebra before evaluating
+data. The engine is available through a command-line tool, Python package,
+C++17 SDK, Rust crates, and WebAssembly module.
 
-See the `archive-first-attempt` branch for an older attempt, which was published as shifty 0.0.7
+[Documentation](https://shifty.gtf.fyi/) · [Feature support](https://shifty.gtf.fyi/reference/feature-support.html) · [Changelog](CHANGELOG.md)
 
-**Disclosure: This project was nearly 100% "vibe coded" with Claude Opus 4.8, Sonnet 4.6, and ChatGPT 5.5**
+## Quick start
 
-## Features
-
-- **Full SHACL Core validation** — node and property shapes, all standard constraint components
-- **SHACL-AF inference** — forward-chaining `sh:rule` evaluation (Triple Rules, SPARQL Construct Rules) to a fixed point, with stratification analysis for recursive rulesets
-- **Algebraic IR** — shapes are lowered to a path algebra (π) and shape grammar (φ) before evaluation; the same IR drives both validation and inference
-- **Native SPARQL execution** — a subset of `sh:sparql` constraints and SPARQL Construct rules runs directly over an indexed dataset without a full SPARQL engine, with automatic fallback to Spareval for unsupported constructs
-- **Multi-layer pipeline** — parsing → algebraic lowering → normalization/CSE → physical planning → execution; each layer is independently inspectable
-- **pyshifty-compatible Python API** — `validate()` returns `(conforms, report_graph, results_text)` matching pyshifty's interface
-
-## Feature support
-
-Legend: ✅ supported · ⚠️ partial / gated · ❌ unsupported.
-
-### SHACL Core
-
-| Feature | Status | Notes |
-|---|---|---|
-| Node & property shapes | ✅ | |
-| Targets — `targetNode`, `targetClass`, `targetSubjectsOf`, `targetObjectsOf`, implicit class | ✅ | |
-| Cardinality — `minCount`, `maxCount` | ✅ | |
-| Value type — `datatype`, `nodeKind`, `class` | ✅ | |
-| Range — `min/maxInclusive`, `min/maxExclusive` | ✅ | numeric, date/time, and duration ordering |
-| String — `minLength`, `maxLength`, `pattern` (+`flags`), `languageIn`, `uniqueLang` | ✅ | |
-| Logical — `and`, `or`, `not`, `xone` | ✅ | |
-| Shape-based — `node`, `property`, `qualifiedValueShape` (+`qualifiedMin/MaxCount`, `qualifiedValueShapesDisjoint`) | ✅ | |
-| Property pairs — `equals`, `disjoint`, `lessThan`, `lessThanOrEquals` | ✅ | on node and property shapes |
-| Other — `closed` (+`ignoredProperties`), `hasValue`, `in` | ✅ | |
-| Paths — predicate, inverse, sequence, alternative, `zeroOrMore`, `oneOrMore`, `zeroOrOne` | ✅ | |
-| `severity`, `deactivated`, `message` | ✅ | |
-
-### SHACL-AF (Advanced Features)
-
-| Feature | Status | Notes |
-|---|---|---|
-| Rules — `sh:TripleRule`, `sh:SPARQLRule` (CONSTRUCT) | ✅ | forward-chained to a fixed point with `sh:order`/`sh:condition` |
-| Node expressions — `sh:this`, constants, `sh:path`, `sh:filterShape`, `sh:intersection`, `sh:union`, function application | ✅ | |
-| SPARQL targets — `sh:target` + `sh:select` | ✅ | |
-| SPARQL constraints — `sh:sparql` (`sh:select` / `sh:ask`) | ✅ | native execution with Spareval fallback |
-| Custom constraint components — `sh:parameter` + `sh:validator`/`sh:nodeValidator`/`sh:propertyValidator` | ✅ | optional params, simple & complex `$PATH`; report path |
-| Expression constraints — `sh:expression` | ✅ | |
-| SHACL functions — `sh:SPARQLFunction` in node expressions | ✅ | full data-graph access |
-| SHACL functions — `sh:SPARQLFunction` called from SPARQL (`sh:sparql`, CONSTRUCT, `dash:expression`) | ⚠️ | evaluated as **pure** functions of their arguments; a body that reads the data graph is gated (see [`on_unsupported`](#feature-handling-policy)) |
-| JavaScript — `sh:js*`, `sh:JSFunction` | ❌ | no JS engine |
-
-### Recursion & semantics
-
-| Feature | Status | Notes |
-|---|---|---|
-| Stratified recursive shapes | ✅ | gfp validation / lfp inference per stratum |
-| Non-stratifiable schemas (cycle through negation) | ❌ | **diagnosed and refused**, never guessed |
-
-### Feature-handling policy
-
-Partially supported features are handled per an `on_unsupported` setting
-(`EngineOptions` in Rust; the `on_unsupported=` keyword on
-`validate`/`validate_algebra`/`infer` and `PreparedValidator` in Python):
-
-- `"ignore"` (default) — best-effort: e.g. a graph-reading function called from a
-  SPARQL context is evaluated over an empty dataset (result may be unreliable).
-- `"error"` — fail loudly: the unsupported construct is refused so the failure
-  surfaces (e.g. as a constraint error) instead of a silent wrong answer.
-
-Malformed shapes are separate from `on_unsupported`: invalid lowering
-diagnostics, including malformed SPARQL or an unresolved query prefix, always
-raise an error before validation or inference. They never remove a constraint
-or rule from the schema.
-
-```python
-conforms, report, text = shifty.validate(data, shapes, on_unsupported="error")
-```
-
-## Installation
-
-### CLI
+Install the Python package and its optional `rdflib` dependency when you want a
+W3C `sh:ValidationReport` graph:
 
 ```sh
-cargo install --path crates/shifty-cli
+pip install "pyshifty[rdflib]"
 ```
-
-Or build from source:
-
-```sh
-cargo build --release -p shifty-cli
-# binary at target/release/shifty
-```
-
-### Python
-
-```sh
-pip install pyshifty
-```
-
-The package installs as `pyshifty` but is imported as `shifty`:
 
 ```python
 import shifty
-```
 
-To build from source (requires Rust and [maturin](https://github.com/PyO3/maturin)):
-
-```sh
-cd python
-pip install maturin
-maturin develop
-```
-
-### C++
-
-The C++17 SDK embeds Shifty as a Rust static library and provides RAII wrappers
-for RDF loading, SPARQL queries, reusable SHACL validators, and evidence-carrying
-validation:
-
-```sh
-cmake -S cpp -B build/cpp
-cmake --build build/cpp
-ctest --test-dir build/cpp --output-on-failure
-```
-
-```cpp
-#include <shifty/shifty.hpp>
-
-shifty::Dataset dataset;
-dataset.load_file("data.ttl");
-
-auto rows = dataset.query("SELECT ?s WHERE { ?s ?p ?o }");
-auto validator = shifty::PreparedValidator::from_file("shapes.ttl");
-auto report = validator.validate(dataset);
-
-shifty::EvidenceSession evidence(validator, dataset);
-for (const auto &statement : evidence.validate().statements()) {
-    for (const auto &focus : statement.selected_foci) {
-        std::cout << focus.focus_node << " " << focus.explanation << "\n";
-    }
-}
-```
-
-See [`cpp/README.md`](cpp/README.md) for installation, CMake package usage, and
-the scan-then-explain path for corpora where materializing all evidence is too
-expensive.
-
-### Browser / WebAssembly
-
-The `shifty-wasm` crate compiles the engine to WebAssembly so the full inference
-+ validation pipeline runs entirely in the browser — no server, no round-trips.
-It ships a framework-free playground (file upload + caching, rich report
-rendering, inference downloads), with all engine work on a Web Worker.
-
-```sh
-./crates/shifty-wasm/build.sh
-python3 -m http.server -d crates/shifty-wasm   # open http://localhost:8000/example/
-```
-
-See [`crates/shifty-wasm/README.md`](crates/shifty-wasm/README.md) for the JS
-API, build/rebuild instructions, and embedding details.
-
-## CLI usage
-
-### Validate
-
-```sh
-shifty validate --shapes shapes.ttl --data data.ttl
-```
-
-```
-conforms: false
-violations: 1
-  <http://example.org/bob>  [target: ∃ rdf:type .⊤]
-      - (ex:name) 123 → expected datatype xsd:string
-```
-
-Emit a W3C `sh:ValidationReport` in Turtle:
-
-```sh
-shifty validate --shapes shapes.ttl --data data.ttl --report
-```
-
-JSON output:
-
-```sh
-shifty validate --shapes shapes.ttl --data data.ttl --format json
-```
-
-Validation runs SHACL-AF rules to a fixed point by default. Skip rule inference
-when validating shapes directly:
-
-```sh
-shifty validate --shapes shapes.ttl --no-infer
-```
-
-Graph mode controls which triples are visible to path traversal and SPARQL evaluation:
-
-```sh
-# default: focus nodes from data; paths/SPARQL use data ∪ shapes
-shifty validate --shapes shapes.ttl --data data.ttl --graph-mode union
-
-# focus nodes and evaluation use data only
-shifty validate --shapes shapes.ttl --data data.ttl --graph-mode data
-
-# focus nodes and evaluation both use data ∪ shapes
-shifty validate --shapes shapes.ttl --data data.ttl --graph-mode union-all
-
-# validate only selected named shapes as top-level entry points
-shifty validate \
-  --shapes shapes.ttl \
-  --data data.ttl \
-  --shape-name http://example.org/PersonShape
-```
-
-`--shape-name` is repeatable and has the alias `--entry-shape`. Selected
-shapes are used only as entry points; referenced helper shapes are still
-evaluated normally.
-
-### Infer
-
-Run SHACL-AF rules to a fixed point, then print the derived triples:
-
-```sh
-shifty infer --shapes rules.ttl --data data.ttl
-```
-
-```
-inferred 3 triple(s):
-  <http://example.org/r1> <http://example.org/area> "6"^^<http://www.w3.org/2001/XMLSchema#integer>
-  ...
-```
-
-### Inspect
-
-Inspect how a shapes graph looks at each stage of the pipeline:
-
-```sh
-# Raw triples after parsing
-shifty inspect --stage rdf shapes.ttl
-
-# Lowered algebraic IR (φ/π notation)
-shifty inspect --stage algebra shapes.ttl
-
-# After normalization and common-subexpression elimination
-shifty inspect --stage normalized shapes.ttl
-
-# Stratification analysis (recursion detection)
-shifty inspect --stage strata shapes.ttl
-
-# Physical plan: focus sources + cost-ordered shape checks
-shifty inspect --stage plan shapes.ttl
-
-# SPARQL constraint capability: which queries run native vs. Spareval
-shifty inspect --stage capability shapes.ttl
-```
-
-All stages support `--format text` (default), `--format json`; the `algebra` and `normalized` stages also support `--format dot` for Graphviz output.
-
-Shapes files and data files may be local paths or HTTP/HTTPS URLs. Both `--shapes` and `--data` are repeatable to merge multiple files.
-
-## Python usage
-
-```python
-import shifty
-```
-
-### Validate (pyshifty-compatible)
-
-```python
 shapes = """
-@prefix sh:  <http://www.w3.org/ns/shifty#> .
-@prefix ex:  <http://example.org/> .
-@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix ex: <http://example.org/> .
 
 ex:PersonShape a sh:NodeShape ;
     sh:targetClass ex:Person ;
-    sh:property [
-        sh:path ex:name ;
-        sh:minCount 1 ;
-        sh:datatype xsd:string ;
-    ] ;
-    sh:property [
-        sh:path ex:age ;
-        sh:maxCount 1 ;
-        sh:datatype xsd:integer ;
-    ] .
+    sh:property [ sh:path ex:name ; sh:minCount 1 ] .
 """
-
 data = """
 @prefix ex: <http://example.org/> .
-
-ex:Alice a ex:Person ; ex:name "Alice" ; ex:age 30 .
-ex:Bob   a ex:Person .
+ex:alice a ex:Person ; ex:name "Alice" .
+ex:bob a ex:Person .
 """
+
+result = shifty.validate_algebra(data, shapes)
+assert not result.conforms
+assert len(result.violations) == 1
 
 conforms, report_graph, results_text = shifty.validate(data, shapes)
-# conforms → False
-# report_graph → rdflib.Graph with sh:ValidationReport
-# results_text → human-readable summary
+assert not conforms
 ```
 
-Graph inputs can be a string (Turtle text, local path, or HTTP(S) URL), `bytes`, `pathlib.Path`, or `rdflib.Graph`. Existing string paths are read from disk; a directory raises `IsADirectoryError`, and a missing RDF-looking filename such as `shapes.ttl` raises `FileNotFoundError`. Long or multiline strings are Turtle and are never probed as paths. The same policy applies to each list/tuple member. HTTP(S) URLs are fetched once; their format is inferred from the response content type or URL suffix. If `shacl_graph` is omitted or passed as `None`, shapes are expected to be embedded in the data graph. An explicitly supplied zero-triple shapes graph raises `ValueError`.
+`validate_algebra()` returns structured violations. `validate()` returns the
+W3C report as an `rdflib.Graph`. The [Python reference](https://shifty.gtf.fyi/reference/python.html)
+lists their options and the other graph input forms.
 
-To validate a shapes graph against itself, pass it once. The embedded path
-parses and plans one graph without constructing separate data and shapes
-graphs:
+For the CLI, clone this repository and install the binary with Rust:
 
-```python
-result = shifty.validate_algebra("shapes.ttl", infer=False)
-conforms, report_graph, results_text = shifty.validate("shapes.ttl", infer=False)
+```sh
+cargo install --path crates/shifty-cli
+shifty validate --shapes shapes.ttl --data data.ttl
+shifty infer --shapes rules.ttl --data data.ttl
 ```
 
-For repeated validation, prepare the shapes graph once:
+The CLI's default validation output groups failures by finding and lists the
+affected focus nodes. `--report` emits a W3C report in Turtle. See the
+[CLI reference](https://shifty.gtf.fyi/reference/cli.html) for flags and output
+formats.
 
-```python
-validator = shifty.PreparedValidator(shapes)
-result = validator.validate_algebra(data, infer=False)
-conforms, report_graph, results_text = validator.validate(data)
-```
+## Interfaces
 
-`pathlib.Path` inputs are parsed directly by Rust. `rdflib.Graph` inputs are
-serialized as Turtle so namespace bindings required by SHACL-SPARQL queries
-and rules are preserved.
+| Interface | Use |
+| --- | --- |
+| [Python](python/README.md) | Validation, inference, evidence, shape maps, and prepared schemas. |
+| [CLI](https://shifty.gtf.fyi/reference/cli.html) | Validation and inference from files or URLs. |
+| [C++17](cpp/README.md) | Static library with prepared validation and typed results. |
+| [Rust](https://docs.rs/shifty-engine) | Engine crates and reusable sessions. |
+| [WebAssembly](crates/shifty-wasm/README.md) | Local browser validation and inference; try the [playground](https://shifty.gtf.fyi/playground/). |
 
-### Validate with structured result
-
-`validate_algebra` returns an `AlgebraResult` with typed `Violation` objects instead of an RDF report graph:
-
-```python
-result = shifty.validate_algebra(data, shapes)
-print(result.conforms)        # False
-for v in result.violations:
-    print(v.focus_node)       # IRI of the failing focus node
-    print(v.statement_id)     # stable statement id
-    print(v.constraint_id)    # statement-level algebra id shared with repair witnesses
-    for r in v.reasons:
-        print(r.message)      # human-readable failure description
-        print(r.path)         # path that was checked, if applicable
-        print(r.value)        # the offending value node
-        print(r.constraint_kind)
-        print(r.constraint.render)
-```
-
-`Reason.constraint` is the originating algebraic operator, not the SHACL source
-component name. `Violation.statement_id` and `Violation.constraint_id` identify
-the failed top-level statement; `Reason.constraint_id` identifies the specific
-nested algebra node that produced a validation cause.
-
-To connect validation output to repair witnesses:
-
-```python
-result = shifty.validate_algebra(data, shapes, infer=False)
-session = shifty.RepairSession(shapes, data, infer=False)
-
-witnesses = {
-    (w.focus, w.statement_id, w.constraint_id): w
-    for w in session.witnesses()
-}
-
-for v in result.violations:
-    witness = witnesses.get((v.focus_node, v.statement_id, v.constraint_id))
-    for r in v.reasons:
-        if r.constraint_kind == shifty.ConstraintKind.Cardinality:
-            print("count failure:", r.constraint.definition)
-        elif r.constraint_kind == shifty.ConstraintKind.ClassMembership:
-            print("class failure:", r.constraint.definition)
-    if witness is not None:
-        print(witness.repair_tree().explain())
-```
-
-Set `infer=False` when validation should not first run embedded SHACL-AF rules
-to a fixed point.
-
-### Evidence coverage
-
-`EvidenceSession` returns a statement-oriented `EvidenceRun`. Every authored
-statement remains visible, including a target that selects no nodes; each
-selected focus contains exactly one tagged `Satisfaction` or `Failure`:
-
-```python
-session = shifty.EvidenceSession(shapes, data, infer=False)
-run = session.validate()
-
-for statement in run.statements:
-    print(statement.source_statement_id, statement.selector)
-    if not statement.selected_foci:
-        print("target selected nothing")
-    for focus in statement.selected_foci:
-        print(focus.status, focus.focus, focus.evidence.explain())
-        if focus.progress:
-            print([(child.status, child.source_constraint_ref)
-                   for child in focus.progress.evaluated_children])
-        print("matched", focus.evidence.matched_values())
-        print("missing", focus.evidence.missing_obligations())
-        print("offending", focus.evidence.offending_values())
-
-assert run.to_dict() == json.loads(run.to_json())
-```
-
-#### Compact encoding
-
-Full evidence repeats itself: the same conclusion is reached through many
-parents and written out at each occurrence, and the constraint catalog is
-emitted on every run whatever the findings. `to_compact_json()` hash-conses
-evidence nodes and RDF terms into shared tables and refers to them by index.
-It is lossless — `expand_evidence()` restores exactly what `to_dict()` produced.
-
-```python
-run = shifty.EvidenceSession(shapes, data).validate()
-
-packed = run.to_compact_json()
-assert shifty.expand_evidence(packed) == run.to_dict()
-
-# A consumer that already holds the schema does not need the catalog shipped
-# with every run — on a small graph the catalog is most of the payload.
-wire = run.to_compact_json(include_catalog=False)
-catalog = run.to_dict()["constraints"]
-assert shifty.expand_evidence(wire, catalog) == run.to_dict()
-```
-
-Across the 45 Brick and 19 ASHRAE 223P benchmark models this takes evidence from
-8,901 to 2,559 bytes per selected pair. Which redundancy dominates depends on
-the corpus: repeated subtrees on Brick (a 6× node redundancy), the fixed catalog
-on small 223P models. `to_compact_dict()` returns the same encoding already
-parsed, and `expand_evidence(..., as_dict=False)` returns JSON text.
-
-`walk()` traverses canonical evidence in deterministic pre-order. Projection
-methods preserve first occurrence in that order and deduplicate subsequent
-values or triples. A `PathSupport` is one concrete positive reachability
-certificate only: predicate, inverse, sequence, and closure paths are retained;
-an alternative path uses the first successful syntactic route. It is not an
-all-route enumeration or a deletion cut.
-
-The same interface is available in C++ as `shifty::EvidenceSession` — including
-the compact encoding and `expand_evidence()` — where evidence trees cross the
-ABI as JSON. See [`cpp/README.md`](cpp/README.md#evidence-carrying-validation).
-
-Positive recursive back-edges follow Shifty's existing greatest-fixed-point
-semantics and appear as `coinductive` satisfaction nodes. Negation crosses the
-typed grammars directly. Passing SPARQL, expression, closed, and relational
-constraints may be `blocked` when no deletive repair is supported; failing
-SPARQL/expression constraints are `opaque`, with SPARQL messages and diagnostics
-retained when available. A `Failure` is also the repair entry point through
-`failure.repair_tree()`.
-
-### Infer
-
-Run SHACL-AF rules to a fixed point:
-
-```python
-rules = """
-@prefix sh: <http://www.w3.org/ns/shifty#> .
-@prefix ex: <http://example.org/> .
-
-ex:RectangleShape a sh:NodeShape ;
-    sh:targetClass ex:Rectangle ;
-    sh:rule [
-        a sh:TripleRule ;
-        sh:subject sh:this ;
-        sh:predicate ex:area ;
-        sh:object [ sh:path ex:width ] ;
-    ] .
-"""
-
-data = """
-@prefix ex: <http://example.org/> .
-ex:r1 a ex:Rectangle ; ex:width 3 ; ex:height 2 .
-"""
-
-result = shifty.infer(data, rules)
-print(result.inferred_count)    # number of newly derived triples
-g = result.graph()              # rdflib.Graph with original + inferred data
-```
-
-If rules are embedded in the data graph, omit the second argument or pass
-`None`:
-
-```python
-result = shifty.infer(combined_data_and_rules)
-result = shifty.infer(combined_data_and_rules, None)
-```
-
-Passing `rdflib.Graph()` as the second argument means “run with an explicit
-empty rules graph,” so no embedded rules will be parsed.
-
-### Repair (drive your own loop)
-
-**Warning: this is very experimental and prelimary; not fully tested or documented yet. API subject to change.**
-
-`RepairSession` exposes the symbolic-repair primitives so you can build your own
-repair driver: enumerate the violation horizon by focus node, inspect each
-violation's repair tree (holes + decision points), enumerate candidate bindings,
-fold your own choices into a delta, gate it, and apply it. The library computes
-and gates; **every choice is yours** — no repair loop is made for you.
-
-```python
-session = shifty.RepairSession(shapes, data)   # SHACL-AF inference runs first
-
-while True:
-    witnesses = session.witnesses()            # the horizon, by focus node
-    if not witnesses:
-        break                                  # conforms
-    fw = witnesses[0]                          # your focus-ordering policy
-    print(fw.target)                           # what targeted this node
-    # fw.statement is the raw repair-schema index; use statement_id to join.
-    print(fw.statement_id, fw.constraint_id)    # shared with validate_algebra()
-    for atom in fw.summary():                  # flat failing leaves
-        print(atom.kind, atom.constraint_kind, atom.detail)
-    # fw.explain()                             # the full witness tree, as text
-
-    tree = fw.repair_tree()                    # the repair space
-    plan = shifty.RepairPlan()
-    for choice in tree.choices():              # Any branches / Repeat counts
-        if choice.kind == "repeat":
-            plan.count(choice.node_id, choice.min)
-
-    for hole in tree.instantiate(plan).open_holes:
-        plan.bind(hole.id, hole.candidates(limit=8)[0])   # your binding policy
-
-    inst = tree.instantiate(plan)              # fold choices → ΔG
-    outcome = session.gate(inst.delta)         # sound? progress? introduces what?
-    if outcome.is_progress:
-        session = session.advance(inst.delta)  # accept, re-witness from G ⊕ ΔG
-    else:
-        break                                  # reject; choose differently
-
-repaired = session.to_graph()                  # rdflib.Graph with accepted repairs
-```
-
-`Hole.candidates()` returns reuse-first options drawn from the data graph, in
-N-Triples term syntax; bind one straight back with `plan.bind(hole.id, value)`.
-A `RepairTree` may be `is_blocked` (opaque SPARQL / identity / coinductive),
-meaning no data repair is possible in scope. Two reference drivers ship as
-examples: `python/examples/repair.py` (non-interactive: takes the first option
-for each violation) and `python/examples/repair_interactive.py` (prints a
-numbered menu of gated options per violation and applies the one you pick).
-
-### graph_mode
-
-`validate()` and `validate_algebra()` accept a `graph_mode` keyword argument:
-
-```python
-shifty.validate(data, shapes, graph_mode="union")      # default
-shifty.validate(data, shapes, graph_mode="data")
-shifty.validate(data, shapes, graph_mode="union-all")
-```
-
-When `shacl_graph` is omitted, all three modes are equivalent because focus
-discovery and evaluation use the same embedded graph. `infer()` does not accept
-`graph_mode`.
-
-### shape_names
-
-`validate()` and `validate_algebra()` accept `shape_names=[...]` to validate
-only the named SHACL shapes in that list as top-level entry points:
-
-```python
-result = shifty.validate_algebra(
-    data,
-    shapes,
-    shape_names=["http://example.org/PersonShape"],
-)
-```
-
-Only target-bearing statements owned by those named shapes are used as entry
-points. Any helper shapes referenced from them through `sh:node`, `sh:property`,
-qualified value shapes, boolean shape expressions, and similar dependencies are
-still evaluated normally. Shape names may be passed as bare IRIs or wrapped in
-angle brackets.
-
-### File inputs
-
-```python
-import pathlib
-
-conforms, report, text = shifty.validate(
-    pathlib.Path("data.ttl"),
-    pathlib.Path("shapes.ttl"),
-)
-```
-
-## Crate structure
-
-| crate | role |
-|---|---|
-| `shifty-algebra` | path algebra π, shape grammar φ, schema arena, rendering |
-| `shifty-parse` | Turtle/RDF → algebraic IR lowering |
-| `shifty-opt` | normalization, stratification, physical planning, native SPARQL lowering |
-| `shifty-engine` | validation + AF inference execution, SPARQL executor |
-| `shifty-cli` | `shifty` binary |
-| `pyshifty` (python/) | PyO3 bindings, published as `pyshifty` on PyPI |
+SHACL Core and much of SHACL-AF are supported. JavaScript constraints and
+functions are unsupported; some calls to SHACL functions from SPARQL have
+limited graph access. Check the [feature matrix](https://shifty.gtf.fyi/reference/feature-support.html)
+before relying on an advanced feature. Symbolic repair is experimental.
 
 ## Development
 
-### Python quality checks
-
-The Python project uses a locked [uv](https://docs.astral.sh/uv/) development
-environment. From `python/`, install it with:
+The [contribution guide](https://shifty.gtf.fyi/contributing.html) has build and
+quality checks. Python development uses the locked uv environment in `python/`:
 
 ```sh
-uv sync --dev --frozen
-```
-
-Run Ruff's mutating formatter while editing:
-
-```sh
-uv run ruff format .
-```
-
-Before committing, run the same non-mutating quality gate enforced by pull
-request CI and again before release artifacts are built:
-
-```sh
+cd python
+uv sync --dev --frozen --reinstall-package pyshifty
 uv run ruff check .
 uv run ruff format --check .
 uv run ty check shifty
 uv run pytest -q
 ```
 
-Ruff covers the package, tests, examples, and benchmarks. `ty` checks the
-shipped `shifty` package, and pytest exercises the Python and native-extension
-behavior.
+Reinstall the editable package after changing Rust sources so tests use the
+newly compiled extension. For performance measurements and implementation
+comparisons, see [benchmark/README.md](benchmark/README.md) and
+[`scripts/compare_implementations.py`](scripts/compare_implementations.py).
 
-### 3-way implementation comparison
-
-`scripts/compare_implementations.py` runs shifty, [TopQuadrant SHACL](https://github.com/topquadrant/shacl), and [pySHACL](https://github.com/RDFLib/pySHACL) against the same shapes + data graphs and produces a 3-way diff of their `sh:ValidationResult` sets.
-
-```sh
-uv run scripts/compare_implementations.py \
-    -s benchmark/brick/Brick-closure.ttl \
-    -d benchmark/brick/models/bldg1.ttl
-```
-
-Requires shifty to be importable from the local build:
-
-```sh
-cd python && maturin develop
-```
-
-TopQuadrant requires the `brick-tq-shacl` Python package (installed automatically by `uv run`). To skip it:
-
-```sh
-uv run scripts/compare_implementations.py \
-    -s shapes.ttl -d data.ttl \
-    --skip topquadrant
-```
-
-**How results are compared:** each `sh:ValidationResult` is content-hashed by its full predicate/object subtree (blank nodes are recursively canonicalized by content, not identity). `sh:resultMessage` and `sh:sourceConstraint` are excluded from the hash — message phrasing varies across implementations, and `sh:sourceConstraint` carries implementation-specific blank-node bookkeeping. Results are then grouped into buckets: all-agree, only-in-X, only-in-X+Y, etc.
-
-Flags:
-- `--exact-message` — include `sh:resultMessage` in the hash
-- `--max-show N` — show N signatures per bucket (default: 5)
-- `--verbose` — print full canonical JSON signature per result instead of one-line summaries
+The `archive-first-attempt` branch preserves the older implementation published
+as Shifty 0.0.7. The current project was developed predominantly with coding
+assistants, including Claude Opus 4.8, Sonnet 4.6, and ChatGPT 5.5.
 
 ## License
 
-BSD-3-Clause
+BSD-3-Clause.

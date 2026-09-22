@@ -14,6 +14,18 @@ It takes about fifteen minutes. Use the ``shapes.ttl`` and the *failing*
    ex:alice a ex:Person ; ex:name "Alice" ; ex:email "alice@example.org" .
    ex:bob   a ex:Person ; ex:name 123 .
 
+The snippets below use paths to the files from the first tutorial:
+
+.. code-block:: python
+
+   from pathlib import Path
+   import shifty
+
+   data = Path("data.ttl")
+   shapes = Path("shapes.ttl")
+   original_shapes = shapes.read_text()
+   result = shifty.validate_algebra(data, shapes)
+
 Result formats
 --------------
 
@@ -79,8 +91,8 @@ substrings of it breaks silently the next time the wording improves.
 
 .. code-block:: text
 
-   missing or excess values: <http://example.org/email>
-   wrong type: "123"^^<http://www.w3.org/2001/XMLSchema#integer> at <http://example.org/name>
+   missing or excess values: ex:email
+   wrong type: "123"^^<http://www.w3.org/2001/XMLSchema#integer> at ex:name
 
 The full set is ``Cardinality``, ``ValueType``, ``ClassMembership``,
 ``NodeKind``, ``Constant``, ``Closed``, ``Conjunction``, ``Disjunction``,
@@ -122,6 +134,7 @@ Then prefer it, falling back to the engine's:
 
 .. code-block:: python
 
+   result = shifty.validate_algebra(data, shapes)
    for violation in result.violations:
        for reason in violation.reasons:
            print(reason.severity, "|", reason.author_message or reason.message)
@@ -197,9 +210,9 @@ constraint — "these 40 assets are all missing an email" reads far better than
 
 .. code-block:: text
 
-      1  ConstraintKind.Cardinality on <http://example.org/email>
+      1  ConstraintKind.Cardinality on ex:email
             <http://example.org/bob>
-      1  ConstraintKind.ValueType on <http://example.org/name>
+      1  ConstraintKind.ValueType on ex:name
             <http://example.org/bob>
 
 On a two-node example this is pointless. On a corpus of thousands it is the
@@ -213,6 +226,7 @@ out what the engine actually checked:
 
 .. code-block:: python
 
+   result = shifty.validate_algebra(data, original_shapes)
    for violation in result.violations:
        print("statement", violation.statement_id,
              "top-level constraint", violation.constraint_id)
@@ -224,15 +238,15 @@ out what the engine actually checked:
 .. code-block:: text
 
    statement 0 top-level constraint 11
-      nested constraint 2
-      render:     ∃[1..] <http://example.org/email> . ⊤
-      definition: ∃[1..] <http://example.org/email> . any node
-      nested constraint 4
+      nested constraint 8
+      render:     ∃[1..] ex:email . ⊤
+      definition: ∃[1..] ex:email
+      nested constraint 1
       render:     test(datatype(xsd:string))
       definition: test(datatype(xsd:string))
 
 Two ids, and they are different on purpose. ``violation.constraint_id`` (11) is
-the top-level shape the statement targets. ``reason.constraint_id`` (2 and 4)
+the top-level shape the statement targets. ``reason.constraint_id`` (8 and 1)
 is the specific nested node that failed inside it — they differ whenever the
 shape is a conjunction, disjunction, or other composite, which is nearly
 always.
