@@ -309,6 +309,7 @@ class _RdfInput(NamedTuple):
     data: Optional[bytes]
     path: Optional[str]
     format: str
+    bnode_context: Optional[dict[str, "rdflib.BNode"]] = None
 
 
 # Strings are intentionally dual-purpose: an existing path is read from disk;
@@ -422,7 +423,9 @@ def _decode_bnode_label(label: str) -> str:
         return label
 
 
-def _flat_turtle_bytes(graph: "rdflib.Graph") -> bytes:
+def _flat_turtle_bytes(
+    graph: "rdflib.Graph", bnode_context: Optional[dict[str, "rdflib.BNode"]] = None
+) -> bytes:
     """Serialize an rdflib graph as a prefix block followed by an N-Triples body.
 
     N-Triples is a syntactic subset of Turtle, so a run of ``@prefix``
@@ -471,7 +474,10 @@ def _flat_turtle_bytes(graph: "rdflib.Graph") -> bytes:
 
     def term(node) -> str:
         if isinstance(node, rdflib.BNode):
-            return f"_:{_encode_bnode_label(str(node))}"
+            label = _encode_bnode_label(str(node))
+            if bnode_context is not None:
+                bnode_context[label] = node
+            return f"_:{label}"
         return node.n3()
 
     # Asking for triples explicitly keeps this right for a quad store, whose
@@ -517,7 +523,10 @@ def _to_rdf_input(graph: GraphInput) -> _RdfInput:
         return _RdfInput(graph.encode("utf-8"), None, "turtle")
     serialize = getattr(graph, "serialize", None)
     if serialize is not None:
-        return _RdfInput(_flat_turtle_bytes(graph), None, "turtle")
+        bnode_context: dict[str, rdflib.BNode] = {}
+        return _RdfInput(
+            _flat_turtle_bytes(graph, bnode_context), None, "turtle", bnode_context
+        )
     raise TypeError(
         f"Cannot convert {type(graph).__name__!r} to RDF data. "
         "Expected rdflib.Graph, pathlib.Path, str (path, HTTP(S) URL, or Turtle), "
@@ -725,13 +734,18 @@ class InferResult:
     """Result of a SHACL-AF inference run."""
 
     def __init__(
-        self, inner: _RustInferResult, *, _target: "Optional[rdflib.Graph]" = None
+        self,
+        inner: _RustInferResult,
+        *,
+        _target: "Optional[rdflib.Graph]" = None,
+        _bnode_context: Optional[dict[str, "rdflib.BNode"]] = None,
     ) -> None:
         self._inner = inner
         # Set by infer(..., in_place=True): the caller's own graph, already
         # mutated with the inferred delta. graph() then returns it directly
         # instead of re-parsing the whole thing.
         self._target = _target
+        self._bnode_context = _bnode_context
 
     @property
     def inferred_count(self) -> int:
@@ -770,11 +784,28 @@ class InferResult:
         import rdflib
 
         g = rdflib.Graph()
-        g.parse(data=self._inner.graph_ntriples, format="nt")
+        g.parse(
+            data=self._inner.graph_ntriples,
+            format="nt",
+            bnode_context=dict(self._bnode_context or {}),
+        )
         return g
 
     def __repr__(self) -> str:
         return f"InferResult(inferred={self.inferred_count})"
+
+
+def _parse_report_graph(result: W3cResult, data: _RdfInput) -> "rdflib.Graph":
+    """Preserve caller-owned data nodes when decoding a validation report."""
+    import rdflib
+
+    graph = rdflib.Graph()
+    graph.parse(
+        data=result._report_ntriples,
+        format="nt",
+        bnode_context=dict(data.bnode_context or {}),
+    )
+    return graph
 
 
 class PreparedValidator:
@@ -818,8 +849,6 @@ class PreparedValidator:
         them, and requires *data_graph* to be a single :class:`rdflib.Graph`
         and ``infer=True``.
         """
-        import rdflib
-
         target = _in_place_target(
             data_graph,
             in_place=in_place,
@@ -842,8 +871,7 @@ class PreparedValidator:
         )
         _write_back_derived(target, lambda: result._inferred_ntriples)
         _warn_diagnostics(result.diagnostics, stacklevel=2)
-        graph = rdflib.Graph()
-        graph.parse(data=result.report_turtle, format="turtle")
+        graph = _parse_report_graph(result, data)
         return (result.conforms, graph, result.results_text)
 
     def validate_algebra(
@@ -1457,8 +1485,6 @@ def validate(
           ``sh:ValidationReport``.
         * *results_text* — human-readable summary string.
     """
-    import rdflib
-
     target = _in_place_target(
         data_graph, in_place=in_place, infer=infer, caller="validate"
     )
@@ -1489,8 +1515,7 @@ def validate(
     _write_back_derived(target, lambda: result._inferred_ntriples)
     _warn_diagnostics(result.diagnostics, stacklevel=2)
 
-    g = rdflib.Graph()
-    g.parse(data=result.report_turtle, format="turtle")
+    g = _parse_report_graph(result, data)
 
     return (result.conforms, g, result.results_text)
 
@@ -1615,4 +1640,4 @@ def infer(
         base,
     )
     _write_back_derived(target, lambda: inner._inferred_ntriples)
-    return InferResult(inner, _target=target)
+    return InferResult(inner, _target=target, _bnode_context=data.bnode_context)

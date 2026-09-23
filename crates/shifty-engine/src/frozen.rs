@@ -1229,6 +1229,7 @@ impl FrozenIndexedDataset {
         let aliases = self.terms.local_blank_aliases.borrow();
         let originals: HashSet<_> = aliases.keys().cloned().collect();
         let mut mapping = HashMap::with_capacity(aliases.len() * 2);
+        let mut allocated = HashSet::with_capacity(aliases.len());
         for (original, alias) in aliases.iter() {
             let fresh = loop {
                 let candidate = BlankNode::default();
@@ -1237,15 +1238,28 @@ impl FrozenIndexedDataset {
                     .get(&Term::BlankNode(candidate.clone()))
                     .is_none()
                     && !originals.contains(&candidate)
-                    && !mapping.values().any(|mapped| mapped == &candidate)
+                    && !allocated.contains(&candidate)
                 {
                     break candidate;
                 }
             };
+            allocated.insert(fresh.clone());
             mapping.insert(original.clone(), fresh);
             mapping.insert(alias.clone(), original.clone());
         }
         mapping
+    }
+
+    /// Internal data aliases and the data blank nodes they came from. The map
+    /// is populated during the existing input encoding pass, so retrieving it
+    /// does not visit the graph or any index rows.
+    pub(crate) fn data_blank_node_aliases(&self) -> HashMap<BlankNode, BlankNode> {
+        self.terms
+            .local_blank_aliases
+            .borrow()
+            .iter()
+            .map(|(original, alias)| (alias.clone(), original.clone()))
+            .collect()
     }
 
     /// Compatibility projection of evaluated data, excluding source-only rows
@@ -1254,15 +1268,38 @@ impl FrozenIndexedDataset {
         self.project_rows(self.scan_data(None, None, None))
     }
 
+    /// Materialize the requested data graph once, relabeling terms as rows
+    /// leave the index. This avoids first building an internal Graph and then
+    /// walking that Graph again for a public export.
+    pub(crate) fn data_graph_projection_mapped(
+        &self,
+        blank_nodes: &HashMap<BlankNode, BlankNode>,
+    ) -> Graph {
+        self.project_rows_with(self.scan_data(None, None, None), |term| match term {
+            Term::BlankNode(node) => {
+                Term::BlankNode(blank_nodes.get(&node).cloned().unwrap_or(node))
+            }
+            other => other,
+        })
+    }
+
     /// Compatibility projection for APIs that explicitly request a Graph.
     pub(crate) fn default_graph_projection(&self) -> Graph {
         self.project_rows(self.scan(None, None, None, GraphSel::Default))
     }
 
     fn project_rows(&self, rows: impl Iterator<Item = [TermId; 3]>) -> Graph {
+        self.project_rows_with(rows, |term| term)
+    }
+
+    fn project_rows_with(
+        &self,
+        rows: impl Iterator<Item = [TermId; 3]>,
+        map: impl Fn(Term) -> Term,
+    ) -> Graph {
         let mut graph = Graph::new();
         for [subject, predicate, object] in rows {
-            let subject: oxrdf::NamedOrBlankNode = match self.externalize_id(subject) {
+            let subject: oxrdf::NamedOrBlankNode = match map(self.externalize_id(subject)) {
                 Term::NamedNode(node) => node.into(),
                 Term::BlankNode(node) => node.into(),
                 Term::Literal(_) => unreachable!("RDF subjects cannot be literals"),
@@ -1273,7 +1310,7 @@ impl FrozenIndexedDataset {
             graph.insert(&oxrdf::Triple::new(
                 subject,
                 predicate,
-                self.externalize_id(object),
+                map(self.externalize_id(object)),
             ));
         }
         crate::profile::record_graph_projection(graph.len());

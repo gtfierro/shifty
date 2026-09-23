@@ -26,6 +26,7 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::Path;
 use std::ptr;
 use std::slice;
+use std::sync::OnceLock;
 
 thread_local! {
     static LAST_ERROR: RefCell<CString> =
@@ -184,6 +185,7 @@ struct ShapeMapSession {
     /// Retained for the same reason: `resolve_path` evaluates over the data
     /// graph alone in `Data` mode and over the union otherwise.
     graph_mode: ValidationGraphMode,
+    union_graph: OnceLock<Graph>,
 }
 
 /// One selected focus under an authored statement.
@@ -813,10 +815,22 @@ fn prepare_shape_map(
             base: validator.compiled.source().base.clone(),
         },
         graph_mode: mode,
+        union_graph: OnceLock::new(),
     })
 }
 
 impl ShapeMapSession {
+    fn evaluation_graph(&self) -> &Graph {
+        match self.graph_mode {
+            ValidationGraphMode::Data => self.session.prepared_evidence().data(),
+            ValidationGraphMode::Union | ValidationGraphMode::UnionAll => {
+                self.union_graph.get_or_init(|| {
+                    graph_union(self.session.prepared_evidence().data(), &self.shapes.graph)
+                })
+            }
+        }
+    }
+
     /// For every *raw* (source) constraint with shapes-graph provenance
     /// (`Schema::sources`), the values `name_path` reaches from that
     /// constraint's originating node, evaluated over the shapes graph.
@@ -899,15 +913,7 @@ impl ShapeMapSession {
             })
             .collect();
 
-        let union_graph;
-        let graph: &Graph = match self.graph_mode {
-            ValidationGraphMode::Data => self.session.prepared_evidence().data(),
-            ValidationGraphMode::Union | ValidationGraphMode::UnionAll => {
-                union_graph =
-                    graph_union(self.session.prepared_evidence().data(), &self.shapes.graph);
-                &union_graph
-            }
-        };
+        let graph = self.evaluation_graph();
         let mut values: Vec<_> = shifty_engine::path::succ(graph, &focus, &path)
             .into_iter()
             .filter(|value| {
@@ -950,15 +956,7 @@ impl ShapeMapSession {
                 format!("invalid path: {error}"),
             )
         })?;
-        let union_graph;
-        let graph: &Graph = match self.graph_mode {
-            ValidationGraphMode::Data => self.session.prepared_evidence().data(),
-            ValidationGraphMode::Union | ValidationGraphMode::UnionAll => {
-                union_graph =
-                    graph_union(self.session.prepared_evidence().data(), &self.shapes.graph);
-                &union_graph
-            }
-        };
+        let graph = self.evaluation_graph();
         let mut out = HashMap::with_capacity(nodes.len());
         for node in nodes {
             let term = parse_term(node)?;

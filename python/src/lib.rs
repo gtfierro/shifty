@@ -7,7 +7,7 @@ use shifty_engine::{
     UnsupportedPolicy, ValidationGraphMode, ValidationOptions, ValidationReport, report_to_graph,
 };
 use std::path::PathBuf;
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 
 mod repair;
 
@@ -496,9 +496,11 @@ pub struct W3cResult {
     pub conforms: bool,
     #[pyo3(get)]
     pub diagnostics: Vec<String>,
-    /// The `sh:ValidationReport` serialized as Turtle.
-    #[pyo3(get)]
-    pub report_turtle: String,
+    /// The report is kept once; either serialization is produced only if its
+    /// consumer asks for it.
+    report_graph: Graph,
+    report_turtle_cache: OnceLock<String>,
+    report_ntriples_cache: OnceLock<String>,
     /// Human-readable summary (pyshacl-esque text).
     #[pyo3(get)]
     pub results_text: String,
@@ -510,6 +512,24 @@ pub struct W3cResult {
 
 #[pymethods]
 impl W3cResult {
+    #[getter]
+    fn report_turtle(&self, py: Python<'_>) -> String {
+        py.detach(|| {
+            self.report_turtle_cache
+                .get_or_init(|| graph_to_turtle(&self.report_graph))
+                .clone()
+        })
+    }
+
+    #[getter]
+    fn _report_ntriples(&self, py: Python<'_>) -> String {
+        py.detach(|| {
+            self.report_ntriples_cache
+                .get_or_init(|| graph_to_ntriples(&self.report_graph))
+                .clone()
+        })
+    }
+
     /// Serialize the retained inference delta for the Python write-back path.
     #[getter]
     fn _inferred_ntriples(&self, py: Python<'_>) -> String {
@@ -583,15 +603,13 @@ fn property_witness_to_py(w: shifty_engine::PropertyWitness) -> PropertyWitness 
 pub struct InferResult {
     inferred_count: usize,
     diagnostics: Vec<String>,
-    graph: Graph,
+    graph: Arc<Graph>,
     /// The triples inference added, i.e. `graph` minus the original data —
     /// kept separately so callers can write just the delta back into a
     /// caller-owned graph instead of re-materializing everything.
     inferred: Vec<Triple>,
-    write_back_inferred: Vec<Triple>,
     graph_ntriples_cache: OnceLock<String>,
     inferred_ntriples_cache: OnceLock<String>,
-    write_back_ntriples_cache: OnceLock<String>,
 }
 
 #[pymethods]
@@ -628,11 +646,7 @@ impl InferResult {
 
     #[getter]
     fn _inferred_ntriples(&self, py: Python<'_>) -> String {
-        py.detach(|| {
-            self.write_back_ntriples_cache
-                .get_or_init(|| triples_to_ntriples(&self.write_back_inferred))
-                .clone()
-        })
+        self.inferred_ntriples(py)
     }
 
     fn __repr__(&self) -> String {
@@ -878,14 +892,16 @@ fn format_report_text(report: &ValidationReport) -> String {
 
 fn build_w3c_result(
     report: &ValidationReport,
-    report_graph: &Graph,
+    report_graph: Graph,
     inferred: Option<Vec<Triple>>,
     diagnostics: Vec<String>,
 ) -> W3cResult {
     W3cResult {
         conforms: report.conforms,
         diagnostics,
-        report_turtle: graph_to_turtle(report_graph),
+        report_graph,
+        report_turtle_cache: OnceLock::new(),
+        report_ntriples_cache: OnceLock::new(),
         results_text: format_report_text(report),
         inferred: inferred.unwrap_or_default(),
         inferred_ntriples_cache: OnceLock::new(),
@@ -1364,7 +1380,7 @@ pub fn _validate_w3c(
         let report_graph = report_to_graph(&report);
         Ok(build_w3c_result(
             &report,
-            &report_graph,
+            report_graph,
             inference
                 .keep_delta
                 .then(|| session.inferred_for_write_back()),
@@ -1419,12 +1435,10 @@ pub fn _infer(
             return Ok(InferResult {
                 inferred_count: 0,
                 diagnostics: Vec::new(),
-                graph: data_loaded.graph,
+                graph: Arc::new(data_loaded.graph),
                 inferred: Vec::new(),
-                write_back_inferred: Vec::new(),
                 graph_ntriples_cache: OnceLock::new(),
                 inferred_ntriples_cache: OnceLock::new(),
-                write_back_ntriples_cache: OnceLock::new(),
             });
         }
         let (_, session) = compiled_session_loaded(
@@ -1435,7 +1449,6 @@ pub fn _infer(
             engine,
         )?;
         let inferred = session.inferred().to_vec();
-        let write_back_inferred = session.inferred_for_write_back();
         Ok(InferResult {
             inferred_count: inferred.len(),
             diagnostics: session
@@ -1443,12 +1456,10 @@ pub fn _infer(
                 .iter()
                 .map(|diagnostic| diagnostic.message.clone())
                 .collect(),
-            graph: session.data().clone(),
+            graph: session.data_shared(),
             inferred,
-            write_back_inferred,
             graph_ntriples_cache: OnceLock::new(),
             inferred_ntriples_cache: OnceLock::new(),
-            write_back_ntriples_cache: OnceLock::new(),
         })
     })
     .map_err(py_value_error)
@@ -1624,7 +1635,7 @@ impl PreparedValidator {
             let report_graph = report_to_graph(&report);
             Ok(build_w3c_result(
                 &report,
-                &report_graph,
+                report_graph,
                 inference
                     .keep_delta
                     .then(|| session.inferred_for_write_back()),

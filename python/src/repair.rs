@@ -29,7 +29,7 @@ use shifty_repair::{
     instantiate,
 };
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 // ── shared rendering (ports of the CLI renderers; kept local to the binding) ────
 
@@ -842,8 +842,12 @@ impl RepairSession {
                 .collect();
             let data = session.data_shared();
             let asserted = session.asserted_shared();
+            let public_shapes = session.public_shapes_graph_if_relabelled();
             let context = if separate {
-                Arc::new(graph_union(&data, &compiled.source().graph))
+                Arc::new(graph_union(
+                    &data,
+                    public_shapes.as_ref().unwrap_or(&compiled.source().graph),
+                ))
             } else {
                 Arc::clone(&data)
             };
@@ -856,8 +860,8 @@ impl RepairSession {
                     run_infer,
                     materialized: false,
                 },
-                compiled.authored_schema_shared(),
-                compiled.normalized_schema_shared(),
+                session.public_schema(compiled.authored_schema_shared()),
+                session.public_schema(compiled.normalized_schema_shared()),
                 compiled.statement_map_shared(),
                 data,
                 context,
@@ -2325,8 +2329,25 @@ pub struct EvidenceSession {
     /// Default inference setting for `revalidate`.
     run_infer: bool,
     shapes: Arc<shifty_parse::Loaded>,
+    mapped_shapes: Option<Graph>,
+    path_graph: OnceLock<Graph>,
     graph_mode: shifty_engine::ValidationGraphMode,
     diagnostics: Vec<String>,
+}
+
+impl EvidenceSession {
+    fn path_graph(&self) -> &Graph {
+        match self.graph_mode {
+            shifty_engine::ValidationGraphMode::Data => &self.data,
+            shifty_engine::ValidationGraphMode::Union
+            | shifty_engine::ValidationGraphMode::UnionAll => self.path_graph.get_or_init(|| {
+                graph_union(
+                    &self.data,
+                    self.mapped_shapes.as_ref().unwrap_or(&self.shapes.graph),
+                )
+            }),
+        }
+    }
 }
 
 #[pymethods]
@@ -2398,6 +2419,7 @@ impl EvidenceSession {
         let normalized_schema = compiled.normalized_schema_shared();
         let raw_schema = compiled.authored_schema_shared();
         let data = session.data_shared();
+        let mapped_shapes = session.public_shapes_graph_if_relabelled();
         let shapes = compiled.source_shared();
 
         Ok(Self {
@@ -2407,6 +2429,8 @@ impl EvidenceSession {
             data,
             run_infer,
             shapes,
+            mapped_shapes,
+            path_graph: OnceLock::new(),
             graph_mode: mode,
             diagnostics,
         })
@@ -2426,7 +2450,7 @@ impl EvidenceSession {
         sort_results: bool,
     ) -> PyResult<EvidenceValidationOutcome> {
         let options = validation_options(entry_shape_names, minimum_severity, sort_results)?;
-        let outcome = self.session.prepared_evidence().validate(&options);
+        let outcome = self.session.evidence_with_validation(&options, true);
         self.build_run(py, outcome, &self.normalized_schema, &self.data)
     }
 
@@ -2466,13 +2490,8 @@ impl EvidenceSession {
             .session
             .with_delta_and_inference(&delta.inner, run_infer)
             .map_err(|error| py_value_error(error.to_string()))?;
-        let outcome = next.prepared_evidence().validate(&options);
-        self.build_run(
-            py,
-            outcome,
-            &self.normalized_schema,
-            &Arc::new(next.data().clone()),
-        )
+        let outcome = next.evidence_with_validation(&options, true);
+        self.build_run(py, outcome, &self.normalized_schema, &next.data_shared())
     }
 
     /// Decide every selected pair without materializing any evidence — the
@@ -3028,22 +3047,14 @@ impl EvidenceSession {
             })
             .collect();
 
-        let union_graph;
-        let graph: &Graph = match self.graph_mode {
-            shifty_engine::ValidationGraphMode::Data => self.data.as_ref(),
-            shifty_engine::ValidationGraphMode::Union
-            | shifty_engine::ValidationGraphMode::UnionAll => {
-                union_graph = graph_union(&self.data, &self.shapes.graph);
-                &union_graph
-            }
-        };
+        let graph = self.path_graph();
         let mut values: Vec<String> = shifty_engine::path::succ(graph, &focus, &path)
             .into_iter()
             .filter(|value| {
                 qualifying.iter().all(|shape| {
                     self.session
                         .prepared_evidence()
-                        .raw_constraint_holds(value, *shape)
+                        .raw_constraint_holds(&self.session.internal_term(value), *shape)
                         == Some(true)
                 })
             })
@@ -3078,15 +3089,7 @@ impl EvidenceSession {
     ) -> PyResult<HashMap<String, Vec<String>>> {
         let parsed = shifty_parse::parse_property_path(path, &self.shapes)
             .map_err(|e| py_value_error(format!("invalid path: {e}")))?;
-        let union_graph;
-        let graph: &Graph = match self.graph_mode {
-            shifty_engine::ValidationGraphMode::Data => self.data.as_ref(),
-            shifty_engine::ValidationGraphMode::Union
-            | shifty_engine::ValidationGraphMode::UnionAll => {
-                union_graph = graph_union(&self.data, &self.shapes.graph);
-                &union_graph
-            }
-        };
+        let graph = self.path_graph();
         let mut out = HashMap::with_capacity(nodes.len());
         for node in nodes {
             let term = parse_term(&node).map_err(py_value_error)?;

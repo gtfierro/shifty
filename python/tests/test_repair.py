@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 import shifty
 
 SHAPES = """
@@ -296,6 +298,51 @@ def test_subgraph_patch_without_conforming_structure_is_rejected():
     outcome = s.gate(delta)
     assert outcome.is_sound  # introduces no new top-level violation
     assert not outcome.is_progress  # but fixes nothing
+
+
+@pytest.mark.parametrize("add_unrelated", [False, True])
+def test_gate_preserves_blank_node_violation_across_shape_collision(add_unrelated):
+    import rdflib
+
+    ex = rdflib.Namespace("http://example.org/")
+    data = rdflib.Graph()
+    node = rdflib.BNode("same")
+    data.add((node, ex.p, ex.o))
+    shapes = """
+    @prefix sh: <http://www.w3.org/ns/shacl#> .
+    @prefix ex: <http://example.org/> .
+    ex:S a sh:NodeShape ; sh:targetSubjectsOf ex:p ; sh:property _:same .
+    _:same sh:path ex:q ; sh:minCount 1 .
+    """
+    session = shifty.RepairSession(shapes, data, infer=False)
+
+    delta = shifty.delta_from_graph(
+        "@prefix ex: <http://example.org/> . ex:other ex:flag ex:yes ."
+        if add_unrelated
+        else None
+    )
+    outcome = session.gate(delta)
+
+    assert outcome.fixed == []
+    assert outcome.introduced == []
+    assert len(outcome.remaining) == 1
+
+
+def test_repair_witness_does_not_merge_shape_constant_with_data_node():
+    import rdflib
+
+    ex = rdflib.Namespace("http://example.org/")
+    data = rdflib.Graph()
+    node = rdflib.BNode("same")
+    data.add((node, ex.p, node))
+    shapes = """
+    @prefix sh: <http://www.w3.org/ns/shacl#> .
+    @prefix ex: <http://example.org/> .
+    ex:S a sh:NodeShape ; sh:targetSubjectsOf ex:p ;
+        sh:property [ sh:path ex:p ; sh:hasValue _:same ] .
+    """
+
+    assert len(shifty.RepairSession(shapes, data, infer=False).witnesses()) == 1
 
 
 def test_gate_recomputes_inference_while_advance_keeps_materialized_data():

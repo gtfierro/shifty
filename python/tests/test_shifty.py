@@ -98,6 +98,7 @@ def test_default_wrappers_do_not_read_delta(monkeypatch, wrapper, native_name):
     class NativeResult:
         conforms = True
         report_turtle = ""
+        _report_ntriples = ""
         results_text = ""
         # Every real result type carries this; the W3C wrappers read it to
         # warn, which is not reading the inference delta.
@@ -716,6 +717,45 @@ class TestInPlaceBlankNodes:
 
         assert result.inferred_count == 1
         assert _derived_area(graph) == [rdflib.Literal(4)]
+
+    def test_non_in_place_infer_keeps_caller_blank_node(self):
+        graph = _bnode_graph()
+        original = next(
+            node for node in graph.all_nodes() if isinstance(node, rdflib.BNode)
+        )
+
+        inferred = shifty.infer(graph, BNODE_RULES.encode()).graph()
+
+        assert original in inferred.all_nodes()
+        assert inferred.value(
+            original, rdflib.URIRef("http://example.org/area")
+        ) == rdflib.Literal(4)
+
+    @pytest.mark.parametrize("prepared", [False, True])
+    def test_report_rejoins_data_node_without_merging_shapes_node(self, prepared):
+        ex = rdflib.Namespace("http://example.org/")
+        sh = rdflib.Namespace("http://www.w3.org/ns/shacl#")
+        data = rdflib.Graph()
+        node = rdflib.BNode("same")
+        data.add((node, ex.p, ex.o))
+        shapes = PREFIXES + textwrap.dedent("""\
+            ex:S a sh:NodeShape ; sh:targetSubjectsOf ex:p ;
+                sh:property _:same .
+            _:same sh:path ex:q ; sh:minCount 1 .
+        """)
+
+        run = (
+            shifty.PreparedValidator(shapes.encode()).validate
+            if prepared
+            else shifty.validate
+        )
+        conforms, report, _ = run(data, shapes.encode()) if not prepared else run(data)
+
+        assert not conforms
+        results = list(report.subjects(rdflib.RDF.type, sh.ValidationResult))
+        assert len(results) == 1
+        assert report.value(results[0], sh.focusNode) == node
+        assert report.value(results[0], sh.sourceShape) != node
 
     def test_sparql_rule_attaches_to_the_original_blank_node(self):
         graph = _bnode_graph()

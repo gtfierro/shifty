@@ -1,14 +1,51 @@
 use oxrdf::{NamedNode, Term, Triple};
 use shifty_engine::profile;
 use shifty_engine::{
-    CompiledShapes, ConformanceOptions, EngineOptions, EvaluationError, FindingOptions,
-    SessionData, SessionError, SessionOptions, UnsupportedPolicy, ValidationGraphMode,
+    CompiledShapes, ConformanceOptions, EngineOptions, EvaluationError, EvidenceOptions,
+    FindingOptions, SessionData, SessionError, SessionOptions, UnsupportedPolicy,
+    ValidationGraphMode,
 };
 use shifty_repair::GraphDelta;
 use std::sync::Arc;
 
 fn loaded(ttl: &str) -> shifty_parse::Loaded {
     shifty_parse::load_turtle(ttl.as_bytes(), None).unwrap()
+}
+
+#[test]
+fn split_blank_node_identity_is_public_across_session_results() {
+    let shapes = loaded(
+        r#"
+        @prefix sh: <http://www.w3.org/ns/shacl#> .
+        @prefix ex: <http://ex/> .
+        ex:S a sh:NodeShape ; sh:targetSubjectsOf ex:p ; sh:property _:same .
+        _:same sh:path ex:q ; sh:minCount 1 .
+        "#,
+    );
+    let data = loaded(
+        r#"
+        @prefix ex: <http://ex/> .
+        _:same ex:p ex:o .
+        "#,
+    );
+    let session = CompiledShapes::compile(shapes)
+        .unwrap()
+        .session(SessionData::Separate(data.graph), SessionOptions::default())
+        .unwrap();
+    let focus = Term::BlankNode(oxrdf::BlankNode::new("same").unwrap());
+    assert_eq!(
+        session.validate(&FindingOptions::default()).violations[0].focus,
+        focus
+    );
+    assert_eq!(
+        session.report(&FindingOptions::default()).results[0].focus,
+        focus
+    );
+    let evidence = session.evidence(&EvidenceOptions::default());
+    assert_eq!(evidence.statements[0].selected_foci[0].focus, focus);
+    let (_, pairs) = session.find_failures(&ConformanceOptions::default());
+    assert_eq!(pairs[0].focus(), &focus);
+    assert!(!session.explain(&pairs[0]).unwrap().is_empty());
 }
 
 #[test]
@@ -109,11 +146,15 @@ fn sparql_rule_reuses_shapes_blank_node_after_data_label_collision() {
         .into_owned();
     assert!(matches!(shapes_node, Term::BlankNode(_)));
     assert!(matches!(data_node, Term::BlankNode(_)));
-    assert_ne!(shapes_node, data_node);
-    assert_eq!(session.inferred()[0].object, shapes_node);
-    assert_ne!(
-        session.inferred_for_write_back()[0].object,
+    assert_eq!(
+        data_node,
         Term::BlankNode(oxrdf::BlankNode::new("same").unwrap())
+    );
+    assert_eq!(shapes_node, data_node);
+    assert_ne!(session.inferred()[0].object, data_node);
+    assert_eq!(
+        session.inferred_for_write_back()[0].object,
+        session.inferred()[0].object
     );
 }
 

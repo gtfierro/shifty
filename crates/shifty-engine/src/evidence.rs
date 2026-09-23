@@ -35,7 +35,7 @@ use oxrdf::Graph;
 use shifty_algebra::{ConstraintKind, Schema, Severity, Shape, ShapeArena, ShapeId};
 use shifty_opt::{analyze, normalize_with_mapping};
 use std::cell::OnceCell;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 /// A prepared, immutable evidence-validation snapshot.
@@ -113,6 +113,7 @@ impl From<&ValidationOptions> for ConformanceOptions {
 pub struct SelectedPair {
     normalized_statement: usize,
     focus: oxrdf::Term,
+    pub(crate) public_focus: Option<oxrdf::Term>,
     source_statements: Vec<usize>,
     pub(crate) snapshot: Option<Arc<()>>,
 }
@@ -137,6 +138,7 @@ impl SelectedPair {
         Self {
             normalized_statement,
             focus,
+            public_focus: None,
             source_statements,
             snapshot: None,
         }
@@ -147,7 +149,7 @@ impl SelectedPair {
     }
 
     pub fn focus(&self) -> &oxrdf::Term {
-        &self.focus
+        self.public_focus.as_ref().unwrap_or(&self.focus)
     }
 
     pub fn source_statements(&self) -> &[usize] {
@@ -371,6 +373,16 @@ impl PreparedEvidenceValidator {
             .frozen()
             .expect("compiled preparation has a dataset")
             .data_graph_projection()
+    }
+
+    pub(crate) fn data_graph_projection_mapped(
+        &self,
+        blank_nodes: &HashMap<oxrdf::BlankNode, oxrdf::BlankNode>,
+    ) -> Graph {
+        self.sparql
+            .frozen()
+            .expect("compiled preparation has a dataset")
+            .data_graph_projection_mapped(blank_nodes)
     }
 
     pub(crate) fn data_graph_shared(&self) -> Arc<Graph> {

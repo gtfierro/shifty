@@ -16,6 +16,25 @@ def selected_foci(run):
     return [focus for statement in run.statements for focus in statement.selected_foci]
 
 
+def test_split_blank_node_identity_in_evidence_and_explain():
+    shapes = (
+        PREFIXES
+        + """
+    ex:S a sh:NodeShape ; sh:targetSubjectsOf ex:p ; sh:property _:same .
+    _:same sh:path ex:q ; sh:minCount 1 .
+    """
+    )
+    data = PREFIXES + "_:same ex:p ex:o ."
+    session = shifty.EvidenceSession(shapes, data, infer=False)
+
+    run = session.validate()
+    assert selected_foci(run)[0].focus == "_:same"
+    assert '"value":"same"' in run.to_json()
+    _, pairs = session.find_failures()
+    assert pairs[0].focus == "_:same"
+    assert selected_foci(session.explain(pairs[0]))[0].focus == "_:same"
+
+
 def test_statement_grouping_partition_and_empty_selection():
     shapes = (
         PREFIXES
