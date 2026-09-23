@@ -228,9 +228,8 @@ pub enum UnsupportedPolicy {
 }
 
 /// Optional, forward-looking engine configuration. New feature toggles are added
-/// here as fields; both validation ([`ValidationOptions`]) and inference
-/// ([`crate::infer_with_options`]) accept it, so callers configure behavior in
-/// one place.
+/// here as fields; both validation ([`ValidationOptions`]) and compiled
+/// inference sessions accept it, so callers configure behavior in one place.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct EngineOptions {
     /// How to handle partially supported features encountered at run time —

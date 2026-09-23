@@ -1,5 +1,5 @@
 use oxrdf::{NamedNode, Triple};
-use shifty_engine::{infer, validate, validate_report};
+use shifty_engine::{CompiledShapes, SessionData, SessionOptions, validate, validate_report};
 use std::path::{Path, PathBuf};
 
 fn fixture(path: &str) -> PathBuf {
@@ -20,6 +20,19 @@ fn load(path: &str) -> (shifty_parse::Loaded, shifty_parse::ParseOutput) {
         parsed.diagnostics
     );
     (loaded, parsed)
+}
+
+fn infer(loaded: shifty_parse::Loaded) -> shifty_engine::EvaluationSession {
+    CompiledShapes::compile(loaded)
+        .expect("compilable shapes")
+        .session(
+            SessionData::Embedded,
+            SessionOptions {
+                inference: true,
+                ..SessionOptions::default()
+            },
+        )
+        .expect("inference session")
 }
 
 #[test]
@@ -67,14 +80,14 @@ fn w3c_sparql_target() {
 
 #[test]
 fn w3c_sparql_construct_rule() {
-    let (loaded, parsed) = load("test-suite/advanced/rules/sparql/classify-square.test.ttl");
-    let outcome = infer(&loaded.graph, &parsed.schema).expect("stratifiable");
+    let (loaded, _) = load("test-suite/advanced/rules/sparql/classify-square.test.ttl");
+    let outcome = infer(loaded);
     assert!(
-        outcome.diagnostics.is_empty(),
+        outcome.diagnostics().is_empty(),
         "diags: {:?}",
-        outcome.diagnostics
+        outcome.diagnostics()
     );
-    assert!(outcome.graph.contains(&Triple::new(
+    assert!(outcome.data().contains(&Triple::new(
         NamedNode::new(
             "http://datashapes.org/shasf/tests/rules/sparql/classify-square.test#SquareRectangle",
         )
@@ -256,14 +269,13 @@ fn construct_blank_nodes_are_rejected_to_preserve_termination() {
             ] .
     "#;
     let loaded = shifty_parse::load_turtle(ttl, None).expect("valid Turtle");
-    let parsed = shifty_parse::parse_turtle(ttl, None).expect("valid shapes");
-    let outcome = infer(&loaded.graph, &parsed.schema).expect("stratifiable");
-    assert!(outcome.inferred.is_empty());
+    let outcome = infer(loaded);
+    assert!(outcome.inferred().is_empty());
     assert!(
         outcome
-            .diagnostics
+            .diagnostics()
             .iter()
-            .any(|message| message.contains("blank nodes"))
+            .any(|diagnostic| diagnostic.message.contains("blank nodes"))
     );
 }
 
@@ -306,12 +318,11 @@ fn aggregate_construct_rule_infers_only_eligible_focus() {
         ex:q2 ex:kind ex:Flow .
     "#;
     let loaded = shifty_parse::load_turtle(ttl, None).expect("valid Turtle");
-    let parsed = shifty_parse::parse_turtle(ttl, None).expect("valid shapes");
-    let outcome = infer(&loaded.graph, &parsed.schema).expect("stratifiable");
+    let outcome = infer(loaded);
     assert!(
-        outcome.diagnostics.is_empty(),
+        outcome.diagnostics().is_empty(),
         "diags: {:?}",
-        outcome.diagnostics
+        outcome.diagnostics()
     );
 
     let unique_kind = NamedNode::new("http://ex/uniqueKind").unwrap();
@@ -322,21 +333,21 @@ fn aggregate_construct_rule_infers_only_eligible_focus() {
     // M1 (grouped count 1) gets the triple; M2 (grouped count 2) does not.
     assert!(
         outcome
-            .graph
+            .data()
             .contains(&Triple::new(m1, unique_kind.clone(), temp))
     );
     assert!(
         !outcome
-            .inferred
+            .inferred()
             .iter()
             .any(|t| t.subject == m2.clone().into() && t.predicate == unique_kind)
     );
     // Exactly one triple is inferred (M1 ex:uniqueKind ex:Temp).
     assert_eq!(
-        outcome.inferred.len(),
+        outcome.inferred().len(),
         1,
         "inferred: {:?}",
-        outcome.inferred
+        outcome.inferred()
     );
 }
 

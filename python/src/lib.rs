@@ -588,8 +588,10 @@ pub struct InferResult {
     /// kept separately so callers can write just the delta back into a
     /// caller-owned graph instead of re-materializing everything.
     inferred: Vec<Triple>,
+    write_back_inferred: Vec<Triple>,
     graph_ntriples_cache: OnceLock<String>,
     inferred_ntriples_cache: OnceLock<String>,
+    write_back_ntriples_cache: OnceLock<String>,
 }
 
 #[pymethods]
@@ -620,6 +622,15 @@ impl InferResult {
         py.detach(|| {
             self.inferred_ntriples_cache
                 .get_or_init(|| triples_to_ntriples(&self.inferred))
+                .clone()
+        })
+    }
+
+    #[getter]
+    fn _inferred_ntriples(&self, py: Python<'_>) -> String {
+        py.detach(|| {
+            self.write_back_ntriples_cache
+                .get_or_init(|| triples_to_ntriples(&self.write_back_inferred))
                 .clone()
         })
     }
@@ -1272,7 +1283,9 @@ pub fn _validate_algebra(
                 outcome,
                 compiled.normalized_schema(),
                 &compiled.normalized_schema().arena,
-                inference.keep_delta.then(|| session.inferred().to_vec()),
+                inference
+                    .keep_delta
+                    .then(|| session.inferred_for_write_back()),
                 session_diagnostics(&compiled, &session),
             ))
         })
@@ -1352,7 +1365,9 @@ pub fn _validate_w3c(
         Ok(build_w3c_result(
             &report,
             &report_graph,
-            inference.keep_delta.then(|| session.inferred().to_vec()),
+            inference
+                .keep_delta
+                .then(|| session.inferred_for_write_back()),
             session_diagnostics(&compiled, &session),
         ))
     })
@@ -1406,8 +1421,10 @@ pub fn _infer(
                 diagnostics: Vec::new(),
                 graph: data_loaded.graph,
                 inferred: Vec::new(),
+                write_back_inferred: Vec::new(),
                 graph_ntriples_cache: OnceLock::new(),
                 inferred_ntriples_cache: OnceLock::new(),
+                write_back_ntriples_cache: OnceLock::new(),
             });
         }
         let (_, session) = compiled_session_loaded(
@@ -1418,6 +1435,7 @@ pub fn _infer(
             engine,
         )?;
         let inferred = session.inferred().to_vec();
+        let write_back_inferred = session.inferred_for_write_back();
         Ok(InferResult {
             inferred_count: inferred.len(),
             diagnostics: session
@@ -1427,8 +1445,10 @@ pub fn _infer(
                 .collect(),
             graph: session.data().clone(),
             inferred,
+            write_back_inferred,
             graph_ntriples_cache: OnceLock::new(),
             inferred_ntriples_cache: OnceLock::new(),
+            write_back_ntriples_cache: OnceLock::new(),
         })
     })
     .map_err(py_value_error)
@@ -1538,7 +1558,9 @@ impl PreparedValidator {
                     outcome,
                     self.compiled.normalized_schema(),
                     &self.compiled.normalized_schema().arena,
-                    inference.keep_delta.then(|| session.inferred().to_vec()),
+                    inference
+                        .keep_delta
+                        .then(|| session.inferred_for_write_back()),
                     session_diagnostics(&self.compiled, &session),
                 ))
             })
@@ -1603,7 +1625,9 @@ impl PreparedValidator {
             Ok(build_w3c_result(
                 &report,
                 &report_graph,
-                inference.keep_delta.then(|| session.inferred().to_vec()),
+                inference
+                    .keep_delta
+                    .then(|| session.inferred_for_write_back()),
                 session_diagnostics(&self.compiled, &session),
             ))
         })

@@ -223,6 +223,20 @@ impl TermDictionary {
             .get(id as usize - source_len)
             .cloned()
     }
+
+    fn blank_node(&self, id: TermId) -> Option<BlankNode> {
+        let source_len = self.source.as_ref().map_or(0, |s| s.id_to_term.len());
+        if (id as usize) < source_len {
+            return match self.source.as_ref()?.id_to_term.get(id as usize) {
+                Some(Term::BlankNode(node)) => Some(node.clone()),
+                _ => None,
+            };
+        }
+        match self.local.borrow().id_to_term.get(id as usize - source_len) {
+            Some(Term::BlankNode(node)) => Some(node.clone()),
+            _ => None,
+        }
+    }
 }
 
 // ── Triple index ─────────────────────────────────────────────────────────────
@@ -903,6 +917,7 @@ impl FrozenIndexedDataset {
     pub(crate) fn from_data_with_source(
         data: &Graph,
         source: Arc<SourceStorage>,
+        separate: bool,
         include_source: bool,
     ) -> Self {
         let started = crate::profile::is_enabled().then(Instant::now);
@@ -912,7 +927,12 @@ impl FrozenIndexedDataset {
         let terms = TermDictionary::from_source(Arc::clone(&source));
         let mut local = Vec::new();
         let mut overlapping = HashSet::new();
-        for row in intern_data_graph(data, &terms) {
+        let data_rows = if separate {
+            intern_data_graph(data, &terms)
+        } else {
+            intern_graph(data, &terms)
+        };
+        for row in data_rows {
             if source.index.contains(row[0], row[1], row[2]) {
                 overlapping.insert(row);
             } else {
@@ -1172,6 +1192,60 @@ impl FrozenIndexedDataset {
                     .filter(|row| source.data_member(*row)),
             ),
         )
+    }
+
+    /// Blank nodes present before inference in the data or named shapes graph,
+    /// using dataset identities after source/data label collisions are resolved.
+    pub(crate) fn input_blank_nodes(&self) -> HashSet<BlankNode> {
+        let mut nodes: HashSet<_> = self
+            .scan_data(None, None, None)
+            .flat_map(|[subject, _, object]| [subject, object])
+            .filter_map(|id| self.terms.blank_node(id))
+            .collect();
+        if let Some(source) = &self.terms.source {
+            // The immutable source dictionary contains the shapes graph's
+            // terms already; inspect each distinct term once per session.
+            nodes.extend(source.id_to_term.iter().filter_map(|term| match term {
+                Term::BlankNode(node) => Some(node.clone()),
+                _ => None,
+            }));
+        } else if let Some(graph) = self.terms.get(&Term::NamedNode(
+            NamedNode::new(SHAPES_GRAPH_IRI).expect("static IRI is valid"),
+        )) {
+            nodes.extend(
+                self.scan(None, None, None, GraphSel::Named(graph))
+                    .flat_map(|[subject, _, object]| [subject, object])
+                    .filter_map(|id| self.terms.blank_node(id)),
+            );
+        }
+        nodes
+    }
+
+    /// Relabel inference output for a caller that supplied a separate data
+    /// graph. Internal data aliases must return to their original labels;
+    /// shapes nodes with those labels need fresh output labels so write-back
+    /// cannot merge two distinct nodes in the caller's graph.
+    pub(crate) fn external_blank_node_map(&self) -> HashMap<BlankNode, BlankNode> {
+        let aliases = self.terms.local_blank_aliases.borrow();
+        let originals: HashSet<_> = aliases.keys().cloned().collect();
+        let mut mapping = HashMap::with_capacity(aliases.len() * 2);
+        for (original, alias) in aliases.iter() {
+            let fresh = loop {
+                let candidate = BlankNode::default();
+                if self
+                    .terms
+                    .get(&Term::BlankNode(candidate.clone()))
+                    .is_none()
+                    && !originals.contains(&candidate)
+                    && !mapping.values().any(|mapped| mapped == &candidate)
+                {
+                    break candidate;
+                }
+            };
+            mapping.insert(original.clone(), fresh);
+            mapping.insert(alias.clone(), original.clone());
+        }
+        mapping
     }
 
     /// Compatibility projection of evaluated data, excluding source-only rows
@@ -1558,8 +1632,12 @@ mod tests {
     fn profile_accounts_for_source_index_reused_after_encoding() {
         let source = SourceStorage::encode(&small_graph());
         crate::profile::enable();
-        let _dataset =
-            FrozenIndexedDataset::from_data_with_source(&Graph::new(), Arc::clone(&source), false);
+        let _dataset = FrozenIndexedDataset::from_data_with_source(
+            &Graph::new(),
+            Arc::clone(&source),
+            false,
+            false,
+        );
         let profile = crate::profile::take().unwrap();
         assert_eq!(profile.storage().source_builds, 0);
         assert_eq!(
@@ -1571,7 +1649,8 @@ mod tests {
     #[test]
     fn empty_named_graph_remains_visible_to_sparql() {
         let source = SourceStorage::encode(&Graph::new());
-        let dataset = FrozenIndexedDataset::from_data_with_source(&Graph::new(), source, false);
+        let dataset =
+            FrozenIndexedDataset::from_data_with_source(&Graph::new(), source, false, false);
         let graph_id = dataset
             .terms
             .get(&Term::NamedNode(nn(SHAPES_GRAPH_IRI)))
@@ -1933,9 +2012,9 @@ mod tests {
         let source = SourceStorage::encode(&shapes);
         let empty = Graph::new();
         let separate =
-            FrozenIndexedDataset::from_data_with_source(&empty, Arc::clone(&source), true);
+            FrozenIndexedDataset::from_data_with_source(&empty, Arc::clone(&source), true, true);
         let embedded_after_delete =
-            FrozenIndexedDataset::from_data_with_source(&empty, Arc::clone(&source), false);
+            FrozenIndexedDataset::from_data_with_source(&empty, Arc::clone(&source), false, false);
         let s = separate.intern(&Term::NamedNode(nn("http://ex/a")));
         let p = separate.intern(&Term::NamedNode(nn("http://ex/p")));
         let o = separate.intern(&Term::NamedNode(nn("http://ex/b")));
@@ -1986,8 +2065,8 @@ mod tests {
         data.insert(&triple_nnn("http://ex/a", "http://ex/r", "http://ex/local"));
         let source = SourceStorage::encode(&shapes);
         let mut union =
-            FrozenIndexedDataset::from_data_with_source(&data, Arc::clone(&source), true);
-        let data_only = FrozenIndexedDataset::from_data_with_source(&data, source, false);
+            FrozenIndexedDataset::from_data_with_source(&data, Arc::clone(&source), true, true);
+        let data_only = FrozenIndexedDataset::from_data_with_source(&data, source, true, false);
         let g = union.intern(&Term::NamedNode(nn(SHAPES_GRAPH_IRI)));
         assert_eq!(union.scan(None, None, None, GraphSel::Default).count(), 3);
         assert_eq!(
@@ -2023,7 +2102,7 @@ mod tests {
         )
         .unwrap();
         let source = SourceStorage::encode(&shapes.graph);
-        let dataset = FrozenIndexedDataset::from_data_with_source(&data.graph, source, true);
+        let dataset = FrozenIndexedDataset::from_data_with_source(&data.graph, source, true, true);
         let subjects: HashSet<_> = dataset
             .scan(None, None, None, GraphSel::Default)
             .map(|[subject, _, _]| subject)
@@ -2040,15 +2119,20 @@ mod tests {
         source_graph.insert(&first);
         source_graph.insert(&second);
         let source = SourceStorage::encode(&source_graph);
-        let full =
-            FrozenIndexedDataset::from_data_with_source(&source_graph, Arc::clone(&source), false);
+        let full = FrozenIndexedDataset::from_data_with_source(
+            &source_graph,
+            Arc::clone(&source),
+            false,
+            false,
+        );
         assert!(matches!(
             full.source_view.as_ref().unwrap().membership,
             SourceMembership::All
         ));
         let mut edited = source_graph.clone();
         edited.remove(&second);
-        let after_delete = FrozenIndexedDataset::from_data_with_source(&edited, source, false);
+        let after_delete =
+            FrozenIndexedDataset::from_data_with_source(&edited, source, false, false);
         assert_eq!(
             after_delete
                 .scan(None, None, None, GraphSel::Default)

@@ -13,6 +13,7 @@ pub(crate) fn frozen(
     FrozenIndexedDataset::from_data_with_source(
         data,
         source,
+        separate,
         separate && mode != ValidationGraphMode::Data,
     )
 }

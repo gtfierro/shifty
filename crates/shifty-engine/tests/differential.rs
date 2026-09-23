@@ -16,7 +16,10 @@
 //! Spareval; the native smoke below proves that routing remains exercised.
 
 use shifty_engine::profile::{self, ExecutorKind};
-use shifty_engine::{ValidationGraphMode, infer_graphs, validate, validate_plan_graphs_with_mode};
+use shifty_engine::{
+    CompiledShapes, SessionData, SessionOptions, ValidationGraphMode, validate,
+    validate_plan_graphs_with_mode,
+};
 use std::path::Path;
 
 // ── helpers ─────────────────────────────────────────────────────────────────
@@ -127,6 +130,21 @@ fn load_ws(rel: &str) -> shifty_parse::Loaded {
         .unwrap_or_else(|e| panic!("failed to parse {}: {e}", path.display()))
 }
 
+fn infer_graph(data: &oxrdf::Graph, shapes: shifty_parse::Loaded) -> (oxrdf::Graph, oxrdf::Graph) {
+    let shapes_graph = shapes.graph.clone();
+    let session = CompiledShapes::compile(shapes)
+        .expect("compilable shapes")
+        .session(
+            SessionData::Separate(data.clone()),
+            SessionOptions {
+                inference: true,
+                ..SessionOptions::default()
+            },
+        )
+        .expect("inference session");
+    (session.data().clone(), shapes_graph)
+}
+
 /// Baseline: the NIST building-1 model validated against the 223P closure. The
 /// model fully conforms, and this pins the empty violation set so any regression
 /// in targeting or evaluation is caught. Three `qudt:vocab/unit` nodes
@@ -143,12 +161,11 @@ fn nist_bdg1_known_violations_against_223p_closure() {
     let physical = shifty_opt::plan(&normalized);
 
     // Run inference first (SHACL-AF rules populate the graph before validation).
-    let inference = infer_graphs(&data.graph, &shapes.graph, &normalized)
-        .expect("223P schema must be stratifiable");
+    let (inference, shapes_graph) = infer_graph(&data.graph, shapes);
 
     let outcome = validate_plan_graphs_with_mode(
-        &inference.graph,
-        &shapes.graph,
+        &inference,
+        &shapes_graph,
         &physical,
         ValidationGraphMode::Union,
     )
@@ -178,19 +195,19 @@ fn reference_and_plan_agree_on_nist_bdg1() {
     let normalized = shifty_opt::normalize(&parsed.schema);
     let physical = shifty_opt::plan(&normalized);
 
-    let inference = infer_graphs(&data.graph, &shapes.graph, &normalized).expect("stratifiable");
+    let (inference, shapes_graph) = infer_graph(&data.graph, shapes);
 
     let ref_outcome = shifty_engine::validate_graphs_with_mode(
-        &inference.graph,
-        &shapes.graph,
+        &inference,
+        &shapes_graph,
         &parsed.schema,
         ValidationGraphMode::Union,
     )
     .expect("stratifiable");
 
     let plan_outcome = validate_plan_graphs_with_mode(
-        &inference.graph,
-        &shapes.graph,
+        &inference,
+        &shapes_graph,
         &physical,
         ValidationGraphMode::Union,
     )

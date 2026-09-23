@@ -435,6 +435,15 @@ BNODE_RULES = PREFIXES + textwrap.dedent("""\
         ] .
 """)
 
+BNODE_SPARQL_RULES = PREFIXES + textwrap.dedent("""\
+    ex:DimShape a sh:NodeShape ;
+        sh:targetNode ex:r1 ;
+        sh:rule [
+            a sh:SPARQLRule ;
+            sh:construct "CONSTRUCT { ?dim ex:area ?width } WHERE { $this ex:hasDim ?dim . ?dim ex:width ?width }"
+        ] .
+""")
+
 BNODE_DATA = PREFIXES + textwrap.dedent("""\
     ex:r1 ex:hasDim [ a ex:Dim ; ex:width 4 ] .
 """)
@@ -707,6 +716,53 @@ class TestInPlaceBlankNodes:
 
         assert result.inferred_count == 1
         assert _derived_area(graph) == [rdflib.Literal(4)]
+
+    def test_sparql_rule_attaches_to_the_original_blank_node(self):
+        graph = _bnode_graph()
+
+        first = shifty.infer(graph, BNODE_SPARQL_RULES.encode(), in_place=True)
+        second = shifty.infer(graph, BNODE_SPARQL_RULES.encode(), in_place=True)
+
+        assert first.inferred_count == 1
+        assert first.diagnostics == []
+        assert second.inferred_count == 0
+        assert _derived_area(graph) == [rdflib.Literal(4)]
+
+    def test_sparql_rule_keeps_shapes_blank_node_distinct_from_data(self):
+        EX = rdflib.Namespace("http://example.org/")
+        graph = rdflib.Graph()
+        data_node = rdflib.BNode("same")
+        graph.add((EX.r1, EX.marker, data_node))
+        shapes = PREFIXES + textwrap.dedent("""\
+            ex:S a sh:NodeShape ; sh:targetNode ex:r1 ;
+                sh:rule [ a sh:SPARQLRule ;
+                    sh:construct "CONSTRUCT { $this ex:uses ?option } WHERE { GRAPH $shapesGraph { ex:Config ex:option ?option } }" ] .
+            ex:Config ex:option _:same .
+            _:same ex:kind ex:K .
+        """)
+
+        result = shifty.infer(graph, shapes.encode(), in_place=True)
+
+        assert result.inferred_count == 1
+        assert result.diagnostics == []
+        assert graph.value(EX.r1, EX.uses) != data_node
+
+    def test_sparql_rule_rejoins_data_blank_node_after_shapes_label_collision(self):
+        EX = rdflib.Namespace("http://example.org/")
+        graph = rdflib.Graph()
+        data_node = rdflib.BNode("same")
+        graph.add((EX.r1, EX.marker, data_node))
+        shapes = PREFIXES + textwrap.dedent("""\
+            ex:S a sh:NodeShape ; sh:targetNode ex:r1 ; sh:rule _:same .
+            _:same a sh:SPARQLRule ;
+                sh:construct "CONSTRUCT { ?node ex:flag ex:K } WHERE { $this ex:marker ?node }" .
+        """)
+
+        result = shifty.infer(graph, shapes.encode(), in_place=True)
+
+        assert result.inferred_count == 1
+        assert result.diagnostics == []
+        assert (data_node, EX.flag, EX.K) in graph
 
     def test_validate_attaches_to_the_original_blank_node(self):
         graph = _bnode_graph()

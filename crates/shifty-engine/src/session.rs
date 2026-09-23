@@ -8,15 +8,15 @@ use crate::evidence::{
 use crate::frozen::FrozenIndexedDataset;
 use crate::gate::RepairOutcome;
 use crate::validate::{
-    EngineOptions, NonStratifiable, UnsupportedPolicy, ValidationGraphMode, ValidationOptions,
-    ValidationOutcome,
+    EngineOptions, UnsupportedPolicy, ValidationGraphMode, ValidationOptions, ValidationOutcome,
 };
 use crate::witness::{EvidenceRun, StatementEvaluation};
-use oxrdf::{Graph, Triple};
+use oxrdf::{BlankNode, Graph, NamedOrBlankNode, Term, Triple};
 use shifty_algebra::Severity;
 use shifty_parse::{DiagLevel, Diagnostic};
 use shifty_repair::GraphDelta;
 use std::cell::{OnceCell, RefCell};
+use std::collections::HashMap;
 use std::fmt;
 use std::sync::Arc;
 
@@ -79,7 +79,6 @@ pub struct ExecutionDiagnostic {
 pub enum SessionError {
     EmptyShapes,
     UnsupportedFeatures(Vec<Diagnostic>),
-    Inference(NonStratifiable),
     StrictInference(Vec<ExecutionDiagnostic>),
 }
 
@@ -96,7 +95,6 @@ impl fmt::Display for SessionError {
                     .collect::<Vec<_>>()
                     .join("; ")
             ),
-            Self::Inference(error) => write!(f, "{error}"),
             Self::StrictInference(diagnostics) => write!(
                 f,
                 "strict inference failed: {}",
@@ -136,6 +134,7 @@ pub struct EvaluationSession {
     separate: bool,
     options: SessionOptions,
     inferred: Vec<Triple>,
+    external_blank_nodes: HashMap<BlankNode, BlankNode>,
     diagnostics: Vec<ExecutionDiagnostic>,
     inference_dataset: RefCell<Option<FrozenIndexedDataset>>,
     prepared: OnceCell<PreparedEvidenceValidator>,
@@ -181,39 +180,49 @@ impl CompiledShapes {
         // No executable rule can change this snapshot. In particular, avoid
         // assembling a shapes/data union or encoding the source just to hand
         // the inference driver an empty schedule.
-        let (evaluated, inferred, diagnostics, inference_dataset) = if options.inference
-            && !self.inner.rules.is_empty()
-        {
-            let run = crate::infer::infer_with_compiled_functions(
-                &asserted,
-                None,
-                &self.inner.normalized,
-                &options.engine,
-                &self.inner.functions,
-                Some(&self.inner.rules),
-                Some((self.source_storage(), separate, self.parsed_queries())),
-            )
-            .map_err(SessionError::Inference)?;
-            let diagnostics: Vec<_> = run
-                .diagnostics
-                .into_iter()
-                .map(|message| ExecutionDiagnostic { message })
-                .collect();
-            if options.engine.unsupported == UnsupportedPolicy::Error && !diagnostics.is_empty() {
-                return Err(SessionError::StrictInference(diagnostics));
-            }
-            let mut inference_dataset = run.dataset;
-            if separate
-                && options.graph_mode == ValidationGraphMode::Data
-                && let Some(dataset) = &mut inference_dataset
-            {
-                dataset.select_data_view();
-            }
-            let graph = run.graph.map(Arc::new);
-            (graph, run.inferred, diagnostics, inference_dataset)
-        } else {
-            (Some(Arc::clone(&asserted)), Vec::new(), Vec::new(), None)
-        };
+        let (evaluated, inferred, diagnostics, inference_dataset, external_blank_nodes) =
+            if options.inference && !self.inner.rules.is_empty() {
+                let run = crate::infer::infer_with_compiled_functions(
+                    &asserted,
+                    &self.inner.normalized,
+                    &options.engine,
+                    &self.inner.functions,
+                    &self.inner.rules,
+                    (self.source_storage(), separate, self.parsed_queries()),
+                );
+                let diagnostics: Vec<_> = run
+                    .diagnostics
+                    .into_iter()
+                    .map(|message| ExecutionDiagnostic { message })
+                    .collect();
+                if options.engine.unsupported == UnsupportedPolicy::Error && !diagnostics.is_empty()
+                {
+                    return Err(SessionError::StrictInference(diagnostics));
+                }
+                let external_blank_nodes = run.dataset.external_blank_node_map();
+                let mut inference_dataset = Some(run.dataset);
+                if separate
+                    && options.graph_mode == ValidationGraphMode::Data
+                    && let Some(dataset) = &mut inference_dataset
+                {
+                    dataset.select_data_view();
+                }
+                (
+                    None,
+                    run.inferred,
+                    diagnostics,
+                    inference_dataset,
+                    external_blank_nodes,
+                )
+            } else {
+                (
+                    Some(Arc::clone(&asserted)),
+                    Vec::new(),
+                    Vec::new(),
+                    None,
+                    HashMap::new(),
+                )
+            };
         let evaluated_cell = OnceCell::new();
         if let Some(graph) = evaluated {
             evaluated_cell.set(graph).expect("new evaluated graph cell");
@@ -225,6 +234,7 @@ impl CompiledShapes {
             separate,
             options,
             inferred,
+            external_blank_nodes,
             diagnostics,
             inference_dataset: RefCell::new(inference_dataset),
             prepared: OnceCell::new(),
@@ -366,6 +376,29 @@ impl EvaluationSession {
             .session_from_asserted(patched, self.separate, self.options)
     }
 
+    /// Revalidate a delta with a different inference setting. Enabling rules
+    /// patches asserted data and derives again; disabling them patches the
+    /// already evaluated graph so previously inferred triples remain present.
+    pub fn with_delta_and_inference(
+        &self,
+        delta: &GraphDelta,
+        inference: bool,
+    ) -> Result<Self, SessionError> {
+        if inference == self.options.inference {
+            return self.with_delta(delta);
+        }
+        let baseline = if inference {
+            self.asserted.as_ref()
+        } else {
+            self.evaluated_graph()
+        };
+        let patched = crate::gate::apply(baseline, delta);
+        let mut options = self.options;
+        options.inference = inference;
+        self.compiled
+            .session_from_asserted(patched, self.separate, options)
+    }
+
     pub fn data(&self) -> &Graph {
         self.evaluated_graph()
     }
@@ -382,6 +415,35 @@ impl EvaluationSession {
 
     pub fn inferred(&self) -> &[Triple] {
         &self.inferred
+    }
+
+    /// Inferred triples with input data blank-node labels restored and shapes
+    /// nodes kept distinct, for adding the delta to a caller-owned data graph.
+    pub fn inferred_for_write_back(&self) -> Vec<Triple> {
+        self.inferred
+            .iter()
+            .map(|triple| {
+                let subject = match &triple.subject {
+                    NamedOrBlankNode::BlankNode(node) => NamedOrBlankNode::BlankNode(
+                        self.external_blank_nodes
+                            .get(node)
+                            .cloned()
+                            .unwrap_or_else(|| node.clone()),
+                    ),
+                    named => named.clone(),
+                };
+                let object = match &triple.object {
+                    Term::BlankNode(node) => Term::BlankNode(
+                        self.external_blank_nodes
+                            .get(node)
+                            .cloned()
+                            .unwrap_or_else(|| node.clone()),
+                    ),
+                    term => term.clone(),
+                };
+                Triple::new(subject, triple.predicate.clone(), object)
+            })
+            .collect()
     }
 
     pub fn diagnostics(&self) -> &[ExecutionDiagnostic] {

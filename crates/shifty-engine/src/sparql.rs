@@ -793,7 +793,7 @@ impl SparqlExecutor {
             // passes skip the probe instead of re-paying the budget each time.
             const PROBE_BUDGET: std::time::Duration = std::time::Duration::from_secs(2);
             let this_var = variable("this");
-            let parsed = self.parse(query)?;
+            let parsed = self.parse_construct(query)?;
             let body_binds_this = matches!(
                 &parsed,
                 Query::Construct { pattern, .. } if this_required(pattern, &this_var)
@@ -911,7 +911,7 @@ impl SparqlExecutor {
         if let Some(compiled) = self.constructs.borrow().get(query) {
             return Ok(compiled.clone());
         }
-        let parsed = self.parse(query)?;
+        let parsed = self.parse_construct(query)?;
         let Query::Construct {
             template,
             dataset,
@@ -944,7 +944,7 @@ impl SparqlExecutor {
     }
 
     fn construct_one(&self, query: &str, focus: &Term) -> Result<Vec<Triple>, String> {
-        let mut query = self.parse(query)?;
+        let mut query = self.parse_construct(query)?;
         substitute_query(&mut query, &variable("this"), focus);
         let prepared = self.evaluator().for_query(query);
         let results = if let Some(frozen) = &self.frozen {
@@ -971,7 +971,7 @@ impl SparqlExecutor {
         foci_set: &HashSet<Term>,
         out: &mut Vec<Triple>,
     ) -> Result<(), String> {
-        let prepared = self.evaluator().for_query(self.parse(query)?);
+        let prepared = self.evaluator().for_query(self.parse_construct(query)?);
         let results = if let Some(frozen) = &self.frozen {
             prepared
                 .on_queryable_dataset(frozen)
@@ -1026,6 +1026,20 @@ impl SparqlExecutor {
         Ok(parsed)
     }
 
+    /// Apply the static SHACL shapes-graph prebinding to a rule query. The
+    /// cached parsed query stays unchanged; `$this` is bound per focus later.
+    fn parse_construct(&self, query: &str) -> Result<Query, String> {
+        let mut parsed = self.parse(query)?;
+        if let Some(graph) = &self.shapes_graph {
+            substitute_query(
+                &mut parsed,
+                &variable("shapesGraph"),
+                &Term::NamedNode(graph.clone()),
+            );
+        }
+        Ok(parsed)
+    }
+
     /// Invoke a `sh:SPARQLFunction` by substituting positional parameter
     /// bindings into the query and extracting `?result` terms.
     pub fn call_sparql_function(
@@ -1034,11 +1048,22 @@ impl SparqlExecutor {
         params: &[(String, Term)],
     ) -> Result<Vec<Term>, String> {
         let mut query = self.parse(raw_query)?;
+        let mut substitutions = Vec::with_capacity(params.len());
         for (name, value) in params {
             let var = Variable::new(name).map_err(err)?;
-            substitute_query(&mut query, &var, value);
+            if matches!(value, Term::BlankNode(_))
+                && let Query::Select { pattern, .. } = &mut query
+            {
+                project_variable(pattern, &var);
+                substitutions.push((var, value.clone()));
+            } else {
+                substitute_query(&mut query, &var, value);
+            }
         }
-        let prepared = SparqlEvaluator::new().for_query(query);
+        let mut prepared = SparqlEvaluator::new().for_query(query);
+        for (var, value) in substitutions {
+            prepared = prepared.substitute_variable(var, value);
+        }
         let result = if let Some(frozen) = &self.frozen {
             prepared
                 .on_queryable_dataset(frozen)
@@ -1148,6 +1173,26 @@ impl SparqlExecutor {
     #[cfg(test)]
     fn has_store(&self) -> bool {
         self.store.is_some()
+    }
+}
+
+/// Blank nodes cannot be written as SPARQL expression constants, so function
+/// calls pass them as true initial substitutions. Spareval only allocates an
+/// initial-substitution column when it survives a SELECT projection. Function
+/// parameters are normally not returned, so add them internally; callers still
+/// extract only `?result`.
+fn project_variable(pattern: &mut GraphPattern, var: &Variable) {
+    match pattern {
+        GraphPattern::Project { variables, .. } => {
+            if !variables.iter().any(|candidate| candidate == var) {
+                variables.push(var.clone());
+            }
+        }
+        GraphPattern::Distinct { inner }
+        | GraphPattern::Reduced { inner }
+        | GraphPattern::Slice { inner, .. }
+        | GraphPattern::OrderBy { inner, .. } => project_variable(inner, var),
+        _ => {}
     }
 }
 
@@ -1643,44 +1688,6 @@ fn term_pattern_is(t: &TermPattern, var: &Variable) -> bool {
     matches!(t, TermPattern::Variable(v) if v == var)
 }
 
-/// Substitute every occurrence of `var` with the pre-bound `value` throughout a
-/// query, implementing SHACL-SPARQL pre-binding by algebra substitution.
-/// Whether a function body reads the data graph: it contains a non-empty BGP, a
-/// property path, a named `GRAPH`, or a `SERVICE`. A pure function (only
-/// `BIND`/`FILTER`/`VALUES` over no triples) returns `false` and is safe to run
-/// over an empty dataset. Unparseable queries are treated as graph-reading
-/// (conservative). Used to decide registration under `UnsupportedPolicy`.
-pub(crate) fn query_reads_graph(query: &str) -> bool {
-    let Ok(parsed) = SparqlParser::new().parse_query(query) else {
-        return true;
-    };
-    fn walk(pattern: &GraphPattern) -> bool {
-        use GraphPattern::*;
-        match pattern {
-            Bgp { patterns } => !patterns.is_empty(),
-            Path { .. } | Graph { .. } | Service { .. } => true,
-            Join { left, right }
-            | Union { left, right }
-            | Minus { left, right }
-            | Lateral { left, right } => walk(left) || walk(right),
-            LeftJoin { left, right, .. } => walk(left) || walk(right),
-            Filter { inner, .. }
-            | Extend { inner, .. }
-            | Project { inner, .. }
-            | Distinct { inner }
-            | Reduced { inner }
-            | Slice { inner, .. }
-            | OrderBy { inner, .. }
-            | Group { inner, .. } => walk(inner),
-            _ => false,
-        }
-    }
-    match &parsed {
-        Query::Select { pattern, .. } | Query::Ask { pattern, .. } => walk(pattern),
-        _ => true,
-    }
-}
-
 /// Evaluate a SHACL function body as a pure function of `args`: substitute the
 /// call arguments positionally for the parameter variables and run the body
 /// over an empty store. Returns the `?result` binding (SELECT) or the boolean
@@ -1688,18 +1695,25 @@ pub(crate) fn query_reads_graph(query: &str) -> bool {
 /// unbound result, matching SPARQL's treatment of a failed function call.
 fn eval_sparql_function(query: &str, params: &[String], args: &[Term]) -> Option<Term> {
     let mut q = SparqlParser::new().parse_query(query).ok()?;
+    let mut substitutions = Vec::with_capacity(params.len());
     for (name, value) in params.iter().zip(args) {
         if let Ok(var) = Variable::new(name) {
-            substitute_query(&mut q, &var, value);
+            if matches!(value, Term::BlankNode(_))
+                && let Query::Select { pattern, .. } = &mut q
+            {
+                project_variable(pattern, &var);
+                substitutions.push((var, value.clone()));
+            } else {
+                substitute_query(&mut q, &var, value);
+            }
         }
     }
     let store = Store::new().ok()?;
-    match SparqlEvaluator::new()
-        .for_query(q)
-        .on_store(&store)
-        .execute()
-        .ok()?
-    {
+    let mut prepared = SparqlEvaluator::new().for_query(q);
+    for (var, value) in substitutions {
+        prepared = prepared.substitute_variable(var, value);
+    }
+    match prepared.on_store(&store).execute().ok()? {
         QueryResults::Solutions(mut solutions) => solutions.next()?.ok()?.get("result").cloned(),
         QueryResults::Boolean(b) => Some(Term::Literal(Literal::from(b))),
         QueryResults::Graph(_) => None,
@@ -2148,6 +2162,95 @@ mod storage_tests {
 
     fn triple(s: &str, p: &str, o: &str) -> Triple {
         Triple::new(node(s), node(p), node(o))
+    }
+
+    #[test]
+    fn blank_node_sparql_function_parameters_are_initially_bound() {
+        let mixture = node("mixture");
+        let part = node("part");
+        let pct = node("pct");
+        let quantified = oxrdf::BlankNode::new("quantified").unwrap();
+        let unquantified = oxrdf::BlankNode::new("unquantified").unwrap();
+        let mut graph = Graph::new();
+        graph.insert(&Triple::new(
+            mixture.clone(),
+            part.clone(),
+            quantified.clone(),
+        ));
+        graph.insert(&Triple::new(mixture, part, unquantified.clone()));
+        graph.insert(&Triple::new(quantified.clone(), pct, Literal::from(12)));
+        let executor = SparqlExecutor::from_frozen(FrozenIndexedDataset::from_graph(&graph), false);
+
+        let run = |query: &str, argument: oxrdf::BlankNode| {
+            executor
+                .call_sparql_function(query, &[("arg".into(), Term::BlankNode(argument))])
+                .unwrap()
+        };
+        let forty_two = vec![Term::Literal(Literal::from(42))];
+        let twelve = vec![Term::Literal(Literal::from(12))];
+
+        assert_eq!(
+            run(
+                "SELECT ?result WHERE { ?m <http://ex/part> ?arg . BIND(42 AS ?result) }",
+                quantified.clone(),
+            ),
+            forty_two
+        );
+        assert!(
+            run(
+                "SELECT ?result WHERE { FILTER NOT EXISTS { ?arg <http://ex/pct> ?v } BIND(42 AS ?result) }",
+                quantified.clone(),
+            )
+            .is_empty()
+        );
+        assert_eq!(
+            run(
+                "SELECT ?result WHERE { FILTER NOT EXISTS { ?arg <http://ex/pct> ?v } BIND(42 AS ?result) }",
+                unquantified.clone(),
+            ),
+            forty_two
+        );
+        assert_eq!(
+            run(
+                "SELECT ?result WHERE { FILTER EXISTS { ?arg <http://ex/pct> ?v } BIND(42 AS ?result) }",
+                quantified.clone(),
+            ),
+            forty_two
+        );
+        assert!(
+            run(
+                "SELECT ?result WHERE { FILTER EXISTS { ?arg <http://ex/pct> ?v } BIND(42 AS ?result) }",
+                unquantified.clone(),
+            )
+            .is_empty()
+        );
+        assert_eq!(
+            run(
+                "SELECT ?result WHERE { ?m <http://ex/part> ?arg . ?m <http://ex/part> ?other . FILTER(?other != ?arg) BIND(42 AS ?result) }",
+                quantified.clone(),
+            ),
+            forty_two
+        );
+        assert_eq!(
+            run(
+                "SELECT ?result WHERE { { SELECT ?arg (SUM(?v) AS ?total) WHERE { ?m <http://ex/part> ?arg . ?m <http://ex/part> ?q . ?q <http://ex/pct> ?v } GROUP BY ?arg } BIND(?total AS ?result) }",
+                unquantified,
+            ),
+            twelve
+        );
+    }
+
+    #[test]
+    fn blank_node_custom_sparql_function_parameters_are_initially_bound() {
+        let blank = Term::BlankNode(oxrdf::BlankNode::new("argument").unwrap());
+        assert_eq!(
+            eval_sparql_function(
+                "SELECT ?result WHERE { FILTER(sameTerm(?arg, ?arg)) BIND(42 AS ?result) }",
+                &["arg".into()],
+                std::slice::from_ref(&blank),
+            ),
+            Some(Term::Literal(Literal::from(42)))
+        );
     }
 
     fn sorted(mut triples: Vec<Triple>) -> Vec<String> {

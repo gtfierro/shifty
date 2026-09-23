@@ -18,7 +18,8 @@
 //!       --data benchmark/brick/models/bldg1.ttl
 
 use shifty_engine::{
-    ConformanceOptions, PreparedEvidenceValidator, ValidationGraphMode, ValidationOptions, profile,
+    CompiledShapes, ConformanceOptions, PreparedEvidenceValidator, SessionData, SessionOptions,
+    ValidationGraphMode, ValidationOptions, profile,
 };
 use std::fs;
 use std::path::PathBuf;
@@ -50,24 +51,30 @@ fn main() {
 
     let shapes_bytes = fs::read(&shapes_path).expect("cannot read --shapes");
     let shapes = shifty_parse::load_turtle(&shapes_bytes, None).expect("cannot parse --shapes");
-    let parsed = shifty_parse::parse_loaded(&shapes);
-    let raw_schema = parsed.schema.clone();
-    let inference_schema = shifty_opt::normalize(&raw_schema);
+    let compiled = CompiledShapes::compile(shapes).expect("cannot compile shapes");
 
     let data_bytes = fs::read(&data_path).expect("cannot read --data");
     let data = shifty_parse::load_turtle(&data_bytes, None).expect("cannot parse --data");
     let data_graph = if no_infer {
         data.graph.clone()
     } else {
-        shifty_engine::infer_graphs(&data.graph, &shapes.graph, &inference_schema)
+        compiled
+            .session(
+                SessionData::Separate(data.graph.clone()),
+                SessionOptions {
+                    inference: true,
+                    ..SessionOptions::default()
+                },
+            )
             .expect("inference")
-            .graph
+            .data()
+            .clone()
     };
 
     let prepared = PreparedEvidenceValidator::with_graphs(
         &data_graph,
-        &shapes.graph,
-        &raw_schema,
+        &compiled.source().graph,
+        compiled.authored_schema(),
         ValidationGraphMode::Union,
     )
     .expect("stratifiable");

@@ -61,7 +61,7 @@ pub mod evidence;
 mod focus;
 pub mod frozen;
 pub mod gate;
-pub mod infer;
+mod infer;
 mod native_exec;
 pub mod path;
 mod path_plan;
@@ -92,10 +92,6 @@ pub use evidence::{
     validate_with_evidence_and_options,
 };
 pub use gate::{RepairOutcome, apply, gate};
-pub use infer::{
-    InferenceOutcome, infer, infer_graphs, infer_with_context, infer_with_context_and_options,
-    infer_with_options, infer_with_owned_context_and_options,
-};
 pub use report::{
     PropertyWitness, ValidationReport, ValidationResult, evaluate_function_expression,
     property_witnesses_graphs_with_mode, property_witnesses_graphs_with_mode_and_options,
@@ -131,8 +127,36 @@ pub use witness::{
 #[cfg(test)]
 mod tests {
     use super::*;
-    use oxrdf::Graph;
+    use oxrdf::{Graph, NamedNode, Term, Triple};
     use shifty_parse::parse_turtle;
+
+    struct TestInferenceOutcome {
+        graph: Graph,
+        inferred: Vec<Triple>,
+        diagnostics: Vec<String>,
+    }
+
+    fn infer_loaded(shapes: shifty_parse::Loaded, data: SessionData) -> TestInferenceOutcome {
+        let compiled = CompiledShapes::compile(shapes).expect("compilable shapes");
+        let session = compiled
+            .session(
+                data,
+                SessionOptions {
+                    inference: true,
+                    ..SessionOptions::default()
+                },
+            )
+            .expect("inference session");
+        TestInferenceOutcome {
+            graph: session.data().clone(),
+            inferred: session.inferred().to_vec(),
+            diagnostics: session
+                .diagnostics()
+                .iter()
+                .map(|diagnostic| diagnostic.message.clone())
+                .collect(),
+        }
+    }
 
     fn run(shapes_and_data: &str) -> ValidationOutcome {
         let out = parse_turtle(shapes_and_data.as_bytes(), None).unwrap();
@@ -410,10 +434,7 @@ mod tests {
             ex:item a ex:Child .
         "#;
         let loaded = shifty_parse::load_turtle(ttl, None).unwrap();
-        let parsed = shifty_parse::parse_loaded(&loaded);
-        let normalized = shifty_opt::normalize(&parsed.schema);
-
-        let outcome = infer(&loaded.graph, &normalized).expect("stratifiable schema");
+        let outcome = infer_loaded(loaded, SessionData::Embedded);
 
         assert!(outcome.graph.contains(&oxrdf::Triple::new(
             oxrdf::NamedNode::new_unchecked("http://ex/item"),
@@ -424,7 +445,7 @@ mod tests {
 
     /// Parse + normalize + infer, asserting the parser emitted no diagnostics
     /// (so the node expressions under test were actually lowered, not skipped).
-    fn infer_ttl(ttl: &[u8]) -> InferenceOutcome {
+    fn infer_ttl(ttl: &[u8]) -> TestInferenceOutcome {
         let loaded = shifty_parse::load_turtle(ttl, None).unwrap();
         let parsed = shifty_parse::parse_loaded(&loaded);
         assert!(
@@ -432,8 +453,7 @@ mod tests {
             "parse diagnostics: {:?}",
             parsed.diagnostics
         );
-        let normalized = shifty_opt::normalize(&parsed.schema);
-        infer(&loaded.graph, &normalized).expect("stratifiable schema")
+        infer_loaded(loaded, SessionData::Embedded)
     }
 
     fn triple_term(s: &str, p: &str, o: impl Into<oxrdf::Term>) -> oxrdf::Triple {
@@ -1551,9 +1571,8 @@ mod tests {
             ex:a a ex:Person ; ex:knows ex:b .
             "
         );
-        let out = parse_turtle(ttl.as_bytes(), None).unwrap();
         let loaded = shifty_parse::load_turtle(ttl.as_bytes(), None).unwrap();
-        let outcome = infer(&loaded.graph, &out.schema).unwrap();
+        let outcome = infer_loaded(loaded, SessionData::Embedded);
         assert_eq!(outcome.inferred.len(), 1);
         assert!(
             outcome
@@ -1577,9 +1596,8 @@ mod tests {
             ex:c a ex:Person .
             "
         );
-        let out = parse_turtle(ttl.as_bytes(), None).unwrap();
         let loaded = shifty_parse::load_turtle(ttl.as_bytes(), None).unwrap();
-        let outcome = infer(&loaded.graph, &out.schema).unwrap();
+        let outcome = infer_loaded(loaded, SessionData::Embedded);
         assert!(
             outcome
                 .graph
@@ -1615,9 +1633,8 @@ mod tests {
                 ] .
             "
         );
-        let out = parse_turtle(ttl.as_bytes(), None).unwrap();
         let loaded = shifty_parse::load_turtle(ttl.as_bytes(), None).unwrap();
-        let outcome = infer(&loaded.graph, &out.schema).unwrap();
+        let outcome = infer_loaded(loaded, SessionData::Embedded);
 
         assert!(
             outcome
@@ -1649,9 +1666,8 @@ mod tests {
                 ] .
             "
         );
-        let out = parse_turtle(ttl.as_bytes(), None).unwrap();
         let loaded = shifty_parse::load_turtle(ttl.as_bytes(), None).unwrap();
-        let outcome = infer(&loaded.graph, &out.schema).unwrap();
+        let outcome = infer_loaded(loaded, SessionData::Embedded);
 
         assert!(outcome.graph.contains(&triple(
             "http://ex/x",
@@ -1685,11 +1701,10 @@ mod tests {
             "
         );
         let shapes = shifty_parse::load_turtle(shapes_ttl.as_bytes(), None).unwrap();
-        let parsed = shifty_parse::parse_loaded(&shapes);
         let data = shifty_parse::load_turtle(data_ttl.as_bytes(), None).unwrap();
 
         profile::enable();
-        let outcome = infer_graphs(&data.graph, &shapes.graph, &parsed.schema).unwrap();
+        let outcome = infer_loaded(shapes, SessionData::Separate(data.graph));
         let storage = profile::take().unwrap().storage().clone();
 
         assert_eq!(storage.store_builds, 0);
@@ -1717,9 +1732,8 @@ mod tests {
                     \"\"\" ] ."
         );
         let loaded = shifty_parse::load_turtle(ttl.as_bytes(), None).unwrap();
-        let parsed = shifty_parse::parse_loaded(&loaded);
         profile::enable();
-        let outcome = infer(&loaded.graph, &parsed.schema).unwrap();
+        let outcome = infer_loaded(loaded, SessionData::Embedded);
         let storage = profile::take().unwrap().storage().clone();
         assert!(
             outcome
@@ -1729,5 +1743,147 @@ mod tests {
         assert_eq!(storage.store_builds, 0);
         assert_eq!(storage.dataset_builds, 1);
         assert_eq!(storage.committed_rows, 2);
+    }
+
+    #[test]
+    fn sparql_rules_can_reuse_input_blank_nodes() {
+        for optional in ["", "OPTIONAL { ?o ex:unused ?z }"] {
+            let ttl = format!(
+                "{PREFIXES}
+                ex:S a sh:NodeShape ; sh:targetNode ex:a ;
+                    sh:rule [ a sh:SPARQLRule ;
+                        sh:construct \"\"\"
+                            CONSTRUCT {{ $this ex:copy ?o . ?o ex:back $this }}
+                            WHERE {{ $this ex:has ?o . {optional} }}
+                        \"\"\" ] .
+                ex:a ex:has [ ex:name \"existing\" ] ."
+            );
+            let loaded = shifty_parse::load_turtle(ttl.as_bytes(), None).unwrap();
+            let blank = loaded
+                .graph
+                .iter()
+                .find(|triple| triple.predicate.as_str() == "http://ex/has")
+                .and_then(|triple| match triple.object.into_owned() {
+                    Term::BlankNode(node) => Some(node),
+                    _ => None,
+                })
+                .unwrap();
+
+            let outcome = infer_loaded(loaded, SessionData::Embedded);
+            assert!(outcome.diagnostics.is_empty(), "{optional:?}");
+            assert_eq!(outcome.inferred.len(), 2, "{optional:?}");
+            assert!(outcome.graph.contains(&Triple::new(
+                NamedNode::new("http://ex/a").unwrap(),
+                NamedNode::new("http://ex/copy").unwrap(),
+                blank.clone(),
+            )));
+            assert!(outcome.graph.contains(&Triple::new(
+                blank,
+                NamedNode::new("http://ex/back").unwrap(),
+                NamedNode::new("http://ex/a").unwrap(),
+            )));
+        }
+    }
+
+    #[test]
+    fn sparql_rules_still_reject_fresh_blank_nodes() {
+        for construct in [
+            "CONSTRUCT { $this ex:made [] } WHERE {}",
+            "CONSTRUCT { $this ex:made ?node } WHERE { BIND(BNODE() AS ?node) }",
+        ] {
+            let ttl = format!(
+                "{PREFIXES}
+                ex:S a sh:NodeShape ; sh:targetNode ex:a ;
+                    sh:rule [ a sh:SPARQLRule ;
+                        sh:construct \"\"\"{construct}\"\"\" ] .
+                ex:a ex:has ex:b ."
+            );
+            let loaded = shifty_parse::load_turtle(ttl.as_bytes(), None).unwrap();
+            let outcome = infer_loaded(loaded, SessionData::Embedded);
+            assert!(outcome.inferred.is_empty());
+            assert!(
+                outcome
+                    .diagnostics
+                    .iter()
+                    .any(|message| message.contains("fresh blank nodes"))
+            );
+        }
+    }
+
+    #[test]
+    fn sparql_rule_can_infer_on_blank_focus_node() {
+        let ttl = format!(
+            "{PREFIXES}
+            ex:S a sh:NodeShape ; sh:targetClass ex:Dim ;
+                sh:rule [ a sh:SPARQLRule ;
+                    sh:construct \"\"\"
+                        CONSTRUCT {{ $this ex:area ?width }}
+                        WHERE {{ $this ex:width ?width }}
+                    \"\"\" ] .
+            ex:box ex:dimension [ a ex:Dim ; ex:width 4 ] ."
+        );
+        let loaded = shifty_parse::load_turtle(ttl.as_bytes(), None).unwrap();
+        let blank = loaded
+            .graph
+            .iter()
+            .find(|triple| triple.predicate.as_str() == "http://ex/dimension")
+            .and_then(|triple| match triple.object.into_owned() {
+                Term::BlankNode(node) => Some(node),
+                _ => None,
+            })
+            .unwrap();
+
+        let outcome = infer_loaded(loaded, SessionData::Embedded);
+        assert!(outcome.diagnostics.is_empty());
+        assert_eq!(outcome.inferred.len(), 1);
+        assert!(outcome.graph.contains(&Triple::new(
+            blank,
+            NamedNode::new("http://ex/area").unwrap(),
+            oxrdf::Literal::from(4),
+        )));
+    }
+
+    #[test]
+    fn sparql_rule_reuses_blank_nodes_across_fixpoint_passes() {
+        let ttl = format!(
+            "{PREFIXES}
+            ex:S a sh:NodeShape ; sh:targetNode ex:a ;
+                sh:rule [ a sh:SPARQLRule ;
+                    sh:construct \"\"\"
+                        CONSTRUCT {{ $this ex:reach ?node }}
+                        WHERE {{ $this ex:start ?node }}
+                    \"\"\" ] ;
+                sh:rule [ a sh:SPARQLRule ;
+                    sh:construct \"\"\"
+                        CONSTRUCT {{ $this ex:reach ?next }}
+                        WHERE {{ $this ex:reach ?node . ?node ex:next ?next }}
+                    \"\"\" ] .
+            ex:a ex:start _:b .
+            _:b ex:next _:c .
+            _:c ex:next _:d ."
+        );
+        let loaded = shifty_parse::load_turtle(ttl.as_bytes(), None).unwrap();
+        let input_nodes: std::collections::HashSet<_> = loaded
+            .graph
+            .iter()
+            .filter(|triple| {
+                matches!(
+                    triple.predicate.as_str(),
+                    "http://ex/start" | "http://ex/next"
+                )
+            })
+            .map(|triple| triple.object.into_owned())
+            .collect();
+        let outcome = infer_loaded(loaded, SessionData::Embedded);
+
+        assert!(outcome.diagnostics.is_empty());
+        assert_eq!(outcome.inferred.len(), 3);
+        let reached: std::collections::HashSet<_> = outcome
+            .inferred
+            .iter()
+            .filter(|triple| triple.predicate.as_str() == "http://ex/reach")
+            .map(|triple| triple.object.clone())
+            .collect();
+        assert_eq!(reached, input_nodes);
     }
 }

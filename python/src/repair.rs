@@ -19,10 +19,10 @@ use shifty_algebra::{Prefixes, Schema, Selector, Shape, ShapeArena, ShapeId};
 use shifty_engine::{
     CompiledShapes, ConformanceOptions, EvaluationSession, Evidence as IrEvidence,
     EvidenceKind as IrEvidenceKind, EvidenceOrigin as IrEvidenceOrigin, FocusSat as IrSat,
-    FocusWitness as IrFocus, PathSupport as IrPathSupport, PreparedEvidenceValidator, SatTrace,
-    SessionData, SessionOptions, ValidationGraphMode, ValidationOptions, Witness,
-    apply as engine_apply, candidates as engine_candidates, graph_union, satisfy_shape,
-    shape_id_for_iri, synthesize_with_origins, witness_node, witness_shape, witness_violations,
+    FocusWitness as IrFocus, PathSupport as IrPathSupport, SatTrace, SessionData, SessionOptions,
+    ValidationGraphMode, ValidationOptions, Witness, apply as engine_apply,
+    candidates as engine_candidates, graph_union, satisfy_shape, shape_id_for_iri,
+    synthesize_with_origins, witness_node, witness_shape, witness_violations,
 };
 use shifty_repair::{
     Edit, EditOp, Hole as IrHole, HoleConstraint, NodeId, Plan, RepairTree as IrTree, Slot,
@@ -2322,13 +2322,7 @@ pub struct EvidenceSession {
     raw_schema: Arc<Schema>,
     normalized_schema: Arc<Schema>,
     data: Arc<Graph>,
-    /// The data graph before inference. `revalidate` patches *this* when it
-    /// re-runs the rules, so a deletion stops supporting what it derived.
-    base_data: Arc<Graph>,
-    /// Retained so `revalidate` can re-prepare a patched graph.
-    /// Whether a data graph was supplied separately from the shapes graph;
-    /// inference and preparation take a different entry point either way.
-    has_data_graph: bool,
+    /// Default inference setting for `revalidate`.
     run_infer: bool,
     shapes: Arc<shifty_parse::Loaded>,
     graph_mode: shifty_engine::ValidationGraphMode,
@@ -2377,7 +2371,6 @@ impl EvidenceSession {
             .map(|spec| spec.load(base.as_deref()))
             .transpose()
             .map_err(py_value_error)?;
-        let has_data_graph = data_loaded.is_some();
         let session_data = data_loaded.map_or(SessionData::Embedded, |loaded| {
             SessionData::Separate(loaded.graph)
         });
@@ -2405,7 +2398,6 @@ impl EvidenceSession {
         let normalized_schema = compiled.normalized_schema_shared();
         let raw_schema = compiled.authored_schema_shared();
         let data = session.data_shared();
-        let base_data = session.asserted_shared();
         let shapes = compiled.source_shared();
 
         Ok(Self {
@@ -2413,8 +2405,6 @@ impl EvidenceSession {
             raw_schema,
             normalized_schema,
             data,
-            base_data,
-            has_data_graph,
             run_infer,
             shapes,
             graph_mode: mode,
@@ -2445,8 +2435,8 @@ impl EvidenceSession {
     /// snapshot, so a run taken before the edit stays valid and comparable.
     ///
     /// Unlike `validate()`, this cannot reuse the prepared snapshot: a patched
-    /// graph needs its own normalization, indexing, and SPARQL preparation. It
-    /// still skips file I/O, parsing, and schema lowering.
+    /// graph needs its own indexing and SPARQL preparation. It still reuses
+    /// the compiled shapes, skipping file I/O, parsing, and schema lowering.
     ///
     /// `infer` re-runs SHACL-AF rules over the patched graph, so an added
     /// triple can fire a rule and a deleted one stops supporting what it
@@ -2472,57 +2462,17 @@ impl EvidenceSession {
     ) -> PyResult<EvidenceValidationOutcome> {
         let options = validation_options(entry_shape_names, minimum_severity, sort_results)?;
         let run_infer = infer.unwrap_or(self.run_infer);
-
-        if run_infer == self.run_infer {
-            let next = self
-                .session
-                .with_delta(&delta.inner)
-                .map_err(|error| py_value_error(error.to_string()))?;
-            let outcome = next.prepared_evidence().validate(&options);
-            return self.build_run(
-                py,
-                outcome,
-                &self.normalized_schema,
-                &Arc::new(next.data().clone()),
-            );
-        }
-
-        // With inference on, patch the graph the rules read. Patching the
-        // already-derived graph would strand triples that the deletion should
-        // have invalidated, since inference only ever adds.
-        let source = if run_infer {
-            &self.base_data
-        } else {
-            &self.data
-        };
-        let patched = engine_apply(source, &delta.inner);
-        let evaluated = if run_infer && !self.raw_schema.rules.is_empty() {
-            if self.has_data_graph {
-                shifty_engine::infer_graphs(&patched, &self.shapes.graph, &self.raw_schema)
-            } else {
-                shifty_engine::infer(&patched, &self.raw_schema)
-            }
-            .map_err(|error| py_value_error(format!("non-stratifiable schema: {error}")))?
-            .graph
-        } else {
-            patched
-        };
-
-        let prepared = if self.has_data_graph {
-            PreparedEvidenceValidator::with_graphs(
-                &evaluated,
-                &self.shapes.graph,
-                &self.raw_schema,
-                self.graph_mode,
-            )
-        } else {
-            PreparedEvidenceValidator::new(&evaluated, &self.raw_schema)
-        }
-        .map_err(|error| py_value_error(format!("non-stratifiable schema: {error}")))?;
-
-        let normalized_schema = Arc::new(prepared.schema().clone());
-        let outcome = prepared.validate(&options);
-        self.build_run(py, outcome, &normalized_schema, &Arc::new(evaluated))
+        let next = self
+            .session
+            .with_delta_and_inference(&delta.inner, run_infer)
+            .map_err(|error| py_value_error(error.to_string()))?;
+        let outcome = next.prepared_evidence().validate(&options);
+        self.build_run(
+            py,
+            outcome,
+            &self.normalized_schema,
+            &Arc::new(next.data().clone()),
+        )
     }
 
     /// Decide every selected pair without materializing any evidence — the

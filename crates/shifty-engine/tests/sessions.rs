@@ -1,4 +1,4 @@
-use oxrdf::{NamedNode, Triple};
+use oxrdf::{NamedNode, Term, Triple};
 use shifty_engine::profile;
 use shifty_engine::{
     CompiledShapes, ConformanceOptions, EngineOptions, EvaluationError, FindingOptions,
@@ -9,6 +9,112 @@ use std::sync::Arc;
 
 fn loaded(ttl: &str) -> shifty_parse::Loaded {
     shifty_parse::load_turtle(ttl.as_bytes(), None).unwrap()
+}
+
+#[test]
+fn sparql_rule_reuses_data_blank_node_after_shapes_label_collision() {
+    let shapes = loaded(
+        r#"
+        @prefix sh: <http://www.w3.org/ns/shacl#> .
+        @prefix ex: <http://ex/> .
+        ex:S a sh:NodeShape ; sh:targetNode ex:a ; sh:rule _:same .
+        _:same a sh:SPARQLRule ;
+            sh:construct "CONSTRUCT { $this ex:copy ?o } WHERE { $this ex:has ?o }" .
+        "#,
+    );
+    let compiled = CompiledShapes::compile(shapes).unwrap();
+    let data = loaded(
+        r#"
+        @prefix ex: <http://ex/> .
+        ex:a ex:has _:same .
+        _:same ex:name "existing" .
+        "#,
+    );
+    let session = compiled
+        .session(
+            SessionData::Separate(data.graph),
+            SessionOptions {
+                inference: true,
+                ..SessionOptions::default()
+            },
+        )
+        .unwrap();
+
+    assert!(session.diagnostics().is_empty());
+    assert_eq!(session.inferred().len(), 1);
+    let input_node = session
+        .data()
+        .iter()
+        .find(|triple| triple.predicate.as_str() == "http://ex/has")
+        .unwrap()
+        .object
+        .into_owned();
+    assert!(matches!(input_node, Term::BlankNode(_)));
+    assert_eq!(session.inferred()[0].object, input_node);
+    assert_eq!(
+        session.inferred_for_write_back()[0].object,
+        Term::BlankNode(oxrdf::BlankNode::new("same").unwrap())
+    );
+}
+
+#[test]
+fn sparql_rule_reuses_shapes_blank_node_after_data_label_collision() {
+    let shapes = loaded(
+        r#"
+        @prefix sh: <http://www.w3.org/ns/shacl#> .
+        @prefix ex: <http://ex/> .
+        ex:S a sh:NodeShape ; sh:targetNode ex:a ;
+            sh:rule [ a sh:SPARQLRule ;
+                sh:construct """
+                    CONSTRUCT { $this ex:uses ?option }
+                    WHERE { GRAPH $shapesGraph { ex:Config ex:option ?option } }
+                """ ] .
+        ex:Config ex:option _:same .
+        _:same ex:kind ex:K .
+        "#,
+    );
+    let shapes_node = shapes
+        .graph
+        .iter()
+        .find(|triple| triple.predicate.as_str() == "http://ex/option")
+        .unwrap()
+        .object
+        .into_owned();
+    let compiled = CompiledShapes::compile(shapes).unwrap();
+    let data = loaded(
+        r#"
+        @prefix ex: <http://ex/> .
+        ex:a ex:marker _:same .
+        _:same ex:name "data" .
+        "#,
+    );
+    let session = compiled
+        .session(
+            SessionData::Separate(data.graph),
+            SessionOptions {
+                inference: true,
+                ..SessionOptions::default()
+            },
+        )
+        .unwrap();
+
+    assert!(session.diagnostics().is_empty());
+    assert_eq!(session.inferred().len(), 1);
+    let data_node = session
+        .data()
+        .iter()
+        .find(|triple| triple.predicate.as_str() == "http://ex/marker")
+        .unwrap()
+        .object
+        .into_owned();
+    assert!(matches!(shapes_node, Term::BlankNode(_)));
+    assert!(matches!(data_node, Term::BlankNode(_)));
+    assert_ne!(shapes_node, data_node);
+    assert_eq!(session.inferred()[0].object, shapes_node);
+    assert_ne!(
+        session.inferred_for_write_back()[0].object,
+        Term::BlankNode(oxrdf::BlankNode::new("same").unwrap())
+    );
 }
 
 const SHAPES: &str = r#"
@@ -266,7 +372,7 @@ fn compiled_functions_are_available_to_validation_queries() {
 }
 
 #[test]
-fn compiled_inference_uses_source_functions_while_legacy_inference_reads_context() {
+fn compiled_inference_uses_only_source_functions() {
     let shapes = loaded(
         r#"
         @prefix sh: <http://www.w3.org/ns/shacl#> .
@@ -287,11 +393,6 @@ fn compiled_inference_uses_source_functions_while_legacy_inference_reads_context
         "#,
     )
     .graph;
-    let parsed = shifty_parse::parse_loaded(&shapes);
-    parsed.require_valid().unwrap();
-    let legacy = shifty_engine::infer_graphs(&data, &shapes.graph, &parsed.schema).unwrap();
-    assert_eq!(legacy.inferred.len(), 1);
-
     let compiled = CompiledShapes::compile(shapes).unwrap();
     let session = compiled
         .session(

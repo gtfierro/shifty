@@ -27,7 +27,8 @@
 //! Emits one CSV row per model on stdout; progress and errors on stderr.
 
 use shifty_engine::{
-    ConformanceOptions, PreparedEvidenceValidator, ValidationGraphMode, ValidationOptions,
+    CompiledShapes, ConformanceOptions, PreparedEvidenceValidator, SessionData, SessionOptions,
+    ValidationGraphMode, ValidationOptions,
 };
 use std::collections::{HashMap, HashSet};
 use std::fs;
@@ -134,10 +135,7 @@ fn main() {
     eprintln!("loading shapes {}…", args.shapes.display());
     let shapes_bytes = fs::read(&args.shapes).expect("cannot read --shapes");
     let shapes = shifty_parse::load_turtle(&shapes_bytes, None).expect("cannot parse --shapes");
-    let parsed = shifty_parse::parse_loaded(&shapes);
-    let raw_schema = parsed.schema.clone();
-    // Inference runs against the normalized schema, exactly as the CLI does.
-    let inference_schema = shifty_opt::normalize(&raw_schema);
+    let compiled = CompiledShapes::compile(shapes).expect("cannot compile shapes");
     drop(shapes_bytes);
 
     if args.header {
@@ -159,16 +157,24 @@ fn main() {
         let data_graph = if args.no_infer {
             data.graph.clone()
         } else {
-            shifty_engine::infer_graphs(&data.graph, &shapes.graph, &inference_schema)
+            compiled
+                .session(
+                    SessionData::Separate(data.graph.clone()),
+                    SessionOptions {
+                        inference: true,
+                        ..SessionOptions::default()
+                    },
+                )
                 .unwrap_or_else(|error| panic!("{name}: inference failed: {error}"))
-                .graph
+                .data()
+                .clone()
         };
         let data_triples = data_graph.len();
 
         let prepared = PreparedEvidenceValidator::with_graphs(
             &data_graph,
-            &shapes.graph,
-            &raw_schema,
+            &compiled.source().graph,
+            compiled.authored_schema(),
             ValidationGraphMode::Union,
         )
         .unwrap_or_else(|error| panic!("{name}: schema is non-stratifiable: {error}"));
