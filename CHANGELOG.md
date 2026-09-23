@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.5.0-alpha.3
+
+Third alpha for 0.5.0. To try the Python package, run
+`pip install pyshifty==0.5.0a3`.
+
+### Fixed
+
+- Separately parsed data and shapes blank nodes remain distinct when their
+  labels match. Validation reports, algebra results, evidence, inferred graphs,
+  and repair results expose stable identities; reports built from an
+  `rdflib.Graph` reuse the caller's data blank nodes.
+- `RepairSession.gate()` no longer reports the same blank-node violation as
+  both fixed and introduced for a no-op or unrelated delta.
+- SPARQL function calls correctly bind blank-node arguments, including nodes
+  shared with the inference and validation inputs.
+
+### Changed
+
+- SPARQL rules can reuse existing data or shapes blank nodes while still
+  rejecting fresh blank nodes that could prevent inference from terminating.
+- Rust inference now runs through `CompiledShapes::session`; the legacy
+  free-function inference APIs and `InferenceOutcome` have been removed.
+- Session output relabels only colliding nodes, projects inferred data in one
+  pass, and avoids a duplicate inference-delta copy. W3C reports are serialized
+  only when requested, and shape-map path lookups reuse their combined graph.
+- Release metadata and wheel smoke checks were tightened; the public guides
+  and benchmark documentation were refreshed.
+
 ## 0.5.0-alpha.2
 
 Second alpha for 0.5.0.
@@ -59,18 +87,8 @@ or rejected the same way by all of them. Two of those agreements are reached by
 - `$shapesGraph` now always names the authored shapes source. In combined
   shapes/data input, triples derived later by inference remain in the data
   graph but no longer appear in `$shapesGraph`. With separate inputs, function
-  definitions come from the compiled shapes source.
-- SPARQL rules may construct triples that reuse blank nodes already present in
-  the input data or shapes graph. Fresh blank nodes remain rejected because
-  they can prevent fixpoint termination. Blank nodes from separately parsed
-  data and shapes documents retain distinct identities even when their labels
-  match; embedded documents retain their original shared identity.
-- Removed the Rust `infer`, `infer_graphs`, `infer_with_options`, and
-  `infer_with_context*` functions and `InferenceOutcome`. They accepted a
-  schema without its source document and therefore could not preserve shapes
-  graph identity or reuse compiled queries and functions. Rust inference now
-  runs through `CompiledShapes::session` with `SessionOptions::inference`, as
-  the Python, CLI, C++, and Wasm interfaces already do.
+  definitions come from the compiled shapes source; only the low-level legacy
+  inference API still discovers functions in the combined context graph.
 - `RepairSession.gate()` evaluates the whole candidate snapshot with the
   session's inference policy. `RepairSession.advance()` continues to patch its
   materialized graph without rerunning inference.
