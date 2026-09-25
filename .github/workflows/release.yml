@@ -312,6 +312,7 @@ jobs:
     name: Publish to PyPI
     runs-on: ubuntu-latest
     needs:
+      - release
       - wheels-linux
       - wheels-musllinux
       - wheels-windows
@@ -341,6 +342,7 @@ jobs:
     if: ${{ !contains(github.ref_name, '-') }}
     runs-on: ubuntu-latest
     needs:
+      - release
       - build-cli
     environment:
       name: deploy

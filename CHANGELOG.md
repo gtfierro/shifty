@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.5.0
+
+The 0.5.0 release consolidates the three alpha releases. Install the Python
+package with `pip install pyshifty==0.5.0`. There are no engine or API changes
+since 0.5.0-alpha.3; the alpha entries below give the full change history.
+
+### Highlights
+
+- Reuse compiled shapes across data snapshots with Rust `CompiledShapes` and
+  `EvaluationSession`, and get consistent schema admission from W3C reports,
+  algebraic validation, and evidence.
+- Inspect inference and validation with diagnostics, input telemetry, graph
+  dumps, and the CLI's access-stage view. Python can write inferred triples
+  back to a caller-owned `rdflib.Graph` with `in_place=True`.
+- Preserve blank-node identities across separately parsed data and shapes,
+  inference, reports, evidence, and repair. SPARQL rules may reuse existing
+  blank nodes while fresh ones remain rejected.
+- Improve the CLI's human-readable validation report and expose resolvable
+  constraint definitions in JSON. Scripts consuming the text report should
+  switch to `--format json`.
+
+### Compatibility
+
+- Rust inference now runs through `CompiledShapes::session`; the legacy
+  free-function inference APIs and `InferenceOutcome` were removed.
+- The C ABI version is 6. Rebuild C/C++ consumers against the 0.5.0 library
+  and headers.
+- Strict `on_unsupported="error"` now applies to inference that runs before
+  validation, so previously ignored unsupported rules can raise an error.
+
 ## 0.5.0-alpha.3
 
 Third alpha for 0.5.0. To try the Python package, run
