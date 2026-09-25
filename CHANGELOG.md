@@ -1,6 +1,9 @@
 # Changelog
 
-## Unreleased
+## 0.5.1
+
+Bug-fix release. Install the Python package with `pip install pyshifty==0.5.1`.
+There are no engine changes since 0.5.0.
 
 ### Fixed
 
