@@ -10,7 +10,7 @@ description = "Python bindings for the shifty SHACL engine"
 authors = [{ name = "Gabe Fierro", email = "gtfierro@mines.edu" }]
 license = "BSD-3-Clause"
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
     "Intended Audience :: Science/Research",
     "License :: OSI Approved :: BSD License",
