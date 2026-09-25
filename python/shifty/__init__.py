@@ -708,7 +708,12 @@ def _write_back_derived(
     Text with no blank nodes needs none of this and is parsed directly. The
     parser's ability to pin labels is settled in :func:`_in_place_target`
     before the engine runs, so by here it can be relied on. The delta is read
-    only after a target is known, so ordinary validation never renders it."""
+    only after a target is known, so ordinary validation never renders it.
+
+    On a ``ConjunctiveGraph`` or ``Dataset`` the triples go to its default
+    graph, where ``target.add`` would put them. rdflib 7 parses N-Triples into
+    the default graph too, but rdflib 6 parses them into a fresh, randomly
+    named graph, so the default graph is targeted explicitly."""
     if target is None:
         return
     ntriples = delta()
@@ -716,6 +721,9 @@ def _write_back_derived(
         return
 
     import rdflib
+
+    if isinstance(target, rdflib.ConjunctiveGraph):
+        target = target.default_context
 
     labels = {label.rstrip(".") for label in _BNODE_LABEL.findall(ntriples)}
     if not labels:
