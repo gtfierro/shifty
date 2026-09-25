@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- `infer(..., in_place=True)` and `validate(..., in_place=True)` on a
+  `ConjunctiveGraph` or `Dataset` add the derived triples to its default
+  graph. With rdflib 6 they landed in a new, randomly named graph.
+
 ## 0.5.0
 
 The 0.5.0 release consolidates the three alpha releases. Install the Python

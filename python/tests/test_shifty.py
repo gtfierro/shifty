@@ -569,6 +569,31 @@ class TestInferInPlace:
         assert set(data) == before
 
 
+class TestInferInPlaceContextAware:
+    """Derived triples land in the default graph, as ``add`` would put them.
+
+    Only rdflib 6 needs the write-back to target it: rdflib 7 already parses
+    N-Triples into the default graph, so there these pass either way."""
+
+    @pytest.mark.parametrize(
+        "make_graph",
+        [rdflib.ConjunctiveGraph, lambda: rdflib.Dataset(default_union=True)],
+        ids=["ConjunctiveGraph", "Dataset"],
+    )
+    def test_adds_to_default_graph(self, make_graph):
+        EX = rdflib.Namespace("http://example.org/")
+        data = make_graph()
+        data.get_context(EX.g).parse(data=INFER_DATA, format="turtle")
+        graphs_before = {c.identifier for c in data.contexts()}
+
+        result = shifty.infer(data, INFER_SHAPES.encode(), in_place=True)
+
+        assert result.inferred_count == 1
+        assert (EX.a, EX.knows2, EX.b) in data.default_context
+        graphs_after = {c.identifier for c in data.contexts()}
+        assert graphs_after <= graphs_before | {data.default_context.identifier}
+
+
 class TestInferInPlaceAcceptsSingletonSequence:
     """A one-member sequence names the graph it holds, on every other path."""
 
