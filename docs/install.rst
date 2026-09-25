@@ -94,7 +94,7 @@ Rust
 .. code-block:: toml
 
    [dependencies]
-   shifty-engine = "0.5.0"
+   shifty-engine = "0.5.1"
 
 The engine crate is the same one every frontend wraps; its API documentation is
 on `docs.rs/shifty-engine <https://docs.rs/shifty-engine>`_. The workspace also
