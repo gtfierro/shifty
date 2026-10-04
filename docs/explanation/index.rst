@@ -12,21 +12,19 @@ experimental repair layer.
        findings differ from the W3C report path.
    * - :doc:`shapes-and-data`
      - The distinction between the shapes graph and the data graph, and the
-       separate question of which triples are visible during evaluation. The
-       most common source of a validation that passes for the wrong reason.
+       triples visible during evaluation, including how ``graph_mode`` affects
+       target selection and constraints.
    * - :doc:`recursion`
-     - Cyclic shape references have no answer in the SHACL spec. What Shifty
-       chose, why validation and inference use opposite fixed points, and why
-       some schemas are refused.
+     - How Shifty handles cyclic shape references, why validation and inference
+       use different fixed points, and which schemas are rejected.
    * - :doc:`evidence-design`
-     - Why the validator keeps its derivation, what "canonical" evidence means
-       and why it deliberately omits things, and what it honestly cannot
-       explain.
+     - What derivations contain, how canonical evidence selects relevant
+       constraints, and where structural explanations are unavailable.
    * - :doc:`performance`
-     - Choose an evidence entry point using measured runtime and size costs.
+     - Choose an evidence entry point and avoid unnecessary work.
    * - :doc:`repair-design`
      - **Experimental.** Repair as the abductive dual of validation, and why
-       the library computes the space of fixes but refuses to choose one.
+       drivers supply domain knowledge to choose among candidate edits.
 
 .. toctree::
    :maxdepth: 1
@@ -38,5 +36,4 @@ experimental repair layer.
    recursion
    evidence-design
    performance
-   evidence-performance-study
    repair-design

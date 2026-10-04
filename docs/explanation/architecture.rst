@@ -46,9 +46,9 @@ picks satisfies the corresponding φ.
 One counting primitive
 ~~~~~~~~~~~~~~~~~~~~~~
 
-The single most useful consequence is that ``Count`` subsumes a large slice of
-the SHACL vocabulary. ``sh:minCount`` and ``sh:maxCount`` are counts. Qualified
-cardinality is a count with a non-trivial qualifier. ``sh:node`` and
+``Count`` represents several SHACL constraint components. ``sh:minCount`` and
+``sh:maxCount`` are counts. Qualified cardinality is a count with a non-trivial
+qualifier. ``sh:node`` and
 ``sh:property`` nesting is a count along a path. And universal quantification
 — "every value of this path satisfies φ", which is what ``sh:datatype`` on a
 property shape means — is:
@@ -88,9 +88,9 @@ arena and refer to each other by index, so a shared sub-shape is one node with
 several parents, and cyclic references are representable rather than an
 infinite structure.
 
-**Normalize (``normalized``).** Semantics-preserving rewrites. The enabler is
-hash-consing: structurally identical nodes are interned to one, which makes
-sharing explicit and equality a pointer comparison. On top of that sit the
+**Normalize (``normalized``).** Semantics-preserving rewrites. Hash-consing
+interns structurally identical nodes to one, allowing them to share storage
+and be compared by pointer. The rewrites include the
 boolean laws (flattening, ⊤/⊥ absorption, idempotence, complementation, and
 negation-normal form), the counting laws (unsatisfiable bounds collapse to ⊥,
 counts on the same path and qualifier merge, an ``id`` path collapses the count
@@ -151,20 +151,18 @@ data-independent read demands; ``--profile`` shows runtime index decisions,
 scan work, and cache activity. The measured lifecycle and memory effects are
 recorded in ``benchmark/shared-dataset-results.md`` in the repository.
 
-Why one IR matters
-------------------
+Sharing the compiled representation
+-----------------------------------
 
-The pipeline is the visible payoff, but the structural one is that algebraic
-validation, evidence, and repair traverse the same shape arena. Inference uses
-its own compiled rule program over the shared dataset.
+Algebraic validation, evidence, and repair traverse the same shape arena.
+Inference uses its own compiled rule program over the shared dataset.
 
 Algebraic validation computes a boolean over the shape arena. Evidence
 materializes a derivation from the same constraints. Repair is a fold over that
 proof tree in the opposite direction: to describe how to fix ``φ₁ ∧ φ₂`` you
 need the repair spaces of both conjuncts, which is exactly what a fold gives
 you. The shape enum has around fifteen variants and is already in
-negation-normal form, so each of these folds is a manageable match rather than a
-sprawl.
+negation-normal form, limiting the cases each fold needs to handle.
 
 Evidence uses the algebraic evaluator to decide conformance, and the repair gate
 checks a proposed edit with that evaluator. The W3C report path has a separate
@@ -193,10 +191,8 @@ so an implementation change must be checked in both. Choose the W3C path for
 interoperability with SHACL tools and the algebraic path for structured
 application findings. Exact fields are in :doc:`../reference/python`.
 
-The algebra also explains the shape of the limitations. Repair is undefined for
-``sh:sparql`` not because nobody has written that case yet, but because an
-arbitrary SPARQL query is opaque to the algebra — there is nothing to fold
-over. The features that are hard are exactly the ones that escape the IR.
+Repair is undefined for ``sh:sparql`` because arbitrary SPARQL queries have no
+structural representation in this algebra. The repair fold cannot invert them.
 
 What the compilation costs
 --------------------------
@@ -205,11 +201,10 @@ Compiling is a fixed cost paid before any data is looked at, and for a large
 ontology it is substantial. A 16-triple Brick model still takes seconds to
 validate against a 229k-triple shapes closure, essentially all of it setup.
 
-That is fine when the schema is reused and terrible when it is not. It is why
-``PreparedValidator`` exists, why the evidence and repair sessions are objects
-you hold rather than functions you call, and why the benchmark chart in
-:doc:`../benchmarks` separates setup from the rest — a release that halves
-validation time is invisible in the total if setup dominates.
+``PreparedValidator`` and the evidence and repair sessions retain the compiled
+schema for reuse across data graphs. The chart in :doc:`../benchmarks`
+separates setup from inference and validation to show improvements that may be
+small relative to the compilation cost.
 
 Further reading
 ---------------

@@ -285,8 +285,8 @@ input and is off by default, so existing calls are unaffected. See
    shifty.PreparedValidator(shacl_graph, *, base=None)
 
 Parses, lowers, normalizes, and plans a shapes graph once, for reuse across
-many data graphs. This is the right tool whenever the schema is fixed and the
-data changes, which is most batch and service workloads.
+many data graphs. Use it for batch or service workloads that validate changing
+data against a fixed schema.
 
 An explicitly empty shapes graph raises ``ValueError``.
 
@@ -314,10 +314,9 @@ the module-level functions.
                        infer=True, on_unsupported="ignore")
        -> list[PropertyWitness]
 
-The inverse of validation. For every focus node that *conforms* to a
-target-bearing node shape, it returns the values each ``sh:property`` shape's
-``sh:path`` resolved to — so a SHACL profile can double as an extraction
-schema.
+For each focus node that conforms to a target-bearing node shape, this method
+returns the values reached by each property shape's ``sh:path``. A SHACL
+profile can therefore also be used to extract values.
 
 .. code-block:: python
 

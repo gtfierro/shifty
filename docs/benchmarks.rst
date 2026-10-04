@@ -1,16 +1,13 @@
 Benchmarks
 ==========
 
-Performance of Shifty's ``validate`` pipeline — inference plus validation —
-across real building models and tagged releases. The chart can also include a
-``HEAD`` run from the current checkout.
+These benchmarks measure Shifty's ``validate`` pipeline (inference and
+validation) on building models across tagged releases. The chart can also
+include a ``HEAD`` run from the current checkout.
 
-The chart splits each ``validate`` run into setup, inference, and validation.
-Preparing a large shapes graph is a fixed cost paid even for a small data
-graph. Read the segments when comparing versions: a change in validation work
-may be small relative to setup in a fresh process.
-
-Each bar below is therefore split into the three things the time is spent on.
+Each bar separates setup, inference, and validation time. Preparing a large
+shapes graph takes time even when the data graph is small, so improvements to
+validation may have little effect on the total runtime.
 
 .. raw:: html
 
@@ -181,13 +178,11 @@ Each bar below is therefore split into the three things the time is spent on.
        var body =
          '<strong>How to read this chart.</strong> Each bar is the measured time to ' +
          'validate a single model with that release, averaged across the corpus (' +
-         sizes.join(', ') + '), so bar height is the elapsed seconds you would ' +
-         'actually wait and shorter is better. Hover any segment for that ' +
+         sizes.join(', ') + '). Hover any segment for that ' +
          'release&rsquo;s whole-corpus total. ' +
-         'The segments split where that time goes. <em>Fixed setup</em> is the work ' +
-         'done before any data is looked at — preparing the shapes graph — measured ' +
-         'as the inference time of the corpus&rsquo;s smallest model, which at 16 ' +
-         'triples is essentially pure startup. ';
+         '<em>Fixed setup</em> estimates the time to prepare the shapes graph, ' +
+         'using the inference time of the corpus&rsquo;s smallest model ' +
+         '(16 triples). ';
        if (hasInfer) {
          body +=
            '<em>Inference</em> and <em>validation</em> are separated by timing ' +
@@ -195,21 +190,19 @@ Each bar below is therefore split into the three things the time is spent on.
            '<code>validate</code> timing is cumulative — it runs inference internally ' +
            '— so inference is <code>infer − setup</code> and validation is ' +
            '<code>validate − infer</code>, and the three segments add up to the ' +
-           'measured total exactly rather than being modelled. ';
+           'measured total. ';
        } else {
          body +=
            'Inference is not broken out here — these results predate per-phase ' +
            'timing, so the non-setup time is shown as one block. ';
        }
        body +=
-         '<strong>The point: for the Brick corpus most of the wall clock is startup, ' +
-         'not data</strong> — its models are small (median ~600 triples) against a ' +
-         '229k-triple shapes closure, so per-model startup dominates and the two ' +
-         'big engine wins are visible only in the thinner segments: v0.1.4 cut ' +
-         'validation, and v0.2.1 cut inference. Times are medians of 3 runs per ' +
-         'model, and each model pays setup once because every run is a fresh ' +
-         'process — amortising that across models is a separate win available to ' +
-         'the library API.';
+         'Setup accounts for most of the Brick runtime: the models are small ' +
+         '(median ~600 triples) compared with the 229k-triple shapes closure. ' +
+         'The smaller segments show the validation improvement in v0.1.4 and ' +
+         'the inference improvement in v0.2.1. Times are medians of 3 runs per ' +
+         'model, each in a fresh process. Library callers can reuse the ' +
+         'prepared shapes across models to avoid repeating setup.';
        document.getElementById('shifty-bench-caption').innerHTML = body;
      })();
 
@@ -341,19 +334,14 @@ measured against a different input and are no longer comparable. Delete
 Reading these numbers
 ---------------------
 
-Two cautions, both learned the hard way.
+Compare absolute times alongside ratios. For example, if an optimization
+speeds up conformance checking more than evidence generation, the evidence
+cost as a multiple of conformance time increases even though both are faster.
 
-**A ratio is only meaningful next to its denominator.** When an optimization
-speeds up the baseline more than the thing being measured, the reported ratio
-gets *worse* even though both arms got faster. Absolute times belong beside any
-ratio quoted from this corpus; :doc:`explanation/evidence-performance-study` has a worked
-example of that happening.
-
-**These are per-process runs.** Each model pays setup once because every
-measurement is a fresh process. That is the right model for the CLI and the
-wrong one for a library caller, who can amortize setup across many data graphs
-with ``PreparedValidator``. The setup segment of each bar is roughly what that
-amortization is worth.
+Each measurement runs in a fresh process and includes setup for that model.
+This matches CLI usage. Library callers can reuse ``PreparedValidator`` across
+data graphs to avoid repeating setup; the setup segment estimates how much
+time this can save.
 
 For the separate question of what *evidence* costs on top of validation, see
 :doc:`explanation/performance`.

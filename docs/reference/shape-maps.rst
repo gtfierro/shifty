@@ -6,9 +6,9 @@ selected ``(shape, focus)`` pair, each a dictionary from a typed ``Key`` — the
 property obligation — to a ``Binding`` — the values that satisfied it, or the
 information needed to see why it did not.
 
-It is similar in spirit to a ShEx shape map, but deliberately keeps the
-property-level bindings, so a profile can serve as an extraction schema and as
-a contract that needs repair. :doc:`../how-to/shape-maps` shows it in use.
+Like a ShEx shape map, it associates shapes with focus nodes. It also keeps
+property bindings, allowing a profile to serve as an extraction schema and
+identify constraints that need repair. :doc:`../how-to/shape-maps` shows it in use.
 
 ``shape_map``
 -------------

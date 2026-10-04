@@ -30,8 +30,8 @@ What was parsed
 
    shifty inspect --stage rdf shapes.ttl
 
-The raw triples, after parsing and before any interpretation. Reach for this
-when you suspect a prefix or a syntax problem rather than a semantic one.
+This stage prints the parsed triples. Use it to check prefixes and RDF syntax
+before inspecting how constraints are compiled.
 
 What the shapes compiled to
 ---------------------------
@@ -91,8 +91,8 @@ strata and refuses one whose recursion runs through a negation, because that has
 no consistent two-valued answer. If a schema is rejected, this stage names the
 cycle. See :doc:`../explanation/recursion`.
 
-What will actually be executed
-------------------------------
+Inspect the execution plan
+--------------------------
 
 .. code-block:: bash
 

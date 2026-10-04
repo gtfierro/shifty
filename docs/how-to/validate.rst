@@ -176,9 +176,9 @@ dominates a small validation. ``PreparedValidator`` pays it once:
    for path in data_files:
        conforms, report, text = validator.validate(path)
 
-This matters more than it sounds like it should: on the Brick corpus, whose
-models are small against a 229k-triple shapes closure, most of a per-process
-run's wall clock is this setup. See :doc:`../benchmarks`.
+On the Brick corpus, setup accounts for most of the runtime because the
+models are small compared with the 229k-triple shapes closure. Reusing the
+validator avoids this cost for subsequent graphs. See :doc:`../benchmarks`.
 
 Handle unsupported constructs
 -----------------------------

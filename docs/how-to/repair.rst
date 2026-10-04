@@ -130,11 +130,10 @@ says so:
        print(session.describe_shape(hole.conforms_to))
        subtree = session.repair_node_against(candidate, hole.conforms_to)
 
-``describe_shape`` prints the sub-shape fully expanded, with every child inlined
-and no ``@id`` indirection, which is what you need to understand what the hole
-is actually asking for. ``repair_node_against`` synthesizes a tree that would
-make a chosen node conform to it, returning ``None`` if it already does — that
-is how you recurse into a nested obligation.
+``describe_shape`` expands the sub-shape with every child inlined, showing the
+constraints a value must satisfy. ``repair_node_against`` synthesizes edits
+that would make a chosen node conform to that sub-shape, returning ``None`` if
+it already conforms.
 
 Propose an edit you wrote yourself
 ----------------------------------
@@ -162,10 +161,10 @@ Check before you commit
    outcome.remaining     # pre-existing, still unfixed
    outcome.is_progress   # sound, and fixed something
 
-The gate is whole-graph, not focus-local, because a repair that fixes one node
-by breaking another is not a repair. It re-validates ``G ⊕ ΔG`` and returns the
-difference. It applies nothing and decides nothing — ``is_progress`` is a
-summary offered for convenience, not a verdict acted on.
+The gate re-validates the whole patched graph, ``G ⊕ ΔG``, because an edit can
+fix one node while introducing a violation elsewhere. It returns the changes
+in violations without applying the delta. The driver uses ``is_progress`` and
+the violation sets to decide whether to accept the edit.
 
 Accept and iterate
 ------------------
@@ -197,8 +196,7 @@ advancing.
 When there is nothing to offer
 ------------------------------
 
-Some branches admit no data repair, and the tree says so rather than staying
-silent:
+The tree marks branches for which it cannot synthesize a data repair:
 
 .. code-block:: python
 
@@ -213,9 +211,9 @@ drops its blocked branches, and is blocked only when all of them are. So a
 subtree you are handed never contains a dead branch inside a live one, and a
 blocked root means Shifty has no supported repair template for that focus.
 
-The scope limit is deliberate: repairs edit the data graph, never the schema.
-Widening a ``closed`` list or lowering a ``minCount`` would often be the right
-fix in practice, and Shifty will not propose it.
+Repairs edit the data graph and keep the schema fixed. If the failure calls
+for widening a ``closed`` list or lowering a ``minCount``, review and edit the
+shape separately.
 
 See also
 --------

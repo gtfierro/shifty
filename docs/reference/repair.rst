@@ -152,10 +152,10 @@ Node kinds, as they appear in ``explain()`` output:
    * - ``Repeat [min..max]``
      - Instantiate the body between ``min`` and ``max`` times.
 
-Blocked branches are normalized away rather than left for you to trip over: an
-``All`` with any blocked child is itself blocked; an ``Any`` drops its blocked
-children and is blocked only if all of them were. So a live branch never
-contains a dead one.
+Blocked branches are propagated during normalization. An ``All`` with any
+blocked child is blocked. An ``Any`` drops blocked children and is blocked only
+when all children are blocked. Unblocked branches therefore contain only
+supported alternatives.
 
 Reasons a branch can be blocked:
 

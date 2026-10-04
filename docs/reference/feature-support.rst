@@ -112,9 +112,9 @@ non-stratifiable schema has no answer to give.
 Partial support
 ---------------
 
-A ⚠️ feature is one where Shifty can produce an answer but cannot guarantee it
-is the right one. Rather than pick silently, it lets you choose what happens,
-through ``on_unsupported`` — ``EngineOptions`` in Rust, and a keyword on
+A ⚠️ feature has partial support and may produce incorrect results.
+``on_unsupported`` controls how these features are handled. It is set through
+``EngineOptions`` in Rust, and a keyword on
 ``validate``, ``validate_algebra``, ``infer``, and ``PreparedValidator`` in
 Python:
 

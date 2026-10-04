@@ -1,8 +1,8 @@
 Contributing
 ============
 
-This page covers both halves of contributing: the quality gates a code change
-has to pass, and the conventions the documentation follows.
+Code contributions must pass the checks below. Documentation contributions
+follow the page conventions and include a Sphinx build.
 
 Develop Shifty
 --------------
@@ -26,13 +26,11 @@ environment:
    uv run ty check shifty
    uv run pytest -q
 
-``--reinstall-package pyshifty`` is not optional when Rust sources have
-changed. The extension is installed as an editable build, and a plain
-``uv sync`` will not rebuild it, so ``pytest`` silently exercises whichever
-``_shifty`` shared object was compiled last. That produces failures against
-code you already fixed, and — more dangerously — passes against code you have
-not. Continuous integration is immune, because it always starts from a fresh
-checkout.
+Use ``--reinstall-package pyshifty`` whenever Rust sources have changed.
+The extension is an editable build, and a plain ``uv sync`` does not rebuild
+it. Without reinstalling, ``pytest`` tests the previously compiled ``_shifty``
+shared object, so its results may not reflect the current source. CI builds
+from a fresh checkout.
 
 Fix diagnostics rather than weakening or skipping a check, unless a documented
 compatibility constraint requires a narrow exception.
@@ -48,9 +46,8 @@ The C++ SDK and the WebAssembly module have their own gates:
 Contribute to the documentation
 -------------------------------
 
-Shifty's documentation uses Diátaxis to keep pages focused, then applies the
-same lookup-friendly conventions throughout its reference material. Before
-writing, decide what the reader is doing.
+Shifty's documentation follows Diátaxis. Choose the page type based on what
+the reader needs to do:
 
 Choose the page type
 ~~~~~~~~~~~~~~~~~~~~
@@ -83,9 +80,10 @@ Page conventions
 ~~~~~~~~~~~~~~~~
 
 - Give each page one primary reader goal and use that goal in its opening.
-- Write at the level of the subject. State the technical fact directly; avoid
-  narrating the teaching strategy or telling readers what they will find
-  surprising, confusing, or important.
+- State behavior directly and explain it with a concrete example when useful.
+  Avoid slogans, invented anecdotes, and asides about what the reader should
+  find surprising or important. Use ``docs.brickschema.org`` and
+  ``gtf.fyi/posts`` as style references.
 - Put exact defaults, accepted values, failure behavior, and stability in the
   reference page—not only in examples or source comments.
 - Link to related capabilities and useful next steps. When a tutorial or

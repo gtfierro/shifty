@@ -1,9 +1,9 @@
 Why evidence
 ============
 
-A SHACL validation report is a list of what went wrong. That is the right
-output for a gate — a build step that should fail on bad data needs a boolean
-and a diagnostic — and it is a lossy summary of what the validator computed.
+A SHACL validation report lists failures. This is useful for a build step
+that should fail on invalid data, but it leaves out information computed
+during validation.
 
 The validator decided conformance by structural recursion over the constraint.
 At every step it knew which sub-constraint held, on which values, supported by
@@ -21,12 +21,11 @@ property paths and qualified-value filtering. That query is a duplicate of
 logic the validator already executed, and it can drift out of sync with the
 shape. :doc:`../reference/shape-maps` exists to eliminate it.
 
-**Whether a node was checked at all.** In a report, a node that passed and a
-node no target selected look identical: absent. For a coverage question —
-"which of my assets did this profile actually apply to?" — that is exactly the
-distinction you need.
+**Whether a node was checked.** Neither passing nodes nor unselected nodes
+appear in a report. To check which assets a profile applied to, you need to
+distinguish these cases.
 
-**Why the failure is a failure.** A report gives a message and a constraint
+**How a constraint failed.** A report gives a message and a constraint
 component. It does not give the shape of the derivation: which branch of a
 disjunction was tried, which values were counted, which triples supported the
 path that reached the offending value. Anything downstream that wants to act on
@@ -48,19 +47,17 @@ statement that was included in the run appears, and each selected
            ├── status = "pass" → Satisfaction
            └── status = "fail" → Failure
 
-No row means unselected, a ``pass`` row means checked and held, and a ``fail``
-row means checked and did not.
-Retaining statements whose target selected nothing is the part that requires
-deliberate effort — the easy implementation drops them, and with them the
-answer to "did this shape apply to anything?"
+A focus node without a row was not selected. A ``pass`` row means the
+constraint held, and a ``fail`` row means it did not. Statements with no
+selected focus nodes are retained with an empty ``selected_foci`` list, so you
+can check whether a shape applied to anything.
 
 Satisfaction and failure evidence
 ---------------------------------
 
-``Satisfaction`` and ``Failure`` are not two report formats that happen to
-resemble each other. They are logical complements, computed by mutually
-recursive folds over the same arena with the same conformance oracle, and they
-share their traversal and projection code.
+``Satisfaction`` and ``Failure`` are logical complements. They are computed by
+mutually recursive folds over the same shape arena, using the same conformance
+oracle, traversal, and projection code.
 
 The mutual recursion is forced by negation. To explain why ``¬φ`` *failed*, you
 have to explain why ``φ`` *held* — so the failure fold calls the satisfaction
@@ -68,11 +65,9 @@ fold, and vice versa. Every ``¬`` flips the direction. Counting is the other
 flip point, and it is self-dual: a lower bound is broken by removing matches, an
 upper bound by adding them.
 
-This is also why satisfaction evidence is not a nice-to-have. Repair needs it:
-when a repair crosses a negation, the only way to fix the failure is to falsify
-something that currently holds, and the satisfaction trace is the record of
-what to falsify. The two polarities are one machine because the problem is one
-problem.
+Repair uses satisfaction evidence when fixing a failure under negation. It
+must falsify a constraint that currently holds, and the satisfaction trace
+records the values and triples that support that constraint.
 
 Canonical evidence
 ------------------
@@ -80,19 +75,13 @@ Canonical evidence
 A failed conjunction retains the children that establish the failure and drops
 the ones that passed.
 
-Canonical evidence answers *why did this result hold?* The answer to that
-question, for a conjunction, is the failing conjunct. A passing sibling is not
-part of the explanation — including it would inflate every failure tree with
-irrelevant material, and the trees are already large enough to be a performance
-concern (see :doc:`performance`). It also happens to be exactly the shape repair
-needs, since a repair must address the failing conjunct and has no business
-touching the passing one.
+The failing children explain why the conjunction failed and identify what
+repair needs to address. Omitting passing children also reduces the size of
+failure trees (see :doc:`performance`).
 
-But a UI often *does* want the siblings: "three of these four obligations are
-met" is useful to a person, and it is not what a proof contains. So the
-authored children are available separately, through
-``FocusEvaluation.progress``, which reports the immediate authored children and
-their statuses without materializing why each held.
+For a UI that shows progress, such as "three of these four obligations are
+met", use ``FocusEvaluation.progress``. It reports the immediate authored
+children and their statuses without building a derivation for each.
 
 Canonical evidence, progress, and on-demand evidence provide different views:
 
@@ -111,19 +100,16 @@ and constraint. This is a direct consequence of compiling shapes
 folds contradictions, and rewrites boolean structure, so the executed algebra
 does not correspond one-to-one with what you wrote.
 
-The source identity is what you correlate with author intent — this constraint
-came from that line of that shapes file. The normalized identity is what
-actually ran, and several source statements may share one after
-common-subexpression elimination. Discarding either one loses something: with
-only source ids you cannot explain the execution, and with only normalized ids
-you cannot point at the SHACL the user wrote.
+The source identity links a constraint to the shapes file. The normalized
+identity identifies the executed constraint; several source statements may
+share it after common-subexpression elimination. Keeping both lets you relate
+the evaluation to the original SHACL.
 
 Limits of evidence
 ------------------
 
-The validation *status* is exact everywhere. The explanation is not always
-available, and the cases where it is missing are marked in the tree rather than
-silently degraded.
+Validation status is exact, but a structural explanation is not always
+available. The evidence tree marks these cases explicitly.
 
 A ``sh:sparql`` constraint is **opaque**. An arbitrary SPARQL query is not
 something the algebra can fold over, so a failing one carries its query
@@ -134,10 +120,8 @@ relational constraints are blocked only in the deletive direction, which does
 not affect their validation result.
 
 Under greatest-fixed-point semantics (:doc:`recursion`), a node can conform
-because no counterexample is
-reachable, and there is then no finite set of supporting triples to point at.
-Evidence records a ``coinductive`` leaf. That is a real limit, not a placeholder
-for missing work.
+because no counterexample is reachable, without a finite set of supporting
+triples. Evidence records this as a ``coinductive`` leaf.
 
 ``PathSupport`` records one concrete successful route rather than enumerating
 all of them. For an alternative path,
@@ -148,16 +132,11 @@ derived from it is a candidate that still has to pass the repair gate.
 The costs
 ---------
 
-Materializing evidence for every selected pair costs 2.5–5.4x deciding
-conformance, rising
-with model size, and a mid-size model's serialized run can reach tens of
-megabytes before compaction.
+Generating evidence retains derivations that conformance checking can discard.
+Runtime and output size depend on the number of selected pairs and the
+structure of the constraints and paths they traverse.
 
-That is why the interface is a set of graded entry points rather than one
-function: decide conformance, find which pairs failed, explain one pair, or
-explain everything. Most callers want to know why something *failed*, and
-failures are a small minority of pairs — so finding the failures and explaining
-each one cost 3–34% over plain conformance on measured Brick models, compared
-with 2.5–5.4 times for full evidence. :doc:`performance` gives the choice of
-entry point; :doc:`evidence-performance-study` has the measurements and
-attribution.
+The interface supports conformance counts, failure discovery, single-pair
+explanations, and full evidence. If you only need failure explanations, finding
+failures first avoids building evidence for passing pairs. See :doc:`performance`
+for entry-point guidance.

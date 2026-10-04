@@ -1,15 +1,14 @@
 Extract bindings with a shape map
 =================================
 
-Use this when a shape is really an extraction schema — when you do not want to
-know *whether* the VAV has a supply-air temperature sensor, you want the sensor.
+A shape map extracts the values that satisfied a shape's property constraints.
+For example, a shape requiring a VAV to have a supply-air temperature sensor
+can also identify that sensor for an application.
 
-A shape map turns an evidence run into a flat table: one entry per selected
-``(shape, focus)`` pair, mapping each property obligation to the values that
-satisfied it. Without it you would validate, learn that the node conforms, and
-then write a second query that re-implements the shape's property paths and
-qualified-value filtering just to recover the values the validator already
-found.
+The map contains one entry per selected ``(shape, focus)`` pair, with bindings
+for each property obligation. It uses the validation evidence, so you can
+retrieve these values without writing a separate query for the shape's paths
+and qualifiers.
 
 Get a map
 ---------
@@ -102,7 +101,7 @@ when ``rdflib`` is installed.
 Annotate slots and values
 -------------------------
 
-Two independent annotation mechanisms, easy to confuse because both take a path:
+Slot names and value annotations use separate paths:
 
 ``name_path`` names the **slot**. It starts at the authored property-shape node
 and runs over the *shapes* graph, so its result is the same for every focus
@@ -151,8 +150,8 @@ default even when a graph serialization has no prefix declarations.
 Use the partial bindings of a failing node
 ------------------------------------------
 
-An invalid focus node is not an empty result, and for onboarding or repair
-workflows the bindings it *did* satisfy are often the most useful context:
+A failing focus node can still have successful bindings. Use these to inspect
+which property obligations it satisfied:
 
 .. code-block:: python
 

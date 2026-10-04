@@ -22,9 +22,7 @@ something to explain:
 Inspect the validation evidence
 -------------------------------
 
-An ordinary validation report is lossy on purpose: it tells you what to fix and
-discards everything else. The evidence interface keeps the derivation instead.
-Open a session over the two graphs and validate:
+Open an evidence session over the two graphs and validate:
 
 .. code-block:: python
 
@@ -81,11 +79,10 @@ Now ask why Bob failed:
            Atom at "123"^^<http://www.w3.org/2001/XMLSchema#integer> via ex:name [cuttable]
      CountLow along ex:email: have 0, need 1
 
-This is a tree, not a list, and its shape is the shape of the constraint. The
-outer ``All`` is the conjunction of Bob's two property obligations: both
-branches failed, and both must be fixed. The ``CountLow`` branch is the missing
-email, stated as an arithmetic gap — zero values found, one required — rather
-than as a message.
+The tree follows the constraint structure. The outer ``All`` combines Bob's
+two property obligations: both failed, and both must be fixed. The
+``CountLow`` branch records the missing email as a count: zero values found,
+one required.
 
 The ``CountHigh`` branch appears even though ``shapes.ttl`` does not declare a
 maximum. ``sh:datatype`` constrains *every* value of ``ex:name``, and "every
@@ -109,11 +106,9 @@ the children that establish the failure and drops passing siblings.
 Inspect a passing node
 ----------------------
 
-Alice conforms. The interesting question is *with what* — and this is the one a
-validation report cannot answer at all, because Alice does not appear in it.
-
-Rather than walking the satisfaction tree by hand, use the projections. They
-work identically on both polarities:
+Alice conforms. Use the evidence projections to retrieve the values and
+triples that satisfied her constraints. These methods work on both passing
+and failing evidence:
 
 .. code-block:: python
 
@@ -134,16 +129,13 @@ work identically on both polarities:
       matched:  ['"123"^^<http://www.w3.org/2001/XMLSchema#integer>']
       support:  ['<http://example.org/bob> <http://example.org/name> "123"^^<http://www.w3.org/2001/XMLSchema#integer>']
 
-``matched_values()`` on Alice returns the two values that actually satisfied her
-obligations. That is the answer you would otherwise get by writing a second
-query that re-implements the shape's property paths — and which could drift out
-of sync with the shape. ``supporting_triples()`` gives the triples underneath
-them, in N-Triples form.
+``matched_values()`` returns Alice's name and email, the values that satisfied
+her constraints. ``supporting_triples()`` returns the supporting triples in
+N-Triples form.
 
-Note that Bob has matched values too. On a failing node they mean "these are the
-values the constraint counted", which for his ``max 0`` datatype check is
-precisely the value that offended. Which brings us to the failure-side
-projections:
+Bob also has matched values: the values counted by the constraint. For his
+``max 0`` datatype check, this is the integer that failed the datatype test.
+Use the failure projections to retrieve offending values and missing counts:
 
 .. code-block:: python
 
@@ -161,18 +153,14 @@ projections:
    offending: ['"123"^^<http://www.w3.org/2001/XMLSchema#integer>']
    need 1 more: observed 0, required 1
 
-These are structured, not prose: ``gap.missing`` is an integer you can act on.
-A repair tool, a data-entry form, or a coverage dashboard all want this rather
-than the sentence "at least 1 value(s) required".
+``gap.missing`` is an integer, so a repair tool or data-entry form can use it
+directly to determine how many values are needed.
 
 See the siblings a proof leaves out
 -----------------------------------
 
-Canonical evidence is decisive: Bob's tree contains what makes him fail and
-nothing else. Sometimes you want the fuller picture — "two of these three
-obligations are met" is useful to a person, and is not what a proof contains.
-
-``focus.progress`` reports the immediate authored children and their statuses:
+Bob's failure tree omits passing children. To show the status of all
+immediate authored children, including passing ones, use ``focus.progress``:
 
 .. code-block:: python
 
@@ -194,9 +182,8 @@ obligations are met" is useful to a person, and is not what a proof contains.
        1 ConstraintKind.Conjunction fail
        8 ConstraintKind.Cardinality fail
 
-Progress reports *that* each child passed or failed without materializing
-*why* — that is what makes it cheap. When you need the full evidence for one of
-them, ask the session directly:
+Progress records each child's status without building its derivation. To
+retrieve the full evidence for a child, call ``evidence_for``:
 
 .. code-block:: python
 
@@ -214,11 +201,9 @@ The evidence interface retains the validator's derivation. It uses the same
 SHACL evaluation as ``validate()``, with a richer return value from the same
 fold.
 
-It also has a cost. Materializing evidence for every selected pair runs
-2.5–5.4x the time of deciding conformance, and grows with model size. If you
-only care about failures — which is most callers — there is a much cheaper
-path; :doc:`../explanation/performance` has the measurements and the entry
-points.
+Generating evidence requires additional work to retain each derivation. If you
+need only failure explanations, use ``find_failures()`` followed by ``explain()``
+for each pair. See :doc:`../explanation/performance` for entry-point guidance.
 
 Related documentation
 ---------------------

@@ -1,12 +1,12 @@
 Explain why a node passed or failed
 ===================================
 
-A validation report tells you what to fix. The evidence interface tells you why
-the engine reached that conclusion, for failures *and* passes, in a structure
-you can walk rather than a string you have to parse.
+The evidence interface records derivations for passing and failing nodes.
+You can traverse them to inspect the constraints, values, and supporting
+triples behind a result.
 
-:doc:`../tutorials/explaining-a-failure` introduces this from scratch. This page
-is the recipe collection; :doc:`../reference/evidence` is the data model.
+For an introduction, see :doc:`../tutorials/explaining-a-failure`.
+:doc:`../reference/evidence` describes the data model.
 
 Get evidence for a snapshot
 ---------------------------
@@ -144,11 +144,10 @@ That split is available today on the Rust ``PreparedEvidenceValidator``:
    }
    let catalog = prepared.constraints();                        // once per snapshot
 
-On the Brick corpus this costs 3–34% over deciding conformance, against
-2.5–5.4x for explaining everything — see :doc:`../explanation/performance` for
-the measurements and the reasoning. ``explain`` returns exactly what ``validate``
-would have produced for that pair. It does not re-run target selection, so
-pairs must come from ``find_failures`` or an earlier run.
+This avoids generating evidence for passing pairs; see
+:doc:`../explanation/performance` for entry-point guidance. ``explain`` returns
+the same evidence as ``validate`` for that pair. It does not re-run target
+selection, so pairs must come from ``find_failures`` or an earlier run.
 
 The Python ``EvidenceSession`` exposes the same workflow with
 ``find_failures(shape_names=...)`` and ``explain(pair)``.

@@ -4,7 +4,7 @@ Why repair computes but does not choose
 .. note::
 
    The repair layer is **experimental**. This page describes the design as it
-   currently stands; the shape of the argument is settled, the API is not.
+   currently stands. The API may change.
 
 Validation asks: does ``G, v ⊨ φ``? Repair asks the inverse question:
 
@@ -34,10 +34,10 @@ Every repair involves choices that the data and the schema do not determine:
 - *Whether to accept a candidate*, given what it fixes and what it might break.
 - *When to stop.*
 
-An engine that answered these would be making domain decisions from inside a
-constraint solver, using no information about the domain. It would produce
-plausible, wrong data — the worst possible output for a data-quality tool,
-because it is expensive to detect later.
+The graph and shapes do not provide enough information to make these choices.
+For example, several email addresses may satisfy a datatype constraint, but
+only one belongs to the person being described. The driver needs domain
+knowledge or an external data source to choose a value.
 
 The repair API exposes templates and a validation gate. A **driver** supplies
 data, choices, and control flow; the CLI includes an optional enumeration
@@ -63,15 +63,15 @@ driver for inspection.
 The reference drivers that ship with Shifty — enumeration, monomorphism, and
 the fixpoint loop — are worked examples over this API, not privileged
 components. The CLI's ``--apply`` uses the enumeration driver, which fills holes
-from terms already in the graph; it is a demonstration, and its policy is
-almost certainly not yours.
+from terms already in the graph. Applications can supply a driver with their
+own selection policy.
 
-The template is the interesting artifact
-----------------------------------------
+Repair templates
+----------------
 
 The central object is a ``RepairTree``: a parametric, inspectable description
-of supported candidate edits for one violation. Four constructs, mirroring φ on
-purpose, because a repair tree is the skeleton of a satisfaction proof:
+of supported candidate edits for one violation. Its four constructs follow
+the structure of φ:
 
 - ``All`` — satisfy every child (from a conjunction).
 - ``Any`` — satisfy any one child (from a disjunction).
@@ -82,20 +82,19 @@ purpose, because a repair tree is the skeleton of a satisfaction proof:
 A hole is a typed placeholder carrying what a legal value must satisfy: any
 node, a freshly minted node, equality with a constant, a value type, a node
 kind, membership in a finite set, or conformance to a sub-shape. The hole is
-precisely the seam where domain knowledge enters, and making it a first-class
-object is what lets a driver be an ASP solver, a database lookup, a form in a
-UI, or a language model, without the library knowing which.
+the point where the driver supplies domain knowledge. A driver can fill it using
+an ASP solver, a database lookup, a UI form, or a language model.
 
-Being a description rather than an action is what makes this inspectable. You
-can render a template, show it to a person, serialize the choices as data, fill
-it partially, and come back to it. ``instantiate`` is a pure fold of a plan over
-a template; it validates nothing and chooses nothing.
+You can render a template, show it to a person, serialize the choices, or
+partially fill it before supplying the remaining values. ``instantiate``
+folds a plan over a template; it validates nothing and chooses nothing.
 
 Algebraic repair synthesis
 --------------------------
 
-Repair recurses over the shape arena rather than over the W3C validation
-report, and this is not an implementation detail.
+Repair recurses over the shape arena. A W3C validation report identifies
+failures but does not contain the nested constraint structure needed for
+synthesis.
 
 The report walker deliberately treats ``sh:and``, ``sh:or``, ``sh:not``, and
 ``sh:node`` as opaque units — it does not drill into sub-failures, because the
@@ -104,9 +103,8 @@ to repair ``φ₁ ∧ φ₂`` you need the repair spaces of both conjuncts. The 
 is used only to seed which statements failed at which focus nodes; everything
 structural comes from the algebra.
 
-This is the same argument that makes evidence and repair the same machinery.
-The witness that failure evidence produces is exactly the lossless input
-synthesis needs — see :doc:`evidence-design`.
+Failure evidence retains the witness needed by repair synthesis. See
+:doc:`evidence-design`.
 
 Repair synthesis folds
 ----------------------
@@ -125,20 +123,17 @@ delete. They both walk an already-pruned witness or trace, so they are finite.
 this qualifier" — values that do not exist yet, so there is nothing to witness
 against. It walks the *shape* instead, since everything must be constructed. And
 because a recursive shape can be built forever, ``build`` is the one that
-carries fuel. At fuel exhaustion a recursive obligation becomes a
-``conforms to`` hole and is handed to the driver, which is a better failure mode
-than either diverging or silently truncating.
+carries a fuel limit. When that limit is reached, a recursive obligation
+becomes a ``conforms to`` hole for the driver to fill.
 
 Repair scope
 ------------
 
-A template adds and deletes *data* triples. The schema is ground truth.
-
-This is a scope decision, not a claim that it is always the right fix. Often the
-correct repair is to the schema: widen a ``closed`` list, lower a ``minCount``,
-delete a statement that was never right. Shifty will not propose those, because
-proposing schema edits from a data failure is how a validator talks itself out
-of enforcing anything. The IR is general enough to express them if that changes.
+A template adds and deletes data triples while keeping the schema fixed.
+Some failures may instead require a schema change, such as widening a
+``closed`` list, lowering a ``minCount``, or deleting an incorrect statement.
+Shifty does not propose schema edits; the shape author must review those
+changes separately.
 
 Blocked branches are visible
 ----------------------------
@@ -159,9 +154,9 @@ in its current scope.
 The gate is whole-graph
 -----------------------
 
-A repair that fixes one node by breaking another is not a repair, so the gate
-re-validates the entire graph and returns the difference against the original:
-what this delta fixes, what it would introduce, and what remains.
+An edit that fixes one node can introduce a violation elsewhere. The gate
+re-validates the entire graph and reports which violations the delta fixes,
+introduces, or leaves unresolved.
 
 A delta is **sound** exactly when it introduces nothing. Soundness plus a
 non-empty fixed set is **progress**. The gate returns this verdict and acts on

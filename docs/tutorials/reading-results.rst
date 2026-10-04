@@ -29,22 +29,18 @@ The snippets below use paths to the files from the first tutorial:
 Result formats
 --------------
 
-Shifty can hand you a validation result in three shapes.
+Shifty provides report graphs, rendered text, and structured result objects.
 
 ``validate()`` returns a **W3C report graph** — an ``rdflib.Graph`` containing
 ``sh:ValidationResult`` nodes. Use it when something downstream expects
 standard SHACL output, or when you want to store the result as RDF alongside
 the data. The cost is that reading a finding means querying a graph.
 
-``validate()`` also returns **rendered text**, which is for a human reading a
-terminal and nothing else.
+``validate()`` also returns **rendered text** for display in a terminal.
 
-``validate_algebra()`` returns **structured objects**. Use it when your program
-is the consumer. There is no graph to query and no text to parse, and — the
-part that matters most — the constraint that failed is available as a stable
-enum rather than as English.
-
-This tutorial uses the third.
+``validate_algebra()`` returns **structured objects**, used in this tutorial.
+These expose the failed constraint as an enum, so application code can handle
+it directly.
 
 Walk the violations
 -------------------
@@ -72,9 +68,8 @@ the focus node.
 Branch on constraint kind
 -------------------------
 
-``reason.message`` is generated prose. It is good for display and a bad thing
-to make decisions from: it is not a stable interface, and matching on
-substrings of it breaks silently the next time the wording improves.
+``reason.message`` is generated text for display. Its wording may change, so
+use ``reason.constraint_kind`` to handle failures in code.
 
 ``reason.constraint_kind`` is the stable form:
 
@@ -109,9 +104,8 @@ author wrote. If you need that, read on.
 Use the author's own message
 ----------------------------
 
-If the shape author wrote a ``sh:message``, it is almost certainly better than
-anything the engine generates, because it can say what the constraint means in
-the domain. Add one to ``shapes.ttl``:
+A ``sh:message`` can explain a constraint using domain-specific terms.
+Add one to ``shapes.ttl``:
 
 .. code-block:: turtle
 
@@ -144,9 +138,8 @@ Then prefer it, falling back to the engine's:
    Warning | contact email is recommended
    Violation | every person needs a string name
 
-``author_message`` is ``None`` when the shape declares no ``sh:message``, which
-is why the fallback matters. This two-line pattern is most of what a good
-error-reporting layer needs.
+``author_message`` is ``None`` when the shape declares no ``sh:message``.
+The fallback uses the engine's message in that case.
 
 Reason severity
 ---------------
@@ -177,19 +170,16 @@ only remaining problem is the warning-level missing email:
    info → conforms: False | findings: 1
    violation → conforms: True | findings: 1
 
-The finding does not disappear at the higher threshold. ``minimum_severity``
-changes *only* whether ``conforms`` flips to false. That separation is
-deliberate — a warning you have decided not to fail the build on is still
-something you want to log — but it means ``conforms`` and "the violations list
-is empty" are different questions, and code that treats them as one will
-quietly ignore warnings.
+The finding remains at the higher threshold. ``minimum_severity`` controls
+whether it makes ``conforms`` false, so you can log warnings without failing a
+build. Check ``conforms`` for the validation decision and inspect
+``violations`` for all findings, including those below the threshold.
 
 Group findings the way your consumer needs
 ------------------------------------------
 
-The result is organised by focus node. Reporting is often better organised by
-constraint — "these 40 assets are all missing an email" reads far better than
-40 near-identical rows:
+The result is organised by focus node. You can group it by constraint to
+summarize repeated problems, such as 40 assets missing an email:
 
 .. code-block:: python
 
@@ -215,8 +205,8 @@ constraint — "these 40 assets are all missing an email" reads far better than
       1  ConstraintKind.ValueType on ex:name
             <http://example.org/bob>
 
-On a two-node example this is pointless. On a corpus of thousands it is the
-difference between a report someone reads and a report someone closes.
+Grouping has little effect on this two-node example, but can reduce repeated
+output when many nodes fail the same constraint.
 
 Trace a finding back to the compiled constraint
 -----------------------------------------------
@@ -245,11 +235,10 @@ out what the engine actually checked:
       render:     test(datatype(xsd:string))
       definition: test(datatype(xsd:string))
 
-Two ids, and they are different on purpose. ``violation.constraint_id`` (11) is
-the top-level shape the statement targets. ``reason.constraint_id`` (8 and 1)
-is the specific nested node that failed inside it — they differ whenever the
-shape is a conjunction, disjunction, or other composite, which is nearly
-always.
+``violation.constraint_id`` (11) identifies the top-level shape the statement
+targets. ``reason.constraint_id`` (8 and 1) identifies the nested node that
+failed. These can differ for conjunctions, disjunctions, and other composite
+shapes.
 
 ``render`` is the constraint in the engine's notation and ``definition`` is the
 same thing with sub-shapes expanded. Both are what ``shifty inspect --stage
@@ -259,9 +248,8 @@ traced to a specific node of the compiled schema.
 What this does not tell you
 ---------------------------
 
-You now have every failure, in a form you can branch on and group. Two
-questions remain unanswerable from here, and both come from the same
-structural fact — a validation result is a list of failures:
+Structured results list failures and their constraints. They do not include
+passing evaluations or full derivations:
 
 - **Which nodes passed?** Alice is nowhere in this output. A conforming node
   and a node the shape never selected are equally absent.

@@ -161,10 +161,9 @@ child constraint ids stay resolvable without the live session.
 Canonical evidence and progress
 -------------------------------
 
-Canonical evidence is decisive: a failed conjunction retains the children that
-establish the failure and does not carry successful siblings. It is a proof, and
-it is the same structured witness the repair layer consumes. Satisfaction is its
-logical complement, recording the branches and values that establish a pass.
+A failed conjunction retains the children that establish its failure and
+omits passing siblings. The repair layer consumes this structured witness.
+Satisfaction evidence records the branches and values that establish a pass.
 
 ``FocusEvaluation.progress`` is the source-oriented view for the *immediate*
 authored children, including ones the canonical tree elided:
@@ -255,7 +254,7 @@ Each distinct evidence node and RDF term is stored once and referenced by index.
 Lossless, and ``shifty.expand_evidence(compact, catalog=None, *, as_dict=True)``
 restores the run exactly. The catalog is fixed per snapshot regardless of how
 many findings there are, so omitting it matters most on small runs — see
-:doc:`../explanation/performance` for measured sizes.
+:doc:`../explanation/performance` for guidance on output size and runtime.
 
 Rust API
 --------

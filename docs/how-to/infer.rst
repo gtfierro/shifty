@@ -144,8 +144,8 @@ When rules refer to each other
 ------------------------------
 
 Rules may depend on rules, including cyclically. Shifty analyses the dependency
-graph and evaluates in strata, and a schema whose recursion passes through a
-negation is refused with a diagnostic rather than guessed at. To see the
+graph and evaluates in strata. A schema whose recursion passes through
+negation is rejected with a diagnostic. To see the
 analysis for a shapes file:
 
 .. code-block:: bash

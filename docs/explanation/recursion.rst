@@ -4,12 +4,10 @@ Recursion and stratification
 SHACL shapes can reference each other through ``sh:node``, ``sh:property``, and
 ``sh:qualifiedValueShape``, and nothing stops those references from forming a
 cycle. The W3C specification leaves the meaning of such a schema **undefined**.
-That is not an oversight to route around; for some cyclic schemas there is
-genuinely no consistent answer, and a validator has to decide what it does
-about that.
+Some cyclic schemas have no consistent two-valued answer.
 
-This page describes what Shifty decided and why. It is load-bearing: every
-optimization in the normalizer is only sound relative to this choice.
+Shifty accepts stratifiable recursion and rejects cycles through negation.
+The normalizer's rewrites preserve conformance under these semantics.
 
 The paradox
 -----------
@@ -23,20 +21,12 @@ Consider the smallest problematic schema:
 and a graph where a node has a ``p``-edge to itself. If the node conforms, then
 it has a conforming ``p``-successor — itself — so it does not conform. If it
 does not conform, then it has no conforming ``p``-successor, so it conforms.
-There is no two-valued assignment that satisfies the definition. Not "hard to
-compute": there is no answer.
+There is no two-valued assignment that satisfies the definition.
 
-A validator can respond in three ways. It can adopt a three-valued semantics,
-where the node's status is *undefined*, which is principled and drags a third
-truth value through every operator, every optimization, and every report. It
-can pick an answer, which is fast and wrong. Or it can detect the situation and
-refuse.
-
-Shifty refuses, with a diagnostic naming the cycle. The reasoning is that a
-schema like this is nearly always a mistake in the schema, and the useful thing
-to do with a mistake is name it. Silently returning ``conforms: true`` for a
-question with no answer is the one outcome with no recovery path — you cannot
-tell it apart from a real pass.
+A validator could introduce a third truth value, *undefined*, and propagate it
+through evaluation, optimization, and reporting. Shifty instead rejects the
+schema with a diagnostic naming the cycle, so the shape author can correct it.
+Returning a boolean in this case would give an inconsistent result.
 
 Stratification
 --------------
@@ -95,8 +85,8 @@ contributes a negative edge.
 Two fixed points
 ----------------
 
-Within a stratum, validation and inference use *opposite* fixed points. This
-sounds inconsistent and is not: they are answering different questions.
+Within a stratum, validation uses a greatest fixed point and inference uses a
+least fixed point.
 
 Least and greatest fixed points differ only on cyclic data; on a DAG they
 coincide. Take the constraint "*v* conforms iff *v* is a Person and every
@@ -110,18 +100,16 @@ coincide. Take the constraint "*v* conforms iff *v* is a Person and every
   removes anything with a concrete violation. Neither node has one, so both
   **conform**. This is the coinductive reading: no reachable counterexample.
 
-**Validation uses the greatest fixed point.** For a universal constraint, the
-coinductive reading is what people usually mean — "everyone I transitively
-follow is verified" is a safety property, not a claim that the follow graph
-terminates. And the alternative flags legitimate cyclic data as invalid, which
-matters for social graphs and any other genuinely cyclic domain. For acyclic
-data, such as Brick's part-of and feeds hierarchies, the choice makes no
-difference at all.
+**Validation uses the greatest fixed point.** A universal constraint such as
+"everyone I transitively follow is verified" can hold on cyclic data. The
+coinductive interpretation accepts those cycles when no reachable node
+violates the constraint. For acyclic data, such as Brick's part-of and feeds
+hierarchies, the two fixed points give the same result.
 
-**Inference uses the least fixed point.** It has to. A rule fires when its body
-is actually satisfied by asserted or derived triples; a fact cannot be
-materialized on the grounds that it justifies itself. The least fixed point is
-also the standard semi-naive rule evaluation.
+**Inference uses the least fixed point.** A rule fires when its body is
+satisfied by asserted or previously derived triples. This prevents facts from
+being derived solely because they justify themselves, and matches standard
+semi-naive rule evaluation.
 
 The two never conflict because they run in separate phases: inference to a
 fixed point first, then validation over the result.
@@ -131,12 +119,10 @@ The cost of the choice
 
 Under the greatest fixed point, an *inductive* constraint — "this structure
 must be acyclic" or "this chain must be finite" — is not expressible by default.
-It would need an explicit acyclicity check. That is a real loss, and it is the
-price of not flagging cyclic data.
+It would need an explicit acyclicity check.
 
-It is not a one-way door. Stratification supports either direction per positive
-stratum, so the greatest fixed point is the documented default rather than a
-structural commitment.
+Stratification could support either fixed point per positive stratum. Shifty
+currently uses the greatest fixed point for validation.
 
 In practice
 -----------
@@ -154,9 +140,8 @@ count is just the topological layering. When a schema is refused, this stage
 names the offending cycle.
 
 One consequence shows up in evidence: a recursive success reached through a
-back-edge is recorded as a ``coinductive`` satisfaction leaf. That is an honest
-label. The node conforms under the greatest-fixed-point semantics, but there is
-no finite set of supporting triples to point at — the justification is the
-absence of a counterexample, not the presence of a witness. Repair inherits the
-same limit: there is nothing finite to delete, so deletion-direction repair is
-incomplete through positive recursion, and says so rather than guessing.
+back-edge is recorded as a ``coinductive`` satisfaction leaf. The node conforms
+under greatest-fixed-point semantics because there is no reachable
+counterexample, without a finite set of supporting triples. Deletion-direction
+repair cannot construct a deletion from this evidence and marks the branch as
+blocked. It is therefore incomplete through positive recursion.

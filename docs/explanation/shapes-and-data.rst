@@ -3,29 +3,27 @@ Shapes graphs and data graphs
 
 .. _shapes-and-data-graphs:
 
-There are two questions that sound like one, and conflating them is the most
-common way to get a validation run that passes for the wrong reason:
+Shifty controls the source of shape definitions separately from the triples
+available during evaluation:
 
 1. Where do **shape definitions** come from?
 2. Which triples are **visible during evaluation**?
 
-They are controlled by different things and have different answers.
+The inputs determine where shapes come from. ``graph_mode`` determines which
+triples are visible to validation.
 
 Where shapes come from
 ----------------------
 
 The rule is the same in every frontend.
 
-**One graph in → it is both shapes and data.** Supply a single graph and Shifty
-reads shape definitions *and* the data to validate from it. This is the common
-combined-file case, where ``sh:NodeShape`` definitions sit alongside instance
-data.
+With a single graph, Shifty reads both shape definitions and data from it.
+This supports combined files, where ``sh:NodeShape`` definitions sit alongside
+instance data.
 
-**Two graphs in → shapes come only from the shapes graph.** Supply a separate
-shapes graph and data graph and the schema is compiled *only* from the shapes
-graph. SHACL vocabulary that happens to live in the data graph is **ignored** —
-a stray ``sh:property`` or ``sh:NodeShape`` triple in your data will never
-quietly become a constraint.
+With separate shapes and data inputs, Shifty compiles the schema only from
+the shapes graph. SHACL vocabulary in the data graph, such as ``sh:property``
+or ``sh:NodeShape``, does not contribute constraints.
 
 .. list-table::
    :widths: 45 25 30
@@ -50,27 +48,18 @@ quietly become a constraint.
 Why the asymmetry
 ~~~~~~~~~~~~~~~~~
 
-It would be more convenient, in the moment, to read shapes from wherever they
-are found. It is a bad idea for the same reason that letting a payload rewrite
-its own validation rules is a bad idea: the data is usually the untrusted side.
-
-Data graphs are generated, merged from several sources, and edited by people
-who are not thinking about your shapes. If shapes could be sourced from data,
-then anyone who can write data can weaken the schema, and — worse — can do it
-by accident. Someone copies an example file that happens to include a
-``sh:NodeShape``, or an upstream export includes its own SHACL profile, and now
-your validation is checking something other than what you wrote. Nothing fails.
-The run stays green.
-
-Keeping the schema fixed makes validation predictable and matches the SHACL
-specification's own separation of the two graphs.
+Data graphs may include shapes copied from examples or supplied by an
+upstream exporter. Reading those as constraints would change the validation
+schema whenever the data changed. Keeping shape definitions in the supplied
+shapes graph makes the schema predictable and matches SHACL's separation of
+shapes and data.
 
 Shapes embedded in data
 ~~~~~~~~~~~~~~~~~~~~~~~
 
-Say so explicitly. Both ``--shapes`` and the Python ``shapes`` argument accept
-multiple sources and union them, so add the data file as an additional shapes
-source:
+Both ``--shapes`` and the Python ``shapes`` argument accept multiple sources
+and union them. To include shapes embedded in data, add the data file as a
+shapes input:
 
 .. code-block:: bash
 
@@ -135,10 +124,9 @@ always authored with the shapes, not with the instance data. Under ``data``
 mode the validator cannot see it, and every subclass instance fails a
 constraint it satisfies.
 
-So the modes trade off like this. ``data`` is the strict reading: the data
-graph must stand entirely on its own, ontology included. Use it when you want
-to know whether a graph is self-contained. ``union`` is the practical default:
-the data is validated, the shapes side supplies vocabulary. ``union-all`` also
+Use ``data`` to check whether the data graph is self-contained, including its
+ontology definitions. The default, ``union``, validates nodes selected from the
+data graph with vocabulary from both graphs. ``union-all`` also
 selects focus nodes from the shapes graph, which is useful when the shapes file
 contains instances you intend to validate too. It can also select ontology
 resources in the shapes graph as validation targets.

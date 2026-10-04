@@ -1,9 +1,9 @@
 Reference
 =========
 
-Exact behaviour, organised by interface. These pages describe what each thing
-does and what its arguments mean; they do not explain why you would want it.
-For that, see the :doc:`how-to guides <../how-to/index>` and
+These pages document signatures, arguments, defaults, and return values by
+interface. For usage examples and design explanations, see the
+:doc:`how-to guides <../how-to/index>` and
 :doc:`../explanation/index`.
 
 .. list-table::
