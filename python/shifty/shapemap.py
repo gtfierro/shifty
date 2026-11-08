@@ -406,6 +406,20 @@ class _KeyInfo:
     kind: str
 
 
+@dataclasses.dataclass(frozen=True)
+class _SlotLayout:
+    order: Optional[Decimal]
+    identity: str
+    constraint_components: Optional[tuple[str, ...]]
+    vacuous_property: bool
+
+
+@dataclasses.dataclass
+class _BindingOrder:
+    owners: list[int]
+    slots: dict[int, _SlotLayout]
+
+
 def _derive_key_info(
     catalog: _Catalog,
     shape_name_of: "Optional[Callable[[int], Optional[str]]]",
@@ -1148,6 +1162,7 @@ class ShapeMap:
 
         mappings: "dict[str, list[Mapping]]" = {}
         all_mappings: "list[Mapping]" = []
+        order_cache: dict[tuple[int, ...], _BindingOrder] = {}
         for statement_py, statement in zip(run.statements, data["statements"]):
             name = statement_py.shape_name
             group_key = name or f"_:statement-{statement_py.source_statement_id}"
@@ -1167,6 +1182,7 @@ class ShapeMap:
                     shape_name_of,
                     source_owners,
                     layout,
+                    order_cache,
                 )
                 group.append(mapping)
                 all_mappings.append(mapping)
@@ -1192,6 +1208,7 @@ def _build_mapping(
     shape_name_of: "Optional[Callable[[int], Optional[str]]]",
     source_owners: "dict[int, int]",
     layout: "dict[int, tuple[Optional[str], str, list[str]]]",
+    order_cache: dict[tuple[int, ...], _BindingOrder],
 ) -> Mapping:
     conforms = focus["evidence"]["status"] == "pass"
     root = focus["evidence"]["evidence"]
@@ -1277,24 +1294,28 @@ def _build_mapping(
                     order = value
             except InvalidOperation:
                 pass
-        return (
+        return _SlotLayout(
             order,
             identity,
             (tuple(components) if components is not None else None),
             vacuous_property,
         )
 
-    slot_layouts = {owner: slot_layout(owner) for owner in group_order}
-    group_order.sort(
-        key=lambda owner: (
-            slot_layouts[owner][0] is None,
-            slot_layouts[owner][0] or Decimal(0),
-            slot_layouts[owner][1],
+    cache_key = tuple(sorted(groups))
+    if cache_key not in order_cache:
+        slots = {owner: slot_layout(owner) for owner in group_order}
+        group_order.sort(
+            key=lambda owner: (
+                slots[owner].order is None,
+                slots[owner].order or Decimal(0),
+                slots[owner].identity,
+            )
         )
-    )
+        order_cache[cache_key] = _BindingOrder(group_order, slots)
+    ordered = order_cache[cache_key]
     bindings: "dict[Key, Binding]" = {}
     ordinals: "dict[tuple, int]" = {}
-    for position, owner in enumerate(group_order, 1):
+    for position, owner in enumerate(ordered.owners, 1):
         group = groups[owner]
         info, status, source_id, normalized_ref, subtree = group[0]
         if len(group) > 1:
@@ -1371,10 +1392,10 @@ def _build_mapping(
             names,
             _has_universal_value_constraint(source_catalog, source_id),
             position,
-            slot_layouts[owner][0],
+            ordered.slots[owner].order,
             len(_count_domains(source_catalog, source_id)) > 1,
-            slot_layouts[owner][2],
-            slot_layouts[owner][3],
+            ordered.slots[owner].constraint_components,
+            ordered.slots[owner].vacuous_property,
         )
 
     return Mapping(

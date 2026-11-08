@@ -227,9 +227,6 @@ impl super::EvidenceSession {
         // authored qualifier still defines extraction and its observation.
         qualified.sort_unstable();
         qualified.dedup();
-        if domains.is_empty() && !qualified.is_empty() {
-            domains.extend(qualified.iter().copied());
-        }
         domains.sort_unstable();
         domains.dedup();
         let holds = |value: &Term, shape| {
@@ -240,7 +237,16 @@ impl super::EvidenceSession {
         };
         let values = shifty_engine::path::succ(self.path_graph(), &focus, &path);
         let observed = match domains.as_slice() {
-            [] => Some(values.len() as u64),
+            [] if qualified.is_empty() => Some(values.len() as u64),
+            [] if qualified.len() == 1 => Some(
+                values
+                    .iter()
+                    .filter(|value| {
+                        holds(value, qualified[0])
+                            && excluded.iter().all(|shape| !holds(value, *shape))
+                    })
+                    .count() as u64,
+            ),
             [domain] => Some(values.iter().filter(|value| holds(value, *domain)).count() as u64),
             // Different count domains (e.g. minCount plus qualifiedMinCount)
             // cannot be represented by one honest scalar, even if they happen

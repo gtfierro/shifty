@@ -101,7 +101,9 @@ new run's evidence.
        N-Triples term, or a bare IRI. Indexes on first use.
    * - ``to_dict()``
      - A JSON-compatible summary keyed by shape, focus, and rendered key, with
-       terms in N-Triples spelling.
+       terms in N-Triples spelling. Binding summaries include ``position``,
+       ``order`` (a decimal string or null), and ``constraint_components``
+       (an array of IRI strings or null).
 
 ``Mapping``
 -----------

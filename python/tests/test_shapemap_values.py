@@ -132,18 +132,19 @@ def test_optional_qualified_value_shape_still_extracts_and_counts_matches():
     assert binding.observed == 1
 
 
-def test_qualified_disjointness_is_applied_to_extraction_and_counts():
+@pytest.mark.parametrize("qualified_bound", ["sh:qualifiedMinCount 2 ;", ""])
+def test_qualified_disjointness_is_applied_to_extraction_and_counts(qualified_bound):
     shapes = (
         PREFIXES
         + """
     ex:S a sh:NodeShape ; sh:targetClass ex:T ;
         sh:property [ sh:path ex:p ; sh:name "first" ;
-            sh:qualifiedValueShape [ sh:class ex:V ] ; sh:qualifiedMinCount 2 ;
+            sh:qualifiedValueShape [ sh:class ex:V ] ; QUALIFIED_BOUND
             sh:qualifiedValueShapesDisjoint true ] ;
         sh:property [ sh:path ex:p ; sh:name "second" ;
             sh:qualifiedValueShape [ sh:class ex:Other ] ; sh:qualifiedMinCount 1 ] .
     """
-    )
+    ).replace("QUALIFIED_BOUND", qualified_bound)
     data = (
         PREFIXES
         + """
@@ -153,10 +154,12 @@ def test_qualified_disjointness_is_applied_to_extraction_and_counts():
     )
     (mapping,) = shifty.shape_map(data, shapes, infer=False)
     binding = mapping.by_name("first")
-    assert not binding.ok
+    assert binding.ok is (not qualified_bound)
     assert binding.values == [Iri("http://ex/good")]
     assert binding.observed == 1
-    assert binding.rejected_values == [Iri("http://ex/both")]
+    assert binding.rejected_values == (
+        [Iri("http://ex/both")] if qualified_bound else []
+    )
 
 
 def test_observation_is_lazy_and_shared_by_values_and_counts():
@@ -210,3 +213,42 @@ def test_revalidated_run_never_recovers_values_from_the_original_snapshot():
     (mapping,) = shifty.ShapeMap.from_run(after, session)
     assert mapping["p"].values == [Literal("x-after")]
     assert mapping["p"].observed == 1
+
+
+@pytest.mark.parametrize("graph_mode", ["data", "union", "union-all"])
+def test_value_recovery_respects_the_validation_graph_mode(graph_mode):
+    shapes = (
+        PREFIXES
+        + """
+    ex:S a sh:NodeShape ; sh:targetClass ex:T ;
+        sh:property [ sh:path ex:p ; sh:pattern "x" ] .
+    ex:a ex:p "x-from-shapes" .
+    """
+    )
+    data = PREFIXES + 'ex:a a ex:T ; ex:p "bad" .'
+    (mapping,) = shifty.shape_map(data, shapes, infer=False, graph_mode=graph_mode)
+    binding = mapping["p"]
+    assert binding.values == (
+        [] if graph_mode == "data" else [Literal("x-from-shapes")]
+    )
+    assert binding.observed == (1 if graph_mode == "data" else 2)
+    assert binding.rejected_values == [Literal("bad")]
+
+
+@pytest.mark.parametrize("infer", [False, True])
+def test_value_recovery_reads_the_inferred_snapshot(infer):
+    shapes = (
+        PREFIXES
+        + """
+    ex:S a sh:NodeShape ; sh:targetClass ex:T ;
+        sh:property [ sh:path ex:p ; sh:pattern "x" ] ;
+        sh:rule [ a sh:TripleRule ; sh:subject sh:this ;
+            sh:predicate ex:p ; sh:object "x-inferred" ] .
+    """
+    )
+    data = PREFIXES + 'ex:a a ex:T ; ex:p "bad" .'
+    (mapping,) = shifty.shape_map(data, shapes, infer=infer)
+    binding = mapping["p"]
+    assert binding.values == ([Literal("x-inferred")] if infer else [])
+    assert binding.observed == (2 if infer else 1)
+    assert binding.rejected_values == [Literal("bad")]
