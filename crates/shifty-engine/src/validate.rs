@@ -23,6 +23,7 @@
 //! the crucial invariant—cache only conclusions independent of the current
 //! recursion proof, while making the recursion rule explicit in one place.
 
+use crate::error::{EvaluationError, ValidationError};
 use crate::focus::FocusNodes;
 use crate::frozen::FrozenIndexedDataset;
 use crate::path::{PathBackend, pred, succ};
@@ -219,11 +220,11 @@ pub struct ValidationOutcome {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum UnsupportedPolicy {
     /// Best-effort: run anyway and accept that the result may be unreliable.
-    /// This preserves the historical behavior, so it is the default.
-    #[default]
+    /// Explicit compatibility opt-in; results may be incomplete.
     Ignore,
     /// Fail loudly: refuse to evaluate the unsupported construct so the failure
-    /// surfaces (e.g. as a constraint error) instead of a silent wrong answer.
+    /// surfaces as an execution error instead of a silent wrong answer.
+    #[default]
     Error,
 }
 
@@ -454,7 +455,7 @@ fn constraint_kind_label(schema: &Schema, id: ShapeId) -> &'static str {
 /// net-positive (monotone), and `explain`/`holds`'s "assume conforming on a
 /// back-edge" cycle guard computes exactly the **greatest fixpoint** — the
 /// coinductive validation reading we chose.
-pub fn validate(data: &Graph, schema: &Schema) -> Result<ValidationOutcome, NonStratifiable> {
+pub fn validate(data: &Graph, schema: &Schema) -> Result<ValidationOutcome, ValidationError> {
     validate_with_options(data, schema, &ValidationOptions::default())
 }
 
@@ -463,7 +464,7 @@ pub fn validate_with_options(
     data: &Graph,
     schema: &Schema,
     options: &ValidationOptions,
-) -> Result<ValidationOutcome, NonStratifiable> {
+) -> Result<ValidationOutcome, ValidationError> {
     validate_with_context_and_options(data, data, schema, options)
 }
 
@@ -472,7 +473,7 @@ pub fn validate_graphs(
     data: &Graph,
     shapes: &Graph,
     schema: &Schema,
-) -> Result<ValidationOutcome, NonStratifiable> {
+) -> Result<ValidationOutcome, ValidationError> {
     validate_graphs_with_mode_and_options(
         data,
         shapes,
@@ -488,7 +489,7 @@ pub fn validate_graphs_with_mode(
     shapes: &Graph,
     schema: &Schema,
     mode: ValidationGraphMode,
-) -> Result<ValidationOutcome, NonStratifiable> {
+) -> Result<ValidationOutcome, ValidationError> {
     validate_graphs_with_mode_and_options(data, shapes, schema, mode, &ValidationOptions::default())
 }
 
@@ -499,7 +500,7 @@ pub fn validate_graphs_with_mode_and_options(
     schema: &Schema,
     mode: ValidationGraphMode,
     options: &ValidationOptions,
-) -> Result<ValidationOutcome, NonStratifiable> {
+) -> Result<ValidationOutcome, ValidationError> {
     match mode {
         ValidationGraphMode::Data => {
             let uses_shapes = uses_shapes_graph(&schema.arena);
@@ -533,7 +534,7 @@ pub fn validate_with_context(
     data: &Graph,
     context: &Graph,
     schema: &Schema,
-) -> Result<ValidationOutcome, NonStratifiable> {
+) -> Result<ValidationOutcome, ValidationError> {
     validate_with_context_and_options(data, context, schema, &ValidationOptions::default())
 }
 
@@ -543,7 +544,7 @@ pub fn validate_with_context_and_options(
     context: &Graph,
     schema: &Schema,
     options: &ValidationOptions,
-) -> Result<ValidationOutcome, NonStratifiable> {
+) -> Result<ValidationOutcome, ValidationError> {
     let uses_shapes = uses_shapes_graph(&schema.arena);
     let frozen = if uses_shapes {
         FrozenIndexedDataset::from_graphs(context, context)
@@ -559,7 +560,7 @@ fn validate_with_frozen(
     frozen: FrozenIndexedDataset,
     has_shapes_graph: bool,
     options: &ValidationOptions,
-) -> Result<ValidationOutcome, NonStratifiable> {
+) -> Result<ValidationOutcome, ValidationError> {
     let strat = analyze(&schema.arena);
     if !strat.stratifiable {
         let components = strat
@@ -568,11 +569,11 @@ fn validate_with_frozen(
             .filter(|s| !s.stratifiable)
             .map(|s| s.shapes.clone())
             .collect();
-        return Err(NonStratifiable { components });
+        return Err(NonStratifiable { components }.into());
     }
 
     let sparql = SparqlExecutor::from_frozen(frozen, has_shapes_graph);
-    Ok(validate_with_executor(data, schema, &sparql, options))
+    Ok(validate_with_executor(data, schema, &sparql, options)?)
 }
 
 pub(crate) fn validate_with_executor(
@@ -580,7 +581,7 @@ pub(crate) fn validate_with_executor(
     schema: &Schema,
     sparql: &SparqlExecutor,
     options: &ValidationOptions,
-) -> ValidationOutcome {
+) -> Result<ValidationOutcome, EvaluationError> {
     validate_with_executor_selected(data, schema, sparql, options, None)
 }
 
@@ -590,7 +591,7 @@ pub(crate) fn validate_with_executor_selected(
     sparql: &SparqlExecutor,
     options: &ValidationOptions,
     selected: Option<&[bool]>,
-) -> ValidationOutcome {
+) -> Result<ValidationOutcome, EvaluationError> {
     let entries = schema.statements.iter().enumerate().filter_map(|(i, st)| {
         if selected.is_some_and(|selected| !selected[i])
             || (selected.is_none()
@@ -607,15 +608,17 @@ pub(crate) fn validate_with_executor_selected(
             .unwrap_or_else(|| format!("@{}", st.shape.0));
         Some((i, st.shape, &st.selector, label))
     });
-    validate_entries(
-        data,
-        &schema.arena,
-        &schema.prefixes,
-        sparql,
-        options,
-        entries,
-        focus_nodes_with_evaluator,
-    )
+    sparql.checked(|| {
+        validate_entries(
+            data,
+            &schema.arena,
+            &schema.prefixes,
+            sparql,
+            options,
+            entries,
+            focus_nodes_with_evaluator,
+        )
+    })
 }
 
 fn validate_entries<'a, S: 'a>(
@@ -707,7 +710,7 @@ pub fn graph_union(left: &Graph, right: &Graph) -> Graph {
 pub fn validate_plan(
     data: &Graph,
     plan: &PhysicalPlan,
-) -> Result<ValidationOutcome, NonStratifiable> {
+) -> Result<ValidationOutcome, ValidationError> {
     validate_plan_with_options(data, plan, &ValidationOptions::default())
 }
 
@@ -716,7 +719,7 @@ pub fn validate_plan_with_options(
     data: &Graph,
     plan: &PhysicalPlan,
     options: &ValidationOptions,
-) -> Result<ValidationOutcome, NonStratifiable> {
+) -> Result<ValidationOutcome, ValidationError> {
     validate_plan_with_context_and_options(data, data, plan, options)
 }
 
@@ -725,7 +728,7 @@ pub fn validate_plan_graphs(
     data: &Graph,
     shapes: &Graph,
     plan: &PhysicalPlan,
-) -> Result<ValidationOutcome, NonStratifiable> {
+) -> Result<ValidationOutcome, ValidationError> {
     validate_plan_graphs_with_mode_and_options(
         data,
         shapes,
@@ -741,7 +744,7 @@ pub fn validate_plan_graphs_with_mode(
     shapes: &Graph,
     plan: &PhysicalPlan,
     mode: ValidationGraphMode,
-) -> Result<ValidationOutcome, NonStratifiable> {
+) -> Result<ValidationOutcome, ValidationError> {
     validate_plan_graphs_with_mode_and_options(
         data,
         shapes,
@@ -758,7 +761,7 @@ pub fn validate_plan_graphs_with_mode_and_options(
     plan: &PhysicalPlan,
     mode: ValidationGraphMode,
     options: &ValidationOptions,
-) -> Result<ValidationOutcome, NonStratifiable> {
+) -> Result<ValidationOutcome, ValidationError> {
     match mode {
         ValidationGraphMode::Data => {
             let uses_shapes = uses_shapes_graph(&plan.arena);
@@ -790,7 +793,7 @@ pub fn validate_plan_with_context(
     data: &Graph,
     context: &Graph,
     plan: &PhysicalPlan,
-) -> Result<ValidationOutcome, NonStratifiable> {
+) -> Result<ValidationOutcome, ValidationError> {
     validate_plan_with_context_and_options(data, context, plan, &ValidationOptions::default())
 }
 
@@ -800,7 +803,7 @@ pub fn validate_plan_with_context_and_options(
     context: &Graph,
     plan: &PhysicalPlan,
     options: &ValidationOptions,
-) -> Result<ValidationOutcome, NonStratifiable> {
+) -> Result<ValidationOutcome, ValidationError> {
     let uses_shapes = uses_shapes_graph(&plan.arena);
     let frozen = if uses_shapes {
         FrozenIndexedDataset::from_graphs(context, context)
@@ -816,7 +819,7 @@ fn validate_plan_with_frozen(
     frozen: FrozenIndexedDataset,
     has_shapes_graph: bool,
     options: &ValidationOptions,
-) -> Result<ValidationOutcome, NonStratifiable> {
+) -> Result<ValidationOutcome, ValidationError> {
     let strat = analyze(&plan.arena);
     if !strat.stratifiable {
         let components = strat
@@ -825,13 +828,13 @@ fn validate_plan_with_frozen(
             .filter(|s| !s.stratifiable)
             .map(|s| s.shapes.clone())
             .collect();
-        return Err(NonStratifiable { components });
+        return Err(NonStratifiable { components }.into());
     }
 
     let sparql = SparqlExecutor::from_frozen(frozen, has_shapes_graph);
     Ok(validate_plan_with_executor(
         data, plan, &sparql, options, None,
-    ))
+    )?)
 }
 
 pub(crate) fn validate_plan_with_executor(
@@ -840,7 +843,7 @@ pub(crate) fn validate_plan_with_executor(
     sparql: &SparqlExecutor,
     options: &ValidationOptions,
     selected: Option<&[bool]>,
-) -> ValidationOutcome {
+) -> Result<ValidationOutcome, EvaluationError> {
     let entries = plan.statements.iter().enumerate().filter_map(|(i, sp)| {
         if selected.is_some_and(|selected| !selected[i])
             || (selected.is_none()
@@ -857,15 +860,17 @@ pub(crate) fn validate_plan_with_executor(
             .unwrap_or_else(|| format!("@{}", sp.shape.0));
         Some((i, sp.shape, &sp.source, label))
     });
-    validate_entries(
-        data,
-        &plan.arena,
-        &plan.prefixes,
-        sparql,
-        options,
-        entries,
-        focus_for_source,
-    )
+    sparql.checked(|| {
+        validate_entries(
+            data,
+            &plan.arena,
+            &plan.prefixes,
+            sparql,
+            options,
+            entries,
+            focus_for_source,
+        )
+    })
 }
 
 /// Focus nodes for a compiled [`FocusSource`].
@@ -1358,20 +1363,7 @@ fn explain(
                         })
                         .collect()
                 }
-                Err(error) => vec![reason(
-                    evaluator.arena,
-                    id,
-                    node.clone(),
-                    path_ctx.map(str::to_string),
-                    severity,
-                    format!("SPARQL constraint evaluation failed: {error}"),
-                    None,
-                    Vec::new(),
-                    evaluator
-                        .sparql
-                        .constraint_diagnostic(&constraint, node, &[])
-                        .ok(),
-                )],
+                Err(_) => Vec::new(), // The evaluation boundary returns the retained failure.
             }
         }
         Shape::TestConst(_)

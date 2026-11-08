@@ -68,7 +68,7 @@ File inputs resolve relative IRIs against each file's own absolute URI unless
        in_place=False,
        minimum_severity="info",
        sort_results=True,
-       on_unsupported="ignore",
+       on_unsupported="error",
        base=None,
    ) -> tuple[bool, rdflib.Graph, str]
 
@@ -109,7 +109,7 @@ Requires ``rdflib`` at call time, since it constructs the report graph.
    * - ``sort_results``
      - Deterministic ordering of results. Default ``True``.
    * - ``on_unsupported``
-     - ``"ignore"`` (default) or ``"error"``. See
+     - ``"error"`` (default) or ``"ignore"``. See
        :doc:`feature-support`.
    * - ``base``
      - Base IRI for resolving relative IRIs while parsing.
@@ -253,7 +253,7 @@ distinguish them.
 .. code-block:: python
 
    shifty.infer(data_graph, shapes_graph=None, *,
-                in_place=False, on_unsupported="ignore", base=None) -> InferResult
+                in_place=False, on_unsupported="error", base=None) -> InferResult
 
 Runs SHACL-AF ``sh:rule`` entries to a fixed point. Note it takes no
 ``graph_mode``.
@@ -314,7 +314,7 @@ the module-level functions.
 .. code-block:: python
 
    validator.witnesses(data_graph, *, key_path=None, graph_mode="union",
-                       infer=True, on_unsupported="ignore")
+                       infer=True, on_unsupported="error")
        -> list[PropertyWitness]
 
 For each focus node that conforms to a target-bearing node shape, this method
@@ -387,8 +387,8 @@ warnings and unsupported features.
 ``validate()`` and ``PreparedValidator.validate()`` return the
 ``(conforms, report_graph, results_text)`` tuple, which has
 nowhere to put a diagnostic. They instead emit one
-``shifty.ShaclDiagnosticWarning`` per diagnostic, so a rule that could not run
-does not read as a clean pass:
+``shifty.ShaclDiagnosticWarning`` per diagnostic, so an explicitly requested best-effort run does not hide a skipped rule.
+Unsupported features otherwise raise errors by default:
 
 .. code-block:: python
 
@@ -404,3 +404,13 @@ does not read as a clean pass:
 Invalid shapes diagnostics are different: a malformed SPARQL query or an
 unresolved query prefix raises ``ValueError`` while the operation is prepared.
 They never leave an API call running with that constraint or rule omitted.
+
+Execution failures
+------------------
+
+``shifty.ValidationFailure`` is a ``RuntimeError`` subclass raised when a
+validation query cannot execute. It carries no conformance verdict or partial
+report. A completed run with constraint violations still returns an ordinary
+non-conforming result. This applies to free functions, prepared validation,
+property witnesses, and evidence evaluation. Invalid inputs and shapes remain
+``ValueError`` exceptions. See :doc:`../how-to/upgrading-0.6`.

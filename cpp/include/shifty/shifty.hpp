@@ -50,6 +50,12 @@ enum class QueryResultKind {
     Graph,
 };
 
+/// Handling of partially supported validation features.
+enum class UnsupportedPolicy {
+    Error,
+    Ignore,
+};
+
 /// Options applied when validating a dataset.
 struct ValidationOptions {
     /// Use the data/shapes union for evaluation while discovering focus nodes
@@ -72,6 +78,8 @@ struct ValidationOptions {
     /// are still evaluated normally from the selected entries.
     std::vector<std::string> shape_names;
 
+    /// Reject unsupported features unless best effort is explicitly requested.
+    UnsupportedPolicy on_unsupported = UnsupportedPolicy::Error;
 };
 
 /// Exception raised when an SDK operation fails.
@@ -1676,7 +1684,7 @@ public:
         ValidationOptions options = {}) const {
         ShiftyValidationResult *raw = nullptr;
         const auto shape_names = detail::string_views(options.shape_names);
-        detail::check(shifty_prepared_validator_validate_with_shapes(
+        detail::check(shifty_prepared_validator_validate_with_policy(
             handle_.get(),
             dataset.handle_.get(),
             detail::to_c(options.graph_mode),
@@ -1684,6 +1692,8 @@ public:
             detail::to_c(options.minimum_severity),
             shape_names.data(),
             shape_names.size(),
+            options.on_unsupported == UnsupportedPolicy::Error
+                ? SHIFTY_UNSUPPORTED_ERROR : SHIFTY_UNSUPPORTED_IGNORE,
             &raw));
         std::unique_ptr<
             ShiftyValidationResult,
@@ -1738,7 +1748,7 @@ public:
         ValidationOptions options = {}) const {
         ShiftyAlgebraResult *raw = nullptr;
         const auto shape_names = detail::string_views(options.shape_names);
-        detail::check(shifty_prepared_validator_validate_algebra_with_shapes(
+        detail::check(shifty_prepared_validator_validate_algebra_with_policy(
             handle_.get(),
             dataset.handle_.get(),
             detail::to_c(options.graph_mode),
@@ -1746,6 +1756,8 @@ public:
             detail::to_c(options.minimum_severity),
             shape_names.data(),
             shape_names.size(),
+            options.on_unsupported == UnsupportedPolicy::Error
+                ? SHIFTY_UNSUPPORTED_ERROR : SHIFTY_UNSUPPORTED_IGNORE,
             &raw));
         std::unique_ptr<ShiftyAlgebraResult, detail::AlgebraResultDeleter> result(raw);
 

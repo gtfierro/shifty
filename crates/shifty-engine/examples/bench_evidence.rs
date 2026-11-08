@@ -185,11 +185,11 @@ fn main() {
         // One warm-up round, discarded: it faults in the caches all arms share.
         // Its duration is only consulted when `--budget-ms` is in play.
         let probe = Instant::now();
-        let _ = prepared.validate_conformance(&scan_options);
-        let _ = prepared.validate_canonical(&options);
-        let (_, warm_failures) = prepared.find_failures(&scan_options);
+        let _ = prepared.validate_conformance(&scan_options).unwrap();
+        let _ = prepared.validate_canonical(&options).unwrap();
+        let (_, warm_failures) = prepared.find_failures(&scan_options).unwrap();
         for pair in &warm_failures {
-            std::hint::black_box(prepared.explain_canonical(pair));
+            std::hint::black_box(prepared.explain_canonical(pair).unwrap());
         }
         let probe_ms = probe.elapsed().as_secs_f64() * 1e3;
         // Every model gets the same iteration count. `--budget-ms` only caps the
@@ -220,14 +220,14 @@ fn main() {
                 match arm {
                     Arm::Conformance => {
                         let start = Instant::now();
-                        let conformance_run = prepared.validate_conformance(&scan_options);
+                        let conformance_run = prepared.validate_conformance(&scan_options).unwrap();
                         conformance_samples.push(start.elapsed());
                         std::hint::black_box(conformance_run.selected_pairs);
                         last_conformance = Some(conformance_run);
                     }
                     Arm::FullEvidence => {
                         let start = Instant::now();
-                        let run = prepared.validate_canonical(&options);
+                        let run = prepared.validate_canonical(&options).unwrap();
                         evidence_samples.push(start.elapsed());
                         std::hint::black_box(run.statements.len());
                         last_run = Some(run);
@@ -235,13 +235,13 @@ fn main() {
                     Arm::OnDemand => {
                         let start = Instant::now();
                         let (on_demand_conformance, failures) =
-                            prepared.find_failures(&scan_options);
+                            prepared.find_failures(&scan_options).unwrap();
                         let discovery = start.elapsed();
 
                         let start = Instant::now();
                         let explanations: Vec<_> = failures
                             .iter()
-                            .flat_map(|pair| prepared.explain_canonical(pair))
+                            .flat_map(|pair| prepared.explain_canonical(pair).unwrap())
                             .collect();
                         let explanation = start.elapsed();
 

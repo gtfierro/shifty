@@ -155,10 +155,14 @@ SKIPPED_RULE_DATA = PREFIX + "ex:x ex:q ex:y ."
 
 def test_every_interface_reports_inference_diagnostics():
     """A run whose rules could not execute says so, whichever result type it returns."""
-    algebra = shifty.validate_algebra(SKIPPED_RULE_DATA, SKIPPED_RULE_SHAPES)
+    algebra = shifty.validate_algebra(
+        SKIPPED_RULE_DATA, SKIPPED_RULE_SHAPES, on_unsupported="ignore"
+    )
     assert any("blank nodes" in message for message in algebra.diagnostics)
 
-    inferred = shifty.infer(SKIPPED_RULE_DATA, SKIPPED_RULE_SHAPES)
+    inferred = shifty.infer(
+        SKIPPED_RULE_DATA, SKIPPED_RULE_SHAPES, on_unsupported="ignore"
+    )
     assert any("blank nodes" in message for message in inferred.diagnostics)
 
 
@@ -169,12 +173,14 @@ def test_w3c_path_warns_because_its_tuple_cannot_carry_diagnostics():
     rule that never ran.
     """
     with pytest.warns(shifty.ShaclDiagnosticWarning, match="blank nodes"):
-        conforms, _, _ = shifty.validate(SKIPPED_RULE_DATA, SKIPPED_RULE_SHAPES)
+        conforms, _, _ = shifty.validate(
+            SKIPPED_RULE_DATA, SKIPPED_RULE_SHAPES, on_unsupported="ignore"
+        )
     assert conforms is True
 
     prepared = shifty.PreparedValidator(SKIPPED_RULE_SHAPES)
     with pytest.warns(shifty.ShaclDiagnosticWarning, match="blank nodes"):
-        prepared.validate(SKIPPED_RULE_DATA)
+        prepared.validate(SKIPPED_RULE_DATA, on_unsupported="ignore")
 
 
 def test_a_clean_run_warns_about_nothing():

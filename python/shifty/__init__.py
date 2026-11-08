@@ -153,6 +153,9 @@ from ._shifty import (
     RepairSession as _RustRepairSession,
 )
 from ._shifty import (
+    ValidationFailure as ValidationFailure,
+)
+from ._shifty import (
     expand_evidence_json as _expand_evidence_json,
 )
 from .shapemap import (
@@ -202,6 +205,7 @@ if TYPE_CHECKING:
     FocusSatisfaction = Satisfaction
 
 __all__ = [
+    "ValidationFailure",
     "validate",
     "validate_algebra",
     "infer",
@@ -840,7 +844,7 @@ class PreparedValidator:
         in_place: bool = False,
         minimum_severity: str = "info",
         sort_results: bool = True,
-        on_unsupported: str = "ignore",
+        on_unsupported: str = "error",
     ) -> "tuple[bool, rdflib.Graph, str]":
         """Validate *data_graph* against the prepared shapes.
 
@@ -886,7 +890,7 @@ class PreparedValidator:
         in_place: bool = False,
         minimum_severity: str = "info",
         sort_results: bool = True,
-        on_unsupported: str = "ignore",
+        on_unsupported: str = "error",
     ) -> AlgebraResult:
         """Validate using the algebra result path.
 
@@ -927,7 +931,7 @@ class PreparedValidator:
         key_path: Optional[str] = None,
         graph_mode: str = "union",
         infer: bool = True,
-        on_unsupported: str = "ignore",
+        on_unsupported: str = "error",
     ) -> list[PropertyWitness]:
         """Return the observed ``sh:property`` bindings for every focus node
         that *conforms* to a target/profile node shape — the inverse of
@@ -1113,6 +1117,7 @@ class EvidenceSession:
         *,
         infer: bool = True,
         graph_mode: str = "union",
+        on_unsupported: str = "error",
         base: Optional[str] = None,
     ) -> None:
         shapes = _to_rdf_input(_coalesce_graph_input(shacl_graph))
@@ -1131,6 +1136,7 @@ class EvidenceSession:
             infer,
             graph_mode,
             base,
+            on_unsupported,
         )
 
     @property
@@ -1437,7 +1443,7 @@ def validate(
     in_place: bool = False,
     minimum_severity: str = "info",
     sort_results: bool = True,
-    on_unsupported: str = "ignore",
+    on_unsupported: str = "error",
     base: Optional[str] = None,
 ) -> "tuple[bool, rdflib.Graph, str]":
     """Validate *data_graph* against *shacl_graph* (pyshacl-compatible).
@@ -1532,7 +1538,7 @@ def validate_algebra(
     in_place: bool = False,
     minimum_severity: str = "info",
     sort_results: bool = True,
-    on_unsupported: str = "ignore",
+    on_unsupported: str = "error",
     base: Optional[str] = None,
 ) -> AlgebraResult:
     """Validate and return a structured algebraic result.
@@ -1593,7 +1599,7 @@ def infer(
     shapes_graph: Optional[GraphInputs] = None,
     *,
     in_place: bool = False,
-    on_unsupported: str = "ignore",
+    on_unsupported: str = "error",
     base: Optional[str] = None,
 ) -> InferResult:
     """Run SHACL-AF forward-chaining rules to a fixed point.

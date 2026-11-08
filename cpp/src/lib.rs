@@ -11,8 +11,8 @@ use oxttl::{NTriplesSerializer, TurtleSerializer};
 use shifty_algebra::{Schema, Severity, ShapeId};
 use shifty_engine::{
     CompiledShapes, EngineOptions, EvidenceRun, FindingOptions, SessionData, SessionOptions,
-    ValidationGraphMode, ValidationOptions as EngineValidationOptions, ValidationOutcome,
-    ValidationReport, Violation, graph_union, report_to_graph,
+    UnsupportedPolicy, ValidationGraphMode, ValidationOptions as EngineValidationOptions,
+    ValidationOutcome, ValidationReport, Violation, graph_union, report_to_graph,
 };
 use shifty_parse::{Loaded as LoadedShapes, parse_property_path};
 use sparesults::{QueryResultsFormat, QueryResultsSerializer};
@@ -620,12 +620,33 @@ fn validate_dataset(
     minimum_severity: Severity,
     entry_shape_names: &[String],
 ) -> Result<ShiftyValidationResult, ApiError> {
+    validate_dataset_with_policy(
+        validator,
+        dataset,
+        mode,
+        run_inference,
+        minimum_severity,
+        entry_shape_names,
+        UnsupportedPolicy::Error,
+    )
+}
+
+fn validate_dataset_with_policy(
+    validator: &ShiftyPreparedValidator,
+    dataset: &ShiftyDataset,
+    mode: u32,
+    run_inference: bool,
+    minimum_severity: Severity,
+    entry_shape_names: &[String],
+    unsupported: UnsupportedPolicy,
+) -> Result<ShiftyValidationResult, ApiError> {
     let mode = match graph_mode(mode)? {
         ShiftyGraphMode::Data => ValidationGraphMode::Data,
         ShiftyGraphMode::Union => ValidationGraphMode::Union,
         ShiftyGraphMode::UnionAll => ValidationGraphMode::UnionAll,
     };
-    let options = engine_validation_options(minimum_severity, entry_shape_names);
+    let mut options = engine_validation_options(minimum_severity, entry_shape_names);
+    options.engine.unsupported = unsupported;
     let session = validator
         .compiled
         .session(
@@ -637,11 +658,13 @@ fn validate_dataset(
             },
         )
         .map_err(|error| ApiError::new(ShiftyStatus::ValidationError, error.to_string()))?;
-    let report = session.report(&FindingOptions {
-        entry_shape_names: options.entry_shape_names.clone(),
-        minimum_severity: options.minimum_severity.clone(),
-        sort_results: options.sort_results,
-    });
+    let report = session
+        .report(&FindingOptions {
+            entry_shape_names: options.entry_shape_names.clone(),
+            minimum_severity: options.minimum_severity.clone(),
+            sort_results: options.sort_results,
+        })
+        .map_err(|error| ApiError::new(ShiftyStatus::ValidationError, error.to_string()))?;
     let report_graph = report_to_graph(&report);
     Ok(ShiftyValidationResult {
         conforms: report.conforms,
@@ -748,12 +771,33 @@ fn validate_algebra_dataset(
     minimum_severity: Severity,
     entry_shape_names: &[String],
 ) -> Result<ShiftyAlgebraResult, ApiError> {
+    validate_algebra_dataset_with_policy(
+        validator,
+        dataset,
+        mode,
+        run_inference,
+        minimum_severity,
+        entry_shape_names,
+        UnsupportedPolicy::Error,
+    )
+}
+
+fn validate_algebra_dataset_with_policy(
+    validator: &ShiftyPreparedValidator,
+    dataset: &ShiftyDataset,
+    mode: u32,
+    run_inference: bool,
+    minimum_severity: Severity,
+    entry_shape_names: &[String],
+    unsupported: UnsupportedPolicy,
+) -> Result<ShiftyAlgebraResult, ApiError> {
     let mode = match graph_mode(mode)? {
         ShiftyGraphMode::Data => ValidationGraphMode::Data,
         ShiftyGraphMode::Union => ValidationGraphMode::Union,
         ShiftyGraphMode::UnionAll => ValidationGraphMode::UnionAll,
     };
-    let options = engine_validation_options(minimum_severity, entry_shape_names);
+    let mut options = engine_validation_options(minimum_severity, entry_shape_names);
+    options.engine.unsupported = unsupported;
     let session = validator
         .compiled
         .session(
@@ -765,11 +809,13 @@ fn validate_algebra_dataset(
             },
         )
         .map_err(|error| ApiError::new(ShiftyStatus::ValidationError, error.to_string()))?;
-    let outcome = session.validate(&FindingOptions {
-        entry_shape_names: options.entry_shape_names.clone(),
-        minimum_severity: options.minimum_severity.clone(),
-        sort_results: options.sort_results,
-    });
+    let outcome = session
+        .validate(&FindingOptions {
+            entry_shape_names: options.entry_shape_names.clone(),
+            minimum_severity: options.minimum_severity.clone(),
+            sort_results: options.sort_results,
+        })
+        .map_err(|error| ApiError::new(ShiftyStatus::ValidationError, error.to_string()))?;
     Ok(build_algebra_result(
         outcome,
         validator.compiled.normalized_schema(),
@@ -1014,6 +1060,7 @@ impl ShapeMapSession {
                     .session
                     .prepared_evidence()
                     .explain_constraint(&term, ShapeId(ref_id))
+                    .map_err(|error| error.to_string())?
                     .map(|evidence| match evidence {
                         shifty_engine::Evidence::Satisfaction(trace) => {
                             serde_json::to_value(trace).ok()
@@ -1212,7 +1259,7 @@ fn severity(value: u32) -> Result<Severity, ApiError> {
 
 /// Build the engine `ValidationOptions` from the C-level severity discriminant,
 /// preserving the historical defaults for the fields the ABI does not expose
-/// (`sort_results = true`, `engine.unsupported = Ignore`).
+/// (`sort_results = true`, `engine.unsupported = Error`).
 fn engine_validation_options(
     minimum_severity: Severity,
     entry_shape_names: &[String],
@@ -1348,7 +1395,7 @@ fn string_view(value: &str) -> ShiftyStringView {
 /// no explanation.
 #[unsafe(no_mangle)]
 pub extern "C" fn shifty_abi_version() -> u32 {
-    6
+    7
 }
 
 #[unsafe(no_mangle)]
@@ -1661,6 +1708,55 @@ pub unsafe extern "C" fn shifty_prepared_validator_validate_with_shapes(
 }
 
 #[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_prepared_validator_validate_with_policy(
+    validator: *const ShiftyPreparedValidator,
+    dataset: *const ShiftyDataset,
+    graph_mode: u32,
+    run_inference: u8,
+    minimum_severity: u32,
+    shape_names: *const ShiftyStringView,
+    shape_names_len: usize,
+    on_unsupported: u32,
+    out: *mut *mut ShiftyValidationResult,
+) -> u32 {
+    ffi_call(|| {
+        let validator = unsafe { validator.as_ref() }
+            .ok_or_else(|| ApiError::new(ShiftyStatus::InvalidArgument, "validator is null"))?;
+        let dataset = unsafe { dataset.as_ref() }
+            .ok_or_else(|| ApiError::new(ShiftyStatus::InvalidArgument, "dataset is null"))?;
+        if out.is_null() {
+            return Err(ApiError::new(
+                ShiftyStatus::InvalidArgument,
+                "out result pointer is null",
+            ));
+        }
+        unsafe { out.write(ptr::null_mut()) };
+        let minimum_severity = severity(minimum_severity)?;
+        let shape_names = unsafe { shape_names_from_raw(shape_names, shape_names_len) }?;
+        let result = validate_dataset_with_policy(
+            validator,
+            dataset,
+            graph_mode,
+            run_inference != 0,
+            minimum_severity,
+            &shape_names,
+            match on_unsupported {
+                0 => UnsupportedPolicy::Error,
+                1 => UnsupportedPolicy::Ignore,
+                _ => {
+                    return Err(ApiError::new(
+                        ShiftyStatus::InvalidArgument,
+                        "unknown unsupported policy",
+                    ));
+                }
+            },
+        )?;
+        unsafe { out.write(Box::into_raw(Box::new(result))) };
+        Ok(())
+    })
+}
+
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn shifty_validation_result_destroy(result: *mut ShiftyValidationResult) {
     if !result.is_null() {
         unsafe { drop(Box::from_raw(result)) };
@@ -1787,6 +1883,55 @@ pub unsafe extern "C" fn shifty_prepared_validator_validate_algebra_with_shapes(
             run_inference != 0,
             minimum_severity,
             &shape_names,
+        )?;
+        unsafe { out.write(Box::into_raw(Box::new(result))) };
+        Ok(())
+    })
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_prepared_validator_validate_algebra_with_policy(
+    validator: *const ShiftyPreparedValidator,
+    dataset: *const ShiftyDataset,
+    graph_mode: u32,
+    run_inference: u8,
+    minimum_severity: u32,
+    shape_names: *const ShiftyStringView,
+    shape_names_len: usize,
+    on_unsupported: u32,
+    out: *mut *mut ShiftyAlgebraResult,
+) -> u32 {
+    ffi_call(|| {
+        let validator = unsafe { validator.as_ref() }
+            .ok_or_else(|| ApiError::new(ShiftyStatus::InvalidArgument, "validator is null"))?;
+        let dataset = unsafe { dataset.as_ref() }
+            .ok_or_else(|| ApiError::new(ShiftyStatus::InvalidArgument, "dataset is null"))?;
+        if out.is_null() {
+            return Err(ApiError::new(
+                ShiftyStatus::InvalidArgument,
+                "out result pointer is null",
+            ));
+        }
+        unsafe { out.write(ptr::null_mut()) };
+        let minimum_severity = severity(minimum_severity)?;
+        let shape_names = unsafe { shape_names_from_raw(shape_names, shape_names_len) }?;
+        let result = validate_algebra_dataset_with_policy(
+            validator,
+            dataset,
+            graph_mode,
+            run_inference != 0,
+            minimum_severity,
+            &shape_names,
+            match on_unsupported {
+                0 => UnsupportedPolicy::Error,
+                1 => UnsupportedPolicy::Ignore,
+                _ => {
+                    return Err(ApiError::new(
+                        ShiftyStatus::InvalidArgument,
+                        "unknown unsupported policy",
+                    ));
+                }
+            },
         )?;
         unsafe { out.write(Box::into_raw(Box::new(result))) };
         Ok(())
@@ -1986,7 +2131,11 @@ pub unsafe extern "C" fn shifty_prepared_validator_shape_map(
         let session = prepare_shape_map(validator, dataset, graph_mode, run_inference != 0)?;
         let options = engine_validation_options(minimum_severity, &shape_names);
         let run = build_shape_map_run(
-            session.session.prepared_evidence().validate(&options),
+            session
+                .session
+                .prepared_evidence()
+                .validate(&options)
+                .map_err(|error| ApiError::new(ShiftyStatus::ValidationError, error.to_string()))?,
             &session.raw_schema,
         )?;
         let map = session.shape_map(&run, name_path, &value_paths_vec)?;

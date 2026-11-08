@@ -159,7 +159,7 @@ fn data_shapes_core_reports() {
             continue;
         };
 
-        let report = shifty_engine::validate_report(&loaded, &loaded.graph);
+        let report = shifty_engine::validate_report(&loaded, &loaded.graph).unwrap();
         let mut got: Vec<Key> = report
             .results
             .iter()

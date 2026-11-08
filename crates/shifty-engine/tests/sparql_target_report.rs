@@ -28,7 +28,7 @@ fn iri(s: &str) -> Term {
 #[test]
 fn report_validates_sparql_target_focus_nodes() {
     let loaded = shifty_parse::load_turtle(SHAPES_AND_DATA.as_bytes(), None).expect("parse");
-    let report = shifty_engine::validate_report(&loaded, &loaded.graph);
+    let report = shifty_engine::validate_report(&loaded, &loaded.graph).unwrap();
 
     // ex:w1 (a Widget without ex:name) is the only violation; ex:w2 conforms
     // and ex:other is not a Widget so it is never selected as a focus node.

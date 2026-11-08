@@ -65,6 +65,31 @@ int main() {
     shifty::PreparedValidator validator(shapes);
     assert(validator.diagnostics_json() == "[]");
 
+    // Unsupported functions are execution failures, never SHACL findings.
+    {
+        shifty::PreparedValidator unsupported(R"(
+            @prefix sh: <http://www.w3.org/ns/shacl#> .
+            @prefix ex: <http://example.com/> .
+            ex:exists a sh:SPARQLFunction ; sh:ask "ASK { ?s ?p ?o }" .
+            ex:S a sh:NodeShape ; sh:targetNode ex:alice ;
+                sh:sparql [ sh:select "SELECT $this WHERE { FILTER (<http://example.com/exists>()) }" ] .
+        )");
+        for (bool algebra : {false, true}) {
+            bool rejected = false;
+            try {
+                if (algebra) { (void)unsupported.validate_algebra(dataset); }
+                else { (void)unsupported.validate(dataset); }
+            } catch (const shifty::Error &error) {
+                rejected = error.status() == SHIFTY_STATUS_VALIDATION_ERROR;
+            }
+            assert(rejected);
+        }
+        shifty::ValidationOptions best_effort;
+        best_effort.on_unsupported = shifty::UnsupportedPolicy::Ignore;
+        assert(unsupported.validate(dataset, best_effort).conforms());
+        assert(unsupported.validate_algebra(dataset, best_effort).conforms());
+    }
+
     // Invalid lowering diagnostics are parse errors, not a partial schema that
     // validation may silently treat as conforming.
     bool invalid_shapes_rejected = false;

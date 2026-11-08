@@ -80,7 +80,7 @@ or rule. ``inspect`` remains diagnostic-oriented and shows lowering output.
        that makes the run non-conforming. Lower-severity findings are omitted
        from the default text and JSON output, but retained in ``--report``.
    * - ``--on-unsupported <POLICY>``
-     - ``ignore`` (default) or ``error``. Use ``error`` to reject partially
+     - ``error`` (default) or ``ignore``. Use ``ignore`` to permit partially
        supported features; see :doc:`feature-support`.
    * - ``--dump-data <PATH>``
      - Write the data graph validation actually read, as Turtle, to ``PATH``

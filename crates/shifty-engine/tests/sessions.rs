@@ -34,16 +34,22 @@ fn split_blank_node_identity_is_public_across_session_results() {
         .unwrap();
     let focus = Term::BlankNode(oxrdf::BlankNode::new("same").unwrap());
     assert_eq!(
-        session.validate(&FindingOptions::default()).violations[0].focus,
+        session
+            .validate(&FindingOptions::default())
+            .unwrap()
+            .violations[0]
+            .focus,
         focus
     );
     assert_eq!(
-        session.report(&FindingOptions::default()).results[0].focus,
+        session.report(&FindingOptions::default()).unwrap().results[0].focus,
         focus
     );
-    let evidence = session.evidence(&EvidenceOptions::default());
+    let evidence = session.evidence(&EvidenceOptions::default()).unwrap();
     assert_eq!(evidence.statements[0].selected_foci[0].focus, focus);
-    let (_, pairs) = session.find_failures(&ConformanceOptions::default());
+    let (_, pairs) = session
+        .find_failures(&ConformanceOptions::default())
+        .unwrap();
     assert_eq!(pairs[0].focus(), &focus);
     assert!(!session.explain(&pairs[0]).unwrap().is_empty());
 }
@@ -178,8 +184,10 @@ fn one_compilation_serves_multiple_snapshots_and_rejects_foreign_pairs() {
     let second = compiled
         .session(SessionData::Separate(data), SessionOptions::default())
         .unwrap();
-    let (run, pairs) = first.find_failures(&ConformanceOptions::default());
-    let (_, other_pairs) = second.find_failures(&ConformanceOptions::default());
+    let (run, pairs) = first.find_failures(&ConformanceOptions::default()).unwrap();
+    let (_, other_pairs) = second
+        .find_failures(&ConformanceOptions::default())
+        .unwrap();
     assert_eq!(run.failed, 1);
     assert_eq!(pairs.len(), 1);
     assert_ne!(pairs[0], other_pairs[0]);
@@ -188,7 +196,12 @@ fn one_compilation_serves_multiple_snapshots_and_rejects_foreign_pairs() {
         second.explain(&pairs[0]),
         Err(EvaluationError::ForeignPair)
     ));
-    assert!(!second.validate(&FindingOptions::default()).conforms);
+    assert!(
+        !second
+            .validate(&FindingOptions::default())
+            .unwrap()
+            .conforms
+    );
 }
 
 #[test]
@@ -213,9 +226,18 @@ fn split_graph_modes_select_the_expected_focus_nodes() {
             },
         )
         .unwrap();
-    assert_eq!(union.conformance(&ConformanceOptions::default()).failed, 1);
     assert_eq!(
-        union_all.conformance(&ConformanceOptions::default()).failed,
+        union
+            .conformance(&ConformanceOptions::default())
+            .unwrap()
+            .failed,
+        1
+    );
+    assert_eq!(
+        union_all
+            .conformance(&ConformanceOptions::default())
+            .unwrap()
+            .failed,
         2
     );
 }
@@ -241,11 +263,19 @@ fn union_all_focus_uses_a_view_until_graph_compatibility_is_requested() {
     assert_eq!(
         session
             .validate(&FindingOptions::default())
+            .unwrap()
             .violations
             .len(),
         2
     );
-    assert_eq!(session.report(&FindingOptions::default()).results.len(), 2);
+    assert_eq!(
+        session
+            .report(&FindingOptions::default())
+            .unwrap()
+            .results
+            .len(),
+        2
+    );
     let storage = profile::take().unwrap().storage().clone();
     assert_eq!(storage.graph_union_builds, 0);
     assert_eq!(storage.graph_projection_builds, 0);
@@ -328,7 +358,12 @@ fn validation_reuses_inference_dataset_when_the_default_view_matches() {
                 },
             )
             .unwrap();
-        assert!(session.validate(&FindingOptions::default()).conforms);
+        assert!(
+            session
+                .validate(&FindingOptions::default())
+                .unwrap()
+                .conforms
+        );
         let storage = profile::take().unwrap().storage().clone();
         assert_eq!(storage.store_builds, 0);
         assert_eq!(storage.dataset_builds, expected_builds, "mode {mode:?}");
@@ -369,7 +404,10 @@ fn data_mode_after_inference_excludes_source_only_triples() {
             .unwrap();
         assert_eq!(session.inferred().len(), 1);
         assert_eq!(
-            session.validate(&FindingOptions::default()).conforms,
+            session
+                .validate(&FindingOptions::default())
+                .unwrap()
+                .conforms,
             conforms
         );
     }
@@ -408,8 +446,13 @@ fn compiled_functions_are_available_to_validation_queries() {
     let session = compiled
         .session(SessionData::Separate(data), SessionOptions::default())
         .unwrap();
-    assert!(!session.validate(&FindingOptions::default()).conforms);
-    assert!(!session.report(&FindingOptions::default()).conforms);
+    assert!(
+        !session
+            .validate(&FindingOptions::default())
+            .unwrap()
+            .conforms
+    );
+    assert!(!session.report(&FindingOptions::default()).unwrap().conforms);
 }
 
 #[test]
@@ -435,12 +478,26 @@ fn compiled_inference_uses_only_source_functions() {
     )
     .graph;
     let compiled = CompiledShapes::compile(shapes).unwrap();
+    let error = compiled
+        .session(
+            SessionData::Separate(data.clone()),
+            SessionOptions {
+                inference: true,
+                ..SessionOptions::default()
+            },
+        )
+        .err()
+        .expect("strict inference rejects a function absent from shapes");
+    assert!(error.to_string().contains("not supported"));
     let session = compiled
         .session(
             SessionData::Separate(data),
             SessionOptions {
                 inference: true,
-                ..SessionOptions::default()
+                engine: shifty_engine::EngineOptions {
+                    unsupported: shifty_engine::UnsupportedPolicy::Ignore,
+                },
+                ..Default::default()
             },
         )
         .unwrap();
@@ -508,7 +565,12 @@ fn compiled_inference_reads_source_without_materializing_union() {
             },
         )
         .unwrap();
-    assert!(session.validate(&FindingOptions::default()).conforms);
+    assert!(
+        session
+            .validate(&FindingOptions::default())
+            .unwrap()
+            .conforms
+    );
     let storage = profile::take().unwrap().storage().clone();
     assert_eq!(session.inferred().len(), 1);
     assert_eq!(storage.store_builds, 0);
@@ -559,7 +621,7 @@ fn union_all_keeps_data_out_of_the_named_shapes_graph() {
             },
         )
         .unwrap();
-    assert!(session.report(&FindingOptions::default()).conforms);
+    assert!(session.report(&FindingOptions::default()).unwrap().conforms);
 }
 
 #[test]
@@ -612,7 +674,7 @@ fn embedded_inference_does_not_change_the_named_shapes_graph() {
         )
         .unwrap();
     assert_eq!(session.inferred().len(), 1);
-    assert!(session.report(&FindingOptions::default()).conforms);
+    assert!(session.report(&FindingOptions::default()).unwrap().conforms);
 }
 
 #[test]
@@ -646,7 +708,12 @@ fn data_edits_preserve_graph_roles_and_the_original_snapshot() {
         )
         .unwrap();
     let union_after = union.with_delta(&delta).unwrap();
-    assert!(union_after.validate(&FindingOptions::default()).conforms);
+    assert!(
+        union_after
+            .validate(&FindingOptions::default())
+            .unwrap()
+            .conforms
+    );
 
     let data_only = compiled
         .session(
@@ -658,8 +725,18 @@ fn data_edits_preserve_graph_roles_and_the_original_snapshot() {
         )
         .unwrap();
     let data_after = data_only.with_delta(&delta).unwrap();
-    assert!(!data_after.validate(&FindingOptions::default()).conforms);
-    assert!(data_only.validate(&FindingOptions::default()).conforms);
+    assert!(
+        !data_after
+            .validate(&FindingOptions::default())
+            .unwrap()
+            .conforms
+    );
+    assert!(
+        data_only
+            .validate(&FindingOptions::default())
+            .unwrap()
+            .conforms
+    );
 
     let embedded = compiled
         .session(SessionData::Embedded, SessionOptions::default())
@@ -669,6 +746,7 @@ fn data_edits_preserve_graph_roles_and_the_original_snapshot() {
             .with_delta(&delta)
             .unwrap()
             .validate(&FindingOptions::default())
+            .unwrap()
             .conforms
     );
 }

@@ -2,6 +2,7 @@
 
 use crate::compiled::CompiledShapes;
 use crate::context;
+use crate::error::EvaluationError;
 use crate::evidence::{
     ConformanceOptions, ConformanceRun, PreparedEvidenceValidator, SelectedPair,
 };
@@ -82,11 +83,13 @@ pub enum SessionError {
     EmptyShapes,
     UnsupportedFeatures(Vec<Diagnostic>),
     StrictInference(Vec<ExecutionDiagnostic>),
+    Evaluation(EvaluationError),
 }
 
 impl fmt::Display for SessionError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::Evaluation(error) => error.fmt(f),
             Self::EmptyShapes => write!(f, "separate input requires a nonempty shapes graph"),
             Self::UnsupportedFeatures(diagnostics) => write!(
                 f,
@@ -111,23 +114,6 @@ impl fmt::Display for SessionError {
 }
 
 impl std::error::Error for SessionError {}
-
-/// Only `explain` and `explain_canonical` can fail: every other evaluation on a
-/// constructed session is total, so those return their value directly.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum EvaluationError {
-    ForeignPair,
-}
-
-impl fmt::Display for EvaluationError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::ForeignPair => write!(f, "selected pair belongs to another session"),
-        }
-    }
-}
-
-impl std::error::Error for EvaluationError {}
 
 pub struct EvaluationSession {
     compiled: CompiledShapes,
@@ -497,38 +483,44 @@ impl EvaluationSession {
         self.prepared()
     }
 
-    fn validate_internal(&self, options: &FindingOptions) -> ValidationOutcome {
+    fn validate_internal(
+        &self,
+        options: &FindingOptions,
+    ) -> Result<ValidationOutcome, EvaluationError> {
         self.prepared().validate_findings(
             self.compiled.physical_plan(),
             &options.validation(self.options.engine),
         )
     }
 
-    pub fn validate(&self, options: &FindingOptions) -> ValidationOutcome {
-        let mut outcome = self.validate_internal(options);
+    pub fn validate(&self, options: &FindingOptions) -> Result<ValidationOutcome, EvaluationError> {
+        let mut outcome = self.validate_internal(options)?;
         self.identity().validation(&mut outcome);
-        outcome
+        Ok(outcome)
     }
 
-    pub fn report(&self, options: &FindingOptions) -> crate::report::ValidationReport {
+    pub fn report(
+        &self,
+        options: &FindingOptions,
+    ) -> Result<crate::report::ValidationReport, EvaluationError> {
         let mut report = self.prepared().report(
             self.compiled.source(),
             &options.validation(self.options.engine),
-        );
+        )?;
         self.identity().report(&mut report);
-        report
+        Ok(report)
     }
 
     pub fn property_witnesses(
         &self,
         key_path: Option<&shifty_algebra::Path>,
         options: &FindingOptions,
-    ) -> Vec<crate::report::PropertyWitness> {
+    ) -> Result<Vec<crate::report::PropertyWitness>, EvaluationError> {
         let mut witnesses = self.prepared().property_witnesses(
             self.compiled.source(),
             key_path,
             &options.validation(self.options.engine),
-        );
+        )?;
         let identity = self.identity();
         for witness in &mut witnesses {
             witness.focus = identity.term(&witness.focus);
@@ -538,10 +530,10 @@ impl EvaluationSession {
                 *value = identity.term(value);
             }
         }
-        witnesses
+        Ok(witnesses)
     }
 
-    pub fn evidence(&self, options: &EvidenceOptions) -> EvidenceRun {
+    pub fn evidence(&self, options: &EvidenceOptions) -> Result<EvidenceRun, EvaluationError> {
         let validation = options.findings.validation(self.options.engine);
         self.evidence_with_validation(&validation, options.include_progress)
     }
@@ -550,24 +542,27 @@ impl EvaluationSession {
         &self,
         validation: &ValidationOptions,
         include_progress: bool,
-    ) -> EvidenceRun {
+    ) -> Result<EvidenceRun, EvaluationError> {
         let run = if include_progress {
             self.prepared().validate(validation)
         } else {
             self.prepared().validate_canonical(validation)
         };
-        self.identity().remap_evidence(run)
+        Ok(self.identity().remap_evidence(run?))
     }
 
-    pub fn conformance(&self, options: &ConformanceOptions) -> ConformanceRun {
+    pub fn conformance(
+        &self,
+        options: &ConformanceOptions,
+    ) -> Result<ConformanceRun, EvaluationError> {
         self.prepared().validate_conformance(options)
     }
 
     pub fn find_failures(
         &self,
         options: &ConformanceOptions,
-    ) -> (ConformanceRun, Vec<SelectedPair>) {
-        let (run, mut pairs) = self.prepared().find_failures(options);
+    ) -> Result<(ConformanceRun, Vec<SelectedPair>), EvaluationError> {
+        let (run, mut pairs) = self.prepared().find_failures(options)?;
         let identity = self.identity();
         for pair in &mut pairs {
             if !identity.labels.is_empty() {
@@ -575,7 +570,7 @@ impl EvaluationSession {
             }
             pair.snapshot = Some(Arc::clone(&self.snapshot));
         }
-        (run, pairs)
+        Ok((run, pairs))
     }
 
     pub fn explain(
@@ -585,7 +580,7 @@ impl EvaluationSession {
         self.check_pair(pair)?;
         Ok(self
             .identity()
-            .remap_evidence(self.prepared().explain(pair)))
+            .remap_evidence(self.prepared().explain(pair)?))
     }
 
     pub fn explain_canonical(
@@ -595,7 +590,7 @@ impl EvaluationSession {
         self.check_pair(pair)?;
         Ok(self
             .identity()
-            .remap_evidence(self.prepared().explain_canonical(pair)))
+            .remap_evidence(self.prepared().explain_canonical(pair)?))
     }
 
     fn check_pair(&self, pair: &SelectedPair) -> Result<(), EvaluationError> {
@@ -723,7 +718,9 @@ impl EvaluationSession {
     }
 
     pub fn gate(&self, delta: &GraphDelta) -> Result<RepairOutcome, SessionError> {
-        let baseline = self.validate_internal(&FindingOptions::default());
+        let baseline = self
+            .validate_internal(&FindingOptions::default())
+            .map_err(SessionError::Evaluation)?;
         let additions: HashSet<_> = delta.add.iter().collect();
         let changed = additions
             .iter()
@@ -743,7 +740,9 @@ impl EvaluationSession {
             });
         }
         let candidate = self.with_delta(delta)?;
-        let patched = candidate.validate_internal(&FindingOptions::default());
+        let patched = candidate
+            .validate_internal(&FindingOptions::default())
+            .map_err(SessionError::Evaluation)?;
         let baseline_keys: HashSet<_> = baseline
             .violations
             .iter()

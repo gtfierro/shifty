@@ -121,7 +121,7 @@ struct ValidateArgs {
     #[arg(long, value_enum, default_value_t = SeverityLevel::Info)]
     minimum_severity: SeverityLevel,
     /// How to handle partially supported features.
-    #[arg(long, value_enum, default_value_t = UnsupportedHandling::Ignore)]
+    #[arg(long, value_enum, default_value_t = UnsupportedHandling::Error)]
     on_unsupported: UnsupportedHandling,
     /// Write the data graph validation actually read — after SHACL-AF
     /// inference — as Turtle to this path, or to stdout for `-`.
@@ -1169,7 +1169,7 @@ fn validate(args: ValidateArgs) -> Result<(), Box<dyn Error>> {
     // W3C report mode: component-granular validator + RDF report output.
     if args.report {
         let stage_start = Instant::now();
-        let report = session.report(&finding_options);
+        let report = session.report(&finding_options)?;
         profile_stage(
             &mut input_lines,
             args.profile,
@@ -1194,7 +1194,7 @@ fn validate(args: ValidateArgs) -> Result<(), Box<dyn Error>> {
 
     let physical = compiled.physical_plan();
     let stage_start = Instant::now();
-    let mut outcome = session.validate(&finding_options);
+    let mut outcome = session.validate(&finding_options)?;
     profile_stage(
         &mut input_lines,
         args.profile,

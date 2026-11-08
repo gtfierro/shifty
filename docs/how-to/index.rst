@@ -18,6 +18,7 @@ starting point.
    inspect-pipeline
    conformance
    browser
+   upgrading-0.6
 
 Experimental
 ------------

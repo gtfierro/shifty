@@ -40,8 +40,10 @@ Serve the generated ``pkg/`` directory beside a page with a module script:
      console.log(result.conforms, result.violations);
    </script>
 
-``graphMode`` defaults to ``"data"`` in JavaScript. Pass ``"union"`` when
-validation should also see ontology triples in the shapes graph. The
+``graphMode`` defaults to ``"union"``, matching Python and CLI validation. Pass
+``"data"`` to evaluate only the data graph. Inference and sorting default to
+``true`` whether options are omitted, ``null``, or ``{}``. Unsupported features
+reject the call by default; ``onUnsupported: "ignore"`` requests best effort. The
 `crate README <https://github.com/gtfierro/shifty/blob/main/crates/shifty-wasm/README.md>`_
 covers the remaining options and build prerequisites. The other exports are:
 
@@ -57,7 +59,7 @@ covers the remaining options and build prerequisites. The other exports are:
    * - ``validateW3c(shapesRdf, dataRdf, options)``
      - ``{ conforms, reportTurtle, resultsText, diagnostics }`` — a W3C
        ``sh:ValidationReport``.
-   * - ``infer(shapesRdf, dataRdf)``
+   * - ``infer(shapesRdf, dataRdf, options)``
      - ``{ inferredCount, totalCount, graphNtriples, inferredNtriples,
        diagnostics }``.
    * - ``ntriplesToTurtle(ntriples)``

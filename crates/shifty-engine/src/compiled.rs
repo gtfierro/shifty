@@ -307,7 +307,7 @@ mod tests {
         );
         assert!(compiled.inner.physical.get().is_none());
         assert!(!session.has_prepared_dataset());
-        session.validate(&FindingOptions::default());
+        session.validate(&FindingOptions::default()).unwrap();
         assert!(compiled.inner.source_storage.get().is_some());
         assert!(compiled.inner.physical.get().is_some());
         assert!(session.has_prepared_dataset());
@@ -320,7 +320,7 @@ mod tests {
         let second = clone
             .session(SessionData::Embedded, SessionOptions::default())
             .unwrap();
-        second.validate(&FindingOptions::default());
+        second.validate(&FindingOptions::default()).unwrap();
         let storage = crate::profile::take().unwrap().storage().clone();
         assert_eq!(
             storage.source_builds, 0,

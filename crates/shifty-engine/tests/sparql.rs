@@ -141,7 +141,7 @@ mod complex_path_substitution {
             prefix = prefix()
         );
         let loaded = shapes_data(&ttl);
-        let report = validate_report(&loaded, &loaded.graph);
+        let report = validate_report(&loaded, &loaded.graph).unwrap();
         assert!(!report.conforms);
         let focuses: Vec<_> = report.results.iter().map(|r| r.focus.to_string()).collect();
         assert!(
@@ -178,7 +178,7 @@ mod complex_path_substitution {
             prefix = prefix()
         );
         let loaded = shapes_data(&ttl);
-        let report = validate_report(&loaded, &loaded.graph);
+        let report = validate_report(&loaded, &loaded.graph).unwrap();
         // ex:Alice has ex:Bob as inverse-child (ex:Bob ex:child ex:Alice)
         // ex:Bob has no inverse-child
         // The constraint fires when the value node is not an IRI, but
@@ -206,7 +206,7 @@ mod complex_path_substitution {
             prefix = prefix()
         );
         let loaded = shapes_data(&ttl);
-        let report = validate_report(&loaded, &loaded.graph);
+        let report = validate_report(&loaded, &loaded.graph).unwrap();
         assert!(!report.conforms);
         let focuses: Vec<_> = report.results.iter().map(|r| r.focus.to_string()).collect();
         assert!(
@@ -240,7 +240,7 @@ mod complex_path_substitution {
             prefix = prefix()
         );
         let loaded = shapes_data(&ttl);
-        let report = validate_report(&loaded, &loaded.graph);
+        let report = validate_report(&loaded, &loaded.graph).unwrap();
         // ex:A and ex:B can reach ex:Sink via ex:next*; ex:Sink reaches itself.
         // All three violate the constraint (they all reach ex:Sink).
         assert!(!report.conforms);
@@ -269,14 +269,18 @@ fn construct_blank_nodes_are_rejected_to_preserve_termination() {
             ] .
     "#;
     let loaded = shifty_parse::load_turtle(ttl, None).expect("valid Turtle");
-    let outcome = infer(loaded);
-    assert!(outcome.inferred().is_empty());
-    assert!(
-        outcome
-            .diagnostics()
-            .iter()
-            .any(|diagnostic| diagnostic.message.contains("blank nodes"))
-    );
+    let error = CompiledShapes::compile(loaded)
+        .unwrap()
+        .session(
+            SessionData::Embedded,
+            SessionOptions {
+                inference: true,
+                ..Default::default()
+            },
+        )
+        .err()
+        .expect("strict inference rejects fresh blank nodes");
+    assert!(error.to_string().contains("blank nodes"));
 }
 
 /// A CONSTRUCT rule whose body has a `GROUP BY`/`COUNT` aggregate cannot lower to

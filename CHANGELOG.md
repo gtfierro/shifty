@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### Changed
+
+- Unsupported features now default to errors in Rust, Python, CLI, C++, and
+  WebAssembly. Best effort requires an explicit `ignore` policy.
+- Wasm validation defaults to `union` graph mode. Omitted, null, and empty
+  options consistently enable inference and deterministic sorting.
+- Validation execution failures return typed Rust errors, raise Python
+  `ValidationFailure`, throw JavaScript errors, or return a C ABI validation
+  error. They no longer appear as ordinary SHACL constraint violations.
+- C ABI version is 7; rebuild C++ consumers. New policy-aware validation
+  functions preserve the existing C function signatures.
+- See `docs/how-to/upgrading-0.6.rst` for migration examples.
+
 ### Fixed
 
 - Shape-map bindings and duplicate-key ordinals use stable source order,
@@ -32,8 +45,12 @@
 ### Rust API
 
 - `ValidationResult` gains `source_constraint` and `ValidationReport` gains
-  `path_triples`. Callers constructing these structs directly must supply the
-  new fields.
+  retained path descriptions. Both report types are non-exhaustive, with
+  constructors and accessors; path storage is private. Use constructors instead
+  of struct literals.
+- Session validation, evidence, property witnesses, and report evaluation are
+  fallible. Standalone algebra validation returns `ValidationError`, separating
+  non-stratifiable schemas from execution failures.
 
 ## 0.5.1
 

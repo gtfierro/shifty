@@ -16,7 +16,7 @@ fn complex_result_paths_can_be_read_from_the_report_alone() {
         None,
     )
     .unwrap();
-    let report = validate_report(&shapes, &Graph::new());
+    let report = validate_report(&shapes, &Graph::new()).unwrap();
     assert!(!report.conforms);
     assert_eq!(report.results.len(), 1);
     let path = report.results[0].path.as_ref().unwrap();
@@ -47,7 +47,7 @@ fn sparql_results_identify_the_authored_constraint_in_rdf() {
         None,
     )
     .unwrap();
-    let report = validate_report(&shapes, &Graph::new());
+    let report = validate_report(&shapes, &Graph::new()).unwrap();
     assert_eq!(report.results.len(), 1);
     let constraint = Term::NamedNode(NamedNode::new("http://example.org/C").unwrap());
     assert_eq!(
@@ -80,6 +80,9 @@ fn unique_lang_uses_the_same_exact_boolean_term_as_the_upstream_suite() {
             "#
         );
         let shapes = load_turtle(turtle.as_bytes(), None).unwrap();
-        assert_eq!(validate_report(&shapes, &data.graph).conforms, conforms);
+        assert_eq!(
+            validate_report(&shapes, &data.graph).unwrap().conforms,
+            conforms
+        );
     }
 }

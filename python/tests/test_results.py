@@ -58,7 +58,7 @@ def test_validation_result_exposes_inference_diagnostics():
             sh:rule [ a sh:SPARQLRule ;
                 sh:construct "CONSTRUCT { $this ex:p [] } WHERE {}" ] .
     """
-    result = shifty.validate_algebra(b"", shapes)
+    result = shifty.validate_algebra(b"", shapes, on_unsupported="ignore")
     assert any("blank nodes" in message for message in result.diagnostics)
 
 

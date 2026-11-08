@@ -57,6 +57,7 @@ pub mod compact;
 mod compiled;
 mod context;
 pub mod enumerate;
+mod error;
 pub mod evidence;
 mod focus;
 pub mod frozen;
@@ -84,6 +85,7 @@ pub use compiled::{CompileError, CompiledShapes};
 pub use enumerate::{
     EnumOptions, FixpointResult, RepairSolution, candidates, enumerate_repair, repair_to_fixpoint,
 };
+pub use error::{EvaluationError, SparqlOperation, ValidationError};
 pub use evidence::{
     ConformanceOptions, ConformanceRun, PreparedEvidenceValidator, SelectedPair,
     validate_graphs_with_evidence, validate_graphs_with_evidence_and_mode,
@@ -99,8 +101,8 @@ pub use report::{
     validate_report_graphs_with_mode_and_options, validate_report_with_options,
 };
 pub use session::{
-    EvaluationError, EvaluationSession, EvidenceOptions, ExecutionDiagnostic, FindingOptions,
-    SessionData, SessionError, SessionOptions,
+    EvaluationSession, EvidenceOptions, ExecutionDiagnostic, FindingOptions, SessionData,
+    SessionError, SessionOptions,
 };
 pub use sharing::{ResultSharing, result_sharing};
 pub use synthesize::{
@@ -407,7 +409,7 @@ mod tests {
         assert_eq!(outcome.violations.len(), 1);
         assert_eq!(outcome.violations[0].focus.to_string(), "<http://ex/a>");
 
-        let report = validate_report_with_options(&loaded, &loaded.graph, &options);
+        let report = validate_report_with_options(&loaded, &loaded.graph, &options).unwrap();
         assert!(!report.conforms);
         assert_eq!(report.results.len(), 1);
         assert_eq!(report.results[0].focus.to_string(), "<http://ex/a>");
@@ -653,7 +655,8 @@ mod tests {
                 sort_results: true,
                 ..Default::default()
             },
-        );
+        )
+        .unwrap();
         assert!(report.conforms);
         assert_eq!(report.results.len(), 2);
     }
@@ -791,7 +794,7 @@ mod tests {
         let algebra = validate(&loaded.graph, &parsed.schema).unwrap();
         assert!(!algebra.conforms);
 
-        let report = validate_report(&loaded, &loaded.graph);
+        let report = validate_report(&loaded, &loaded.graph).unwrap();
         assert!(!report.conforms);
         assert_eq!(report.results.len(), 1);
         assert_eq!(
@@ -833,7 +836,7 @@ mod tests {
         assert_eq!(planned.conforms, algebra.conforms);
         assert_eq!(planned.violations.len(), algebra.violations.len());
 
-        let report = validate_report(&loaded, &loaded.graph);
+        let report = validate_report(&loaded, &loaded.graph).unwrap();
         assert!(!report.conforms);
         assert_eq!(report.results.len(), 1);
         assert_eq!(
@@ -884,7 +887,7 @@ mod tests {
         assert_eq!(planned.violations.len(), algebra.violations.len());
 
         // W3C report path: one ExpressionConstraintComponent result, sh:value false.
-        let report = validate_report(&loaded, &loaded.graph);
+        let report = validate_report(&loaded, &loaded.graph).unwrap();
         assert!(!report.conforms);
         assert_eq!(report.results.len(), 1);
         let result = &report.results[0];
@@ -925,7 +928,7 @@ mod tests {
 
         // The boolean values that survive the filter are {true, false}; `false`
         // is the lone non-true value, so exactly one result, sh:value false.
-        let report = validate_report(&loaded, &loaded.graph);
+        let report = validate_report(&loaded, &loaded.graph).unwrap();
         assert!(!report.conforms);
         assert_eq!(report.results.len(), 1);
         assert_eq!(
@@ -1018,7 +1021,7 @@ mod tests {
             ex:y <http://ex/val> "bad" .
         "#;
         let loaded = shifty_parse::load_turtle(ttl, None).unwrap();
-        let report = validate_report(&loaded, &loaded.graph);
+        let report = validate_report(&loaded, &loaded.graph).unwrap();
         assert!(!report.conforms);
         assert_eq!(report.results.len(), 1, "results: {:?}", report.results);
         assert_eq!(report.results[0].focus.to_string(), "<http://ex/y>");
@@ -1049,9 +1052,19 @@ mod tests {
         "#;
         let loaded = shifty_parse::load_turtle(ttl, None).unwrap();
 
-        // Ignore (default): the function runs over an empty dataset (best-effort);
+        // Explicit Ignore: the function runs over an empty dataset (best-effort);
         // here it returns false, so the constraint silently conforms.
-        let lenient = validate_report(&loaded, &loaded.graph);
+        let lenient = validate_report_with_options(
+            &loaded,
+            &loaded.graph,
+            &ValidationOptions {
+                engine: EngineOptions {
+                    unsupported: UnsupportedPolicy::Ignore,
+                },
+                ..Default::default()
+            },
+        )
+        .unwrap();
         assert!(lenient.conforms, "results: {:?}", lenient.results);
 
         // Error: the graph-reading function is not registered, so the SPARQL call
@@ -1062,9 +1075,9 @@ mod tests {
             },
             ..Default::default()
         };
-        let strict = validate_report_with_options(&loaded, &loaded.graph, &strict_opts);
-        assert!(!strict.conforms);
-        assert_eq!(strict.results.len(), 1, "results: {:?}", strict.results);
+        let strict =
+            validate_report_with_options(&loaded, &loaded.graph, &strict_opts).unwrap_err();
+        assert!(matches!(strict, EvaluationError::Sparql { .. }));
     }
 
     #[test]
@@ -1084,7 +1097,7 @@ mod tests {
                 sh:targetNode "Hallo Welt", "Hello World" .
         "#;
         let loaded = shifty_parse::load_turtle(ttl, None).unwrap();
-        let report = validate_report(&loaded, &loaded.graph);
+        let report = validate_report(&loaded, &loaded.graph).unwrap();
         assert!(!report.conforms);
         assert_eq!(report.results.len(), 1);
         let r = &report.results[0];
@@ -1138,7 +1151,7 @@ mod tests {
             ex:Bad <http://ex/property> "Other" .
         "#;
         let loaded = shifty_parse::load_turtle(ttl, None).unwrap();
-        let report = validate_report(&loaded, &loaded.graph);
+        let report = validate_report(&loaded, &loaded.graph).unwrap();
         assert!(!report.conforms);
         assert_eq!(report.results.len(), 1);
         let r = &report.results[0];
@@ -1165,7 +1178,7 @@ mod tests {
             ex:x ex:other "z" .
         "#;
         let loaded = shifty_parse::load_turtle(ttl, None).unwrap();
-        let report = validate_report(&loaded, &loaded.graph);
+        let report = validate_report(&loaded, &loaded.graph).unwrap();
         assert!(report.conforms, "results: {:?}", report.results);
 
         let parsed = parse_turtle(ttl, None).unwrap();
@@ -1201,7 +1214,7 @@ mod tests {
             ex:m ex:b "bad", "ok" .
         "#;
         let loaded = shifty_parse::load_turtle(ttl, None).unwrap();
-        let report = validate_report(&loaded, &loaded.graph);
+        let report = validate_report(&loaded, &loaded.graph).unwrap();
         assert!(!report.conforms);
         assert_eq!(report.results.len(), 1, "results: {:?}", report.results);
         let r = &report.results[0];
@@ -1236,7 +1249,7 @@ mod tests {
         "#;
         let loaded = shifty_parse::load_turtle(ttl, None).unwrap();
 
-        let report = validate_report(&loaded, &loaded.graph);
+        let report = validate_report(&loaded, &loaded.graph).unwrap();
         assert!(!report.conforms, "results: {:?}", report.results);
         assert_eq!(report.results.len(), 1);
         assert_eq!(
@@ -1284,7 +1297,7 @@ mod tests {
             ex:c2 ex:parent ex:p ; ex:label "no" .
         "#;
         let loaded = shifty_parse::load_turtle(ttl, None).unwrap();
-        let report = validate_report(&loaded, &loaded.graph);
+        let report = validate_report(&loaded, &loaded.graph).unwrap();
         // Value nodes of ex:p along ^ex:parent are {ex:c1, ex:c2}; only ex:c2
         // lacks `ex:label "ok"`, so the ASK is false there → one violation.
         assert!(!report.conforms);
@@ -1339,7 +1352,7 @@ mod tests {
         let data_none =
             shifty_parse::load_turtle(b"@prefix ex: <urn:ex/> . ex:sentinel a ex:Sentinel .", None)
                 .unwrap();
-        let report = validate_report_graphs(&shapes, &data_none.graph);
+        let report = validate_report_graphs(&shapes, &data_none.graph).unwrap();
         assert!(
             !report.conforms,
             "zero Things with exactCount=1 must not conform: {:?}",
@@ -1352,7 +1365,7 @@ mod tests {
             None,
         )
         .unwrap();
-        let report_ok = validate_report_graphs(&shapes, &data_one.graph);
+        let report_ok = validate_report_graphs(&shapes, &data_one.graph).unwrap();
         assert!(
             report_ok.conforms,
             "exactly one Thing with exactCount=1 must conform: {:?}",
@@ -1365,7 +1378,7 @@ mod tests {
             None,
         )
         .unwrap();
-        let report_two = validate_report_graphs(&shapes, &data_two.graph);
+        let report_two = validate_report_graphs(&shapes, &data_two.graph).unwrap();
         assert!(
             !report_two.conforms,
             "two Things with exactCount=1 must not conform: {:?}",
@@ -1385,7 +1398,7 @@ mod tests {
     }
 
     #[test]
-    fn custom_component_invalid_sparql_ignored_by_default() {
+    fn custom_component_invalid_sparql_requires_explicit_ignore() {
         // A validator whose sh:ask is invalid SPARQL (SELECT * with an implicit
         // GROUP BY from HAVING) is silently skipped under the default Ignore
         // policy, so the component is not enforced and the shape appears to
@@ -1420,8 +1433,21 @@ mod tests {
             shifty_parse::load_turtle(b"@prefix ex: <urn:ex/> . ex:sentinel a ex:Sentinel .", None)
                 .unwrap();
 
-        // Ignore policy (default): bad query silently skipped → appears to conform
-        let report = validate_report_graphs(&shapes, &data.graph);
+        // Strict default rejects the invalid query without panicking.
+        assert!(validate_report_graphs(&shapes, &data.graph).is_err());
+        // Explicit compatibility policy skips the bad query.
+        let report = validate_report_graphs_with_mode_and_options(
+            &shapes,
+            &data.graph,
+            ValidationGraphMode::Union,
+            &ValidationOptions {
+                engine: EngineOptions {
+                    unsupported: UnsupportedPolicy::Ignore,
+                },
+                ..Default::default()
+            },
+        )
+        .unwrap();
         assert!(
             report.conforms,
             "bad validator query silently skipped under Ignore: {:?}",
@@ -1470,7 +1496,7 @@ mod tests {
         assert_eq!(planned.conforms, algebra.conforms);
         assert_eq!(planned.violations.len(), algebra.violations.len());
 
-        let report = validate_report(&loaded, &loaded.graph);
+        let report = validate_report(&loaded, &loaded.graph).unwrap();
         assert!(!report.conforms);
         assert_eq!(report.results.len(), 2);
         assert!(report.results.iter().all(|result| result.component.as_str()
@@ -1799,14 +1825,18 @@ mod tests {
                 ex:a ex:has ex:b ."
             );
             let loaded = shifty_parse::load_turtle(ttl.as_bytes(), None).unwrap();
-            let outcome = infer_loaded(loaded, SessionData::Embedded);
-            assert!(outcome.inferred.is_empty());
-            assert!(
-                outcome
-                    .diagnostics
-                    .iter()
-                    .any(|message| message.contains("fresh blank nodes"))
-            );
+            let error = CompiledShapes::compile(loaded)
+                .unwrap()
+                .session(
+                    SessionData::Embedded,
+                    SessionOptions {
+                        inference: true,
+                        ..Default::default()
+                    },
+                )
+                .err()
+                .expect("strict inference must reject fresh blank nodes");
+            assert!(error.to_string().contains("fresh blank nodes"));
         }
     }
 

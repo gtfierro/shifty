@@ -132,11 +132,11 @@ A ⚠️ feature has partial support and may produce incorrect results.
 ``validate``, ``validate_algebra``, ``infer``, and ``PreparedValidator`` in
 Python:
 
-``"ignore"`` (default)
+``"ignore"``
    Best effort. A graph-reading function called from a SPARQL context is
    evaluated over an empty dataset, so the result may be wrong.
 
-``"error"``
+``"error"`` (default)
    Refuse. The unsupported construct surfaces as a failure instead of a silent
    wrong answer.
 

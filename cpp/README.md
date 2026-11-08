@@ -75,6 +75,20 @@ Boolean accessor and SPARQL Results JSON.
 The initial API stores one RDF default graph and executes read-only SPARQL
 queries over it. Named graphs, N-Quads, and SPARQL Update are not yet exposed.
 
+### Unsupported features and execution errors
+
+Validation rejects unsupported features by default. Set
+`options.on_unsupported = shifty::UnsupportedPolicy::Ignore` to request best
+effort explicitly. A query execution failure throws `shifty::Error` with
+`SHIFTY_STATUS_VALIDATION_ERROR`; it supplies no conformance verdict. Constraint
+violations from completed runs remain ordinary validation results.
+
+The C ABI version is 7. Rebuild C++ consumers against the matching header and
+library. Existing C validation signatures use the strict default; the new
+`shifty_prepared_validator_validate_with_policy` and
+`shifty_prepared_validator_validate_algebra_with_policy` functions accept an
+explicit policy and named shape selection.
+
 ### Severity threshold
 
 Both `validate()` and `validate_algebra()` accept a `minimum_severity` on

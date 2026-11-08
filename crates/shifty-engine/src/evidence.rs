@@ -31,6 +31,7 @@ use crate::witness::{
     Evidence, EvidenceRun, EvidenceSummary, FocusEvaluation, StatementEvaluation, Witness,
     materialize_evidence,
 };
+use crate::{EvaluationError, ValidationError};
 use oxrdf::Graph;
 use shifty_algebra::{ConstraintKind, Schema, Severity, Shape, ShapeArena, ShapeId};
 use shifty_opt::{analyze, normalize_with_mapping};
@@ -163,7 +164,7 @@ impl PreparedEvidenceValidator {
         source: &shifty_parse::Loaded,
         key_path: Option<&shifty_algebra::Path>,
         options: &ValidationOptions,
-    ) -> Vec<crate::report::PropertyWitness> {
+    ) -> Result<Vec<crate::report::PropertyWitness>, EvaluationError> {
         self.with_focus(|focus| {
             crate::report::property_witnesses_prepared(
                 source,
@@ -179,7 +180,7 @@ impl PreparedEvidenceValidator {
         &self,
         source: &shifty_parse::Loaded,
         options: &ValidationOptions,
-    ) -> crate::report::ValidationReport {
+    ) -> Result<crate::report::ValidationReport, crate::EvaluationError> {
         self.with_focus(|focus| {
             crate::report::validate_report_prepared(source, focus, &self.sparql, options)
         })
@@ -189,7 +190,7 @@ impl PreparedEvidenceValidator {
         &self,
         plan: &shifty_opt::PhysicalPlan,
         options: &ValidationOptions,
-    ) -> crate::validate::ValidationOutcome {
+    ) -> Result<crate::validate::ValidationOutcome, crate::EvaluationError> {
         let selected: Vec<bool> = self
             .raw_by_normalized
             .iter()
@@ -442,7 +443,15 @@ impl PreparedEvidenceValidator {
     ///
     /// Every failing pair makes `conforms` false: severity filtering requires
     /// the failure evidence this entry point deliberately does not construct.
-    pub fn validate_conformance(&self, options: &ConformanceOptions) -> ConformanceRun {
+    pub fn validate_conformance(
+        &self,
+        options: &ConformanceOptions,
+    ) -> Result<ConformanceRun, EvaluationError> {
+        self.sparql
+            .checked(|| self.validate_conformance_unchecked(options))
+    }
+
+    fn validate_conformance_unchecked(&self, options: &ConformanceOptions) -> ConformanceRun {
         self.scan_conformance(options, |_, _, _| {})
     }
 
@@ -455,6 +464,14 @@ impl PreparedEvidenceValidator {
     /// this plus per-pair explanation is far cheaper than materializing
     /// evidence for everything and discarding the passes.
     pub fn find_failures(
+        &self,
+        options: &ConformanceOptions,
+    ) -> Result<(ConformanceRun, Vec<SelectedPair>), EvaluationError> {
+        self.sparql
+            .checked(|| self.find_failures_unchecked(options))
+    }
+
+    fn find_failures_unchecked(
         &self,
         options: &ConformanceOptions,
     ) -> (ConformanceRun, Vec<SelectedPair>) {
@@ -563,7 +580,14 @@ impl PreparedEvidenceValidator {
     ///
     /// The constraint catalog is not included, since it is fixed per snapshot
     /// rather than per pair; take it once from [`constraints`](Self::constraints).
-    pub fn explain(&self, pair: &SelectedPair) -> Vec<StatementEvaluation> {
+    pub fn explain(
+        &self,
+        pair: &SelectedPair,
+    ) -> Result<Vec<StatementEvaluation>, EvaluationError> {
+        self.sparql.checked(|| self.explain_unchecked(pair))
+    }
+
+    fn explain_unchecked(&self, pair: &SelectedPair) -> Vec<StatementEvaluation> {
         self.explain_with_progress(pair, true)
     }
 
@@ -572,7 +596,15 @@ impl PreparedEvidenceValidator {
     /// This omits the optional authored-statement progress view while retaining
     /// the satisfaction trace or failure witness and the authored identities.
     /// It is the per-pair counterpart of [`validate_canonical`](Self::validate_canonical).
-    pub fn explain_canonical(&self, pair: &SelectedPair) -> Vec<StatementEvaluation> {
+    pub fn explain_canonical(
+        &self,
+        pair: &SelectedPair,
+    ) -> Result<Vec<StatementEvaluation>, EvaluationError> {
+        self.sparql
+            .checked(|| self.explain_canonical_unchecked(pair))
+    }
+
+    fn explain_canonical_unchecked(&self, pair: &SelectedPair) -> Vec<StatementEvaluation> {
         self.explain_with_progress(pair, false)
     }
 
@@ -673,7 +705,20 @@ impl PreparedEvidenceValidator {
     /// taken as given, and a focus no statement selects still yields
     /// well-defined evidence. Returns `None` when `constraint` is not an arena
     /// id of the normalized schema (see [`schema`](Self::schema)).
-    pub fn explain_constraint(&self, focus: &oxrdf::Term, constraint: ShapeId) -> Option<Evidence> {
+    pub fn explain_constraint(
+        &self,
+        focus: &oxrdf::Term,
+        constraint: ShapeId,
+    ) -> Result<Option<Evidence>, EvaluationError> {
+        self.sparql
+            .checked(|| self.explain_constraint_unchecked(focus, constraint))
+    }
+
+    fn explain_constraint_unchecked(
+        &self,
+        focus: &oxrdf::Term,
+        constraint: ShapeId,
+    ) -> Option<Evidence> {
         if (constraint.0 as usize) >= self.schema.arena.len() {
             return None;
         }
@@ -709,7 +754,11 @@ impl PreparedEvidenceValidator {
     }
 
     /// Validate the prepared snapshot and return its complete coverage horizon.
-    pub fn validate(&self, options: &ValidationOptions) -> EvidenceRun {
+    pub fn validate(&self, options: &ValidationOptions) -> Result<EvidenceRun, EvaluationError> {
+        self.sparql.checked(|| self.validate_unchecked(options))
+    }
+
+    fn validate_unchecked(&self, options: &ValidationOptions) -> EvidenceRun {
         self.validate_with_progress(options, true)
     }
 
@@ -717,7 +766,15 @@ impl PreparedEvidenceValidator {
     ///
     /// The optional authored-statement progress view is omitted. This is the
     /// evidence interface benchmarked against conformance-only validation.
-    pub fn validate_canonical(&self, options: &ValidationOptions) -> EvidenceRun {
+    pub fn validate_canonical(
+        &self,
+        options: &ValidationOptions,
+    ) -> Result<EvidenceRun, EvaluationError> {
+        self.sparql
+            .checked(|| self.validate_canonical_unchecked(options))
+    }
+
+    fn validate_canonical_unchecked(&self, options: &ValidationOptions) -> EvidenceRun {
         self.validate_with_progress(options, false)
     }
 
@@ -1053,7 +1110,7 @@ fn failure_shape_meets(
 pub fn validate_with_evidence(
     data: &Graph,
     schema: &Schema,
-) -> Result<EvidenceRun, NonStratifiable> {
+) -> Result<EvidenceRun, ValidationError> {
     validate_with_evidence_and_options(data, schema, &ValidationOptions::default())
 }
 
@@ -1061,15 +1118,15 @@ pub fn validate_with_evidence_and_options(
     data: &Graph,
     schema: &Schema,
     options: &ValidationOptions,
-) -> Result<EvidenceRun, NonStratifiable> {
-    Ok(PreparedEvidenceValidator::new(data, schema)?.validate(options))
+) -> Result<EvidenceRun, ValidationError> {
+    Ok(PreparedEvidenceValidator::new(data, schema)?.validate(options)?)
 }
 
 pub fn validate_with_context_and_evidence(
     data: &Graph,
     context: &Graph,
     schema: &Schema,
-) -> Result<EvidenceRun, NonStratifiable> {
+) -> Result<EvidenceRun, ValidationError> {
     validate_with_context_and_evidence_and_options(
         data,
         context,
@@ -1083,15 +1140,15 @@ pub fn validate_with_context_and_evidence_and_options(
     context: &Graph,
     schema: &Schema,
     options: &ValidationOptions,
-) -> Result<EvidenceRun, NonStratifiable> {
-    Ok(PreparedEvidenceValidator::with_context(data, context, schema)?.validate(options))
+) -> Result<EvidenceRun, ValidationError> {
+    Ok(PreparedEvidenceValidator::with_context(data, context, schema)?.validate(options)?)
 }
 
 pub fn validate_graphs_with_evidence(
     data: &Graph,
     shapes: &Graph,
     schema: &Schema,
-) -> Result<EvidenceRun, NonStratifiable> {
+) -> Result<EvidenceRun, ValidationError> {
     validate_graphs_with_evidence_and_mode_and_options(
         data,
         shapes,
@@ -1106,7 +1163,7 @@ pub fn validate_graphs_with_evidence_and_mode(
     shapes: &Graph,
     schema: &Schema,
     mode: ValidationGraphMode,
-) -> Result<EvidenceRun, NonStratifiable> {
+) -> Result<EvidenceRun, ValidationError> {
     validate_graphs_with_evidence_and_mode_and_options(
         data,
         shapes,
@@ -1122,8 +1179,8 @@ pub fn validate_graphs_with_evidence_and_mode_and_options(
     schema: &Schema,
     mode: ValidationGraphMode,
     options: &ValidationOptions,
-) -> Result<EvidenceRun, NonStratifiable> {
-    Ok(PreparedEvidenceValidator::with_graphs(data, shapes, schema, mode)?.validate(options))
+) -> Result<EvidenceRun, ValidationError> {
+    Ok(PreparedEvidenceValidator::with_graphs(data, shapes, schema, mode)?.validate(options)?)
 }
 
 #[cfg(test)]
@@ -1163,6 +1220,7 @@ mod tests {
         };
         prepared
             .validate(&options)
+            .unwrap()
             .statements
             .iter()
             .map(|statement| {
@@ -1197,6 +1255,7 @@ mod tests {
         assert_eq!(
             prepared
                 .validate(&ValidationOptions::default())
+                .unwrap()
                 .statements
                 .len(),
             2,
@@ -1214,12 +1273,13 @@ mod tests {
             entry_shape_names: vec!["http://ex/S1".to_string()],
         };
 
-        let (_, failures) = prepared.find_failures(&options);
+        let (_, failures) = prepared.find_failures(&options).unwrap();
         assert_eq!(failures.len(), 1);
         assert_eq!(failures[0].source_statements(), [0]);
         assert_eq!(
             prepared
                 .explain(&failures[0])
+                .unwrap()
                 .iter()
                 .map(|statement| statement.source_statement_id)
                 .collect::<Vec<_>>(),
@@ -1303,8 +1363,10 @@ mod tests {
         let loaded = load_turtle(ttl.as_bytes(), None).unwrap();
         let prepared = PreparedEvidenceValidator::new(&loaded.graph, &parsed.schema).unwrap();
         let options = ValidationOptions::default();
-        let conformance = prepared.validate_conformance(&ConformanceOptions::from(&options));
-        let evidence = prepared.validate(&options);
+        let conformance = prepared
+            .validate_conformance(&ConformanceOptions::from(&options))
+            .unwrap();
+        let evidence = prepared.validate(&options).unwrap();
 
         assert_eq!(conformance.conforms, evidence.conforms);
         assert_eq!(conformance.selected_pairs, 2);
@@ -1583,8 +1645,8 @@ mod tests {
         let prepared = PreparedEvidenceValidator::new(&loaded.graph, &parsed.schema).unwrap();
         let options = ValidationOptions::default();
 
-        let complete = prepared.validate(&options);
-        let canonical = prepared.validate_canonical(&options);
+        let complete = prepared.validate(&options).unwrap();
+        let canonical = prepared.validate_canonical(&options).unwrap();
         assert_eq!(complete.conforms, canonical.conforms);
         assert_eq!(complete.constraints, canonical.constraints);
         assert_eq!(complete.statements.len(), canonical.statements.len());
@@ -1606,8 +1668,10 @@ mod tests {
             assert_eq!(with_progress.evidence, without_progress.evidence);
         }
 
-        let (_, failures) = prepared.find_failures(&ConformanceOptions::from(&options));
-        let explained = prepared.explain_canonical(&failures[0]);
+        let (_, failures) = prepared
+            .find_failures(&ConformanceOptions::from(&options))
+            .unwrap();
+        let explained = prepared.explain_canonical(&failures[0]).unwrap();
         assert!(
             explained
                 .iter()
@@ -1752,9 +1816,9 @@ mod tests {
     fn find_failures_agrees_with_the_full_run() {
         let validator = prepared(&format!("{PREFIXES}{ON_DEMAND}"));
         let options = ValidationOptions::default();
-        let full = validator.validate(&options);
+        let full = validator.validate(&options).unwrap();
         let conformance_options = ConformanceOptions::from(&options);
-        let (conformance, failures) = validator.find_failures(&conformance_options);
+        let (conformance, failures) = validator.find_failures(&conformance_options).unwrap();
 
         assert_eq!(conformance.conforms, full.conforms);
         assert!(!failures.is_empty(), "fixture has no failing pair");
@@ -1762,13 +1826,15 @@ mod tests {
         // Counting is unchanged by observing.
         assert_eq!(
             conformance,
-            validator.validate_conformance(&conformance_options)
+            validator
+                .validate_conformance(&conformance_options)
+                .unwrap()
         );
 
         // Each reported failure explains to failure evidence, and nothing that
         // failed in the full run is missing from the list.
         for pair in &failures {
-            for evaluation in validator.explain(pair) {
+            for evaluation in validator.explain(pair).unwrap() {
                 assert!(matches!(
                     evaluation.selected_foci[0].evidence,
                     Evidence::Failure(_)
@@ -1804,13 +1870,13 @@ mod tests {
             oxrdf::NamedNode::new("http://ex/good").unwrap().into(),
             vec![],
         );
-        assert!(validator.explain(&pair).is_empty());
+        assert!(validator.explain(&pair).unwrap().is_empty());
     }
 
     #[test]
     fn the_catalog_is_the_one_a_full_run_carries() {
         let validator = prepared(&format!("{PREFIXES}{ON_DEMAND}"));
-        let full = validator.validate(&ValidationOptions::default());
+        let full = validator.validate(&ValidationOptions::default()).unwrap();
         assert_eq!(validator.constraints(), full.constraints);
     }
     /// A run must be reproducible, or nothing derived from one is.
@@ -1823,8 +1889,8 @@ mod tests {
     fn two_full_runs_agree() {
         let validator = prepared(&format!("{PREFIXES}{ON_DEMAND}"));
         let options = ValidationOptions::default();
-        let first = validator.validate(&options);
-        let second = validator.validate(&options);
+        let first = validator.validate(&options).unwrap();
+        let second = validator.validate(&options).unwrap();
         assert_eq!(first, second, "two runs over the same snapshot disagree");
     }
 
@@ -1833,8 +1899,12 @@ mod tests {
     #[test]
     fn two_independent_validators_agree() {
         let options = ValidationOptions::default();
-        let first = prepared(&format!("{PREFIXES}{ON_DEMAND}")).validate(&options);
-        let second = prepared(&format!("{PREFIXES}{ON_DEMAND}")).validate(&options);
+        let first = prepared(&format!("{PREFIXES}{ON_DEMAND}"))
+            .validate(&options)
+            .unwrap();
+        let second = prepared(&format!("{PREFIXES}{ON_DEMAND}"))
+            .validate(&options)
+            .unwrap();
         assert_eq!(first, second, "two independent validators disagree");
     }
 
@@ -1843,7 +1913,7 @@ mod tests {
     #[test]
     fn explaining_a_pair_matches_the_full_run() {
         let validator = prepared(&format!("{PREFIXES}{ON_DEMAND}"));
-        let full = validator.validate(&ValidationOptions::default());
+        let full = validator.validate(&ValidationOptions::default()).unwrap();
 
         let mut checked = 0;
         for statement in &full.statements {
@@ -1854,7 +1924,7 @@ mod tests {
                     focus.focus.clone(),
                     vec![statement.source_statement_id],
                 );
-                let explained = validator.explain(&pair);
+                let explained = validator.explain(&pair).unwrap();
                 let matching = explained
                     .iter()
                     .find(|candidate| {

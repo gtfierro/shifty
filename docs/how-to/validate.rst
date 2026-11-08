@@ -191,10 +191,11 @@ when the engine meets one:
 
    conforms, report, text = shifty.validate(data, shapes, on_unsupported="error")
 
-``"ignore"`` (the default) makes a best effort and may return an unreliable
-answer; ``"error"`` refuses, so the problem surfaces instead of being silently
-absorbed. If you are validating anything you will act on, ``"error"`` is the
-safer default and the one to start with.
+``"error"`` is the default: unsupported features reject the run. Pass
+``"ignore"`` to request best effort explicitly; that result may be incomplete.
+An execution failure raises ``shifty.ValidationFailure`` and supplies no
+conformance verdict. A completed validation with constraint violations still
+returns a report with ``conforms=False``.
 
 Invalid shapes are separate from ``on_unsupported``. A malformed SHACL
 constraint or rule — including malformed SPARQL or an unresolved query prefix

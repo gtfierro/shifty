@@ -68,13 +68,13 @@ fn main() {
         .expect("first session");
     let first_session_ms = start.elapsed().as_secs_f64() * 1000.0;
     let start = Instant::now();
-    black_box(first.validate(&findings));
+    black_box(first.validate(&findings).unwrap());
     let first_validate_ms = start.elapsed().as_secs_f64() * 1000.0;
     let first_rss_kib = rss_kib();
 
     let start = Instant::now();
     for _ in 0..3 {
-        black_box(first.validate(&findings));
+        black_box(first.validate(&findings).unwrap());
     }
     let repeated_validate_ms = start.elapsed().as_secs_f64() * 1000.0 / 3.0;
 
@@ -84,7 +84,7 @@ fn main() {
         .expect("second session");
     let second_session_ms = start.elapsed().as_secs_f64() * 1000.0;
     let start = Instant::now();
-    black_box(second.validate(&findings));
+    black_box(second.validate(&findings).unwrap());
     let second_validate_ms = start.elapsed().as_secs_f64() * 1000.0;
     let second_rss_kib = rss_kib();
 
@@ -92,7 +92,7 @@ fn main() {
     let edited = first.with_delta(&delta).expect("edited session");
     let edit_session_ms = start.elapsed().as_secs_f64() * 1000.0;
     let start = Instant::now();
-    black_box(edited.validate(&findings));
+    black_box(edited.validate(&findings).unwrap());
     let edit_validate_ms = start.elapsed().as_secs_f64() * 1000.0;
     let edited_rss_kib = rss_kib();
 

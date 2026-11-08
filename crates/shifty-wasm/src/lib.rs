@@ -14,8 +14,9 @@ use oxrdf::{Graph, Term, Triple};
 use serde::Serialize;
 use shifty_algebra::{Schema, Severity};
 use shifty_engine::{
-    CompiledShapes, EvaluationSession, FindingOptions, SessionData, SessionOptions,
-    ValidationGraphMode, ValidationOptions, ValidationReport, Violation, report_to_graph,
+    CompiledShapes, EngineOptions, EvaluationSession, FindingOptions, SessionData, SessionOptions,
+    UnsupportedPolicy, ValidationGraphMode, ValidationOptions, ValidationReport, Violation,
+    report_to_graph,
 };
 use shifty_parse::Loaded;
 use wasm_bindgen::prelude::*;
@@ -34,16 +35,18 @@ pub fn start() {
 
 /// Caller-supplied options, deserialized from a plain JS object. Every field is
 /// optional; omitted fields fall back to the documented defaults.
-#[derive(serde::Deserialize, Default)]
+#[derive(serde::Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 struct Options {
     /// Run SHACL-AF rule inference before validating. Defaults to `true`.
     #[serde(default = "default_true")]
     infer: bool,
     /// How shapes and data graphs combine: `"data"`, `"union"`, or
-    /// `"union-all"`. Defaults to `"data"`. Only relevant when data and shapes
+    /// `"union-all"`. Defaults to `"union"`. Only relevant when data and shapes
     /// are supplied separately.
     graph_mode: Option<String>,
+    /// Reject partially supported features by default; "ignore" opts into best effort.
+    on_unsupported: Option<String>,
     /// Lowest severity that makes `conforms` false: `"info"`, `"warning"`, or
     /// `"violation"`. Defaults to `"info"` (any finding fails).
     minimum_severity: Option<String>,
@@ -54,6 +57,19 @@ struct Options {
     /// Sort results deterministically. Defaults to `true`.
     #[serde(default = "default_true")]
     sort_results: bool,
+}
+
+impl Default for Options {
+    fn default() -> Self {
+        Self {
+            infer: true,
+            graph_mode: None,
+            on_unsupported: None,
+            minimum_severity: None,
+            shape_names: Vec::new(),
+            sort_results: true,
+        }
+    }
 }
 
 fn default_true() -> bool {
@@ -70,13 +86,26 @@ impl Options {
 
     fn graph_mode(&self) -> Result<ValidationGraphMode, JsError> {
         match self.graph_mode.as_deref() {
-            None | Some("data") => Ok(ValidationGraphMode::Data),
-            Some("union") => Ok(ValidationGraphMode::Union),
+            Some("data") => Ok(ValidationGraphMode::Data),
+            None | Some("union") => Ok(ValidationGraphMode::Union),
             Some("union-all") => Ok(ValidationGraphMode::UnionAll),
             Some(other) => Err(JsError::new(&format!(
                 "unknown graphMode {other:?}; expected 'data', 'union', or 'union-all'"
             ))),
         }
+    }
+
+    fn engine_options(&self) -> Result<EngineOptions, JsError> {
+        let unsupported = match self.on_unsupported.as_deref() {
+            None | Some("error") => UnsupportedPolicy::Error,
+            Some("ignore") => UnsupportedPolicy::Ignore,
+            Some(other) => {
+                return Err(JsError::new(&format!(
+                    "unknown onUnsupported {other:?}; expected 'error' or 'ignore'"
+                )));
+            }
+        };
+        Ok(EngineOptions { unsupported })
     }
 
     fn validation_options(&self) -> Result<ValidationOptions, JsError> {
@@ -97,7 +126,7 @@ impl Options {
             minimum_severity,
             sort_results: self.sort_results,
             entry_shape_names: self.shape_names.clone(),
-            ..Default::default()
+            engine: self.engine_options()?,
         })
     }
 }
@@ -189,8 +218,16 @@ pub fn validate(
     let vopts = opts.validation_options()?;
     let mode = opts.graph_mode()?;
 
-    let (compiled, session) = make_session(shapes_ttl, data_text(&data_ttl), mode, opts.infer)?;
-    let outcome = session.validate(&finding_options(&vopts));
+    let (compiled, session) = make_session(
+        shapes_ttl,
+        data_text(&data_ttl),
+        mode,
+        opts.infer,
+        vopts.engine,
+    )?;
+    let outcome = session
+        .validate(&finding_options(&vopts))
+        .map_err(|error| JsError::new(&error.to_string()))?;
     let schema = compiled.normalized_schema();
 
     let result = AlgebraResult {
@@ -223,8 +260,16 @@ pub fn validate_w3c(
     let vopts = opts.validation_options()?;
     let mode = opts.graph_mode()?;
 
-    let (compiled, session) = make_session(shapes_ttl, data_text(&data_ttl), mode, opts.infer)?;
-    let report = session.report(&finding_options(&vopts));
+    let (compiled, session) = make_session(
+        shapes_ttl,
+        data_text(&data_ttl),
+        mode,
+        opts.infer,
+        vopts.engine,
+    )?;
+    let report = session
+        .report(&finding_options(&vopts))
+        .map_err(|error| JsError::new(&error.to_string()))?;
 
     let report_graph = report_to_graph(&report);
     let result = W3cResult {
@@ -240,12 +285,18 @@ pub fn validate_w3c(
 /// plus the number of newly inferred triples: `{ inferredCount, graphNtriples }`.
 /// Invalid shapes diagnostics reject the call instead of dropping a rule.
 #[wasm_bindgen(js_name = infer)]
-pub fn infer_js(shapes_ttl: &str, data_ttl: Option<String>) -> Result<JsValue, JsError> {
+pub fn infer_js(
+    shapes_ttl: &str,
+    data_ttl: Option<String>,
+    options: Option<JsValue>,
+) -> Result<JsValue, JsError> {
+    let opts = Options::from_js(options.unwrap_or(JsValue::UNDEFINED))?;
     let (compiled, session) = make_session(
         shapes_ttl,
         data_text(&data_ttl),
         ValidationGraphMode::Data,
         true,
+        opts.engine_options()?,
     )?;
 
     let result = InferResult {
@@ -313,6 +364,7 @@ fn make_session(
     data_ttl: Option<&str>,
     mode: ValidationGraphMode,
     inference: bool,
+    engine: EngineOptions,
 ) -> Result<(CompiledShapes, EvaluationSession), JsError> {
     let shapes = load(shapes_ttl, "shapes")?;
     let compiled =
@@ -327,7 +379,7 @@ fn make_session(
             SessionOptions {
                 graph_mode: mode,
                 inference,
-                engine: Default::default(),
+                engine,
             },
         )
         .map_err(|error| JsError::new(&error.to_string()))?;

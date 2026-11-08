@@ -402,7 +402,7 @@ fn w3c_advanced_conformance() {
             continue;
         };
 
-        let report = shifty_engine::validate_report(&loaded, &loaded.graph);
+        let report = shifty_engine::validate_report(&loaded, &loaded.graph).unwrap();
         let mut got: Vec<Key> = report
             .results
             .iter()

@@ -13,14 +13,16 @@ dependencies also use response content type and URL extension hints.
 | `version()` | package version string |
 | `validate(shapesRdf, dataRdf, options)` | `{ conforms, violations: [...], resultsText, diagnostics }` — structured "algebra" findings |
 | `validateW3c(shapesRdf, dataRdf, options)` | `{ conforms, reportTurtle, resultsText, diagnostics }` — a W3C `sh:ValidationReport` |
-| `infer(shapesRdf, dataRdf)` | `{ inferredCount, totalCount, graphNtriples, inferredNtriples, diagnostics }` — the union graph plus just the inferred delta, as N-Triples |
+| `infer(shapesRdf, dataRdf, options)` | `{ inferredCount, totalCount, graphNtriples, inferredNtriples, diagnostics }` — the union graph plus just the inferred delta, as N-Triples |
 | `ntriplesToTurtle(ntriples)` | a prettified Turtle string — re-serialize a graph the UI only holds as N-Triples (e.g. the inference union) without re-running the engine |
 
 `dataRdf` may be `null`/`""` to treat `shapesRdf` as a single combined
 shapes+data graph (matching the embedded mode of the Python/CLI bindings).
 An invalid shapes graph, including a malformed or unresolved SPARQL prefix,
 rejects the call; it is never treated as though the affected constraint or rule
-were absent. Non-fatal unsupported-feature diagnostics are returned by all three evaluation functions.
+were absent. Unsupported features reject the call by default. With explicit
+`onUnsupported: "ignore"`, non-fatal diagnostics are returned instead.
+Execution failures throw an Error and supply no conformance verdict.
 
 ### `options`
 
@@ -29,11 +31,16 @@ A plain object; every field is optional:
 ```js
 {
   infer: true,              // run SHACL-AF rules before validating (default true)
-  graphMode: "data",        // "data" | "union" | "union-all" (default "data")
+  graphMode: "union",       // "data" | "union" | "union-all" (default "union")
   minimumSeverity: "info",  // lowest severity that fails: "info" | "warning" | "violation"
+  onUnsupported: "error",  // "error" (default) | "ignore" (best effort)
   sortResults: true,        // deterministic ordering (default true)
 }
 ```
+
+Omitted options, `undefined`, `null`, and `{}` share these defaults. The
+standalone `infer` function accepts `onUnsupported`; validation-specific options
+do not affect it.
 
 ## Building / rebuilding
 

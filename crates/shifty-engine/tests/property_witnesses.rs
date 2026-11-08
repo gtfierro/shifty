@@ -69,7 +69,8 @@ fn qualified_value_shape_disambiguates_same_typed_siblings() {
         &data,
         ValidationGraphMode::Union,
         Some(&key_path),
-    );
+    )
+    .unwrap();
 
     assert_eq!(
         witnesses.len(),
@@ -125,7 +126,8 @@ fn multi_hop_key_path_resolves_through_an_intermediate_node() {
         &data,
         ValidationGraphMode::Union,
         Some(&key_path),
-    );
+    )
+    .unwrap();
 
     assert_eq!(witnesses.len(), 1);
     assert_eq!(key_str(&witnesses[0].key), "outsideAirTemp");
@@ -161,7 +163,8 @@ fn inverse_key_path_resolves_through_a_reverse_hop() {
         &data,
         ValidationGraphMode::Union,
         Some(&key_path),
-    );
+    )
+    .unwrap();
 
     assert_eq!(witnesses.len(), 1);
     assert_eq!(key_str(&witnesses[0].key), "outsideAirTemp");
@@ -193,7 +196,8 @@ fn violating_focus_yields_no_witnesses() {
         &data,
         ValidationGraphMode::Union,
         Some(&key_path),
-    );
+    )
+    .unwrap();
 
     assert_eq!(
         witnesses.len(),
@@ -230,7 +234,8 @@ fn plain_cardinality_property_yields_raw_path_values() {
         &data,
         ValidationGraphMode::Union,
         Some(&key_path),
-    );
+    )
+    .unwrap();
 
     assert_eq!(witnesses.len(), 1);
     assert_eq!(
@@ -257,7 +262,8 @@ fn missing_key_path_falls_back_to_property_shape_node() {
     let (shapes, data) = shapes_and_data(ttl);
 
     let witnesses =
-        property_witnesses_graphs_with_mode(&shapes, &data, ValidationGraphMode::Union, None);
+        property_witnesses_graphs_with_mode(&shapes, &data, ValidationGraphMode::Union, None)
+            .unwrap();
 
     assert_eq!(witnesses.len(), 1);
     assert_eq!(witnesses[0].key.to_string(), "<http://ex/PointRole>");
@@ -288,7 +294,8 @@ fn key_path_resolving_to_nothing_falls_back_to_property_shape_node() {
         &data,
         ValidationGraphMode::Union,
         Some(&key_path),
-    );
+    )
+    .unwrap();
 
     assert_eq!(witnesses.len(), 1);
     assert_eq!(witnesses[0].key.to_string(), "<http://ex/PointRole>");
@@ -321,7 +328,8 @@ fn key_path_is_rust_algebra_not_just_strings() {
         &data,
         ValidationGraphMode::Union,
         Some(&key_path),
-    );
+    )
+    .unwrap();
 
     assert_eq!(witnesses.len(), 1);
     assert_eq!(key_str(&witnesses[0].key), "outsideAirTemp");

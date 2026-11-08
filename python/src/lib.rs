@@ -1,5 +1,6 @@
 use oxrdf::{Graph, Term, Triple};
-use pyo3::exceptions::PyValueError;
+use pyo3::exceptions::{PyRuntimeError, PyValueError};
+pyo3::create_exception!(_shifty, ValidationFailure, PyRuntimeError);
 use pyo3::prelude::*;
 use pyo3::pybacked::PyBackedBytes;
 use shifty_engine::{
@@ -783,6 +784,13 @@ impl InputSpec {
     }
 }
 
+pub(crate) fn py_execution_error(error: shifty_engine::EvaluationError) -> PyErr {
+    match error {
+        shifty_engine::EvaluationError::ForeignPair => PyValueError::new_err(error.to_string()),
+        _ => ValidationFailure::new_err(error.to_string()),
+    }
+}
+
 pub(crate) fn py_value_error(message: String) -> PyErr {
     PyValueError::new_err(message)
 }
@@ -1247,7 +1255,7 @@ pub fn version() -> &'static str {
     run_infer=true,
     minimum_severity="info",
     sort_results=true,
-    on_unsupported="ignore",
+    on_unsupported="error",
     base=None,
     keep_inferred=false
 ))]
@@ -1286,28 +1294,29 @@ pub fn _validate_algebra(
         run: run_infer,
         keep_delta: keep_inferred,
     };
-    let raw = py
-        .detach(move || {
-            let (compiled, session) = compiled_session(
-                data,
-                shapes,
-                base.as_deref(),
-                mode,
-                inference.run,
-                options.engine,
-            )?;
-            let outcome = session.validate(&finding_options(&options));
-            Ok(raw_algebra_result(
-                outcome,
-                compiled.normalized_schema(),
-                &compiled.normalized_schema().arena,
-                inference
-                    .keep_delta
-                    .then(|| session.inferred_for_write_back()),
-                session_diagnostics(&compiled, &session),
-            ))
-        })
+    let raw = py.detach(move || {
+        let (compiled, session) = compiled_session(
+            data,
+            shapes,
+            base.as_deref(),
+            mode,
+            inference.run,
+            options.engine,
+        )
         .map_err(py_value_error)?;
+        let outcome = session
+            .validate(&finding_options(&options))
+            .map_err(py_execution_error)?;
+        Ok::<_, PyErr>(raw_algebra_result(
+            outcome,
+            compiled.normalized_schema(),
+            &compiled.normalized_schema().arena,
+            inference
+                .keep_delta
+                .then(|| session.inferred_for_write_back()),
+            session_diagnostics(&compiled, &session),
+        ))
+    })?;
     raw.into_python(py)
 }
 
@@ -1330,7 +1339,7 @@ pub fn _validate_algebra(
     run_infer=true,
     minimum_severity="info",
     sort_results=true,
-    on_unsupported="ignore",
+    on_unsupported="error",
     base=None,
     keep_inferred=false
 ))]
@@ -1377,8 +1386,11 @@ pub fn _validate_w3c(
             mode,
             inference.run,
             options.engine,
-        )?;
-        let report = session.report(&finding_options(&options));
+        )
+        .map_err(py_value_error)?;
+        let report = session
+            .report(&finding_options(&options))
+            .map_err(py_execution_error)?;
         let report_graph = report_to_graph(&report);
         Ok(build_w3c_result(
             &report,
@@ -1389,7 +1401,6 @@ pub fn _validate_w3c(
             session_diagnostics(&compiled, &session),
         ))
     })
-    .map_err(py_value_error)
 }
 
 /// Run SHACL-AF forward-chaining rules to a fixed point. Returns an
@@ -1403,7 +1414,7 @@ pub fn _validate_w3c(
     shapes=None,
     shapes_path=None,
     shapes_format="auto",
-    on_unsupported="ignore",
+    on_unsupported="error",
     base=None
 ))]
 pub fn _infer(
@@ -1522,7 +1533,7 @@ impl PreparedValidator {
         run_infer=true,
         minimum_severity="info",
         sort_results=true,
-        on_unsupported="ignore",
+        on_unsupported="error",
         keep_inferred=false
     ))]
     #[allow(clippy::too_many_arguments)]
@@ -1552,32 +1563,32 @@ impl PreparedValidator {
             run: run_infer,
             keep_delta: keep_inferred,
         };
-        let raw = py
-            .detach(|| {
-                let data_loaded = data.load(self.base.as_deref())?;
-                let session = self
-                    .compiled
-                    .session(
-                        SessionData::Separate(data_loaded.graph),
-                        SessionOptions {
-                            graph_mode: mode,
-                            inference: inference.run,
-                            engine: options.engine,
-                        },
-                    )
-                    .map_err(|error| error.to_string())?;
-                let outcome = session.validate(&finding_options(&options));
-                Ok(raw_algebra_result(
-                    outcome,
-                    self.compiled.normalized_schema(),
-                    &self.compiled.normalized_schema().arena,
-                    inference
-                        .keep_delta
-                        .then(|| session.inferred_for_write_back()),
-                    session_diagnostics(&self.compiled, &session),
-                ))
-            })
-            .map_err(py_value_error)?;
+        let raw = py.detach(|| {
+            let data_loaded = data.load(self.base.as_deref()).map_err(py_value_error)?;
+            let session = self
+                .compiled
+                .session(
+                    SessionData::Separate(data_loaded.graph),
+                    SessionOptions {
+                        graph_mode: mode,
+                        inference: inference.run,
+                        engine: options.engine,
+                    },
+                )
+                .map_err(|error| py_value_error(error.to_string()))?;
+            let outcome = session
+                .validate(&finding_options(&options))
+                .map_err(py_execution_error)?;
+            Ok::<_, PyErr>(raw_algebra_result(
+                outcome,
+                self.compiled.normalized_schema(),
+                &self.compiled.normalized_schema().arena,
+                inference
+                    .keep_delta
+                    .then(|| session.inferred_for_write_back()),
+                session_diagnostics(&self.compiled, &session),
+            ))
+        })?;
         raw.into_python(py)
     }
 
@@ -1590,7 +1601,7 @@ impl PreparedValidator {
         run_infer=true,
         minimum_severity="info",
         sort_results=true,
-        on_unsupported="ignore",
+        on_unsupported="error",
         keep_inferred=false
     ))]
     #[allow(clippy::too_many_arguments)]
@@ -1621,7 +1632,7 @@ impl PreparedValidator {
             keep_delta: keep_inferred,
         };
         py.detach(|| {
-            let data_loaded = data.load(self.base.as_deref())?;
+            let data_loaded = data.load(self.base.as_deref()).map_err(py_value_error)?;
             let session = self
                 .compiled
                 .session(
@@ -1632,8 +1643,10 @@ impl PreparedValidator {
                         engine: options.engine,
                     },
                 )
-                .map_err(|error| error.to_string())?;
-            let report = session.report(&finding_options(&options));
+                .map_err(|error| py_value_error(error.to_string()))?;
+            let report = session
+                .report(&finding_options(&options))
+                .map_err(py_execution_error)?;
             let report_graph = report_to_graph(&report);
             Ok(build_w3c_result(
                 &report,
@@ -1644,7 +1657,6 @@ impl PreparedValidator {
                 session_diagnostics(&self.compiled, &session),
             ))
         })
-        .map_err(py_value_error)
     }
 
     /// Return the observed `sh:property` bindings for every focus node that
@@ -1664,7 +1676,7 @@ impl PreparedValidator {
         key_path=None,
         graph_mode="union",
         run_infer=true,
-        on_unsupported="ignore"
+        on_unsupported="error"
     ))]
     #[allow(clippy::too_many_arguments)]
     fn witnesses(
@@ -1686,23 +1698,23 @@ impl PreparedValidator {
             .transpose()
             .map_err(|e| format!("invalid key_path: {e}"))
             .map_err(py_value_error)?;
-        let witnesses = py
-            .detach(|| {
-                let data_loaded = data.load(self.base.as_deref())?;
-                let session = self
-                    .compiled
-                    .session(
-                        SessionData::Separate(data_loaded.graph),
-                        SessionOptions {
-                            graph_mode: mode,
-                            inference: run_infer,
-                            engine,
-                        },
-                    )
-                    .map_err(|error| error.to_string())?;
-                Ok(session.property_witnesses(key_path.as_ref(), &FindingOptions::default()))
-            })
-            .map_err(py_value_error)?;
+        let witnesses = py.detach(|| {
+            let data_loaded = data.load(self.base.as_deref()).map_err(py_value_error)?;
+            let session = self
+                .compiled
+                .session(
+                    SessionData::Separate(data_loaded.graph),
+                    SessionOptions {
+                        graph_mode: mode,
+                        inference: run_infer,
+                        engine,
+                    },
+                )
+                .map_err(|error| py_value_error(error.to_string()))?;
+            session
+                .property_witnesses(key_path.as_ref(), &FindingOptions::default())
+                .map_err(py_execution_error)
+        })?;
         Ok(witnesses.into_iter().map(property_witness_to_py).collect())
     }
 
@@ -1719,6 +1731,7 @@ impl PreparedValidator {
 
 #[pymodule]
 fn _shifty(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add("ValidationFailure", m.py().get_type::<ValidationFailure>())?;
     m.add("__version__", VERSION)?;
     m.add_class::<SparqlDiagnostic>()?;
     m.add_class::<ConstraintKind>()?;

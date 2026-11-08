@@ -159,7 +159,7 @@ fn w3c_sparql_conformance() {
         }
 
         // RDF-driven W3C report path.
-        let report = shifty_engine::validate_report(&loaded, &loaded.graph);
+        let report = shifty_engine::validate_report(&loaded, &loaded.graph).unwrap();
         if report.conforms == expected {
             report_pass += 1;
         } else {

@@ -9,7 +9,7 @@ extern "C" {
 #endif
 
 /* Must equal `shifty_abi_version()` in cpp/src/lib.rs; bump both together. */
-#define SHIFTY_ABI_VERSION 6u
+#define SHIFTY_ABI_VERSION 7u
 
 typedef uint32_t ShiftyStatus;
 enum {
@@ -172,6 +172,13 @@ ShiftyStatus shifty_prepared_validator_create_file(
 void shifty_prepared_validator_destroy(ShiftyPreparedValidator *validator);
 ShiftyStringView shifty_prepared_validator_diagnostics_json(
     const ShiftyPreparedValidator *validator);
+/* Default is Error. Ignore explicitly permits incomplete best-effort results. */
+typedef uint32_t ShiftyUnsupportedPolicy;
+enum {
+    SHIFTY_UNSUPPORTED_ERROR = 0,
+    SHIFTY_UNSUPPORTED_IGNORE = 1
+};
+
 ShiftyStatus shifty_prepared_validator_validate(
     const ShiftyPreparedValidator *validator,
     const ShiftyDataset *dataset,
@@ -194,6 +201,17 @@ ShiftyStatus shifty_prepared_validator_validate_with_shapes(
     ShiftySeverity minimum_severity,
     const ShiftyStringView *shape_names,
     size_t shape_names_len,
+    ShiftyValidationResult **out);
+/* Policy-aware variant; execution failures return SHIFTY_STATUS_VALIDATION_ERROR. */
+ShiftyStatus shifty_prepared_validator_validate_with_policy(
+    const ShiftyPreparedValidator *validator,
+    const ShiftyDataset *dataset,
+    ShiftyGraphMode graph_mode,
+    uint8_t run_inference,
+    ShiftySeverity minimum_severity,
+    const ShiftyStringView *shape_names,
+    size_t shape_names_len,
+    ShiftyUnsupportedPolicy on_unsupported,
     ShiftyValidationResult **out);
 
 void shifty_validation_result_destroy(ShiftyValidationResult *result);
@@ -233,6 +251,17 @@ ShiftyStatus shifty_prepared_validator_validate_algebra_with_shapes(
     ShiftySeverity minimum_severity,
     const ShiftyStringView *shape_names,
     size_t shape_names_len,
+    ShiftyAlgebraResult **out);
+/* Policy-aware variant; execution failures return SHIFTY_STATUS_VALIDATION_ERROR. */
+ShiftyStatus shifty_prepared_validator_validate_algebra_with_policy(
+    const ShiftyPreparedValidator *validator,
+    const ShiftyDataset *dataset,
+    ShiftyGraphMode graph_mode,
+    uint8_t run_inference,
+    ShiftySeverity minimum_severity,
+    const ShiftyStringView *shape_names,
+    size_t shape_names_len,
+    ShiftyUnsupportedPolicy on_unsupported,
     ShiftyAlgebraResult **out);
 
 void shifty_algebra_result_destroy(ShiftyAlgebraResult *result);

@@ -11,10 +11,10 @@
 //! Like every driver, it decides nothing the library doesn't expose: it only
 //! composes [`instantiate`], [`candidates`], and [`gate`].
 
+use crate::ValidationError;
 use crate::gate::{RepairOutcome, apply, gate};
 use crate::path::term_of;
 use crate::synthesize::synthesize;
-use crate::validate::NonStratifiable;
 use crate::value::value_type_holds;
 use crate::witness::witness_violations;
 use oxrdf::{BlankNode, Graph, Term};
@@ -59,7 +59,7 @@ pub fn enumerate_repair(
     context: &Graph,
     schema: &Schema,
     opts: EnumOptions,
-) -> Result<Option<RepairSolution>, NonStratifiable> {
+) -> Result<Option<RepairSolution>, ValidationError> {
     let mut choices = HashMap::new();
     index_choices(tree, &mut choices);
     let mut budget = opts.budget;
@@ -105,7 +105,7 @@ pub fn repair_to_fixpoint(
     context: &Graph,
     schema: &Schema,
     opts: EnumOptions,
-) -> Result<FixpointResult, NonStratifiable> {
+) -> Result<FixpointResult, ValidationError> {
     let mut graph = data.clone();
     let mut context = context.clone();
     let mut applied = Vec::new();
@@ -193,7 +193,7 @@ fn solve(
     plan: Plan,
     budget: &mut usize,
     opts: EnumOptions,
-) -> Result<Option<RepairSolution>, NonStratifiable> {
+) -> Result<Option<RepairSolution>, ValidationError> {
     if *budget == 0 {
         return Ok(None);
     }

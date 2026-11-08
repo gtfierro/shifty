@@ -13,7 +13,7 @@ fn report_messages(shapes_ttl: &[u8], data_ttl: &[u8]) -> Vec<Vec<String>> {
     let data = shifty_parse::load_turtle(data_ttl, None)
         .expect("valid data")
         .graph;
-    let report = validate_report(&shapes, &data);
+    let report = validate_report(&shapes, &data).unwrap();
     report
         .results
         .iter()

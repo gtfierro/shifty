@@ -93,7 +93,7 @@ fn main() {
     profile::enable();
     let _ = profile::take_evidence_visits();
     let start = Instant::now();
-    let conformance = prepared.validate_conformance(&scan_options);
+    let conformance = prepared.validate_conformance(&scan_options).unwrap();
     let conformance_ms = start.elapsed().as_secs_f64() * 1e3;
     let conformance_visits = profile::take_evidence_visits();
     let conformance_probes = profile::take_path_probes();
@@ -103,7 +103,7 @@ fn main() {
     // ---- arm B: dual evidence ----------------------------------------------
     profile::enable();
     let start = Instant::now();
-    let run = prepared.validate(&options);
+    let run = prepared.validate(&options).unwrap();
     let evidence_ms = start.elapsed().as_secs_f64() * 1e3;
     let evidence_visits = profile::take_evidence_visits();
     let evidence_probes = profile::take_path_probes();
@@ -116,12 +116,12 @@ fn main() {
     // materialized for those pairs alone.
     profile::enable();
     let start = Instant::now();
-    let (_, failures) = prepared.find_failures(&scan_options);
+    let (_, failures) = prepared.find_failures(&scan_options).unwrap();
     let find_ms = start.elapsed().as_secs_f64() * 1e3;
     let start = Instant::now();
     let explained: usize = failures
         .iter()
-        .map(|pair| prepared.explain(pair).len())
+        .map(|pair| prepared.explain(pair).unwrap().len())
         .sum();
     let explain_ms = start.elapsed().as_secs_f64() * 1e3;
     let _ = profile::take();

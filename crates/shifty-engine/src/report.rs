@@ -12,6 +12,7 @@
 //!
 //! Coverage is a growing subset of SHACL Core (see `docs/BACKLOG.md`).
 
+use crate::error::EvaluationError;
 use crate::focus::FocusNodes;
 use crate::frozen::FrozenIndexedDataset;
 use crate::path::succ;
@@ -34,6 +35,7 @@ use std::collections::{HashMap, HashSet};
 
 /// One `sh:ValidationResult`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub struct ValidationResult {
     pub focus: Term,
     /// `sh:resultPath` as the original RDF node (predicate IRI for simple paths).
@@ -56,11 +58,87 @@ pub struct ValidationResult {
 }
 
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct ValidationReport {
     pub conforms: bool,
     pub results: Vec<ValidationResult>,
     /// RDF structure needed to interpret blank-node `sh:resultPath` values.
-    pub path_triples: Graph,
+    pub(crate) path_triples: Graph,
+}
+
+impl ValidationResult {
+    /// Construct a violation result, then set optional provenance and values.
+    pub fn new(focus: Term, component: NamedNode, source_shape: Term) -> Self {
+        Self {
+            focus,
+            component,
+            source_shape,
+            path: None,
+            value: None,
+            source_constraint: None,
+            severity: vocab::SH_VIOLATION.into_owned(),
+            messages: Vec::new(),
+            sparql_diagnostic: None,
+        }
+    }
+
+    pub fn focus(&self) -> &Term {
+        &self.focus
+    }
+    pub fn component(&self) -> &NamedNode {
+        &self.component
+    }
+    pub fn source_shape(&self) -> &Term {
+        &self.source_shape
+    }
+    pub fn source_constraint(&self) -> Option<&Term> {
+        self.source_constraint.as_ref()
+    }
+    pub fn path(&self) -> Option<&Term> {
+        self.path.as_ref()
+    }
+    pub fn value(&self) -> Option<&Term> {
+        self.value.as_ref()
+    }
+    pub fn severity(&self) -> &NamedNode {
+        &self.severity
+    }
+    pub fn messages(&self) -> &[Term] {
+        &self.messages
+    }
+    pub fn sparql_diagnostic(&self) -> Option<&SparqlDiagnostic> {
+        self.sparql_diagnostic.as_ref()
+    }
+}
+
+impl ValidationReport {
+    /// Construct a report with an explicit conformance verdict. The verdict
+    /// can depend on severity policy, so it is not inferred from result count.
+    pub fn new(conforms: bool, results: Vec<ValidationResult>) -> Self {
+        Self {
+            conforms,
+            results,
+            path_triples: Graph::new(),
+        }
+    }
+
+    pub fn conforms(&self) -> bool {
+        self.conforms
+    }
+    pub fn results(&self) -> &[ValidationResult] {
+        &self.results
+    }
+
+    /// RDF path descriptions retained for serialization of complex paths.
+    pub fn path_triples(&self) -> &Graph {
+        &self.path_triples
+    }
+
+    /// Supply path descriptions when constructing a report outside the engine.
+    pub fn with_path_triples(mut self, triples: Graph) -> Self {
+        self.path_triples = triples;
+        self
+    }
 }
 
 /// The observed binding of one `sh:property` shape at one *conforming* focus
@@ -88,7 +166,7 @@ pub struct PropertyWitness {
 }
 
 /// Validate `data` against the shapes in `shapes`, producing a W3C report.
-pub fn validate_report(shapes: &Loaded, data: &Graph) -> ValidationReport {
+pub fn validate_report(shapes: &Loaded, data: &Graph) -> Result<ValidationReport, EvaluationError> {
     validate_report_with_options(shapes, data, &ValidationOptions::default())
 }
 
@@ -118,7 +196,7 @@ pub fn validate_report_with_options(
     shapes: &Loaded,
     data: &Graph,
     options: &ValidationOptions,
-) -> ValidationReport {
+) -> Result<ValidationReport, EvaluationError> {
     let has_shapes_graph = shapes_reference_shapes_graph(shapes);
     let frozen = if has_shapes_graph {
         FrozenIndexedDataset::from_graphs(data, &shapes.graph)
@@ -129,7 +207,10 @@ pub fn validate_report_with_options(
 }
 
 /// Validate split data and shapes graphs using the selected graph mode.
-pub fn validate_report_graphs(shapes: &Loaded, data: &Graph) -> ValidationReport {
+pub fn validate_report_graphs(
+    shapes: &Loaded,
+    data: &Graph,
+) -> Result<ValidationReport, EvaluationError> {
     validate_report_graphs_with_mode_and_options(
         shapes,
         data,
@@ -143,7 +224,7 @@ pub fn validate_report_graphs_with_mode(
     shapes: &Loaded,
     data: &Graph,
     mode: ValidationGraphMode,
-) -> ValidationReport {
+) -> Result<ValidationReport, EvaluationError> {
     validate_report_graphs_with_mode_and_options(shapes, data, mode, &ValidationOptions::default())
 }
 
@@ -153,7 +234,7 @@ pub fn validate_report_graphs_with_mode_and_options(
     data: &Graph,
     mode: ValidationGraphMode,
     options: &ValidationOptions,
-) -> ValidationReport {
+) -> Result<ValidationReport, EvaluationError> {
     let has_shapes_graph = shapes_reference_shapes_graph(shapes);
     match mode {
         ValidationGraphMode::Data => {
@@ -196,7 +277,7 @@ pub fn property_witnesses_graphs_with_mode(
     data: &Graph,
     mode: ValidationGraphMode,
     key_path: Option<&Path>,
-) -> Vec<PropertyWitness> {
+) -> Result<Vec<PropertyWitness>, EvaluationError> {
     property_witnesses_graphs_with_mode_and_options(
         shapes,
         data,
@@ -215,7 +296,7 @@ pub fn property_witnesses_graphs_with_mode_and_options(
     mode: ValidationGraphMode,
     key_path: Option<&Path>,
     options: &ValidationOptions,
-) -> Vec<PropertyWitness> {
+) -> Result<Vec<PropertyWitness>, EvaluationError> {
     let has_shapes_graph = shapes_reference_shapes_graph(shapes);
     let (focus_data, frozen, union_owner);
     match mode {
@@ -251,6 +332,18 @@ pub fn property_witnesses_graphs_with_mode_and_options(
 }
 
 pub(crate) fn property_witnesses_prepared(
+    shapes: &Loaded,
+    focus_data: &dyn FocusNodes,
+    sparql: &SparqlExecutor,
+    key_path: Option<&Path>,
+    options: &ValidationOptions,
+) -> Result<Vec<PropertyWitness>, EvaluationError> {
+    sparql.checked(|| {
+        collect_property_witnesses_prepared(shapes, focus_data, sparql, key_path, options)
+    })
+}
+
+fn collect_property_witnesses_prepared(
     shapes: &Loaded,
     focus_data: &dyn FocusNodes,
     sparql: &SparqlExecutor,
@@ -332,7 +425,7 @@ fn build_reporter<'a>(
         needs_sparql,
         class_index,
         path_cache: RefCell::new(HashMap::new()),
-        components: build_components(shapes, options.engine.unsupported),
+        components: build_components(shapes, options.engine.unsupported, sparql),
         entry_shape_names: &options.entry_shape_names,
     }
 }
@@ -343,13 +436,22 @@ fn validate_report_context(
     frozen: FrozenIndexedDataset,
     has_shapes_graph: bool,
     options: &ValidationOptions,
-) -> ValidationReport {
+) -> Result<ValidationReport, EvaluationError> {
     let mut sparql = SparqlExecutor::from_frozen(frozen, has_shapes_graph);
     sparql.set_functions(collect_functions(shapes), options.engine.unsupported);
     validate_report_prepared(shapes, focus_data, &sparql, options)
 }
 
 pub(crate) fn validate_report_prepared(
+    shapes: &Loaded,
+    focus_data: &dyn FocusNodes,
+    sparql: &SparqlExecutor,
+    options: &ValidationOptions,
+) -> Result<ValidationReport, EvaluationError> {
+    sparql.checked(|| collect_report_prepared(shapes, focus_data, sparql, options))
+}
+
+fn collect_report_prepared(
     shapes: &Loaded,
     focus_data: &dyn FocusNodes,
     sparql: &SparqlExecutor,
@@ -565,14 +667,19 @@ fn resolve_validator(
     node: Term,
     component_iri: &NamedNode,
     policy: UnsupportedPolicy,
+    sparql: &SparqlExecutor,
 ) -> Option<ComponentValidator> {
     match parse_validator(shapes, &node) {
         Ok(v) => Some(v),
         Err(e) => {
-            assert!(
-                policy != UnsupportedPolicy::Error,
-                "invalid SPARQL in custom constraint component <{component_iri}>: {e}"
-            );
+            if policy == UnsupportedPolicy::Error {
+                let _: Result<(), String> = sparql.record(
+                    crate::SparqlOperation::Constraint,
+                    Err(format!(
+                        "invalid SPARQL in custom constraint component {component_iri}: {e}"
+                    )),
+                );
+            }
             None
         }
     }
@@ -584,11 +691,14 @@ fn resolve_validator(
 /// excluded.)
 ///
 /// Under [`UnsupportedPolicy::Error`], a component whose validator query is
-/// invalid SPARQL causes a panic with a diagnostic message so the problem
-/// surfaces immediately rather than producing a silent wrong answer.
+/// invalid SPARQL records an execution failure for the calling evaluation.
 /// Under [`UnsupportedPolicy::Ignore`], such components are silently skipped
-/// (the constraint is not enforced, which is the historical default behaviour).
-fn build_components(shapes: &Loaded, policy: UnsupportedPolicy) -> Vec<CustomComponent> {
+/// (the constraint is not enforced).
+fn build_components(
+    shapes: &Loaded,
+    policy: UnsupportedPolicy,
+    sparql: &SparqlExecutor,
+) -> Vec<CustomComponent> {
     let mut out = Vec::new();
     let mut seen = HashSet::new();
     for triple in shapes.graph.triples_for_predicate(vocab::SH_PARAMETER) {
@@ -605,13 +715,13 @@ fn build_components(shapes: &Loaded, policy: UnsupportedPolicy) -> Vec<CustomCom
 
         let node_validator = shapes
             .object(&subject, vocab::SH_NODE_VALIDATOR)
-            .and_then(|v| resolve_validator(shapes, v, iri, policy));
+            .and_then(|v| resolve_validator(shapes, v, iri, policy, sparql));
         let property_validator = shapes
             .object(&subject, vocab::SH_PROPERTY_VALIDATOR)
-            .and_then(|v| resolve_validator(shapes, v, iri, policy));
+            .and_then(|v| resolve_validator(shapes, v, iri, policy, sparql));
         let generic_validator = shapes
             .object(&subject, vocab::SH_VALIDATOR)
-            .and_then(|v| resolve_validator(shapes, v, iri, policy));
+            .and_then(|v| resolve_validator(shapes, v, iri, policy, sparql));
         if node_validator.is_none() && property_validator.is_none() && generic_validator.is_none() {
             continue; // not a constraint component (e.g. a sh:SPARQLFunction)
         }
@@ -800,10 +910,11 @@ impl Reporter<'_> {
                 else {
                     continue;
                 };
-                // Drop targets that fail to canonicalize, matching the lowering path.
-                let Ok((_, canonical)) =
-                    canonical_sparql_query(self.shapes, &target_node, query.value())
-                else {
+                // Retain canonicalization failures for the evaluation boundary.
+                let Ok((_, canonical)) = self.sparql.record(
+                    crate::SparqlOperation::Target,
+                    canonical_sparql_query(self.shapes, &target_node, query.value()),
+                ) else {
                     continue;
                 };
                 if let Ok(found) = exec.target_nodes(&canonical) {
@@ -1143,10 +1254,11 @@ impl Reporter<'_> {
                         let mut bindings = base.clone();
                         bindings.push(("this".to_string(), focus.clone()));
                         bindings.push(("value".to_string(), value.clone()));
-                        // Conform iff ASK is true; a runtime error fails closed.
+                        // Conform iff ASK is true. Execution failures are returned
+                        // separately at the evaluation boundary.
                         let violates = match self.sparql.eval_ask(&validator.query, &bindings) {
                             Ok(conforms) => !conforms,
-                            Err(_) => true,
+                            Err(_) => continue,
                         };
                         if violates {
                             self.push_component_result(
@@ -1168,46 +1280,31 @@ impl Reporter<'_> {
                 SparqlQueryKind::Select => {
                     let mut bindings = base.clone();
                     bindings.push(("this".to_string(), focus.clone()));
-                    match self.sparql.eval_select(&validator.query, path, &bindings) {
-                        Ok(rows) => {
-                            for row in rows {
-                                // ?value projected; for node validators it is the
-                                // focus node itself when not projected.
-                                let value = row
-                                    .get("value")
-                                    .cloned()
-                                    .or_else(|| (!is_property_shape).then(|| focus.clone()));
-                                let path = row.get("path").cloned().or_else(|| path_term.clone());
-                                let row_vec: Vec<(String, Term)> =
-                                    row.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
-                                self.push_component_result(
-                                    out,
-                                    component,
-                                    shape,
-                                    focus,
-                                    path,
-                                    value,
-                                    &bindings,
-                                    &row_vec,
-                                    &validator.messages,
-                                    inherited,
-                                    &validator.query,
-                                );
-                            }
+                    if let Ok(rows) = self.sparql.eval_select(&validator.query, path, &bindings) {
+                        for row in rows {
+                            // ?value projected; for node validators it is the
+                            // focus node itself when not projected.
+                            let value = row
+                                .get("value")
+                                .cloned()
+                                .or_else(|| (!is_property_shape).then(|| focus.clone()));
+                            let path = row.get("path").cloned().or_else(|| path_term.clone());
+                            let row_vec: Vec<(String, Term)> =
+                                row.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+                            self.push_component_result(
+                                out,
+                                component,
+                                shape,
+                                focus,
+                                path,
+                                value,
+                                &bindings,
+                                &row_vec,
+                                &validator.messages,
+                                inherited,
+                                &validator.query,
+                            );
                         }
-                        Err(_) => self.push_component_result(
-                            out,
-                            component,
-                            shape,
-                            focus,
-                            path_term.clone(),
-                            None,
-                            &bindings,
-                            &[],
-                            &validator.messages,
-                            inherited,
-                            &validator.query,
-                        ),
                     }
                 }
             }
@@ -1400,7 +1497,13 @@ impl Reporter<'_> {
         } else {
             return None;
         };
-        let (_, query) = canonical_sparql_query(self.shapes, constraint_node, &raw).ok()?;
+        let (_, query) = self
+            .sparql
+            .record(
+                crate::SparqlOperation::Constraint,
+                canonical_sparql_query(self.shapes, constraint_node, &raw),
+            )
+            .ok()?;
         Some(SparqlConstraint {
             kind,
             query,
@@ -1468,60 +1571,35 @@ impl Reporter<'_> {
                     on_constraint
                 }
             };
-            match sparql.constraint_violations(&constraint, focus) {
-                Ok(violations) => {
-                    if violations.is_empty() {
-                        continue;
-                    }
-                    // Same (constraint, focus) for every row below, so build the
-                    // diagnostic once rather than per violation; `.ok()` because a
-                    // second, redundant compile can't fail once the call above
-                    // already succeeded.
-                    let diagnostic = sparql
-                        .constraint_diagnostic(&constraint, focus, &violations)
-                        .ok();
-                    for violation in violations {
-                        let messages =
-                            substitute_messages(&raw_messages, focus, &violation.bindings);
-                        // SHACL-AF §8.4.1: for SELECT constraints, when ?value is
-                        // not projected, the focus node itself is used as sh:value.
-                        let value = violation.value.or_else(|| match constraint.kind {
-                            SparqlQueryKind::Select => Some(focus.clone()),
-                            SparqlQueryKind::Ask => None,
-                        });
-                        out.push(ValidationResult {
-                            focus: focus.clone(),
-                            path: violation.path.or_else(|| path_term.clone()),
-                            value,
-                            component: vocab::SH_CC_SPARQL.into_owned(),
-                            source_shape: node_term_ref(shape),
-                            source_constraint: Some(constraint_term.clone()),
-                            severity: severity.clone(),
-                            messages,
-                            sparql_diagnostic: diagnostic.clone(),
-                        });
-                    }
+            if let Ok(violations) = sparql.constraint_violations(&constraint, focus) {
+                if violations.is_empty() {
+                    continue;
                 }
-                // Runtime failure (e.g. an unsupported graph-reading function
-                // under UnsupportedPolicy::Error, or complex-path substitution):
-                // fail closed, surfacing the error so it is not a silent miss.
-                Err(error) => {
-                    let mut messages = raw_messages;
-                    messages.push(Term::Literal(Literal::new_simple_literal(format!(
-                        "SPARQL constraint evaluation failed: {error}"
-                    ))));
+                // Same (constraint, focus) for every row below, so build the
+                // diagnostic once rather than per violation; `.ok()` because a
+                // second, redundant compile can't fail once the call above
+                // already succeeded.
+                let diagnostic = sparql
+                    .constraint_diagnostic(&constraint, focus, &violations)
+                    .ok();
+                for violation in violations {
+                    let messages = substitute_messages(&raw_messages, focus, &violation.bindings);
+                    // SHACL-AF §8.4.1: for SELECT constraints, when ?value is
+                    // not projected, the focus node itself is used as sh:value.
+                    let value = violation.value.or_else(|| match constraint.kind {
+                        SparqlQueryKind::Select => Some(focus.clone()),
+                        SparqlQueryKind::Ask => None,
+                    });
                     out.push(ValidationResult {
                         focus: focus.clone(),
-                        path: path_term.clone(),
-                        value: None,
+                        path: violation.path.or_else(|| path_term.clone()),
+                        value,
                         component: vocab::SH_CC_SPARQL.into_owned(),
                         source_shape: node_term_ref(shape),
                         source_constraint: Some(constraint_term.clone()),
                         severity: severity.clone(),
                         messages,
-                        sparql_diagnostic: sparql
-                            .constraint_diagnostic(&constraint, focus, &[])
-                            .ok(),
+                        sparql_diagnostic: diagnostic.clone(),
                     });
                 }
             }
@@ -2336,7 +2414,7 @@ mod sparql_diagnostic_tests {
 
     fn report_for(turtle: &str) -> ValidationReport {
         let loaded = shifty_parse::load_turtle(turtle.as_bytes(), None).expect("valid turtle");
-        validate_report(&loaded, &loaded.graph)
+        validate_report(&loaded, &loaded.graph).unwrap()
     }
 
     /// A simple BGP `sh:sparql` SELECT constraint lowers to the native

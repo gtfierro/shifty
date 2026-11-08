@@ -82,7 +82,7 @@ fn implicit_class_targets_follow_the_shapes_class_hierarchy() {
     assert_eq!(outcome.violations.len(), 1);
     assert_eq!(outcome.violations[0].focus.to_string(), "<http://ex/item>");
 
-    let report = validate_report(&loaded, &loaded.graph);
+    let report = validate_report(&loaded, &loaded.graph).unwrap();
     assert!(!report.conforms);
     assert_eq!(report.results.len(), 1);
 }

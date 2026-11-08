@@ -37,6 +37,22 @@ severity, and messages. W3C reporting additionally walks authored RDF component
 boundaries to construct report results. Structured evidence retains a different,
 more detailed proof grammar for traversal and repair.
 
+### Execution failures
+
+A SPARQL target or constraint can fail to execute. That failure has no Boolean
+verdict. Recursive evaluation still memoizes Boolean judgments internally, but
+the executor retains the first query failure separately. Public evaluation
+boundaries start a fresh failure scope and return `EvaluationError` instead of
+findings if any executed query failed. Negation, disjunction, target filtering,
+and severity policy cannot turn that failure into a completed verdict. Reusing
+a session starts a new scope; an earlier failed call does not poison it.
+
+`UnsupportedPolicy::Error` is the default. Before executing a SPARQL query, the
+engine checks its parsed function calls for graph-reading SHACL functions that
+cannot use the query dataset. This check precedes native and fallback execution:
+SPARQL expression-error semantics alone can discard a failing FILTER row.
+Explicit `Ignore` permits best effort, but execution errors still propagate.
+
 ## Physical planning
 
 A physical plan changes access and order while preserving logical satisfaction:

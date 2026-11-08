@@ -18,7 +18,7 @@ fn strict_policy_reaches_inference_and_file_bases_are_independent() {
                 sh:construct "CONSTRUCT { $this <http://example.org/flag> true } WHERE { FILTER (! <http://example.org/exists>()) }" ] ;
             sh:property [ sh:path ex:flag ; sh:maxCount 0 ] .
     "#).unwrap();
-    let run = |strict| {
+    let run = |policy: Option<&str>| {
         let mut command = Command::new(env!("CARGO_BIN_EXE_shifty"));
         command
             .arg("validate")
@@ -27,12 +27,12 @@ fn strict_policy_reaches_inference_and_file_bases_are_independent() {
             .arg("--data")
             .arg(&data)
             .arg("--report");
-        if strict {
-            command.args(["--on-unsupported", "error"]);
+        if let Some(policy) = policy {
+            command.args(["--on-unsupported", policy]);
         }
         command.output().unwrap()
     };
-    let strict = run(true);
+    let strict = run(None);
     assert_eq!(strict.status.code(), Some(1));
     assert!(
         String::from_utf8_lossy(&strict.stderr).contains("strict inference failed"),
@@ -41,7 +41,7 @@ fn strict_policy_reaches_inference_and_file_bases_are_independent() {
     );
     assert!(strict.stdout.is_empty());
     assert!(
-        run(false).status.success(),
-        "default handling remains permissive"
+        run(Some("ignore")).status.success(),
+        "explicit ignore permits best effort"
     );
 }

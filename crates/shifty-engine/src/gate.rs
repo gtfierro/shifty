@@ -10,7 +10,8 @@
 //! a cheaper *affected-set* re-validation can replace the implementation later
 //! with identical semantics.
 
-use crate::validate::{NonStratifiable, Violation, validate_with_context};
+use crate::ValidationError;
+use crate::validate::{Violation, validate_with_context};
 use oxrdf::{Graph, Term};
 use serde::{Deserialize, Serialize};
 use shifty_algebra::Schema;
@@ -48,13 +49,13 @@ impl RepairOutcome {
 /// — letting the gate discharge a constraint like `sh:class C` against a value
 /// typed with a *subclass* of `C` when the hierarchy lives in the shapes graph.
 /// The gate dual of [`crate::validate_with_context`]. Errors only if the schema
-/// is not stratifiable.
+/// is not stratifiable or validation cannot execute.
 pub fn gate(
     data: &Graph,
     context: &Graph,
     schema: &Schema,
     delta: &GraphDelta,
-) -> Result<RepairOutcome, NonStratifiable> {
+) -> Result<RepairOutcome, ValidationError> {
     let baseline = validate_with_context(data, context, schema)?.violations;
     let patched_data = apply(data, delta);
     let patched_context = apply(context, delta);

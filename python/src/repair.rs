@@ -2370,7 +2370,8 @@ impl EvidenceSession {
         data_format="auto",
         run_infer=true,
         graph_mode="union",
-        base=None
+        base=None,
+        on_unsupported="error"
     ))]
     #[allow(clippy::too_many_arguments)]
     fn new(
@@ -2383,6 +2384,7 @@ impl EvidenceSession {
         run_infer: bool,
         graph_mode: &str,
         base: Option<String>,
+        on_unsupported: &str,
     ) -> PyResult<Self> {
         let shapes_spec =
             InputSpec::new(shapes, shapes_path, shapes_format, "shapes").map_err(py_value_error)?;
@@ -2393,6 +2395,7 @@ impl EvidenceSession {
             }
         };
         let mode = parse_mode(graph_mode).map_err(py_value_error)?;
+        let engine = crate::engine_options(on_unsupported).map_err(py_value_error)?;
         let shapes_loaded = shapes_spec.load(base.as_deref()).map_err(py_value_error)?;
         let compiled = CompiledShapes::compile(shapes_loaded)
             .map_err(|error| py_value_error(error.to_string()))?;
@@ -2409,7 +2412,7 @@ impl EvidenceSession {
                 SessionOptions {
                     graph_mode: mode,
                     inference: run_infer,
-                    ..SessionOptions::default()
+                    engine,
                 },
             )
             .map_err(|error| py_value_error(error.to_string()))?;
@@ -2463,7 +2466,10 @@ impl EvidenceSession {
         sort_results: bool,
     ) -> PyResult<EvidenceValidationOutcome> {
         let options = validation_options(entry_shape_names, minimum_severity, sort_results)?;
-        let outcome = self.session.evidence_with_validation(&options, true);
+        let outcome = self
+            .session
+            .evidence_with_validation(&options, true)
+            .map_err(crate::py_execution_error)?;
         self.build_run(py, outcome, &self.normalized_schema, &self.data)
     }
 
@@ -2503,7 +2509,9 @@ impl EvidenceSession {
             .session
             .with_delta_and_inference(&delta.inner, run_infer)
             .map_err(|error| py_value_error(error.to_string()))?;
-        let outcome = next.evidence_with_validation(&options, true);
+        let outcome = next
+            .evidence_with_validation(&options, true)
+            .map_err(crate::py_execution_error)?;
         self.build_run(py, outcome, &self.normalized_schema, &next.data_shared())
     }
 
@@ -2520,7 +2528,11 @@ impl EvidenceSession {
         entry_shape_names: Option<Vec<String>>,
     ) -> PyResult<PyConformanceRun> {
         let options = conformance_options(entry_shape_names);
-        Ok(conformance_to_py(self.session.conformance(&options)))
+        Ok(conformance_to_py(
+            self.session
+                .conformance(&options)
+                .map_err(crate::py_execution_error)?,
+        ))
     }
 
     /// The same pass as `validate_conformance`, also returning a handle for each
@@ -2536,7 +2548,10 @@ impl EvidenceSession {
         entry_shape_names: Option<Vec<String>>,
     ) -> PyResult<(PyConformanceRun, Vec<Py<PySelectedPair>>)> {
         let options = conformance_options(entry_shape_names);
-        let (run, failures) = self.session.find_failures(&options);
+        let (run, failures) = self
+            .session
+            .find_failures(&options)
+            .map_err(crate::py_execution_error)?;
         let pairs = failures
             .into_iter()
             .map(|pair| Py::new(py, PySelectedPair { inner: pair }))
@@ -2566,7 +2581,7 @@ impl EvidenceSession {
         let statements = self
             .session
             .explain(&pair.inner)
-            .map_err(|error| py_value_error(error.to_string()))?;
+            .map_err(crate::py_execution_error)?;
         self.explain_run(py, statements)
     }
 
@@ -2580,7 +2595,7 @@ impl EvidenceSession {
         let statements = self
             .session
             .explain_canonical(&pair.inner)
-            .map_err(|error| py_value_error(error.to_string()))?;
+            .map_err(crate::py_execution_error)?;
         self.explain_run(py, statements)
     }
 
@@ -2918,6 +2933,7 @@ impl EvidenceSession {
             .session
             .prepared_evidence()
             .explain_constraint(&term, ShapeId(constraint_id))
+            .map_err(crate::py_execution_error)?
             .ok_or_else(|| {
                 py_value_error(format!(
                     "constraint id {constraint_id} is not in the normalized schema"

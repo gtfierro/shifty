@@ -24,6 +24,7 @@
 //! keeping the expensive "all alternative routes" problem outside this module's
 //! contract.
 
+use crate::ValidationError;
 use crate::frozen::FrozenIndexedDataset;
 use crate::path::{PathBackend, node_of, pred, succ};
 use crate::sparql::{SparqlDiagnostic, SparqlExecutor};
@@ -1041,35 +1042,37 @@ pub fn witness_violations(
     data: &Graph,
     context: &Graph,
     schema: &Schema,
-) -> Result<Vec<FocusWitness>, NonStratifiable> {
+) -> Result<Vec<FocusWitness>, ValidationError> {
     let sparql = prepare(context, schema)?;
-    let backend = sparql
-        .frozen()
-        .expect("witness executor always has a frozen dataset");
-    let mut evaluator = ShapeEvaluator::new(backend, &schema.arena, &schema.prefixes, &sparql);
+    Ok(sparql.checked(|| {
+        let backend = sparql
+            .frozen()
+            .expect("witness executor always has a frozen dataset");
+        let mut evaluator = ShapeEvaluator::new(backend, &schema.arena, &schema.prefixes, &sparql);
 
-    let mut out = Vec::new();
-    for (i, st) in schema.statements.iter().enumerate() {
-        for v in focus_nodes_with(data, backend, &st.selector, &schema.arena, &sparql) {
-            let mut stack = Stack::new();
-            if let Some(failure) = witness(
-                &mut evaluator,
-                &v,
-                st.shape,
-                &Path::Id,
-                None,
-                &[],
-                &mut stack,
-            ) {
-                out.push(FocusWitness {
-                    focus: v,
-                    statement: i,
-                    failure,
-                });
+        let mut out = Vec::new();
+        for (i, st) in schema.statements.iter().enumerate() {
+            for v in focus_nodes_with(data, backend, &st.selector, &schema.arena, &sparql) {
+                let mut stack = Stack::new();
+                if let Some(failure) = witness(
+                    &mut evaluator,
+                    &v,
+                    st.shape,
+                    &Path::Id,
+                    None,
+                    &[],
+                    &mut stack,
+                ) {
+                    out.push(FocusWitness {
+                        focus: v,
+                        statement: i,
+                        failure,
+                    });
+                }
             }
         }
-    }
-    Ok(out)
+        out
+    })?)
 }
 
 /// The arena slot a named shape IRI refers to, if the schema names one. `iri` is
@@ -1091,38 +1094,40 @@ pub fn witness_shape(
     context: &Graph,
     schema: &Schema,
     shape: ShapeId,
-) -> Result<Vec<FocusWitness>, NonStratifiable> {
+) -> Result<Vec<FocusWitness>, ValidationError> {
     let sparql = prepare(context, schema)?;
-    let backend = sparql
-        .frozen()
-        .expect("witness executor always has a frozen dataset");
-    let mut evaluator = ShapeEvaluator::new(backend, &schema.arena, &schema.prefixes, &sparql);
+    Ok(sparql.checked(|| {
+        let backend = sparql
+            .frozen()
+            .expect("witness executor always has a frozen dataset");
+        let mut evaluator = ShapeEvaluator::new(backend, &schema.arena, &schema.prefixes, &sparql);
 
-    let mut out = Vec::new();
-    for (i, st) in schema.statements.iter().enumerate() {
-        if st.shape != shape {
-            continue;
-        }
-        for v in focus_nodes_with(data, backend, &st.selector, &schema.arena, &sparql) {
-            let mut stack = Stack::new();
-            if let Some(failure) = witness(
-                &mut evaluator,
-                &v,
-                st.shape,
-                &Path::Id,
-                None,
-                &[],
-                &mut stack,
-            ) {
-                out.push(FocusWitness {
-                    focus: v,
-                    statement: i,
-                    failure,
-                });
+        let mut out = Vec::new();
+        for (i, st) in schema.statements.iter().enumerate() {
+            if st.shape != shape {
+                continue;
+            }
+            for v in focus_nodes_with(data, backend, &st.selector, &schema.arena, &sparql) {
+                let mut stack = Stack::new();
+                if let Some(failure) = witness(
+                    &mut evaluator,
+                    &v,
+                    st.shape,
+                    &Path::Id,
+                    None,
+                    &[],
+                    &mut stack,
+                ) {
+                    out.push(FocusWitness {
+                        focus: v,
+                        statement: i,
+                        failure,
+                    });
+                }
             }
         }
-    }
-    Ok(out)
+        out
+    })?)
 }
 
 /// Why one focus node *satisfies* one statement: the [`SatTrace`] recording why
@@ -1145,32 +1150,34 @@ pub fn satisfy_shape(
     context: &Graph,
     schema: &Schema,
     shape: ShapeId,
-) -> Result<Vec<FocusSat>, NonStratifiable> {
+) -> Result<Vec<FocusSat>, ValidationError> {
     let sparql = prepare(context, schema)?;
-    let backend = sparql
-        .frozen()
-        .expect("witness executor always has a frozen dataset");
-    let mut evaluator = ShapeEvaluator::new(backend, &schema.arena, &schema.prefixes, &sparql);
+    Ok(sparql.checked(|| {
+        let backend = sparql
+            .frozen()
+            .expect("witness executor always has a frozen dataset");
+        let mut evaluator = ShapeEvaluator::new(backend, &schema.arena, &schema.prefixes, &sparql);
 
-    let mut out = Vec::new();
-    for (i, st) in schema.statements.iter().enumerate() {
-        if st.shape != shape {
-            continue;
-        }
-        for v in focus_nodes_with(data, backend, &st.selector, &schema.arena, &sparql) {
-            let mut stack = Stack::new();
-            if let Some(trace) =
-                sat_trace(&mut evaluator, &v, st.shape, &Path::Id, None, &mut stack)
-            {
-                out.push(FocusSat {
-                    focus: v,
-                    statement: i,
-                    trace,
-                });
+        let mut out = Vec::new();
+        for (i, st) in schema.statements.iter().enumerate() {
+            if st.shape != shape {
+                continue;
+            }
+            for v in focus_nodes_with(data, backend, &st.selector, &schema.arena, &sparql) {
+                let mut stack = Stack::new();
+                if let Some(trace) =
+                    sat_trace(&mut evaluator, &v, st.shape, &Path::Id, None, &mut stack)
+                {
+                    out.push(FocusSat {
+                        focus: v,
+                        statement: i,
+                        trace,
+                    });
+                }
             }
         }
-    }
-    Ok(out)
+        out
+    })?)
 }
 
 /// Witness one specific `node` against one specific `shape` (by id) — the building
@@ -1189,28 +1196,30 @@ pub fn witness_node(
     schema: &Schema,
     node: &Term,
     shape: ShapeId,
-) -> Result<Option<FocusWitness>, NonStratifiable> {
+) -> Result<Option<FocusWitness>, ValidationError> {
     let sparql = prepare(context, schema)?;
-    let backend = sparql
-        .frozen()
-        .expect("witness executor always has a frozen dataset");
-    let mut evaluator = ShapeEvaluator::new(backend, &schema.arena, &schema.prefixes, &sparql);
+    Ok(sparql.checked(|| {
+        let backend = sparql
+            .frozen()
+            .expect("witness executor always has a frozen dataset");
+        let mut evaluator = ShapeEvaluator::new(backend, &schema.arena, &schema.prefixes, &sparql);
 
-    let mut stack = Stack::new();
-    Ok(witness(
-        &mut evaluator,
-        node,
-        shape,
-        &Path::Id,
-        None,
-        &[],
-        &mut stack,
-    )
-    .map(|failure| FocusWitness {
-        focus: node.clone(),
-        statement: usize::MAX,
-        failure,
-    }))
+        let mut stack = Stack::new();
+        witness(
+            &mut evaluator,
+            node,
+            shape,
+            &Path::Id,
+            None,
+            &[],
+            &mut stack,
+        )
+        .map(|failure| FocusWitness {
+            focus: node.clone(),
+            statement: usize::MAX,
+            failure,
+        })
+    })?)
 }
 
 /// Reasons `φ` (slot `id`) fails at `node`. `None` ⟺ it holds (incl. on a gfp

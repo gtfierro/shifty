@@ -4,6 +4,9 @@ from typing import Any, ClassVar, Dict, List, Optional, Tuple, Union
 
 __version__: str
 
+class ValidationFailure(RuntimeError):
+    """Validation could not complete; no conformance verdict is available."""
+
 class ConstraintKind:
     Unknown: ClassVar[ConstraintKind]
     Top: ClassVar[ConstraintKind]
@@ -487,6 +490,7 @@ class EvidenceSession:
         run_infer: bool = ...,
         graph_mode: str = ...,
         base: Optional[str] = ...,
+        on_unsupported: str = ...,
     ) -> None: ...
     @property
     def diagnostics(self) -> List[str]: ...
