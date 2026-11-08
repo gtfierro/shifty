@@ -343,6 +343,59 @@ class TestAlgebraResult:
                     r.value, (str, type(rdflib.URIRef("")))
                 )
 
+    @pytest.mark.parametrize(
+        "constraint",
+        ["sh:datatype xsd:integer", "sh:class ex:Required", "sh:nodeKind sh:IRI"],
+    )
+    def test_shared_invalid_value_keeps_a_reason_for_each_property(self, constraint):
+        shapes = (
+            PREFIXES
+            + f"""
+            ex:S a sh:NodeShape ; sh:targetNode ex:x ;
+                sh:property [ sh:path ex:p ; {constraint} ] ;
+                sh:property [ sh:path ex:q ; {constraint} ] .
+            """
+        )
+        data = PREFIXES + 'ex:x ex:p "bad" ; ex:q "bad" .'
+
+        result = shifty.validate_algebra(data, shapes, infer=False)
+
+        assert not result.conforms
+        assert len(result.violations) == 1
+        reasons = result.violations[0].reasons
+        assert len(reasons) == 2
+        assert {r.path for r in reasons} == {"ex:p", "ex:q"}
+        assert reasons[0].value == reasons[1].value
+        assert reasons[0].message == reasons[1].message
+
+    def test_distinct_constraints_keep_reasons_with_the_same_message(self):
+        shapes = (
+            PREFIXES
+            + """
+            ex:S a sh:NodeShape ; sh:targetNode ex:x ;
+                sh:sparql [
+                    sh:message "Constraint failed" ;
+                    sh:select "SELECT $this WHERE { FILTER(true) }"
+                ] ;
+                sh:sparql [
+                    sh:message "Constraint failed" ;
+                    sh:select "SELECT $this WHERE { BIND(1 AS ?n) FILTER(?n = 1) }"
+                ] .
+            """
+        )
+        data = PREFIXES + "ex:x a ex:Thing ."
+
+        result = shifty.validate_algebra(data, shapes, infer=False)
+
+        assert not result.conforms
+        assert len(result.violations) == 1
+        reasons = result.violations[0].reasons
+        assert len(reasons) == 2
+        assert len({r.constraint_id for r in reasons}) == 2
+        assert reasons[0].value == reasons[1].value
+        assert reasons[0].path == reasons[1].path
+        assert reasons[0].message == reasons[1].message
+
     def test_reason_has_author_message(self):
         result = shifty.validate_algebra(VIOLATION_DATA.encode(), SHAPES.encode())
         for v in result.violations:

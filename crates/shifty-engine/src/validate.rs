@@ -1904,7 +1904,11 @@ fn unique_lang(values: &HashSet<Term>) -> bool {
 fn dedup_reasons(reasons: &mut Vec<Reason>) {
     let mut seen = HashSet::new();
     reasons.retain(|r| {
+        // Identical diagnostics can come from different properties or
+        // constraints. Preserve their provenance when removing duplicates.
         seen.insert((
+            r.constraint_id,
+            r.path.clone(),
             r.value.to_string(),
             r.message.clone(),
             r.severity.as_str().to_string(),
