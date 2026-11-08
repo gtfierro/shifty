@@ -1,0 +1,1239 @@
+@prefix doap: <http://usefulinc.com/ns/doap#> .
+@prefix earl: <http://www.w3.org/ns/earl#> .
+@prefix prov: <http://www.w3.org/ns/prov#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+<https://github.com/gtfierro/shifty> a doap:Project,
+        earl:Software,
+        earl:TestSubject ;
+    doap:developer <https://github.com/gtfierro> ;
+    doap:name "Shifty" ;
+    doap:release [ a doap:Version ;
+            doap:revision "0.5.1" ] .
+
+<https://github.com/gtfierro> a earl:Assertor .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:info "invalid shapes graph: [error] SHACL-SPARQL subquery does not project potentially pre-bound variable(s): ?this (_:n469e5b550d694bf08056f088975e5996b3)" ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/sparql/pre-binding/unsupported-sparql-004> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/core/property/nodeKind-001> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/core/path/path-inverse-001> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/core/path/path-strange-002> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/core/path/path-complex-001> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/core/path/path-sequence-001> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/sparql/node/prefixes-001> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/core/property/hasValue-001> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/core/targets/targetClass-001> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/core/node/closed-002> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/core/targets/multipleTargets-001> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/sparql/pre-binding/pre-binding-003> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/core/property/qualifiedValueShape-001> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/core/property/uniqueLang-002> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/sparql/node/sparql-003> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/sparql/pre-binding/pre-binding-007> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/sparql/pre-binding/shapesGraph-001> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/core/targets/targetSubjectsOf-001> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/core/node/pattern-002> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/core/property/maxCount-002> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:info "invalid shapes graph: [error] invalid SPARQL in validator: SHACL-SPARQL must not assign potentially pre-bound variable ?value with AS (<http://datashapes.org/sh/tests/sparql/pre-binding/unsupported-sparql-006.test#hasLang>)" ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/sparql/pre-binding/unsupported-sparql-006> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/core/node/class-003> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/sparql/component/validator-001> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/core/property/and-001> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/core/node/class-001> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/core/path/path-strange-001> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/sparql/component/nodeValidator-001> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/core/node/maxLength-001> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/core/node/or-001> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/core/property/lessThanOrEquals-001> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/core/node/minLength-001> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/core/property/pattern-002> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/core/node/nodeKind-001> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/sparql/property/sparql-001> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/core/node/and-001> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/core/node/node-001> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/core/complex/shacl-shacl> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/core/node/equals-001> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/core/node/minInclusive-002> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/core/property/languageIn-001> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/core/property/minExclusive-002> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/core/node/and-002> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/core/node/not-002> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/core/targets/targetClassImplicit-001> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/core/property/minCount-001> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/core/property/pattern-001> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/sparql/node/sparql-002> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/core/path/path-zeroOrMore-001> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/core/property/node-001> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/core/targets/targetNode-001> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/core/node/minInclusive-001> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/core/node/minExclusive-001> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:info "invalid shapes graph: [error] SHACL-SPARQL queries must not contain VALUES (_:n72cc03b2503042c097ccc419cef333c3b3)" ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/sparql/pre-binding/unsupported-sparql-002> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/core/misc/severity-002> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/core/node/datatype-001> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/core/property/property-001> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/core/property/qualifiedMinCountDisjoint-001> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/core/validation-reports/shared> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/core/property/lessThan-001> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/core/property/node-002> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/core/targets/targetObjectsOf-001> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/sparql/pre-binding/pre-binding-004> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/core/property/minCount-002> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/core/complex/personexample> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/core/property/equals-001> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/core/property/or-datatypes-001> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/core/property/class-001> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/sparql/component/propertyValidator-select-001> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/core/property/or-001> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/core/node/qualified-001> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/core/path/path-sequence-duplicate-001> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/sparql/node/sparql-001> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/core/property/minExclusive-001> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/core/property/datatype-001> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/core/misc/message-001> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/core/node/xone-001> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/core/node/xone-duplicate> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/sparql/pre-binding/pre-binding-005> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/core/property/qualifiedValueShapesDisjoint-001> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/core/node/in-001> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:info "invalid shapes graph: [error] SHACL-SPARQL queries must not contain MINUS (_:n004302f9ea7a4157b49cfd5652bb6642b3)" ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/sparql/pre-binding/unsupported-sparql-001> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:info "invalid shapes graph: [error] SHACL-SPARQL must not assign potentially pre-bound variable ?this with AS (_:nd3436419ef1349a996377b8bd1cb553bb3)" ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/sparql/pre-binding/unsupported-sparql-005> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/core/property/disjoint-001> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/core/property/maxInclusive-001> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/core/property/maxCount-001> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/core/node/maxInclusive-001> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/sparql/pre-binding/pre-binding-002> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/core/property/in-001> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/core/misc/severity-001> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/core/node/minInclusive-003> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/core/node/closed-001> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/core/node/not-001> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:info "invalid shapes graph: [error] SHACL-SPARQL subquery does not project potentially pre-bound variable(s): ?this (<http://datashapes.org/sh/tests/sparql/pre-binding/pre-binding-006.test#TestShape-sparql>)" ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/sparql/pre-binding/pre-binding-006> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/core/node/datatype-002> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/core/node/maxExclusive-001> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/core/misc/deactivated-002> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/core/property/lessThan-002> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/core/property/datatype-003> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/core/property/datatype-002> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/core/property/datatype-ill-formed> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:info "invalid shapes graph: [error] SHACL-SPARQL queries must not contain SERVICE (_:na6889fe440564d5fb024d7b02ffb07d0b3)" ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/sparql/pre-binding/unsupported-sparql-003> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/core/path/path-complex-002> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/sparql/component/optional-001> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/core/node/disjoint-001> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/core/path/path-sequence-002> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/core/property/uniqueLang-001> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/sparql/pre-binding/pre-binding-001> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/core/property/maxLength-001> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/core/path/path-alternative-001> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/core/node/languageIn-001> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/core/node/pattern-001> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/core/path/path-oneOrMore-001> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/core/property/minLength-001> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/core/property/maxExclusive-001> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/core/misc/deactivated-001> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/core/path/path-zeroOrOne-001> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/core/node/class-002> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/core/path/path-unused-001> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/core/targets/targetSubjectsOf-002> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/core/property/not-001> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+[] a earl:Assertion ;
+    earl:assertedBy <https://github.com/gtfierro> ;
+    earl:mode earl:automatic ;
+    earl:result [ a earl:TestResult ;
+            earl:date "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+            earl:outcome earl:passed ] ;
+    earl:subject <https://github.com/gtfierro/shifty> ;
+    earl:test <urn:x-shacl-test:/core/node/hasValue-001> ;
+    prov:wasGeneratedBy _:N33a0f53e06b5491fb75d4682474c9611 .
+
+_:N33a0f53e06b5491fb75d4682474c9611 a prov:Activity ;
+    rdfs:comment "{\"date\": \"2026-11-08T20:22:26.424327+00:00\", \"extension_sha256\": \"c03fa595eae0b2ad2b87f27064e52067f7b73c8621fccb6f5de372c605772f3e\", \"options\": {\"graph_mode\": \"data\", \"infer\": false, \"on_unsupported\": \"error\"}, \"runner_sha256\": \"f5e5bc0873e62989e960e64bd707e91c7f19901b36120684588903837f7f9935\", \"selection\": {\"include_unlisted\": true, \"section\": \"all\", \"test\": null}, \"shifty_version\": \"0.5.1\", \"source_revision\": \"fea00b5a66c510dc14cc658d5aa5f2baed627ace\", \"source_tree_sha256\": \"8df7f9525a4a5e61b6ba4276efe0000a449490bc321e65a2cd15799408939abf\", \"suite_revision\": \"40231dfb97c5b606d22ae733947c0d14b4f45c07\", \"tracked_diff_sha256\": \"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\", \"working_tree\": []}" ;
+    prov:endedAtTime "2026-11-08T20:22:26.424327+00:00"^^xsd:dateTime ;
+    prov:used <https://github.com/gtfierro/shifty/commit/fea00b5a66c510dc14cc658d5aa5f2baed627ace>,
+        <https://github.com/w3c/data-shapes/commit/40231dfb97c5b606d22ae733947c0d14b4f45c07> .
+
