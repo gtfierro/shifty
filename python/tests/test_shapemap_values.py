@@ -72,8 +72,33 @@ def test_failed_universal_without_session_has_unknown_qualifying_set():
 
 
 @pytest.mark.parametrize("with_session", [False, True])
-def test_overflow_count_is_exact(with_session):
-    binding = make_binding("sh:maxCount 1", '"one", "two"', session=with_session)
+@pytest.mark.parametrize("minimum", ["", "; sh:minCount 4"])
+@pytest.mark.parametrize("sibling", [False, True])
+def test_failed_class_universal_does_not_count_counterexamples(
+    with_session, minimum, sibling
+):
+    binding = make_binding(
+        f"sh:class ex:V {minimum}",
+        "ex:first, ex:second, ex:other",
+        session=with_session,
+        extra="ex:first a ex:V . ex:second a ex:V .",
+        sibling=sibling,
+    )
+    assert not binding.ok
+    assert binding.observed == (3 if with_session or minimum else None)
+    assert binding.values == (
+        [Iri("http://ex/first"), Iri("http://ex/second")] if with_session else None
+    )
+    assert binding.partial_values == binding.values
+    assert binding.rejected_values == [Iri("http://ex/other")]
+
+
+@pytest.mark.parametrize("with_session", [False, True])
+@pytest.mark.parametrize("maximum", [0, 1])
+def test_overflow_count_is_exact(with_session, maximum):
+    binding = make_binding(
+        f"sh:maxCount {maximum}", '"one", "two"', session=with_session
+    )
     assert not binding.ok
     assert binding.observed == 2
     assert binding.values == [Literal("one"), Literal("two")]

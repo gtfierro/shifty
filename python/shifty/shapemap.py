@@ -560,6 +560,19 @@ def _direct_children(node: dict) -> list[dict]:
     return []
 
 
+def _is_rejected_count_high(node: dict, *, rejected_count_high: bool = False) -> bool:
+    """Recognize a universal counterexample using the authored constraint.
+
+    Class checks can normalize their negation into a count, leaving no
+    ``per_value`` failures. An empty list therefore cannot identify an
+    ordinary cardinality overflow.
+    """
+    return node.get("type") == "count_high" and (
+        (rejected_count_high and _details(node).get("max") == 0)
+        or bool(_details(node).get("per_value"))
+    )
+
+
 def _top_values(
     node: Optional[dict], *, rejected_count_high: bool = False
 ) -> "list[Term]":
@@ -576,7 +589,9 @@ def _top_values(
         found = [_term_from_json(v[0]) for v in d.get("values", [])]
     elif kind == "count_low":
         found = [_term_from_json(m["value"]) for m in d.get("qualifying_matches", [])]
-    elif kind == "count_high" and not (rejected_count_high and d.get("max") == 0):
+    elif kind == "count_high" and not _is_rejected_count_high(
+        node, rejected_count_high=rejected_count_high
+    ):
         found = [_term_from_json(m[0]) for m in d.get("matched", [])]
     elif kind in _TRANSPARENT:
         found = [
@@ -614,7 +629,9 @@ def _missing_count(node: Optional[dict]) -> int:
     )
 
 
-def _observed_count(node: Optional[dict]) -> Optional[int]:
+def _observed_count(
+    node: Optional[dict], *, rejected_count_high: bool = False
+) -> Optional[int]:
     observations = set()
     for n in _top_counts(node):
         d = _details(n)
@@ -622,7 +639,9 @@ def _observed_count(node: Optional[dict]) -> Optional[int]:
             observations.add(d["observed_count"])
         if n.get("type") == "count_low" and d.get("have") is not None:
             observations.add(d["have"])
-        if n.get("type") == "count_high" and not d.get("per_value"):
+        if n.get("type") == "count_high" and not _is_rejected_count_high(
+            n, rejected_count_high=rejected_count_high
+        ):
             observations.add(len(d["matched"]))
         if n.get("type") == "for_all_held":
             observations.add(len(d["values"]))
@@ -639,12 +658,9 @@ def _rejected_values(
             if term not in out:
                 out.append(term)
         # `forall path . constraint` lowers to `Count(max=0, Not(constraint))`.
-        # Its CountHigh witness carries per-value failures, so these are
-        # rejected candidates, not values accepted by the property binding.
-        if n.get("type") == "count_high" and (
-            (rejected_count_high and _details(n).get("max") == 0)
-            or _details(n).get("per_value")
-        ):
+        # Its CountHigh witness carries rejected candidates, even when the
+        # normalized qualifier leaves the per-value failure list empty.
+        if _is_rejected_count_high(n, rejected_count_high=rejected_count_high):
             for value in _details(n).get("excess_values", []):
                 term = _term_from_json(value[0])
                 if term not in out:
@@ -821,7 +837,9 @@ class Binding:
                         self._vacuous_property and evidence.get("type") == "irrefutable"
                     )
                     and not any(
-                        _details(node).get("per_value")
+                        _is_rejected_count_high(
+                            node, rejected_count_high=self._rejected_count_high
+                        )
                         for node in _top_counts(evidence)
                     )
                     else None
@@ -880,7 +898,9 @@ class Binding:
         observation = self._observe()
         if observation is not None:
             return observation[2]
-        return _observed_count(self.evidence)
+        return _observed_count(
+            self.evidence, rejected_count_high=self._rejected_count_high
+        )
 
     @property
     def expects_single(self) -> bool:
