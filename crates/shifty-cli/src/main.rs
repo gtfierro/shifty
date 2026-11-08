@@ -120,6 +120,9 @@ struct ValidateArgs {
     /// Lowest result severity that makes validation non-conforming.
     #[arg(long, value_enum, default_value_t = SeverityLevel::Info)]
     minimum_severity: SeverityLevel,
+    /// How to handle partially supported features.
+    #[arg(long, value_enum, default_value_t = UnsupportedHandling::Ignore)]
+    on_unsupported: UnsupportedHandling,
     /// Write the data graph validation actually read — after SHACL-AF
     /// inference — as Turtle to this path, or to stdout for `-`.
     #[arg(long, value_name = "PATH")]
@@ -191,6 +194,21 @@ enum SeverityLevel {
     Info,
     Warning,
     Violation,
+}
+
+#[derive(Clone, Copy, ValueEnum)]
+enum UnsupportedHandling {
+    Ignore,
+    Error,
+}
+
+impl From<UnsupportedHandling> for shifty_engine::UnsupportedPolicy {
+    fn from(value: UnsupportedHandling) -> Self {
+        match value {
+            UnsupportedHandling::Ignore => Self::Ignore,
+            UnsupportedHandling::Error => Self::Error,
+        }
+    }
 }
 
 impl From<SeverityLevel> for shifty_algebra::Severity {
@@ -295,13 +313,16 @@ fn load_sources_profiled(
     let mut stats = Vec::with_capacity(sources.len());
     for src in sources {
         let fetched = fetch_bytes(src)?;
-        let parsed_base = base.or_else(|| {
-            (src.starts_with("http://") || src.starts_with("https://")).then_some(src.as_str())
-        });
+        let source_iri = if src.starts_with("http://") || src.starts_with("https://") {
+            src.clone()
+        } else {
+            shifty_parse::graph::file_base_iri(std::path::Path::new(src))?
+        };
+        let parsed_base = base.or(Some(source_iri.as_str()));
         let (loaded, format) = shifty_parse::load_rdf_auto_with_format(
             &fetched.bytes,
             fetched.content_type.as_deref(),
-            Some(src),
+            Some(&source_iri),
             parsed_base,
         )?;
         stats.push(SourceStat {
@@ -1112,7 +1133,9 @@ fn validate(args: ValidateArgs) -> Result<(), Box<dyn Error>> {
             shifty_engine::SessionOptions {
                 graph_mode,
                 inference: !args.no_infer,
-                engine: Default::default(),
+                engine: shifty_engine::EngineOptions {
+                    unsupported: args.on_unsupported.into(),
+                },
             },
         )
         .map_err(|e| format!("{e}; cannot prepare validation (see `inspect --stage strata`)"))?;

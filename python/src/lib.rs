@@ -756,27 +756,29 @@ impl InputSpec {
                 InputFormat::NTriples => shifty_parse::load_ntriples(data),
             }
             .map_err(|e| format!("parse error: {e}")),
-            InputSource::Path(path) => match self.format {
-                InputFormat::Auto => {
-                    let bytes = std::fs::read(path)
-                        .map_err(|e| format!("failed to open {}: {e}", path.display()))?;
-                    shifty_parse::load_rdf_auto(
-                        &bytes,
-                        None,
-                        path.to_str(),
-                        base.or_else(|| path.to_str()),
+            InputSource::Path(path) => {
+                let document_iri =
+                    shifty_parse::graph::file_base_iri(path).map_err(|e| e.to_string())?;
+                let base = base.or(Some(document_iri.as_str()));
+                match self.format {
+                    InputFormat::Auto => {
+                        let bytes = std::fs::read(path)
+                            .map_err(|e| format!("failed to open {}: {e}", path.display()))?;
+                        shifty_parse::load_rdf_auto(&bytes, None, Some(&document_iri), base)
+                            .map_err(|e| format!("parse error: {e}"))
+                    }
+                    InputFormat::Turtle => {
+                        shifty_parse::Loaded::from_path(path, shifty_parse::RdfFormat::Turtle, base)
+                            .map_err(|e| format!("parse error: {e}"))
+                    }
+                    InputFormat::NTriples => shifty_parse::Loaded::from_path(
+                        path,
+                        shifty_parse::RdfFormat::NTriples,
+                        base,
                     )
-                    .map_err(|e| format!("parse error: {e}"))
+                    .map_err(|e| format!("parse error: {e}")),
                 }
-                InputFormat::Turtle => {
-                    shifty_parse::Loaded::from_path(path, shifty_parse::RdfFormat::Turtle, base)
-                        .map_err(|e| format!("parse error: {e}"))
-                }
-                InputFormat::NTriples => {
-                    shifty_parse::Loaded::from_path(path, shifty_parse::RdfFormat::NTriples, base)
-                        .map_err(|e| format!("parse error: {e}"))
-                }
-            },
+            }
         }
     }
 }

@@ -28,10 +28,17 @@ jobs:
       - name: Check all approved and proposed cases
         working-directory: python
         run: uv run python -m conformance --include-unlisted --baseline ../testdata/w3c-shacl/baseline.json
+      - name: Build the CLI
+        run: cargo build --locked -p shifty-cli
+      - name: Compare CLI and Python file-input reports
+        working-directory: python
+        run: uv run python -m conformance.parity --cli ../target/debug/shifty
       - name: Upload EARL and per-test results
         if: always()
         uses: actions/upload-artifact@v6
         with:
           name: shifty-shacl-1-0-results
-          path: target/conformance/
+          path: |
+            target/conformance/
+            target/interface-parity/
           if-no-files-found: warn

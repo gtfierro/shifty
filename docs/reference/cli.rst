@@ -59,7 +59,9 @@ or rule. ``inspect`` remains diagnostic-oriented and shows lowering output.
    * - ``--data <DATA>``
      - Data file(s) or URL(s). Repeatable. Defaults to ``--shapes``.
    * - ``--base <BASE>``
-     - Base IRI for parsing.
+     - Override the default base IRI. Local files default to their own absolute
+       file URI; URLs default to the retrieval URL. A document's base declaration
+       can override that default.
    * - ``--format <FORMAT>``
      - ``text`` (default) or ``json``.
    * - ``--report``
@@ -77,6 +79,9 @@ or rule. ``inspect`` remains diagnostic-oriented and shows lowering output.
      - ``info`` (default), ``warning``, or ``violation``. The lowest severity
        that makes the run non-conforming. Lower-severity findings are omitted
        from the default text and JSON output, but retained in ``--report``.
+   * - ``--on-unsupported <POLICY>``
+     - ``ignore`` (default) or ``error``. Use ``error`` to reject partially
+       supported features; see :doc:`feature-support`.
    * - ``--dump-data <PATH>``
      - Write the data graph validation actually read, as Turtle, to ``PATH``
        (``-`` for stdout). See :ref:`cli-dump`.

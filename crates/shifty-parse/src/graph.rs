@@ -10,6 +10,47 @@ use std::fs::File;
 use std::io::{BufReader, Read};
 use std::path::Path;
 
+/// The retrieval IRI of a local RDF document. Escape path bytes so spaces,
+/// fragment/query characters, and non-ASCII filenames retain their identity.
+pub fn file_base_iri(path: &Path) -> Result<String, ParseError> {
+    let absolute = std::path::absolute(path)
+        .map_err(|error| ParseError(format!("cannot resolve {}: {error}", path.display())))?;
+    #[cfg(unix)]
+    let (prefix, bytes) = {
+        use std::os::unix::ffi::OsStrExt;
+        ("file://", absolute.as_os_str().as_bytes().to_vec())
+    };
+    #[cfg(not(unix))]
+    let (prefix, bytes) = {
+        let path = absolute
+            .to_str()
+            .ok_or_else(|| ParseError("file path cannot be represented as an IRI".into()))?
+            .replace('\\', "/");
+        let path = path.strip_prefix("//?/").unwrap_or(&path);
+        let path = path
+            .strip_prefix("UNC/")
+            .map_or_else(|| path.to_string(), |rest| format!("//{rest}"));
+        (
+            if path.starts_with("//") {
+                "file:"
+            } else {
+                "file:///"
+            },
+            path.into_bytes(),
+        )
+    };
+    let mut iri = prefix.to_string();
+    for byte in bytes {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'/' | b':' | b'-' | b'_' | b'.' | b'~') {
+            iri.push(char::from(byte));
+        } else {
+            use std::fmt::Write;
+            write!(&mut iri, "%{byte:02X}").expect("writing to String cannot fail");
+        }
+    }
+    Ok(iri)
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RdfFormat {
     Turtle,
@@ -170,6 +211,12 @@ impl Loaded {
     ) -> Result<Self, ParseError> {
         let file = File::open(path)
             .map_err(|e| ParseError(format!("failed to open {}: {e}", path.display())))?;
+        let default_base = if base.is_none() {
+            Some(file_base_iri(path)?)
+        } else {
+            None
+        };
+        let base = base.or(default_base.as_deref());
         let reader = BufReader::new(file);
         match format {
             RdfFormat::Turtle => Self::from_turtle_reader(reader, base),
@@ -433,6 +480,26 @@ pub fn as_named(term: &Term) -> Option<NamedNode> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn local_document_iri_escapes_reserved_and_unicode_path_bytes() {
+        let base = file_base_iri(Path::new("input #?%é.ttl")).unwrap();
+        assert!(base.starts_with("file:///"));
+        assert!(base.ends_with("/input%20%23%3F%25%C3%A9.ttl"));
+        let loaded = Loaded::from_turtle(b"<> <urn:p> <sibling> .", Some(&base)).unwrap();
+        let triple = loaded.graph.iter().next().unwrap();
+        assert_eq!(triple.subject.to_string(), format!("<{base}>"));
+        let parent = base.rsplit_once('/').unwrap().0;
+        assert_eq!(triple.object.to_string(), format!("<{parent}/sibling>"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn local_document_iri_preserves_non_utf8_filename_bytes() {
+        use std::os::unix::ffi::OsStrExt;
+        let path = Path::new(std::ffi::OsStr::from_bytes(b"input-\xff.ttl"));
+        assert!(file_base_iri(path).unwrap().ends_with("/input-%FF.ttl"));
+    }
 
     // sniff_format tests
 

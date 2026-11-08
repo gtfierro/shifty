@@ -63,3 +63,24 @@ Use the baseline with the full suite. It checks the test inventory, upstream
 revision, and report and algebra results for regressions. Fixture sources and
 update instructions are in `testdata/README.md
 <https://github.com/gtfierro/shifty/blob/main/testdata/README.md>`_.
+
+Compare CLI and Python reports
+------------------------------
+
+Build the CLI from the repository root, then run the parity check:
+
+.. code-block:: bash
+
+   cargo build --locked -p shifty-cli
+   cd python
+   uv run python -m conformance.parity --cli ../target/debug/shifty
+
+This checks all 121 cases through native file inputs on both interfaces.
+Reports are compared to the expected RDF by graph isomorphism; blank-node
+labels are local to each process. Both runs disable inference, use the data
+graph, and reject unsupported features. Results go to
+``target/interface-parity/parity.json``. Use ``--test`` for one case or
+``--output`` for another results directory. Timeouts and crashes fail the run.
+
+Verified report snapshots are kept in `conformance-results/
+<https://github.com/gtfierro/shifty/tree/main/conformance-results>`_.

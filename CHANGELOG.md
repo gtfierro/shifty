@@ -4,6 +4,8 @@
 
 ### Fixed
 
+- Local RDF files resolve relative IRIs against their own file URIs, including
+  paths containing spaces, Unicode, or URI punctuation.
 - W3C reports include complex property-path structures and identify the
   source of direct SPARQL constraint results.
 - Python report graphs preserve offending literal lexical forms, including
@@ -13,6 +15,8 @@
 
 ### Added
 
+- CLI/Python file-input parity checks for the pinned suite, including CI coverage.
+- CLI validation accepts `--on-unsupported error` for strict feature handling.
 - A pinned upstream SHACL 1.0 suite, manifest runner, complete report
   comparison, EARL output, and CI baseline covering 120 approved cases and
   one separately reported proposed case.

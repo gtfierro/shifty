@@ -40,6 +40,9 @@ inputs are serialized as Turtle so namespace bindings required by SHACL-SPARQL
 queries and rules survive. URL formats are inferred from the response content
 type or the final URL suffix; Turtle is the fallback.
 
+File inputs resolve relative IRIs against each file's own absolute URI unless
+``base`` is supplied. A document's base declaration can override that default.
+
 .. note::
 
    **Which graph shapes come from.** Passing a single graph (omitting

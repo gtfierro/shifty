@@ -237,6 +237,14 @@ class Result:
     algebra: str = "not-run"
 
 
+def is_validation_failure(message: str) -> bool:
+    prefix = "invalid shapes graph: [error] "
+    diagnostic = message.removeprefix(prefix).removeprefix(
+        "invalid SPARQL in validator: "
+    )
+    return message.startswith(prefix) and diagnostic.startswith(EXPECTED_FAILURES)
+
+
 def run_case(case: Case, documents: Documents, output: Path) -> Result:
     result = Result(case.identifier, case.status, "error")
     if case.status == "rejected":
@@ -264,11 +272,7 @@ def run_case(case: Case, documents: Documents, output: Path) -> Result:
             # The Python API represents admission errors as ValueError. Only
             # diagnosed SHACL-SPARQL restrictions qualify as expected failures;
             # Turtle errors, unsupported features, and arbitrary errors do not.
-            prefix = "invalid shapes graph: [error] "
-            diagnostic = message.removeprefix(prefix).removeprefix(
-                "invalid SPARQL in validator: "
-            )
-            if message.startswith(prefix) and diagnostic.startswith(EXPECTED_FAILURES):
+            if is_validation_failure(message):
                 result.outcome = "passed" if expected == SHT.Failure else "failed"
                 result.info = message
                 return result
