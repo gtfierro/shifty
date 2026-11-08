@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 365" role="img" aria-labelledby="title desc">
+  <title id="title">Validation graph visibility by graph mode</title>
+  <desc id="desc">With separate data and shapes inputs, data mode selects focus nodes and evaluates constraints on data only. Union mode selects from data and evaluates on data plus shapes. Union-all mode selects and evaluates on data plus shapes. The SPARQL shapesGraph name always refers to the unchanged shapes source.</desc>
+  <defs>
+    <style>
+      .bg { fill: #ffffff; }
+      .row { fill: #f7f9fb; stroke: #d4dce4; stroke-width: 1.5; }
+      .heading { fill: #17202a; font-family: sans-serif; font-size: 17px; font-weight: 600; }
+      .mode { fill: #17202a; font-family: sans-serif; font-size: 18px; font-weight: 600; }
+      .note { fill: #34495e; font-family: sans-serif; font-size: 14px; }
+      .data { fill: #e7f7ef; stroke: #25734f; stroke-width: 1.5; }
+      .shapes { fill: #e7f1ff; stroke: #2767a5; stroke-width: 1.5; }
+      .data-text { fill: #175638; font-family: sans-serif; font-size: 15px; font-weight: 600; text-anchor: middle; }
+      .shapes-text { fill: #1d5286; font-family: sans-serif; font-size: 15px; font-weight: 600; text-anchor: middle; }
+      .plus { fill: #34495e; font-family: sans-serif; font-size: 18px; text-anchor: middle; }
+    </style>
+  </defs>
+  <rect class="bg" width="900" height="365"/>
+  <text class="heading" x="32" y="41">Mode</text>
+  <text class="heading" x="193" y="41">Focus selection</text>
+  <text class="heading" x="428" y="41">Constraint evaluation</text>
+  <text class="heading" x="699" y="41">$shapesGraph</text>
+
+  <rect class="row" x="22" y="65" width="856" height="72" rx="10"/>
+  <text class="mode" x="36" y="108">data</text>
+  <rect class="data" x="191" y="81" width="88" height="40" rx="8"/>
+  <text class="data-text" x="235" y="107">data</text>
+  <rect class="data" x="427" y="81" width="88" height="40" rx="8"/>
+  <text class="data-text" x="471" y="107">data</text>
+  <rect class="shapes" x="696" y="81" width="114" height="40" rx="8"/>
+  <text class="shapes-text" x="753" y="107">shapes</text>
+
+  <rect class="row" x="22" y="148" width="856" height="72" rx="10"/>
+  <text class="mode" x="36" y="191">union</text>
+  <rect class="data" x="191" y="164" width="88" height="40" rx="8"/>
+  <text class="data-text" x="235" y="190">data</text>
+  <rect class="data" x="427" y="164" width="88" height="40" rx="8"/>
+  <text class="data-text" x="471" y="190">data</text>
+  <text class="plus" x="534" y="190">+</text>
+  <rect class="shapes" x="552" y="164" width="114" height="40" rx="8"/>
+  <text class="shapes-text" x="609" y="190">shapes</text>
+  <rect class="shapes" x="696" y="164" width="114" height="40" rx="8"/>
+  <text class="shapes-text" x="753" y="190">shapes</text>
+
+  <rect class="row" x="22" y="231" width="856" height="72" rx="10"/>
+  <text class="mode" x="36" y="274">union-all</text>
+  <rect class="data" x="191" y="247" width="88" height="40" rx="8"/>
+  <text class="data-text" x="235" y="273">data</text>
+  <text class="plus" x="297" y="273">+</text>
+  <rect class="shapes" x="315" y="247" width="101" height="40" rx="8"/>
+  <text class="shapes-text" x="365" y="273">shapes</text>
+  <rect class="data" x="427" y="247" width="88" height="40" rx="8"/>
+  <text class="data-text" x="471" y="273">data</text>
+  <text class="plus" x="534" y="273">+</text>
+  <rect class="shapes" x="552" y="247" width="114" height="40" rx="8"/>
+  <text class="shapes-text" x="609" y="273">shapes</text>
+  <rect class="shapes" x="696" y="247" width="114" height="40" rx="8"/>
+  <text class="shapes-text" x="753" y="273">shapes</text>
+
+  <text class="note" x="32" y="339">Shape definitions compile from the shapes input. Inference extends data before validation.</text>
+</svg>

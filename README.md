@@ -1,8 +1,7 @@
 # Shifty
 
 Shifty validates RDF graphs against SHACL shapes and runs SHACL-AF rules to a
-fixed point. It compiles shapes into a path and shape algebra before evaluating
-data. The engine is available through a command-line tool, Python package,
+fixed point. The engine is available through a command-line tool, Python package,
 C++17 SDK, Rust crates, and WebAssembly module.
 
 [Documentation](https://shifty.gtf.fyi/) · [Feature support](https://shifty.gtf.fyi/reference/feature-support.html) · [Changelog](CHANGELOG.md)
@@ -73,10 +72,15 @@ functions are unsupported; some calls to SHACL functions from SPARQL have
 limited graph access. Check the [feature matrix](https://shifty.gtf.fyi/reference/feature-support.html)
 before relying on an advanced feature. Symbolic repair is experimental.
 
+The [W3C conformance guide](https://shifty.gtf.fyi/how-to/conformance.html)
+documents the pinned SHACL 1.0 suite, its manifest runner, and EARL output.
+
 ## Development
 
 The [contribution guide](https://shifty.gtf.fyi/contributing.html) has build and
-quality checks. Python development uses the locked uv environment in `python/`:
+quality checks. [Implementation and design notes](development_docs/README.md)
+are maintained separately from the user documentation. Python development uses
+the locked uv environment in `python/`:
 
 ```sh
 cd python

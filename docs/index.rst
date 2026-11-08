@@ -51,12 +51,6 @@ browser, so graphs entered there do not leave the machine.
 Validation interfaces
 ---------------------
 
-Shifty compiles SHACL into the path and shape algebra developed in Ahmetaj et
-al., `Common Foundations for SHACL, ShEx, and PG-Schema
-<https://doi.org/10.1145/3696410.3714694>`_ (The Web Conference 2025). The
-compiled representation supports normalization, shared subexpressions, indexed
-target selection, and cost-based planning before evaluation begins.
-
 Two result interfaces are available:
 
 .. list-table::
@@ -68,8 +62,7 @@ Two result interfaces are available:
    * - Native algebraic
      - ``validate_algebra()`` returns structured violations and their nested
        algebraic reasons; the CLI renders the same result model by default.
-       This is the lower-overhead reporting path and does not construct a W3C
-       ``sh:ValidationReport``.
+       The result is available as Python objects.
    * - W3C-compatible
      - ``validate()`` and ``shifty validate --report`` return a W3C
        ``sh:ValidationReport`` for interoperability with SHACL tooling.
@@ -78,8 +71,7 @@ The native representation also supports :doc:`evidence
 <reference/evidence>`, passing-node :ref:`property witnesses
 <python-property-witnesses>`, and :doc:`shape-map bindings
 <reference/shape-maps>`. See :ref:`architecture-result-paths` for the
-tradeoffs between the two result models and `Introducing the Shifty SHACL
-Engine <https://gtf.fyi/posts/shacl/shifty/>`_ for the original rationale.
+differences between the two result models.
 
 Interface support
 -----------------
@@ -112,12 +104,12 @@ Common tasks
        entry shapes.
    * - :doc:`Run inference <how-to/infer>`
      - Execute SHACL-AF rules and retrieve the inferred triples.
+   * - :doc:`Run the W3C test suite <how-to/conformance>`
+     - Reproduce SHACL 1.0 test results and generate an EARL report.
    * - :doc:`Explain a failure <how-to/explain-failures>`
      - Trace a finding through its compiled constraint and supporting triples.
    * - :doc:`Extract shape-map bindings <how-to/shape-maps>`
      - Query which focus nodes and values matched selected shapes.
-   * - :doc:`Inspect the compiler pipeline <how-to/inspect-pipeline>`
-     - Inspect the lowered algebra, normalization, recursion strata, and plan.
    * - :doc:`Compute symbolic repairs <how-to/repair>`
      - Explore candidate graph edits with the experimental repair API.
 

@@ -3,6 +3,10 @@ Feature support
 
 Legend: ✅ supported · ⚠️ partial or gated · ❌ unsupported.
 
+The pinned SHACL 1.0 suite and reporting procedure are described in
+:doc:`../how-to/conformance`. Test results cover the cases in that suite;
+the feature descriptions below also identify extension-specific limits.
+
 SHACL Core
 ----------
 
@@ -50,6 +54,23 @@ SHACL Core
      - ✅
      -
 
+SHACL-SPARQL
+------------
+
+.. list-table::
+   :header-rows: 1
+   :widths: 50 12 38
+
+   * - Feature
+     - Status
+     - Notes
+   * - SPARQL constraints — ``sh:sparql`` (``sh:select``)
+     - ✅
+     - native execution with Spareval fallback
+   * - Custom constraint components — ``sh:parameter`` + ``sh:validator`` / ``sh:nodeValidator`` / ``sh:propertyValidator``
+     - ✅
+     - optional params, simple and complex ``$PATH``, report path
+
 SHACL-AF (Advanced Features)
 ----------------------------
 
@@ -69,12 +90,6 @@ SHACL-AF (Advanced Features)
    * - SPARQL targets — ``sh:target`` + ``sh:select``
      - ✅
      -
-   * - SPARQL constraints — ``sh:sparql`` (``sh:select`` / ``sh:ask``)
-     - ✅
-     - native execution with Spareval fallback
-   * - Custom constraint components — ``sh:parameter`` + ``sh:validator`` / ``sh:nodeValidator`` / ``sh:propertyValidator``
-     - ✅
-     - optional params, simple and complex ``$PATH``, report path
    * - Expression constraints — ``sh:expression``
      - ✅
      -
@@ -106,8 +121,7 @@ Recursion and semantics
      - ❌
      - **diagnosed and refused**, never guessed
 
-See :doc:`../explanation/recursion` for what those fixed points mean and why a
-non-stratifiable schema has no answer to give.
+See :doc:`../explanation/recursion` for the recursion policy.
 
 Partial support
 ---------------
@@ -135,15 +149,12 @@ constraint or rule, including malformed SPARQL or an unresolved query prefix,
 is always rejected before validation or inference starts; it is never lowered
 as an absent feature.
 
-The default is ``"ignore"`` for compatibility with existing pipelines, but if
-you are going to act on the result, ``"error"`` is the setting you want: it
-converts an unreliable answer into a visible one.
+Use ``"error"`` when an unsupported feature should stop validation.
 
 Evidence and repair coverage
 ----------------------------
 
-Validation status is exact for every supported feature. The *explanations* are
-not always available: a ``sh:sparql`` constraint is opaque to evidence and
+Structural explanations are not always available: a ``sh:sparql`` constraint is opaque to evidence and
 blocked for repair, because an arbitrary query cannot be inverted. The complete
 list of these cases is in :doc:`evidence` under "Opaque and blocked evidence",
 and repair's blocking reasons are in :doc:`repair`.

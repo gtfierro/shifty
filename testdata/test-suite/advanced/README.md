@@ -1,12 +1,15 @@
-# SHACL-AF Test Suite Placeholder
+# Local SHACL-AF/DASH regression fixtures
 
-This directory reserves a spot in the manifest hierarchy for SHACL Advanced Features conformance tests. The official test cases live in the W3C [`data-shapes`](https://github.com/w3c/data-shapes) repository under `tests/validation/advanced/` (structure subject to change).
+This directory is populated. Run its Rust harness from the repository root:
 
-To populate these fixtures locally:
+```sh
+cargo test -p shifty-engine --test w3c_advanced -- --nocapture
+```
 
-1. Fetch the upstream repository (for example, `git clone https://github.com/w3c/data-shapes.git testdata/data-shapes-upstream` or update an existing checkout).
-2. Copy the SHACL-AF test manifests and referenced data/shapes files into `testdata/test-suite/advanced/`, preserving relative paths expected by the manifests.
-3. Update `manifest.ttl` in this directory to include the downloaded W3C manifests (e.g., `mf:include <w3c/manifest.ttl>`).
-4. Run `cargo test --workspace` with any future `SHACL_W3C_ENABLE_AF` toggle (to be introduced) to execute the advanced suite.
+The harness runs inference, validation, and function cases; no environment
+toggle is required. It resolves imported helper ontologies locally. Some
+document IRIs have been rewritten, so these fixtures are retained as local
+regressions rather than included in the SHACL 1.0 implementation report.
 
-Until the fixtures are copied in, the placeholder manifest advertises an empty test list so the build script can safely load the directory without generating tests.
+The pinned Core/SPARQL fixtures and their supported manifest runner are
+documented in [testdata/README.md](../../README.md).

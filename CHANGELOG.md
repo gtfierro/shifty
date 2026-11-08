@@ -1,5 +1,33 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- W3C reports include complex property-path structures and identify the
+  source of direct SPARQL constraint results.
+- Python report graphs preserve offending literal lexical forms, including
+  ill-formed typed literals.
+- The report validator handles the exact boolean term used by the SHACL 1.0
+  `uniqueLang-002` test consistently with algebraic validation.
+
+### Added
+
+- A pinned upstream SHACL 1.0 suite, manifest runner, complete report
+  comparison, EARL output, and CI baseline covering 120 approved cases and
+  one separately reported proposed case.
+
+### Documentation
+
+- Simplified public overviews and preserved implementation descriptions,
+  diagrams, and the theory manuscript in `development_docs/implementation-notes/`.
+
+### Rust API
+
+- `ValidationResult` gains `source_constraint` and `ValidationReport` gains
+  `path_triples`. Callers constructing these structs directly must supply the
+  new fields.
+
 ## 0.5.1
 
 Bug-fix release. Install the Python package with `pip install pyshifty==0.5.1`.

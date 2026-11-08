@@ -1,0 +1,216 @@
+How shapes are compiled
+=======================
+
+Shifty compiles a shapes graph into a smaller path and shape algebra, then
+normalizes and plans it before evaluating data. Several SHACL constraint
+components become the same algebra operator, so validation, evidence, and
+repair can share their core traversal.
+
+The core algebra
+----------------
+
+The IR comes from the SHACL fragment of `Common Foundations for SHACL, ShEx,
+and PG-Schema <https://arxiv.org/abs/2502.01295>`_ (Ahmetaj et al.),
+specialized to RDF. It has two parts.
+
+**Paths (π)** — a Kleene algebra with converse, denoting a relation over terms:
+
+.. code-block:: text
+
+   π ::= id | q | π⁻ | π · π′ | π ∪ π′ | π*
+
+Identity, a predicate, inverse, sequence, alternation, and reflexive-transitive
+closure. SHACL's ``zeroOrMorePath`` is ``π*``; ``oneOrMorePath`` is ``π · π*``
+and ``zeroOrOnePath`` is ``π ∪ id``, both normalized away in the parser rather
+than carried as IR constructors.
+
+**Shapes (φ)** — a boolean algebra over a small set of atoms:
+
+.. code-block:: text
+
+   φ ::= ⊤ | test(c) | test(τ) | closed(Q) | eq(π,p) | disj(π,p)
+       | ¬φ | φ ∧ φ′ | φ ∨ φ′ | ∃≥ⁿ π.φ | ∃≤ⁿ π.φ
+
+``test(c)`` is equality with a constant, ``test(τ)`` is membership in a value
+type, and the two counting forms are lower and upper bounds on how many
+π-successors satisfy φ. Shifty adds a few operators the paper's core does not
+have but real SHACL needs — node kinds, ``lessThan``, ``lessThanOrEquals``,
+``uniqueLang`` — and fuses the two counting forms into one ``Count`` node with
+optional ``min`` and ``max``, because real SHACL always emits them as a pair on
+a shared path and qualifier.
+
+A **schema** is a set of ``(selector, φ)`` statements. The selector is the
+target: which nodes to check. The graph conforms when every node a selector
+picks satisfies the corresponding φ.
+
+One counting primitive
+~~~~~~~~~~~~~~~~~~~~~~
+
+``Count`` represents several SHACL constraint components. ``sh:minCount`` and
+``sh:maxCount`` are counts. Qualified cardinality is a count with a non-trivial
+qualifier. ``sh:node`` and
+``sh:property`` nesting is a count along a path. And universal quantification
+— "every value of this path satisfies φ", which is what ``sh:datatype`` on a
+property shape means — is:
+
+.. code-block:: text
+
+   ∀π.φ  ≜  ∃≤0 π.¬φ
+
+"at most zero π-successors fail φ". So the planner optimizes one construct
+rather than a dozen vocabulary terms, and evidence, repair, and the cost model
+each need one case for all of them.
+
+This encoding is visible in validation results. A ``sh:datatype`` violation is
+reported as a ``CountHigh`` against a ``max 0`` that does not appear explicitly
+in the shapes graph. See :doc:`../tutorials/explaining-a-failure` for a worked
+example and :doc:`../reference/python` for the structured result fields.
+
+The pipeline
+------------
+
+.. figure:: ../_static/pipeline.svg
+   :alt: Shapes and rules are compiled once. Each data snapshot is indexed, optionally extended by rule inference, and evaluated with the compiled algebraic plan. Findings and evidence are output; repair candidates return to validation. The W3C report path is separate.
+   :align: center
+   :width: 100%
+
+   Compilation is paid once per shapes graph. Prepared validators reuse the
+   compiled plan across data graphs. The W3C report traversal is described under
+   :ref:`architecture-result-paths`.
+
+``shifty inspect --stage <stage>`` prints the output of each layer; see
+:doc:`../how-to/inspect-pipeline` for worked output.
+
+**Parse (``rdf``).** The shapes graph as triples.
+
+**Lower (``algebra``).** SHACL vocabulary becomes π and φ. Shapes go into an
+arena and refer to each other by index, so a shared sub-shape is one node with
+several parents, and cyclic references are representable rather than an
+infinite structure.
+
+**Normalize (``normalized``).** Semantics-preserving rewrites. Hash-consing
+interns structurally identical nodes to one, allowing them to share storage
+and be compared by pointer. The rewrites include the
+boolean laws (flattening, ⊤/⊥ absorption, idempotence, complementation, and
+negation-normal form), the counting laws (unsatisfiable bounds collapse to ⊥,
+counts on the same path and qualifier merge, an ``id`` path collapses the count
+away), the path laws (``π·id = π``, ``(π⁻)⁻ = π``, converse pushed down to
+wrap only predicates, ``(π ∪ id)* = π*``), and value-type tightening — merging
+overlapping ranges, and detecting contradictions like a numeric range conjoined
+with ``xsd:string``, which becomes ⊥ and then absorbs upward.
+
+Each rewrite is checked against the unoptimized evaluator as an oracle: the
+normalized schema and the original must agree on conformance and on which foci
+violate.
+
+**Analyse recursion (``strata``).** The shape dependency graph is built with
+polarity-aware edges and condensed into strongly connected components. A schema
+whose recursion passes through a negation is refused. :doc:`recursion` covers
+this.
+
+**Plan (``plan``).** Two decisions. Focus nodes are seeded from an index rather
+than a scan — ``sh:targetClass ex:Person`` becomes a lookup along
+``rdf:type/rdfs:subClassOf*``. And conjunctions are reordered by estimated
+cost, so a cheap discriminating check runs before an expensive one and
+short-circuits it.
+
+**Execute.** The plan runs over an indexed dataset. SPARQL constraints are
+classified by whether they can be executed natively against those indexes or
+need a general SPARQL engine; ``inspect --stage capability`` reports which.
+
+**Infer.** SHACL-AF rules are a separate machine — bodies are condition shapes
+plus a selector, heads are triples built from node expressions — evaluated to a
+fixed point before validation, over the same arena and the same stratification.
+
+The compiled rules come from the shapes graph; inference reads the data and
+shapes graph when the inputs are separate. The resulting data snapshot is what
+validation checks.
+
+One compiled source, many data snapshots
+----------------------------------------
+
+``CompiledShapes`` retains the authored and normalized shapes, rule and function
+metadata, parsed query templates, and a lazily encoded source index. Sessions
+created from it share that source storage. Each ``EvaluationSession`` owns its
+asserted data and a local index extension; inferred facts are committed to that
+index at rule-group boundaries. Validation, reports, and evidence reuse the
+resulting dataset, including after inference.
+
+The dataset exposes data, shapes, and their union as graph views. Native SPARQL
+and the Spareval fallback read those same views, while ``$shapesGraph`` names the
+unchanged source graph. The source and data keep separate membership even when
+they contain an equal triple, and blank nodes from separately parsed documents
+retain distinct identities. A requested public data graph is projected lazily;
+ordinary validation does not build a second full graph or Oxigraph Store.
+
+Every triple remains available in a complete predicate-partitioned primary
+index. Reverse predicate indexes and general subject/object directories are
+admitted from compiled access demand or observed probes under byte budgets.
+Declined indexes use correct scans. ``shifty inspect --stage access`` shows the
+data-independent read demands; ``--profile`` shows runtime index decisions,
+scan work, and cache activity. The measured lifecycle and memory effects are
+recorded in ``benchmark/shared-dataset-results.md`` in the repository.
+
+Sharing the compiled representation
+-----------------------------------
+
+Algebraic validation, evidence, and repair traverse the same shape arena.
+Inference uses its own compiled rule program over the shared dataset.
+
+Algebraic validation computes a boolean over the shape arena. Evidence
+materializes a derivation from the same constraints. Repair is a fold over that
+proof tree in the opposite direction: to describe how to fix ``φ₁ ∧ φ₂`` you
+need the repair spaces of both conjuncts, which is exactly what a fold gives
+you. The shape enum has around fifteen variants and is already in
+negation-normal form, limiting the cases each fold needs to handle.
+
+Evidence uses the algebraic evaluator to decide conformance, and the repair gate
+checks a proposed edit with that evaluator. The W3C report path has a separate
+constraint traversal, described below.
+
+.. _architecture-result-paths:
+
+Result interfaces
+-----------------
+
+``validate_algebra()`` returns structured violations and nested algebraic
+reasons. The CLI's default text and JSON summaries render this result model.
+This path does not build a W3C report graph. :doc:`Evidence
+<../reference/evidence>` adds passing evaluations and derivations;
+:doc:`shape maps <../reference/shape-maps>` extract typed property bindings.
+
+``validate()`` returns ``(conforms, report_graph, results_text)``. The report
+graph uses the W3C ``sh:ValidationReport`` vocabulary and requires ``rdflib``
+in Python; ``shifty validate --report`` emits the graph as Turtle. This path
+projects authored SHACL components through a separate traversal of the source
+RDF. It does not expose passing nodes or their derivations.
+
+Both paths use ``CompiledShapes`` for schema admission, graph roles, and the
+function registry. Their remaining constraint evaluation branches are separate,
+so an implementation change must be checked in both. Choose the W3C path for
+interoperability with SHACL tools and the algebraic path for structured
+application findings. Exact fields are in :doc:`../reference/python`.
+
+Repair is undefined for ``sh:sparql`` because arbitrary SPARQL queries have no
+structural representation in this algebra. The repair fold cannot invert them.
+
+What the compilation costs
+--------------------------
+
+Compiling is a fixed cost paid before any data is looked at, and for a large
+ontology it is substantial. A 16-triple Brick model still takes seconds to
+validate against a 229k-triple shapes closure, essentially all of it setup.
+
+``PreparedValidator`` and the evidence and repair sessions retain the compiled
+schema for reuse across data graphs. The chart in :doc:`../benchmarks`
+separates setup from inference and validation to show improvements that may be
+small relative to the compilation cost.
+
+Further reading
+---------------
+
+The design documents in ``development_docs/`` are the primary sources:
+``00-formalism.md`` fixes the IR, ``03-recursion-semantics.md`` the recursion
+decision, ``04-normalization.md`` the rewrite checklist with soundness notes,
+``05-sparql-execution.md`` the native SPARQL subset, and ``06-repair.md`` the
+repair API.

@@ -7,6 +7,20 @@ SHACL fragment of *Common Foundations for SHACL, ShEx, and PG-Schema*
 These are internal design and implementation notes.  The public documentation
 lives in `docs/`.
 
+The [W3C submission plan](w3c-submission-plan.md) covers public documentation
+cleanup, upstream SHACL conformance testing, a measured feature backlog, and
+preparation of an EARL implementation report.
+
+[Implementation notes preserved from the public documentation](implementation-notes/README.md)
+retain the original compiler, evidence, repair, and recursion descriptions,
+including the theory manuscript and supporting diagrams.
+
+[Measured W3C conformance gaps](w3c-conformance-gaps.md) records the full
+manifest run, the defects it exposed, their fixes, and remaining extension work.
+
+The [draft submission package](w3c-submission/README.md) includes generated
+EARL results, a proposed upstream listing patch, and a PR description.
+
 ## Implementation-comment convention
 
 The source is meant to be readable as an implementation, not merely as a

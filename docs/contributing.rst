@@ -35,6 +35,11 @@ from a fresh checkout.
 Fix diagnostics rather than weakening or skipping a check, unless a documented
 compatibility constraint requires a narrow exception.
 
+Run the pinned W3C suite with the procedure in :doc:`how-to/conformance`.
+Preserve upstream fixtures unchanged. Compiler and algorithm descriptions
+belong in the repository's ``development_docs/`` directory; public pages
+should explain behavior, usage, results, and support boundaries.
+
 The C++ SDK and the WebAssembly module have their own gates:
 
 .. code-block:: bash

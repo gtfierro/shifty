@@ -1,15 +1,14 @@
 Explanation
 ===========
 
-Design and semantics of Shifty's compiler, evaluator, evidence model, and
-experimental repair layer.
+How to interpret validation results, graph visibility, recursive shapes,
+evidence, and experimental repair candidates.
 
 .. list-table::
    :widths: 30 70
 
    * - :doc:`architecture`
-     - How shapes are compiled, how rules feed inference, and how algebraic
-       findings differ from the W3C report path.
+     - Choose structured application findings or an RDF validation report.
    * - :doc:`shapes-and-data`
      - The distinction between the shapes graph and the data graph, and the
        triples visible during evaluation, including how ``graph_mode`` affects
@@ -18,13 +17,11 @@ experimental repair layer.
      - How Shifty handles cyclic shape references, why validation and inference
        use different fixed points, and which schemas are rejected.
    * - :doc:`evidence-design`
-     - What derivations contain, how canonical evidence selects relevant
-       constraints, and where structural explanations are unavailable.
+     - Read passing and failing evaluations and understand their limits.
    * - :doc:`performance`
      - Choose an evidence entry point and avoid unnecessary work.
    * - :doc:`repair-design`
-     - **Experimental.** Repair as the abductive dual of validation, and why
-       drivers supply domain knowledge to choose among candidate edits.
+     - **Experimental.** Fill repair templates and validate candidate edits.
 
 .. toctree::
    :maxdepth: 1

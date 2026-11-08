@@ -1,10 +1,9 @@
 How-to guides
 =============
 
-Recipes for a particular job, assuming you already know what you want. Each
-page is a sequence of steps with just enough explanation to make the steps make
-sense; the reasoning behind them lives in :doc:`../explanation/index`, and the
-exhaustive parameter lists in :doc:`../reference/index`.
+Guides for validation, inference, evidence, and graph queries. See
+:doc:`../reference/index` for arguments and defaults, and
+:doc:`../explanation/index` for result semantics.
 
 If you are new to Shifty, the :doc:`tutorials <../tutorials/index>` are a better
 starting point.
@@ -17,6 +16,7 @@ starting point.
    explain-failures
    shape-maps
    inspect-pipeline
+   conformance
    browser
 
 Experimental
@@ -27,8 +27,6 @@ Experimental
 
    repair
 
-:doc:`repair` covers the symbolic repair layer, which computes the space of
-edits that would make a failing node conform. It works, but it is early: the
-API is expected to change, several constraint kinds are not yet invertible, and
-it edits data graphs only. Treat it as a preview rather than a stable
-interface.
+The :doc:`repair` guide covers candidate edits for supported constraint kinds.
+The API may change. Applications choose values and validate each candidate
+before applying it.
