@@ -229,6 +229,15 @@ impl super::EvidenceSession {
         qualified.dedup();
         domains.sort_unstable();
         domains.dedup();
+        // Counts select matches, unlike universal checks which every value
+        // must satisfy. Keep the union of nontrivial count domains: distinct
+        // sh:hasValue requirements may each match a different path value.
+        // An unqualified cardinality must not admit unrelated candidates.
+        let count_qualifiers: Vec<_> = domains
+            .iter()
+            .copied()
+            .filter(|id| !matches!(self.raw_schema.arena.get(*id), Shape::Top))
+            .collect();
         let holds = |value: &Term, shape| {
             self.session
                 .prepared_evidence()
@@ -259,6 +268,8 @@ impl super::EvidenceSession {
                 .chain(&qualified)
                 .all(|shape| holds(value, *shape))
                 && excluded.iter().all(|shape| !holds(value, *shape))
+                && (count_qualifiers.is_empty()
+                    || count_qualifiers.iter().any(|shape| holds(value, *shape)))
         });
         let render = |values: Vec<Term>| {
             let mut values: Vec<String> =

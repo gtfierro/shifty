@@ -94,6 +94,54 @@ def test_ordinary_cardinality_counts_values_rejected_by_datatype():
 
 
 @pytest.mark.parametrize("with_session", [False, True])
+@pytest.mark.parametrize(
+    "values, expected, rejected, observed, missing",
+    [
+        ("", [], [], 0, 1),
+        ("ex:other", [], [Iri("http://ex/other")], 0, 1),
+        ("ex:required, ex:other", [Iri("http://ex/required")], [], 1, 0),
+    ],
+)
+def test_has_value_only_projects_qualifying_matches(
+    with_session, values, expected, rejected, observed, missing
+):
+    binding = make_binding("sh:hasValue ex:required", values, session=with_session)
+    assert binding.ok is (missing == 0)
+    assert binding.values == expected
+    assert binding.partial_values == ([] if binding.ok else expected)
+    assert binding.rejected_values == rejected
+    assert binding.observed == observed
+    assert binding.missing == missing
+
+
+def test_has_value_qualification_survives_an_unqualified_count():
+    binding = make_binding("sh:hasValue ex:required ; sh:minCount 1", "ex:other")
+    assert not binding.ok
+    assert binding.values == binding.partial_values == []
+    assert binding.rejected_values == [Iri("http://ex/other")]
+    assert binding.observed is None
+    assert binding.missing == 1
+
+
+def test_multiple_has_values_keep_matches_from_each_count_domain():
+    binding = make_binding(
+        "sh:hasValue ex:first, ex:second, ex:missing", "ex:first, ex:second, ex:other"
+    )
+    assert not binding.ok
+    assert (
+        binding.values
+        == binding.partial_values
+        == [
+            Iri("http://ex/first"),
+            Iri("http://ex/second"),
+        ]
+    )
+    assert binding.rejected_values == [Iri("http://ex/other")]
+    assert binding.observed is None
+    assert binding.missing == 1
+
+
+@pytest.mark.parametrize("with_session", [False, True])
 @pytest.mark.parametrize("bound", ["sh:qualifiedMinCount 2", "sh:qualifiedMaxCount 0"])
 def test_qualified_counts_observe_qualifying_values(with_session, bound):
     binding = make_binding(
