@@ -17,6 +17,8 @@
 
 ### Fixed
 
+- `Mapping.value_map()` preserves known-empty successful slots as `[]`,
+  distinguishes them from unavailable values, and retains authored empty names.
 - Shape maps recover qualifying values alongside rejected universal-check
   candidates, keep rejected values out of `partial_values`, and report exact
   overflow and universal counts. Unavailable qualifying sets and ambiguous

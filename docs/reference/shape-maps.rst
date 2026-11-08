@@ -134,7 +134,9 @@ Duplicate-key ordinals are assigned in this order, consistently for every focus.
    * - ``successful`` / ``unsuccessful``
      - Ordered ``(Key, Binding)`` lists for each side.
    * - ``value_map(*, by="key", python=False)``
-     - Successful bindings only. ``by="name"`` keys by resolved name instead of
+     - Successful bindings with known values, including ``[]`` for empty slots.
+       Failed bindings and unavailable values (``None``) are omitted.
+       ``by="name"`` keys by resolved name instead of
        ``Key``, falling back to ``str(key)`` for an unnamed binding;
        ``python=True`` converts terms to plain Python values.
    * - ``by_name(name)``

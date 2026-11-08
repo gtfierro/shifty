@@ -943,7 +943,7 @@ class Mapping(collections.abc.Mapping):
         return [(k, b) for k, b in self.bindings.items() if not b.ok]
 
     def value_map(self, *, by: str = "key", python: bool = False) -> "dict":
-        """Bound keys only, projected for application configuration.
+        """Successful bindings with known values, including empty lists.
 
         ``by="key"`` (default) keys the result by :class:`Key`; ``by="name"``
         keys it by ``binding.name``, falling back to ``str(key)`` when a
@@ -955,10 +955,16 @@ class Mapping(collections.abc.Mapping):
             raise ValueError(f"by must be 'key' or 'name', got {by!r}")
         out: "dict" = {}
         for key, binding in self.bindings.items():
-            if not binding.ok or not binding.values:
+            if not binding.ok:
                 continue
-            out_key = key if by == "key" else (binding.name or str(key))
             values = binding.values
+            if values is None:
+                continue
+            out_key = (
+                key
+                if by == "key"
+                else (binding.name if binding.name is not None else str(key))
+            )
             out[out_key] = (
                 [_to_python_value(v) for v in values] if python else list(values)
             )

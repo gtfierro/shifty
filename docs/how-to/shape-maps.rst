@@ -43,8 +43,10 @@ For output that feeds an application rather than more analysis:
    # {'airflow': ['http://example.org/flow-2'],
    #  'supply air temperature': ['http://example.org/sat-2']}
 
-``value_map()`` keeps only successful bindings. ``by="name"`` uses the authored
-``sh:name`` as the key instead of the structured ``Key``, and ``python=True``
+``value_map()`` keeps successful bindings with known values, including ``[]``
+for empty slots. Failed bindings and unknown values (``None``) are omitted.
+``by="name"`` uses the authored ``sh:name`` as the key instead of the structured
+``Key``, falling back to ``str(key)`` when no name was authored. ``python=True``
 converts terms to plain Python — IRIs and blank nodes become strings, literals
 convert where the datatype allows.
 
