@@ -1,2 +1,5 @@
 # Keep the pinned W3C fixtures byte-for-byte identical across checkouts.
 testdata/w3c-shacl/tests/** -text
+# Preserve checksummed result snapshots without line-ending conversions.
+conformance-results/**/*.json -text
+conformance-results/**/*.ttl -text
