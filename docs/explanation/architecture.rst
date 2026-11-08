@@ -1,7 +1,7 @@
+.. _architecture-result-paths:
+
 Validation interfaces
 =====================
-
-.. _architecture-result-paths:
 
 Use ``validate()`` for a W3C ``sh:ValidationReport``. It returns
 ``(conforms, report_graph, results_text)`` and requires ``pyshifty[rdflib]``.

@@ -26,5 +26,5 @@ provide a finite set of triples to delete, so deletion-based repair may be
 blocked.
 
 The `recursion design notes
-<https://github.com/gtfierro/shifty/blob/main/development_docs/03-recursion-semantics.md>`_
+<https://github.com/gtfierro/shifty/blob/main/development_docs/evaluation.md>`_
 explain the algorithms.

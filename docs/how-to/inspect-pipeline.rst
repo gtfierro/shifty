@@ -13,6 +13,6 @@ The command reads shapes only. For runtime measurements on a data graph,
 use validation's ``--profile`` option. The :doc:`../reference/cli` lists
 inspection stages, output formats, and profiling options.
 
-Detailed examples of the compiler stages are preserved in the
+Compiler stages and execution algorithms are described in the
 `development documentation
-<https://github.com/gtfierro/shifty/blob/main/development_docs/implementation-notes/docs/how-to/inspect-pipeline.rst>`_.
+<https://github.com/gtfierro/shifty/blob/main/development_docs/compiler-pipeline.md>`_.

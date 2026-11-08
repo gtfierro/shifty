@@ -1,49 +1,14 @@
-# 05 - Spargebra-Native SPARQL Execution
+# SPARQL execution
 
-This document records the implemented native SPARQL subset and shared indexed
-dataset, then identifies possible extensions. Queries are parsed with Spargebra.
-Supported queries run through the native executor; other queries run through
-Spareval over the same dataset. The original 223P/NIST profile found that
-validation-side SPARQL evaluation dominated runtime, particularly repeated
-quad scans and property-path traversal.
+Queries are parsed with Spargebra. Supported queries lower to a native
+physical plan; other queries execute through Spareval over the same indexed
+dataset. Capability admission selects one executor for the whole query before
+evaluation.
 
-The decision is to compile a useful Spargebra subset into a native physical
-plan over immutable, specialized indexes. Queries outside that subset execute
-through Spareval over the same indexed dataset via `QueryableDataset`.
-
-## Motivation
-
-The initial 223P/NIST profile is sufficiently concentrated to justify a
-specialized execution path:
-
-- the shapes lower to 18 SPARQL constraint leaves;
-- about 99% of sampled validation time is below SPARQL constraint evaluation;
-- Oxigraph quad iteration, range checks, and pattern lookup account for most
-  self time;
-- the source shapes repeatedly use `rdfs:subClassOf*`,
-  `rdf:type/rdfs:subClassOf*`, `s223:cnx+`, `s223:contains+`, and
-  `s223:mapsTo+`.
-
-These figures identify the first optimization targets, not permanent workload
-assumptions. Per-query instrumentation must precede execution changes so plans
-and indexes can be selected from observed demand.
-
-## Goals and boundaries
-
-The native path should:
-
-- preserve SHACL-SPARQL prebinding semantics;
-- evaluate a constraint for a batch of focus nodes instead of once per node;
-- make property paths and correlated `EXISTS` / `NOT EXISTS` explicit physical
-  operators;
-- use graph statistics and reusable path indexes;
-- stop after the first violation when only conformance is required;
-- fall back for the entire query whenever native execution is unsupported.
-
-It is not intended to become a complete SPARQL 1.1 implementation. `SERVICE`,
-arbitrary dataset clauses, unsupported expressions, and initially aggregates
-or subqueries remain on the fallback path. A query is never partly evaluated
-by both engines: capability analysis chooses one executor before evaluation.
+Implementation: [native planning](../crates/shifty-opt/src/sparql_native/mod.rs),
+[native execution](../crates/shifty-engine/src/native_exec.rs),
+[SPARQL integration](../crates/shifty-engine/src/sparql.rs), and
+[path execution](../crates/shifty-engine/src/path_plan.rs).
 
 ## Execution pipeline
 
@@ -84,7 +49,7 @@ operands in the plan rather than prepending `VALUES`.
 
 Bindings split into two classes:
 
-- Static per constraint: `$PATH`, `$currentShape`, `$shapesGraph`, and future
+- Static per constraint: `$PATH`, `$currentShape`, `$shapesGraph`, and
   custom-component parameters. These are applied once before capability
   analysis. A complex `$PATH` is replaced in property-path position, not encoded
   as an RDF term.
@@ -97,7 +62,8 @@ where differential tests prove it equivalent.
 
 ## Native physical plan
 
-The native physical IR is deliberately small (shown here without its fields):
+The native physical IR contains these operators (field details are in the
+implementation):
 
 ```rust
 enum NativeOp {
@@ -115,9 +81,10 @@ enum NativeOp {
 BGP joins lower by threading the output of one scan into the next; correlated
 `EXISTS` is an expression node evaluated against a subplan.
 
-`TripleScan` supports constants, variables, and parameter operands in subject,
-predicate, object, and graph positions. `PathScan` contains a canonical path and
-supports all endpoint binding modes:
+`TripleScan` supports constants and variables in subject, predicate, and object
+positions, with a default or fixed named-graph selector. Variable graph names
+select fallback execution. `PathScan` contains a canonical path and supports all
+endpoint binding modes:
 
 - bound start and bound end: membership probe;
 - bound start: forward lookup;
@@ -126,9 +93,8 @@ supports all endpoint binding modes:
 
 The implemented native executor uses a left-deep pipeline of indexed scans.
 `EXISTS` and `NOT EXISTS` evaluate correlated subplans and stop after the first
-match. Hash joins and dedicated semi-/anti-join operators remain possible
-extensions. Binding batches retain
-`FocusId`, allowing results from many `$this` values to be evaluated together
+match. Binding batches retain `FocusId`, allowing results from many `$this`
+values to be evaluated together
 without losing their owning focus node.
 
 The implemented native capability set includes:
@@ -145,12 +111,11 @@ Aggregates, subqueries, ordering, service calls, ordered comparisons, `IN`, and
 unsupported functions select fallback execution. Lowering (`lower_query`) is the
 gate: a query runs natively iff it lowers to a native plan, otherwise it falls
 back, recording the first unsupported construct as the fallback reason for
-inspection and telemetry. The set above is the design target; the authoritative
-statement of what lowers today is `lower_query` itself.
+inspection and telemetry.
 
 ## Indexed session dataset
 
-`FrozenIndexedDataset` now starts during inference, accepts committed rule
+`FrozenIndexedDataset` starts during inference, accepts committed rule
 batches, and is handed directly to validation. The name reflects its published
 read snapshot; the builder phase is mutable. It implements Spareval's
 `QueryableDataset`, so native and fallback queries read the same graph views.
@@ -172,37 +137,14 @@ index selection cannot change answers. Virtual path relations are not exposed
 as RDF predicates or wildcard scan rows. Native path traversal uses the shared
 dataset, while fallback property paths remain evaluated by Spareval.
 
-Literal operations still use the dataset trait's externalization where needed.
-Moving more expression work onto dictionary entries is a possible extension.
+Literal operations use the dataset trait's externalization where needed.
 
 ## Path demand and index planning
 
-Compilation analyzes paths from both authored SHACL and parsed SPARQL queries.
-Equal paths share a compilation-local identity. The following demand sketch
-describes the information retained, rather than a literal public Rust type:
-
-```rust
-struct PathDemand {
-    path: PathId,
-    graph_scope: GraphScope,
-    forward_probes: u64,
-    reverse_probes: u64,
-    membership_probes: u64,
-    open_scans: u64,
-    expected_focuses: u64,
-}
-```
-
-The current dataset tracks predicate cardinality and graph node domains. Native
-path execution traverses selected graph views and keeps a bounded cache of
-endpoint results. The following richer strategies are future options:
-
-- `Traverse`: use base indexes directly for cheap or rarely used paths;
-- `Memoized`: cache forward and reverse result bitmaps per endpoint;
-- `Materialized`: store the complete path relation in forward and reverse CSR
-  form;
-- `SccClosure`: condense a transitive graph into SCCs and store component
-  reachability bitmaps.
+Compilation analyzes paths from authored SHACL and parsed SPARQL queries,
+retaining graph scope, known/wildcard predicates, probe directions, and
+node-domain sensitivity in the access catalog. Equal paths share a
+compilation-local identity. Native execution traverses the selected graph view.
 
 The current executor caches native `*`, `+`, and `?` endpoint results. Keys
 include the start term, compiled reachability step, closure kind, and graph
@@ -226,12 +168,6 @@ the plan is compiled. This prevents a free scan from being repeated for every
 focus node solely because its initial cardinality was zero. The current
 executor runs the resulting left-deep plan with indexed probes and handles
 supported property paths separately.
-
-A worst-case-optimal join could be added for dense cyclic BGPs if measurements
-show large intermediate joins. It would still require a variable order and
-appropriate indexed access, so it would complement rather than replace access
-planning. Hash, semi-join, and anti-join operators are also possible later
-extensions; the current native executor does not implement them.
 
 Constraint execution has two modes:
 
@@ -263,19 +199,9 @@ planning decision, which keeps behavior deterministic and debuggable.
 
 ## Instrumentation
 
-Current opt-in telemetry reports per-query executor and execution time,
+Opt-in telemetry reports per-query executor and execution time,
 per-shape/rule work, source/session encoding and commit time, optional-index
-admissions, scan candidate rows, and shape/reach-cache activity. These proposed
-additional details are not yet recorded per physical operator:
-
-- source shape or rule and stable query fingerprint;
-- native or fallback executor and fallback reason;
-- invocation and focus-node counts;
-- planning, index-build, and execution time;
-- rows entering and leaving each operator;
-- triple and path probe counts;
-- path-cache hits, misses, and materialized relation sizes;
-- early exits in conformance mode.
+admissions, scan candidate rows, and shape/reach-cache activity.
 
 `inspect --stage capability` reports native/fallback admission, and
 `inspect --stage access` reports static graph scope, predicates, probe direction,
@@ -283,25 +209,3 @@ query/path identities, function calls, and conservative coverage. Runtime
 `--profile` output reports the selected indexes with estimated and actual
 bytes, budgets, build time, and scan work. There is no data-dependent index
 selection in `inspect`, because that command reads only shapes.
-
-## Historical implementation stages
-
-1. **Measure and classify.** Add per-query timing, AST capability reports, path
-   demand extraction, and differential-test infrastructure.
-2. **Shared indexed storage.** Implement `FrozenIndexedDataset`,
-   `QueryableDataset`, base statistics, and verify fallback conformance.
-3. **Native BGP subset.** Add scans, joins, projection, filters, batched
-   `$this`, and conformance early exit.
-4. **Paths and anti-joins.** Add `PathScan`, subclass/type indexes, correlated
-   `EXISTS` / `NOT EXISTS`, measured string functions, and lazy transitive
-   caches.
-5. **Data-aware planning.** Add join selection, budgeted materialization, plan
-   inspection, and adaptive promotion based on measured demand.
-6. **Broaden coverage.** Add expressions and operators in measured priority
-   order while preserving whole-query fallback.
-
-The native subset, shared dataset, and demand-driven triple indexes described
-above are implemented. Whole-path materialization, SCC indexes, hash joins,
-and additional native SPARQL features remain future work. The release
-measurements and semantic comparisons for the current storage design are in
-[`benchmark/shared-dataset-results.md`](../benchmark/shared-dataset-results.md).

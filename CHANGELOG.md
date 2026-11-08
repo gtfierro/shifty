@@ -19,8 +19,8 @@
 
 ### Documentation
 
-- Simplified public overviews and preserved implementation descriptions,
-  diagrams, and the theory manuscript in `development_docs/implementation-notes/`.
+- Simplified public overviews and consolidated current compiler, algorithm,
+  and design references in `development_docs/`.
 
 ### Rust API
 
