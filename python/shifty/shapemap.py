@@ -240,7 +240,7 @@ class Key:
     path: Optional[Path]  # None for pathless constraints (nodeKind…)
     qualifier: Optional[Qualifier]
     ordinal: int = 1  # disambiguates identical keys in stable binding order
-    kind: str = "count"  # constraint tag fallback for pathless keys
+    kind: str = "count"  # lowered algebra tag, not an authored SHACL component
 
     def __str__(self) -> str:
         return _key_str(self)
@@ -740,6 +740,8 @@ class Binding:
         position: int = 1,
         order: Optional[Decimal] = None,
         ambiguous_counts: bool = False,
+        constraint_components: Optional[tuple[str, ...]] = None,
+        vacuous_property: bool = False,
     ) -> None:
         self.key = key
         self.status = status
@@ -751,6 +753,8 @@ class Binding:
         self.names = names
         self.position = position
         self.order = order
+        self.constraint_components = constraint_components
+        self._vacuous_property = vacuous_property
         self._rejected_count_high = rejected_count_high
         self._evidence = evidence
         self._resolve = resolve
@@ -799,6 +803,9 @@ class Binding:
                 self._values = (
                     _top_values(evidence, rejected_count_high=self._rejected_count_high)
                     if evidence is not None
+                    and not (
+                        self._vacuous_property and evidence.get("type") == "irrefutable"
+                    )
                     and not any(
                         _details(node).get("per_value")
                         for node in _top_counts(evidence)
@@ -1069,6 +1076,13 @@ class ShapeMap:
                                 ),
                                 "missing": b.missing,
                                 "name": b.name,
+                                "position": b.position,
+                                "order": str(b.order) if b.order is not None else None,
+                                "constraint_components": (
+                                    list(b.constraint_components)
+                                    if b.constraint_components is not None
+                                    else None
+                                ),
                             }
                             for key, b in m.bindings.items()
                         },
@@ -1177,7 +1191,7 @@ def _build_mapping(
     names_table: "dict[int, list[str]]",
     shape_name_of: "Optional[Callable[[int], Optional[str]]]",
     source_owners: "dict[int, int]",
-    layout: "dict[int, tuple[Optional[str], str]]",
+    layout: "dict[int, tuple[Optional[str], str, list[str]]]",
 ) -> Mapping:
     conforms = focus["evidence"]["status"] == "pass"
     root = focus["evidence"]["evidence"]
@@ -1246,7 +1260,15 @@ def _build_mapping(
             if not (isinstance(constraint, dict) and "Annotated" in constraint):
                 break
             source_id = constraint["Annotated"]["shape"]
-        raw_order, identity = metadata or (None, source_catalog.signature(owner))
+        raw_order, identity, components = metadata or (
+            None,
+            source_catalog.signature(owner),
+            None,
+        )
+        vacuous_property = (
+            source_owners.get(source_id) == source_id
+            and source_catalog.logical(source_id) == "Top"
+        )
         order = None
         if raw_order is not None:
             try:
@@ -1255,7 +1277,12 @@ def _build_mapping(
                     order = value
             except InvalidOperation:
                 pass
-        return order, identity
+        return (
+            order,
+            identity,
+            (tuple(components) if components is not None else None),
+            vacuous_property,
+        )
 
     slot_layouts = {owner: slot_layout(owner) for owner in group_order}
     group_order.sort(
@@ -1346,6 +1373,8 @@ def _build_mapping(
             position,
             slot_layouts[owner][0],
             len(_count_domains(source_catalog, source_id)) > 1,
+            slot_layouts[owner][2],
+            slot_layouts[owner][3],
         )
 
     return Mapping(

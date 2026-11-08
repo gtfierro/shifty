@@ -1,14 +1,112 @@
 //! Shapes-side metadata for the Python shape-map projection.
 
 use oxrdf::dataset::CanonicalizationAlgorithm;
-use oxrdf::{Dataset, GraphNameRef, Term};
+use oxrdf::{Dataset, GraphNameRef, NamedNode, NamedNodeRef, NamedOrBlankNode, Term};
 use pyo3::prelude::*;
 use shifty_algebra::{Schema, Shape, ShapeId};
 use shifty_parse::{Loaded, vocab};
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, OnceLock};
 
-type LayoutEntries = HashMap<u32, (Option<String>, String)>;
+pub(super) type LayoutEntries = HashMap<u32, (Option<String>, String, Vec<String>)>;
+
+const CORE_COMPONENTS: &[(NamedNodeRef<'static>, NamedNodeRef<'static>)] = &[
+    (vocab::SH_CLASS, vocab::SH_CC_CLASS),
+    (vocab::SH_DATATYPE, vocab::SH_CC_DATATYPE),
+    (vocab::SH_NODE_KIND, vocab::SH_CC_NODE_KIND),
+    (vocab::SH_MIN_COUNT, vocab::SH_CC_MIN_COUNT),
+    (vocab::SH_MAX_COUNT, vocab::SH_CC_MAX_COUNT),
+    (vocab::SH_MIN_EXCLUSIVE, vocab::SH_CC_MIN_EXCLUSIVE),
+    (vocab::SH_MIN_INCLUSIVE, vocab::SH_CC_MIN_INCLUSIVE),
+    (vocab::SH_MAX_EXCLUSIVE, vocab::SH_CC_MAX_EXCLUSIVE),
+    (vocab::SH_MAX_INCLUSIVE, vocab::SH_CC_MAX_INCLUSIVE),
+    (vocab::SH_MIN_LENGTH, vocab::SH_CC_MIN_LENGTH),
+    (vocab::SH_MAX_LENGTH, vocab::SH_CC_MAX_LENGTH),
+    (vocab::SH_PATTERN, vocab::SH_CC_PATTERN),
+    (vocab::SH_LANGUAGE_IN, vocab::SH_CC_LANGUAGE_IN),
+    (vocab::SH_UNIQUE_LANG, vocab::SH_CC_UNIQUE_LANG),
+    (vocab::SH_EQUALS, vocab::SH_CC_EQUALS),
+    (vocab::SH_DISJOINT, vocab::SH_CC_DISJOINT),
+    (vocab::SH_LESS_THAN, vocab::SH_CC_LESS_THAN),
+    (
+        vocab::SH_LESS_THAN_OR_EQUALS,
+        vocab::SH_CC_LESS_THAN_OR_EQUALS,
+    ),
+    (vocab::SH_NOT, vocab::SH_CC_NOT),
+    (vocab::SH_AND, vocab::SH_CC_AND),
+    (vocab::SH_OR, vocab::SH_CC_OR),
+    (vocab::SH_XONE, vocab::SH_CC_XONE),
+    (vocab::SH_NODE, vocab::SH_CC_NODE),
+    (
+        vocab::SH_PROPERTY,
+        NamedNodeRef::new_unchecked("http://www.w3.org/ns/shacl#PropertyConstraintComponent"),
+    ),
+    (
+        vocab::SH_QUALIFIED_MIN_COUNT,
+        vocab::SH_CC_QUALIFIED_MIN_COUNT,
+    ),
+    (
+        vocab::SH_QUALIFIED_MAX_COUNT,
+        vocab::SH_CC_QUALIFIED_MAX_COUNT,
+    ),
+    (vocab::SH_CLOSED, vocab::SH_CC_CLOSED),
+    (vocab::SH_HAS_VALUE, vocab::SH_CC_HAS_VALUE),
+    (vocab::SH_IN, vocab::SH_CC_IN),
+    (vocab::SH_SPARQL, vocab::SH_CC_SPARQL),
+    (vocab::SH_EXPRESSION, vocab::SH_CC_EXPRESSION),
+];
+
+struct CustomComponent {
+    iri: String,
+    parameters: Vec<(NamedNode, bool)>,
+    node_validator: bool,
+    property_validator: bool,
+}
+
+fn custom_components(shapes: &Loaded) -> Vec<CustomComponent> {
+    let mut seen = HashSet::new();
+    let mut components = Vec::new();
+    for triple in shapes.graph.triples_for_predicate(vocab::SH_PARAMETER) {
+        let subject = triple.subject.into_owned();
+        if !seen.insert(subject.clone()) {
+            continue;
+        }
+        let NamedOrBlankNode::NamedNode(iri) = &subject else {
+            continue;
+        };
+        if vocab::NATIVE_CONSTRAINT_COMPONENTS.contains(&iri.as_ref()) {
+            continue;
+        }
+        let generic = shapes.object(&subject, vocab::SH_VALIDATOR).is_some();
+        let node_validator = generic || shapes.object(&subject, vocab::SH_NODE_VALIDATOR).is_some();
+        let property_validator = generic
+            || shapes
+                .object(&subject, vocab::SH_PROPERTY_VALIDATOR)
+                .is_some();
+        let parameters: Vec<_> = shapes
+            .objects(&subject, vocab::SH_PARAMETER)
+            .iter()
+            .filter_map(|parameter| {
+                let parameter = shifty_parse::graph::term_to_node(parameter)?;
+                let Term::NamedNode(path) = shapes.object(&parameter, vocab::SH_PATH)? else {
+                    return None;
+                };
+                let optional = matches!(shapes.object(&parameter, vocab::SH_OPTIONAL),
+                Some(Term::Literal(value)) if value.value() == "true");
+                Some((path, optional))
+            })
+            .collect();
+        if !parameters.is_empty() && (node_validator || property_validator) {
+            components.push(CustomComponent {
+                iri: iri.as_str().to_owned(),
+                parameters,
+                node_validator,
+                property_validator,
+            });
+        }
+    }
+    components
+}
 
 /// Shared by a session and its runs. Computing anonymous source identities is
 /// deferred until a shape map actually needs them, never ordinary validation.
@@ -189,6 +287,7 @@ impl BindingLayout {
                 .map(|triple| triple.in_graph(GraphNameRef::DefaultGraph))
                 .collect();
             let blanks = dataset.canonicalize_blank_nodes(CanonicalizationAlgorithm::Unstable);
+            let custom = custom_components(&self.shapes);
             self.schema
                 .sources
                 .iter()
@@ -197,13 +296,43 @@ impl BindingLayout {
                         Term::BlankNode(node) => blanks[&node.as_ref()].to_string(),
                         _ => source.to_string(),
                     };
-                    let order = shifty_parse::graph::term_to_node(source)
-                        .and_then(|node| self.shapes.object(&node, vocab::SH_ORDER))
+                    let node = shifty_parse::graph::term_to_node(source);
+                    let order = node
+                        .as_ref()
+                        .and_then(|node| self.shapes.object(node, vocab::SH_ORDER))
                         .and_then(|value| match value {
                             Term::Literal(value) => Some(value.value().to_owned()),
                             _ => None,
                         });
-                    (id.0, (order, identity))
+                    let mut components = Vec::new();
+                    if let Some(node) = node {
+                        components.extend(CORE_COMPONENTS.iter().filter_map(
+                            |(parameter, component)| {
+                                self.shapes
+                                    .object(&node, *parameter)
+                                    .map(|_| component.as_str().to_owned())
+                            },
+                        ));
+                        let property = self.shapes.object(&node, vocab::SH_PATH).is_some();
+                        components.extend(
+                            custom
+                                .iter()
+                                .filter(|component| {
+                                    (if property {
+                                        component.property_validator
+                                    } else {
+                                        component.node_validator
+                                    }) && component.parameters.iter().all(|(path, optional)| {
+                                        *optional
+                                            || self.shapes.object(&node, path.as_ref()).is_some()
+                                    })
+                                })
+                                .map(|component| component.iri.clone()),
+                        );
+                    }
+                    components.sort();
+                    components.dedup();
+                    (id.0, (order, identity, components))
                 })
                 .collect()
         })

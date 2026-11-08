@@ -37,6 +37,8 @@
 
 ### Added
 
+- Shape-map bindings expose authored `constraint_components` independently
+  of lowered `Key.kind`. JSON summaries retain component and ordering metadata.
 - CLI/Python file-input parity checks for the pinned suite, including CI coverage.
 - CLI validation accepts `--on-unsupported error` for strict feature handling.
 - A pinned upstream SHACL 1.0 suite, manifest runner, complete report

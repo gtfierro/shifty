@@ -56,6 +56,18 @@ match in binding order; when uniqueness matters, key by ``Key``.
 Match on a key in application code
 ----------------------------------
 
+Use ``binding.constraint_components`` when branching on authored SHACL checks:
+
+.. code-block:: python
+
+   pattern_component = "http://www.w3.org/ns/shacl#PatternConstraintComponent"
+   for key, binding in mapping.items():
+       if pattern_component in (binding.constraint_components or ()):
+           print(key, binding.values, binding.rejected_values)
+
+A property may declare multiple components. ``key.kind`` describes the lowered
+algebra, where pattern and datatype checks are also represented as counts.
+
 Keys render as strings for logs and table headings:
 
 .. code-block:: python

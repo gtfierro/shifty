@@ -162,6 +162,12 @@ Duplicate-key ordinals are assigned in this order, consistently for every focus.
        failing obligations. Separate from key equality and hashing.
    * - ``order``
      - Authored ``sh:order`` as a ``decimal.Decimal``, or ``None``.
+   * - ``constraint_components``
+     - Sorted tuple of full authored constraint-component IRI strings, including
+       activated custom components. Describes declarations, not just failures,
+       and excludes components inside nested qualifier shapes. ``None`` means
+       the binding has no single authored RDF source; ``()`` means its source
+       declares no component (for example an unbounded qualified value shape).
    * - ``name`` / ``names``
      - The resolved slot name, and every value ``name_path`` reached.
    * - ``values``
@@ -204,6 +210,9 @@ Duplicate-key ordinals are assigned in this order, consistently for every focus.
 -------
 
 Immutable and hashable, so it works as a dictionary key or set member.
+``kind`` is a lowered algebra tag, such as ``"count"``, and is not a SHACL
+constraint classifier: universal pattern and datatype checks also lower to
+counts. Use ``binding.constraint_components`` to identify authored constraints.
 
 .. list-table::
    :widths: 22 78
@@ -220,6 +229,8 @@ Immutable and hashable, so it works as a dictionary key or set member.
    * - ``ordinal``
      - Distinguishes two authored obligations sharing a path and qualifier.
        Part of equality and hashing.
+   * - ``kind``
+     - Lowered algebra tag, also used to render pathless keys.
 
 ``str(key)`` renders as e.g. ``hasPoint→SupplyAirTemperatureSensor``. That form
 compacts IRIs to local names, so it is not globally unique and is intended for

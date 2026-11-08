@@ -2111,7 +2111,7 @@ impl EvidenceValidationOutcome {
         self.source_owners.clone()
     }
 
-    fn _binding_layout(&self) -> HashMap<u32, (Option<String>, String)> {
+    fn _binding_layout(&self) -> shapemap::LayoutEntries {
         self.binding_layout.entries().clone()
     }
 
