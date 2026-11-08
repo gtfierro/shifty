@@ -41,6 +41,8 @@ pub struct ValidationResult {
     pub value: Option<Term>,
     pub component: NamedNode,
     pub source_shape: Term,
+    /// The authored `sh:sparql` constraint responsible for this result.
+    pub source_constraint: Option<Term>,
     /// `sh:resultSeverity` — the `sh:severity` declared on the source shape,
     /// defaulting to `sh:Violation`.
     pub severity: NamedNode,
@@ -57,6 +59,8 @@ pub struct ValidationResult {
 pub struct ValidationReport {
     pub conforms: bool,
     pub results: Vec<ValidationResult>,
+    /// RDF structure needed to interpret blank-node `sh:resultPath` values.
+    pub path_triples: Graph,
 }
 
 /// The observed binding of one `sh:property` shape at one *conforming* focus
@@ -384,7 +388,52 @@ pub(crate) fn validate_report_prepared(
                 .then_with(|| left.component.as_str().cmp(right.component.as_str()))
         });
     }
+    // A blank-node resultPath is meaningful only with its RDF path structure.
+    // Retain just those structures, rather than copying the whole shapes graph
+    // into every report. The visited set also bounds malformed cyclic inputs.
+    let mut path_triples = Graph::new();
+    let mut pending: Vec<_> = results
+        .iter()
+        .filter_map(|result| match &result.path {
+            Some(Term::BlankNode(node)) => Some(node.clone()),
+            _ => None,
+        })
+        .collect();
+    let mut visited = HashSet::new();
+    while let Some(node) = pending.pop() {
+        if !visited.insert(node.clone()) {
+            continue;
+        }
+        // Match parse_path's precedence on the upstream "strange path" cases:
+        // a sequence node can carry an unrelated path predicate, but the
+        // report must describe the path actually evaluated, not both forms.
+        let subject = NamedOrBlankNode::BlankNode(node.clone());
+        let predicates = if shapes.object(&subject, vocab::RDF_FIRST).is_some() {
+            vec![vocab::RDF_FIRST, vocab::RDF_REST]
+        } else {
+            [
+                vocab::SH_INVERSE_PATH,
+                vocab::SH_ALTERNATIVE_PATH,
+                vocab::SH_ZERO_OR_MORE_PATH,
+                vocab::SH_ONE_OR_MORE_PATH,
+                vocab::SH_ZERO_OR_ONE_PATH,
+            ]
+            .into_iter()
+            .find(|predicate| shapes.object(&subject, *predicate).is_some())
+            .into_iter()
+            .collect()
+        };
+        for triple in shapes.graph.triples_for_subject(&node) {
+            if predicates.contains(&triple.predicate) {
+                path_triples.insert(triple);
+                if let oxrdf::TermRef::BlankNode(child) = triple.object {
+                    pending.push(child.into_owned());
+                }
+            }
+        }
+    }
     ValidationReport {
+        path_triples,
         conforms: !results.iter().any(|result| {
             Severity::from_named_node(result.severity.clone()).meets(&options.minimum_severity)
         }),
@@ -394,7 +443,7 @@ pub(crate) fn validate_report_prepared(
 
 /// Serialize a report as an RDF `sh:ValidationReport` graph (W3C shape).
 pub fn report_to_graph(report: &ValidationReport) -> Graph {
-    let mut g = Graph::new();
+    let mut g = report.path_triples.clone();
     let root = BlankNode::default();
     let t = |s: NamedOrBlankNode, p: NamedNodeRef, o: Term| Triple::new(s, p.into_owned(), o);
 
@@ -420,6 +469,13 @@ pub fn report_to_graph(report: &ValidationReport) -> Graph {
         g.insert(&t(rn.clone().into(), vocab::SH_FOCUS_NODE, r.focus.clone()));
         if let Some(path) = &r.path {
             g.insert(&t(rn.clone().into(), vocab::SH_RESULT_PATH, path.clone()));
+        }
+        if let Some(source) = &r.source_constraint {
+            g.insert(&t(
+                rn.clone().into(),
+                NamedNodeRef::new_unchecked("http://www.w3.org/ns/shacl#sourceConstraint"),
+                source.clone(),
+            ));
         }
         if let Some(value) = &r.value {
             g.insert(&t(rn.clone().into(), vocab::SH_VALUE, value.clone()));
@@ -834,6 +890,7 @@ impl Reporter<'_> {
                 value,
                 component,
                 source_shape: node_term_ref(shape),
+                source_constraint: None,
                 severity: severity.clone(),
                 messages: messages.clone(),
                 sparql_diagnostic: None,
@@ -1190,6 +1247,7 @@ impl Reporter<'_> {
             value,
             component: component.iri.clone(),
             source_shape: node_term_ref(shape),
+            source_constraint: None,
             severity: self.severity(shape),
             messages,
             // Custom constraint components always run through `eval_ask`/
@@ -1236,6 +1294,7 @@ impl Reporter<'_> {
                     value: Some(value),
                     component: vocab::SH_CC_EXPRESSION.into_owned(),
                     source_shape: node_term_ref(shape),
+                    source_constraint: None,
                     severity: self.severity(shape),
                     messages: self.messages_or_inherited(shape, inherited),
                     sparql_diagnostic: None,
@@ -1436,6 +1495,7 @@ impl Reporter<'_> {
                             value,
                             component: vocab::SH_CC_SPARQL.into_owned(),
                             source_shape: node_term_ref(shape),
+                            source_constraint: Some(constraint_term.clone()),
                             severity: severity.clone(),
                             messages,
                             sparql_diagnostic: diagnostic.clone(),
@@ -1456,6 +1516,7 @@ impl Reporter<'_> {
                         value: None,
                         component: vocab::SH_CC_SPARQL.into_owned(),
                         source_shape: node_term_ref(shape),
+                        source_constraint: Some(constraint_term.clone()),
                         severity: severity.clone(),
                         messages,
                         sparql_diagnostic: sparql
@@ -1505,6 +1566,7 @@ impl Reporter<'_> {
                     value: Some(object),
                     component: vocab::SH_CC_CLOSED.into_owned(),
                     source_shape: node_term_ref(shape),
+                    source_constraint: None,
                     severity: self.severity(shape),
                     messages: self.messages_or_inherited(shape, inherited),
                     sparql_diagnostic: None,
@@ -1612,7 +1674,11 @@ impl Reporter<'_> {
         out: &mut Vec<ValidationResult>,
         inherited: &[Term],
     ) {
-        if !self.bool(shape, vocab::SH_UNIQUE_LANG) {
+        // SHACL 1.0 activates uniqueLang for the RDF term true. The W3C
+        // uniqueLang-002 test deliberately distinguishes "1"^^xsd:boolean.
+        if self.shapes.object(shape, vocab::SH_UNIQUE_LANG)
+            != Some(Term::Literal(Literal::from(true)))
+        {
             return;
         }
         let mut counts = HashMap::new();
@@ -1752,6 +1818,7 @@ impl Reporter<'_> {
             value,
             component: component.into_owned(),
             source_shape: node_term_ref(shape),
+            source_constraint: None,
             severity: self.severity(shape),
             messages,
             sparql_diagnostic: None,

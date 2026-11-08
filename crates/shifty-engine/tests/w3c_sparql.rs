@@ -1,13 +1,15 @@
-//! Conformance harness against the vendored W3C SHACL-SPARQL test suite,
+//! Local boolean regressions from the adapted SHACL-SPARQL suite,
 //! exercising BOTH validation paths:
 //!   * the algebra evaluator (`shifty_engine::validate`), and
 //!   * the RDF-driven W3C report validator (`shifty_engine::validate_report`).
 //!
 //! Each `*.ttl` carries shapes + data in one graph plus an expected
 //! `sh:conforms`; we require both paths to match it. Tests for features we don't
-//! implement yet (custom components, JS, rules) are skipped via their
+//! implement yet (JS, rules) are skipped via their
 //! predicates. Pre-binding (`$this`, `$PATH`, `$shapesGraph`, `$currentShape`)
 //! is implemented by algebra substitution, so all pre-binding cases run.
+//! The manifest runner in python/conformance checks complete reports against
+//! unmodified upstream inputs; these local checks do not produce EARL scores.
 
 use oxrdf::{Graph, NamedNodeRef, Term};
 use shifty_parse::DiagLevel;

@@ -1,0 +1,2 @@
+# Keep the pinned W3C fixtures byte-for-byte identical across checkouts.
+testdata/w3c-shacl/tests/** -text

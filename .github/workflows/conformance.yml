@@ -1,0 +1,37 @@
+name: W3C SHACL conformance
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: conformance-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  shacl-1-0:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+      - name: Build the locked Python environment
+        working-directory: python
+        run: uv sync --dev --frozen --reinstall-package pyshifty
+      - name: Check all approved and proposed cases
+        working-directory: python
+        run: uv run python -m conformance --include-unlisted --baseline ../testdata/w3c-shacl/baseline.json
+      - name: Upload EARL and per-test results
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: shifty-shacl-1-0-results
+          path: target/conformance/
+          if-no-files-found: warn

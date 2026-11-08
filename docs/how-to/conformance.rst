@@ -47,8 +47,9 @@ SHACL-SPARQL failure. ``partial`` means only the conformance boolean matched.
 Loading errors and unexpected exceptions are ``error``; rejected tests are
 ``untested``.
 
-The exit code is 0 for passes, 1 for failed or partial results, and 2 for
-runner errors. ``--report-only`` allows failed and partial results.
+The exit code is 0 for passes, 1 for failed or partial results or an algebra
+mismatch, and 2 for runner or algebra exceptions. ``--report-only`` allows
+failed and partial results and algebra mismatches; exceptions still exit 2.
 
 Run the CI check
 ----------------

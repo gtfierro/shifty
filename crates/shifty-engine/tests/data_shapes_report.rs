@@ -1,4 +1,7 @@
-//! Report-level conformance against the W3C data-shapes core suite.
+//! Selected-field report regressions against locally adapted Core fixtures.
+//!
+//! Full W3C report comparison is performed by python/conformance against the
+//! unmodified upstream manifests; see testdata/README.md.
 //!
 //! For each test we compare our `sh:ValidationReport` to the expected one,
 //! matching result-sets on (focusNode, resultPath, value, component,

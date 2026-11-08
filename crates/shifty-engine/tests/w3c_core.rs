@@ -1,4 +1,7 @@
-//! Conformance harness against the vendored W3C SHACL core test suite.
+//! Local Core regressions, including reference/normalized/planned agreement.
+//!
+//! W3C implementation reports use the unmodified, manifest-driven collection
+//! documented in testdata/README.md, not this rewritten fixture tree.
 //!
 //! Each `*.ttl` test carries shapes + data in one graph plus an expected
 //! `sh:conforms`. We compare our reference evaluator's `conforms` to the

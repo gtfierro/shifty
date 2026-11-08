@@ -805,15 +805,9 @@ class InferResult:
 
 def _parse_report_graph(result: W3cResult, data: _RdfInput) -> "rdflib.Graph":
     """Preserve caller-owned data nodes when decoding a validation report."""
-    import rdflib
+    from ._rdf import parse_ntriples
 
-    graph = rdflib.Graph()
-    graph.parse(
-        data=result._report_ntriples,
-        format="nt",
-        bnode_context=dict(data.bnode_context or {}),
-    )
-    return graph
+    return parse_ntriples(result._report_ntriples, data.bnode_context)
 
 
 class PreparedValidator:

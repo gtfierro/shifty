@@ -1,0 +1,610 @@
+{
+  "suite_revision": "40231dfb97c5b606d22ae733947c0d14b4f45c07",
+  "results": {
+    "urn:x-shacl-test:/core/complex/personexample": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "passed"
+    },
+    "urn:x-shacl-test:/core/complex/shacl-shacl": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "passed"
+    },
+    "urn:x-shacl-test:/core/misc/deactivated-001": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "passed"
+    },
+    "urn:x-shacl-test:/core/misc/deactivated-002": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "passed"
+    },
+    "urn:x-shacl-test:/core/misc/message-001": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "passed"
+    },
+    "urn:x-shacl-test:/core/misc/severity-001": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "passed"
+    },
+    "urn:x-shacl-test:/core/misc/severity-002": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "passed"
+    },
+    "urn:x-shacl-test:/core/node/and-001": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "passed"
+    },
+    "urn:x-shacl-test:/core/node/and-002": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "passed"
+    },
+    "urn:x-shacl-test:/core/node/class-001": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "passed"
+    },
+    "urn:x-shacl-test:/core/node/class-002": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "passed"
+    },
+    "urn:x-shacl-test:/core/node/class-003": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "passed"
+    },
+    "urn:x-shacl-test:/core/node/closed-001": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "passed"
+    },
+    "urn:x-shacl-test:/core/node/closed-002": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "passed"
+    },
+    "urn:x-shacl-test:/core/node/datatype-001": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "passed"
+    },
+    "urn:x-shacl-test:/core/node/datatype-002": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "passed"
+    },
+    "urn:x-shacl-test:/core/node/disjoint-001": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "passed"
+    },
+    "urn:x-shacl-test:/core/node/equals-001": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "passed"
+    },
+    "urn:x-shacl-test:/core/node/hasValue-001": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "passed"
+    },
+    "urn:x-shacl-test:/core/node/in-001": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "passed"
+    },
+    "urn:x-shacl-test:/core/node/languageIn-001": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "passed"
+    },
+    "urn:x-shacl-test:/core/node/maxExclusive-001": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "passed"
+    },
+    "urn:x-shacl-test:/core/node/maxInclusive-001": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "passed"
+    },
+    "urn:x-shacl-test:/core/node/maxLength-001": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "passed"
+    },
+    "urn:x-shacl-test:/core/node/minExclusive-001": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "passed"
+    },
+    "urn:x-shacl-test:/core/node/minInclusive-001": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "passed"
+    },
+    "urn:x-shacl-test:/core/node/minInclusive-002": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "passed"
+    },
+    "urn:x-shacl-test:/core/node/minInclusive-003": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "passed"
+    },
+    "urn:x-shacl-test:/core/node/minLength-001": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "passed"
+    },
+    "urn:x-shacl-test:/core/node/node-001": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "passed"
+    },
+    "urn:x-shacl-test:/core/node/nodeKind-001": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "passed"
+    },
+    "urn:x-shacl-test:/core/node/not-001": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "passed"
+    },
+    "urn:x-shacl-test:/core/node/not-002": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "passed"
+    },
+    "urn:x-shacl-test:/core/node/or-001": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "passed"
+    },
+    "urn:x-shacl-test:/core/node/pattern-001": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "passed"
+    },
+    "urn:x-shacl-test:/core/node/pattern-002": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "passed"
+    },
+    "urn:x-shacl-test:/core/node/qualified-001": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "passed"
+    },
+    "urn:x-shacl-test:/core/node/xone-001": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "passed"
+    },
+    "urn:x-shacl-test:/core/node/xone-duplicate": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "passed"
+    },
+    "urn:x-shacl-test:/core/path/path-alternative-001": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "passed"
+    },
+    "urn:x-shacl-test:/core/path/path-complex-001": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "passed"
+    },
+    "urn:x-shacl-test:/core/path/path-complex-002": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "passed"
+    },
+    "urn:x-shacl-test:/core/path/path-inverse-001": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "passed"
+    },
+    "urn:x-shacl-test:/core/path/path-oneOrMore-001": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "passed"
+    },
+    "urn:x-shacl-test:/core/path/path-sequence-001": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "passed"
+    },
+    "urn:x-shacl-test:/core/path/path-sequence-002": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "passed"
+    },
+    "urn:x-shacl-test:/core/path/path-sequence-duplicate-001": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "passed"
+    },
+    "urn:x-shacl-test:/core/path/path-strange-001": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "passed"
+    },
+    "urn:x-shacl-test:/core/path/path-strange-002": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "passed"
+    },
+    "urn:x-shacl-test:/core/path/path-unused-001": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "passed"
+    },
+    "urn:x-shacl-test:/core/path/path-zeroOrMore-001": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "passed"
+    },
+    "urn:x-shacl-test:/core/path/path-zeroOrOne-001": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "passed"
+    },
+    "urn:x-shacl-test:/core/property/and-001": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "passed"
+    },
+    "urn:x-shacl-test:/core/property/class-001": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "passed"
+    },
+    "urn:x-shacl-test:/core/property/datatype-001": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "passed"
+    },
+    "urn:x-shacl-test:/core/property/datatype-002": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "passed"
+    },
+    "urn:x-shacl-test:/core/property/datatype-003": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "passed"
+    },
+    "urn:x-shacl-test:/core/property/datatype-ill-formed": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "passed"
+    },
+    "urn:x-shacl-test:/core/property/disjoint-001": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "passed"
+    },
+    "urn:x-shacl-test:/core/property/equals-001": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "passed"
+    },
+    "urn:x-shacl-test:/core/property/hasValue-001": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "passed"
+    },
+    "urn:x-shacl-test:/core/property/in-001": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "passed"
+    },
+    "urn:x-shacl-test:/core/property/languageIn-001": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "passed"
+    },
+    "urn:x-shacl-test:/core/property/lessThan-001": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "passed"
+    },
+    "urn:x-shacl-test:/core/property/lessThan-002": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "passed"
+    },
+    "urn:x-shacl-test:/core/property/lessThanOrEquals-001": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "passed"
+    },
+    "urn:x-shacl-test:/core/property/maxCount-001": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "passed"
+    },
+    "urn:x-shacl-test:/core/property/maxCount-002": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "passed"
+    },
+    "urn:x-shacl-test:/core/property/maxExclusive-001": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "passed"
+    },
+    "urn:x-shacl-test:/core/property/maxInclusive-001": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "passed"
+    },
+    "urn:x-shacl-test:/core/property/maxLength-001": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "passed"
+    },
+    "urn:x-shacl-test:/core/property/minCount-001": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "passed"
+    },
+    "urn:x-shacl-test:/core/property/minCount-002": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "passed"
+    },
+    "urn:x-shacl-test:/core/property/minExclusive-001": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "passed"
+    },
+    "urn:x-shacl-test:/core/property/minExclusive-002": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "passed"
+    },
+    "urn:x-shacl-test:/core/property/minLength-001": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "passed"
+    },
+    "urn:x-shacl-test:/core/property/node-001": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "passed"
+    },
+    "urn:x-shacl-test:/core/property/node-002": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "passed"
+    },
+    "urn:x-shacl-test:/core/property/nodeKind-001": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "passed"
+    },
+    "urn:x-shacl-test:/core/property/not-001": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "passed"
+    },
+    "urn:x-shacl-test:/core/property/or-001": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "passed"
+    },
+    "urn:x-shacl-test:/core/property/or-datatypes-001": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "passed"
+    },
+    "urn:x-shacl-test:/core/property/pattern-001": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "passed"
+    },
+    "urn:x-shacl-test:/core/property/pattern-002": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "passed"
+    },
+    "urn:x-shacl-test:/core/property/property-001": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "passed"
+    },
+    "urn:x-shacl-test:/core/property/qualifiedMinCountDisjoint-001": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "passed"
+    },
+    "urn:x-shacl-test:/core/property/qualifiedValueShape-001": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "passed"
+    },
+    "urn:x-shacl-test:/core/property/qualifiedValueShapesDisjoint-001": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "passed"
+    },
+    "urn:x-shacl-test:/core/property/uniqueLang-001": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "passed"
+    },
+    "urn:x-shacl-test:/core/property/uniqueLang-002": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "passed"
+    },
+    "urn:x-shacl-test:/core/targets/multipleTargets-001": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "passed"
+    },
+    "urn:x-shacl-test:/core/targets/targetClass-001": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "passed"
+    },
+    "urn:x-shacl-test:/core/targets/targetClassImplicit-001": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "passed"
+    },
+    "urn:x-shacl-test:/core/targets/targetNode-001": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "passed"
+    },
+    "urn:x-shacl-test:/core/targets/targetObjectsOf-001": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "passed"
+    },
+    "urn:x-shacl-test:/core/targets/targetSubjectsOf-001": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "passed"
+    },
+    "urn:x-shacl-test:/core/targets/targetSubjectsOf-002": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "passed"
+    },
+    "urn:x-shacl-test:/core/validation-reports/shared": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "passed"
+    },
+    "urn:x-shacl-test:/sparql/component/nodeValidator-001": {
+      "status": "proposed",
+      "outcome": "passed",
+      "algebra": "passed"
+    },
+    "urn:x-shacl-test:/sparql/component/optional-001": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "passed"
+    },
+    "urn:x-shacl-test:/sparql/component/propertyValidator-select-001": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "passed"
+    },
+    "urn:x-shacl-test:/sparql/component/validator-001": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "passed"
+    },
+    "urn:x-shacl-test:/sparql/node/prefixes-001": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "passed"
+    },
+    "urn:x-shacl-test:/sparql/node/sparql-001": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "passed"
+    },
+    "urn:x-shacl-test:/sparql/node/sparql-002": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "passed"
+    },
+    "urn:x-shacl-test:/sparql/node/sparql-003": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "passed"
+    },
+    "urn:x-shacl-test:/sparql/pre-binding/pre-binding-001": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "passed"
+    },
+    "urn:x-shacl-test:/sparql/pre-binding/pre-binding-002": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "passed"
+    },
+    "urn:x-shacl-test:/sparql/pre-binding/pre-binding-003": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "passed"
+    },
+    "urn:x-shacl-test:/sparql/pre-binding/pre-binding-004": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "passed"
+    },
+    "urn:x-shacl-test:/sparql/pre-binding/pre-binding-005": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "passed"
+    },
+    "urn:x-shacl-test:/sparql/pre-binding/pre-binding-006": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "not-run"
+    },
+    "urn:x-shacl-test:/sparql/pre-binding/pre-binding-007": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "passed"
+    },
+    "urn:x-shacl-test:/sparql/pre-binding/shapesGraph-001": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "passed"
+    },
+    "urn:x-shacl-test:/sparql/pre-binding/unsupported-sparql-001": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "not-run"
+    },
+    "urn:x-shacl-test:/sparql/pre-binding/unsupported-sparql-002": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "not-run"
+    },
+    "urn:x-shacl-test:/sparql/pre-binding/unsupported-sparql-003": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "not-run"
+    },
+    "urn:x-shacl-test:/sparql/pre-binding/unsupported-sparql-004": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "not-run"
+    },
+    "urn:x-shacl-test:/sparql/pre-binding/unsupported-sparql-005": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "not-run"
+    },
+    "urn:x-shacl-test:/sparql/pre-binding/unsupported-sparql-006": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "not-run"
+    },
+    "urn:x-shacl-test:/sparql/property/sparql-001": {
+      "status": "approved",
+      "outcome": "passed",
+      "algebra": "passed"
+    }
+  }
+}

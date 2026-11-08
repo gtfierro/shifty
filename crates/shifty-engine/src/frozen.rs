@@ -536,7 +536,7 @@ impl TripleIndex {
 
     fn reserve_secondary(&self, bytes: usize) -> bool {
         self.secondary_bytes
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |used| {
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |used| {
                 used.checked_add(bytes)
                     .filter(|total| *total <= self.secondary_budget)
             })
