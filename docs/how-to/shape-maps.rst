@@ -167,9 +167,17 @@ which property obligations it satisfied:
        print(binding.explain())
 
 ``binding.min`` and ``binding.max`` are the declared bounds, ``binding.observed``
-the count the evidence saw, ``binding.expects_single`` true exactly for a
+the count of path values (qualifying values for qualified counts),
+``binding.expects_single`` true exactly for a
 ``1..1`` obligation, and ``binding.severity`` the effective SHACL severity in
 lowercase.
+
+Invalid values still count toward ordinary cardinality. A pattern failure
+can therefore have ``observed == 2``, one qualifying ``partial_values`` entry,
+and one ``rejected_values`` entry. Without its session, a pruned qualifying
+set is unknown (``values`` and ``partial_values`` are ``None``). ``observed``
+is also ``None`` when unavailable or when the property combines different
+count domains, such as ordinary and qualified cardinality.
 
 Keep the session when building a map by hand
 --------------------------------------------

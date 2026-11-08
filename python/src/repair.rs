@@ -2070,6 +2070,7 @@ pub struct EvidenceValidationOutcome {
     /// when the originating EvidenceSession is not supplied.
     source_owners: HashMap<u32, u32>,
     binding_layout: Arc<shapemap::BindingLayout>,
+    snapshot_data: Arc<Graph>,
     json: String,
 }
 
@@ -2632,6 +2633,19 @@ impl EvidenceSession {
         self.binding_values_impl(focus, constraint_id)
     }
 
+    fn _binding_observation(
+        &self,
+        focus: &str,
+        constraint_id: u32,
+    ) -> PyResult<Option<(Vec<String>, Vec<String>, Option<u64>)>> {
+        self.binding_observation_impl(focus, constraint_id)
+    }
+
+    fn _matches_run(&self, run: &EvidenceValidationOutcome) -> bool {
+        Arc::ptr_eq(&self.data, &run.snapshot_data)
+            && Arc::ptr_eq(&self.binding_layout, &run.binding_layout)
+    }
+
     fn _shape_name_of(&self, constraint_id: u32) -> Option<String> {
         self.shape_name_of_impl(constraint_id)
     }
@@ -2908,6 +2922,7 @@ impl EvidenceSession {
             known_shapes,
             source_owners: self.binding_source_ids_impl(),
             binding_layout: Arc::clone(&self.binding_layout),
+            snapshot_data: Arc::clone(data),
             json,
         })
     }
@@ -3025,77 +3040,12 @@ impl EvidenceSession {
         Ok(out)
     }
 
-    /// Recover values for a property constraint that lowered to `Top`.
-    ///
-    /// An unbounded `sh:qualifiedValueShape` is vacuous as a validation
-    /// constraint, so the algebra intentionally simplifies it to `Top`. A
-    /// shape map is also an extraction view, however, and still needs the
-    /// qualifying values. Use the retained authored property shape for this
-    /// narrow case: evaluate its `sh:path`, then keep candidates satisfying
-    /// each qualified value shape.
+    /// Backward-compatible internal extraction helper.
     fn binding_values_impl(&self, focus: &str, constraint_id: u32) -> PyResult<Vec<String>> {
-        let focus = parse_term(focus).map_err(py_value_error)?;
-        let mut current = ShapeId(constraint_id);
-        let mut seen = HashSet::new();
-        let property = loop {
-            if !seen.insert(current) {
-                return Ok(Vec::new());
-            }
-            if let Some(source) = self.raw_schema.sources.get(&current)
-                && let Some(node) = shifty_parse::graph::term_to_node(source)
-                && self
-                    .shapes
-                    .object(&node, shifty_parse::vocab::SH_PATH)
-                    .is_some()
-            {
-                break node;
-            }
-            match self.raw_schema.arena.get(current) {
-                shifty_algebra::Shape::Annotated { shape, .. } => current = *shape,
-                _ => return Ok(Vec::new()),
-            }
-        };
-
-        let Some(path_term) = self.shapes.object(&property, shifty_parse::vocab::SH_PATH) else {
-            return Ok(Vec::new());
-        };
-        let path =
-            shifty_parse::path::parse_path(&self.shapes, &path_term).map_err(py_value_error)?;
-
-        let qualifying: Vec<ShapeId> = self
-            .shapes
-            .objects(&property, shifty_parse::vocab::SH_QUALIFIED_VALUE_SHAPE)
-            .into_iter()
-            .filter_map(|term| {
-                shifty_parse::graph::term_to_node(&term)?;
-                let raw = self
-                    .raw_schema
-                    .sources
-                    .iter()
-                    .find_map(|(id, source)| (source == &term).then_some(*id))?;
-                Some(raw)
-            })
-            .collect();
-
-        let graph = self.path_graph();
-        let mut values: Vec<String> = shifty_engine::path::succ(graph, &focus, &path)
-            .into_iter()
-            .filter(|value| {
-                qualifying.iter().all(|shape| {
-                    self.session
-                        .prepared_evidence()
-                        .raw_constraint_holds(&self.session.internal_term(value), *shape)
-                        == Some(true)
-                })
-            })
-            // Shape-map values are parsed back into typed Python terms, so
-            // retain the full N-Triples spelling rather than the display form
-            // `term_text` uses for plain literals.
-            .map(|value| value.to_string())
-            .collect();
-        values.sort();
-        values.dedup();
-        Ok(values)
+        Ok(self
+            .binding_observation_impl(focus, constraint_id)?
+            .map(|observation| observation.0)
+            .unwrap_or_default())
     }
 
     /// The raw schema's shape name for `constraint_id` — the IRI of the

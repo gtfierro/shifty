@@ -17,6 +17,10 @@
 
 ### Fixed
 
+- Shape maps recover qualifying values alongside rejected universal-check
+  candidates, keep rejected values out of `partial_values`, and report exact
+  overflow and universal counts. Unavailable qualifying sets and ambiguous
+  counts remain explicitly unknown; stale sessions cannot overwrite a new run.
 - Shape-map bindings and duplicate-key ordinals use stable source order,
   honoring decimal `sh:order`. Bindings expose `position` and `order` even
   when constructed from a run without its session.

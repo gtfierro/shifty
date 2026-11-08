@@ -479,6 +479,27 @@ def _has_universal_value_constraint(
     return False
 
 
+def _count_domains(catalog: _Catalog, constraint_id: int) -> set[tuple[str, str]]:
+    """Distinct authored count domains, excluding synthetic universal counts."""
+    constraint = catalog.logical(constraint_id)
+    if isinstance(constraint, dict) and "Count" in constraint:
+        count = constraint["Count"]
+        qualifier = catalog.get(count["qualifier"])
+        if count.get("max") == 0 and isinstance(qualifier, dict) and "Not" in qualifier:
+            return set()
+        return {
+            (
+                json.dumps(count["path"], sort_keys=True),
+                catalog.signature(count["qualifier"]),
+            )
+        }
+    if isinstance(constraint, dict) and "And" in constraint:
+        return set().union(
+            *(_count_domains(catalog, child) for child in constraint["And"])
+        )
+    return set()
+
+
 def _severity_of(
     normalized_catalog: _Catalog,
     normalized_ref: Optional[int],
@@ -580,13 +601,18 @@ def _missing_count(node: Optional[dict]) -> int:
 
 
 def _observed_count(node: Optional[dict]) -> Optional[int]:
+    observations = set()
     for n in _top_counts(node):
         d = _details(n)
         if n.get("type") == "count_held" and d.get("observed_count") is not None:
-            return d["observed_count"]
+            observations.add(d["observed_count"])
         if n.get("type") == "count_low" and d.get("have") is not None:
-            return d["have"]
-    return None
+            observations.add(d["have"])
+        if n.get("type") == "count_high" and not d.get("per_value"):
+            observations.add(len(d["matched"]))
+        if n.get("type") == "for_all_held":
+            observations.add(len(d["values"]))
+    return next(iter(observations)) if len(observations) == 1 else None
 
 
 def _rejected_values(
@@ -704,13 +730,16 @@ class Binding:
         normalized_constraint_id: Optional[int],
         evidence: Optional[dict],
         resolve: Optional[Callable[[], dict]],
-        resolve_values: Optional[Callable[[], list[Term]]],
+        resolve_observation: Optional[
+            Callable[[], Optional[tuple[list[Term], list[Term], Optional[int]]]]
+        ],
         bounds: "tuple[Optional[int], Optional[int]]",
         severity: str,
         names: "Optional[list[str]]",
         rejected_count_high: bool = False,
         position: int = 1,
         order: Optional[Decimal] = None,
+        ambiguous_counts: bool = False,
     ) -> None:
         self.key = key
         self.status = status
@@ -725,7 +754,9 @@ class Binding:
         self._rejected_count_high = rejected_count_high
         self._evidence = evidence
         self._resolve = resolve
-        self._resolve_values = resolve_values
+        self._resolve_observation = resolve_observation
+        self._observation: Optional[tuple[list[Term], list[Term], Optional[int]]] = None
+        self._ambiguous_counts = ambiguous_counts
         self._min, self._max = bounds
         self._value_resolver: "Optional[_ValueAnnotationResolver]" = None
         self._values: "Optional[list[Term]]" = None
@@ -752,33 +783,47 @@ class Binding:
     @property
     def values(self) -> "Optional[list[Term]]":
         """The values the key's path bound. For a failing key these are the
-        qualifying near-matches (same as ``partial_values``). ``None`` only
-        when the evidence is unavailable — a passing key of a failing focus
-        with no session to consult. An unbounded
+        qualifying near-matches (same as ``partial_values``). ``None`` means
+        the complete qualifying set cannot be recovered without a session,
+        including a failing universal check whose witness omits valid values.
+        An unbounded
         ``sh:qualifiedValueShape`` is vacuous for validation but still
         extracts every qualifying value when the originating session is
         available."""
         if self._values is None:
-            if self._resolve_values is not None:
-                self._values = self._resolve_values()
-                self._resolve_values = None
+            observation = self._observe()
+            if observation is not None:
+                self._values = observation[0]
             else:
                 evidence = self.evidence
                 self._values = (
                     _top_values(evidence, rejected_count_high=self._rejected_count_high)
                     if evidence is not None
+                    and not any(
+                        _details(node).get("per_value")
+                        for node in _top_counts(evidence)
+                    )
                     else None
                 )
         return self._values
 
+    def _observe(self):
+        if self._resolve_observation is not None:
+            self._observation = self._resolve_observation()
+            self._resolve_observation = None
+        return self._observation
+
     @property
-    def partial_values(self) -> "list[Term]":
-        """Values that did qualify under a failing count (never enough)."""
-        return _top_values(self._evidence) if not self.ok else []
+    def partial_values(self) -> "Optional[list[Term]]":
+        """Qualifying values on failure, or ``None`` when their set is unknown."""
+        return self.values if not self.ok else []
 
     @property
     def rejected_values(self) -> "list[Term]":
         """Near-miss candidates the path reached but the qualifier rejected."""
+        observation = self._observe() if not self.ok else None
+        if observation is not None:
+            return observation[1]
         return (
             _rejected_values(
                 self._evidence, rejected_count_high=self._rejected_count_high
@@ -805,7 +850,15 @@ class Binding:
 
     @property
     def observed(self) -> Optional[int]:
-        """The count evidence actually observed; ``None`` without evidence."""
+        """Exact authored count (path values for universals), when recoverable.
+
+        ``None`` means unavailable, or multiple distinct count domains.
+        """
+        if self._ambiguous_counts:
+            return None
+        observation = self._observe()
+        if observation is not None:
+            return observation[2]
         return _observed_count(self.evidence)
 
     @property
@@ -1057,6 +1110,10 @@ class ShapeMap:
         # Accept the public wrapper, the native session, and lightweight
         # session proxies used by instrumentation callers.
         inner: Any = getattr(session, "_inner", session)
+        # A revalidated run belongs to a new data snapshot. Consulting the
+        # original session would replace its values with stale graph contents.
+        if inner is not None and not inner._matches_run(run):
+            inner = None
 
         names_table: "dict[int, list[str]]" = {}
         shape_name_of = None
@@ -1253,16 +1310,20 @@ def _build_mapping(
                 break
             name_source_id = constraint["Annotated"]["shape"]
 
-        resolve_values = None
-        if (
-            inner is not None
-            and status == "pass"
-            and source_owners.get(source_id) == source_id
-        ):
+        resolve_observation = None
+        if inner is not None:
             focus_term = focus_py.focus
 
-            def resolve_values(f=focus_term, s=source_id, validator=inner):
-                return [_term_parse(value) for value in validator._binding_values(f, s)]
+            def resolve_observation(f=focus_term, s=source_id, validator=inner):
+                observation = validator._binding_observation(f, s)
+                if observation is None:
+                    return None
+                accepted, rejected, observed = observation
+                return (
+                    [_term_parse(value) for value in accepted],
+                    [_term_parse(value) for value in rejected],
+                    observed,
+                )
 
         bindings[key] = Binding(
             key,
@@ -1271,13 +1332,14 @@ def _build_mapping(
             normalized_ref,
             subtree,
             resolve,
-            resolve_values,
+            resolve_observation,
             bounds,
             severity,
             names,
             _has_universal_value_constraint(source_catalog, source_id),
             position,
             slot_layouts[owner][0],
+            len(_count_domains(source_catalog, source_id)) > 1,
         )
 
     return Mapping(

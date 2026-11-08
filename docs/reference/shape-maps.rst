@@ -67,6 +67,16 @@ failed conjunction; with the session the map materializes them on demand, and
 without it such a binding has ``values is None`` — explicitly unknown rather
 than guessed.
 
+Failure witnesses for universal value checks (such as ``sh:pattern`` or
+``sh:datatype``) can also omit valid values. With the session, the map lazily
+recovers accepted and rejected candidates from the authored property. Without
+it, ``values`` and ``partial_values`` are ``None`` when the complete qualifying
+set is unavailable; ``rejected_values`` still exposes witnessed failures.
+Recovery requires the session's original data snapshot. An unrelated session,
+or the original session passed alongside a ``revalidate()`` result, is treated
+as unavailable for graph-based resolution so old values cannot replace the
+new run's evidence.
+
 ``ShapeMap``
 ------------
 
@@ -159,7 +169,8 @@ Duplicate-key ordinals are assigned in this order, consistently for every focus.
        qualifying values, despite normalizing to a vacuous validation
        constraint.
    * - ``partial_values``
-     - Values that qualified so far, on an unsatisfied obligation.
+     - The same qualifying values as ``values`` on an unsatisfied obligation,
+       or ``None`` when that set is unknown. Empty on a successful obligation.
    * - ``rejected_values``
      - Candidates the qualifier rejected.
    * - ``missing``
@@ -167,7 +178,12 @@ Duplicate-key ordinals are assigned in this order, consistently for every focus.
    * - ``min`` / ``max``
      - Declared cardinality bounds.
    * - ``observed``
-     - The count the evidence saw, where available.
+     - Exact count in the authored cardinality domain: all path values for an
+       ordinary count, qualifying values for a qualified count, or all checked
+       path values for a universal value check. Invalid values still contribute
+       to ordinary cardinality. ``None`` means the count cannot be recovered,
+       or the binding combines multiple distinct count domains (for example
+       ``sh:minCount`` and ``sh:qualifiedMinCount``).
    * - ``expects_single``
      - True exactly for a ``1..1`` obligation.
    * - ``severity``

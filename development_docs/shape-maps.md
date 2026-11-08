@@ -71,8 +71,14 @@ matched values.
 `Binding.values` contains qualifying values, including near-matches for a
 failing count. `partial_values`, `rejected_values`, and `missing` describe the
 failure. Declared `min` and `max` come from source constraints, using tightest
-bounds for combined obligations; `observed` comes from available count
-evidence. Severity comes from the relevant annotation with statement fallback.
+bounds for combined obligations. A lazy session observation recovers accepted
+and rejected candidates when canonical universal failures prune successes.
+`partial_values` equals `values` on failure, including `None` when the complete
+qualifying set is unknown. `observed` counts the authored cardinality domain,
+or path values for a universal check; combining distinct count domains gives
+`None`. Recovery only consults a matching session snapshot, never a stale
+session after revalidation. Severity comes from the relevant annotation with
+statement fallback.
 
 ## Names and annotations
 
