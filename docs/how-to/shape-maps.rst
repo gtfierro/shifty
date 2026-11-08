@@ -27,6 +27,11 @@ A ``Mapping`` behaves like a read-only ``dict``, so ``items()``, ``keys()`` and
 ``mapping[key]`` work. ``successful`` and ``unsuccessful`` are ordered lists of
 ``(Key, Binding)`` pairs when you want one side.
 
+Bindings follow ascending ``sh:order``, with unordered properties last and
+deterministic source identities breaking ties. ``binding.order`` exposes the
+authored decimal order; ``binding.position`` is its one-based position among
+all bindings, including unsuccessful ones. Turtle statement order is not used.
+
 Produce a configuration dictionary
 ----------------------------------
 
@@ -44,7 +49,7 @@ converts terms to plain Python — IRIs and blank nodes become strings, literals
 convert where the datatype allows.
 
 Names are not required to be unique. ``mapping.by_name(name)`` returns the first
-match in authored order; when uniqueness matters, key by ``Key``.
+match in binding order; when uniqueness matters, key by ``Key``.
 
 Match on a key in application code
 ----------------------------------

@@ -42,8 +42,13 @@ properties whose wrapper was elided during lowering.
 
 Normalization may map distinct source children to the same executable ID.
 Bindings retain distinct source identities and can share evidence. Ordinal
-assignment follows lowering order for a fixed source document; normalized IDs
-are local to a compiled schema.
+assignment follows stable binding order: ascending decimal `sh:order`, then
+unordered sources, with source IRIs or canonical anonymous identities breaking
+ties. `Binding.position` numbers the full ordered set without changing key
+equality. Lazy shapes-side metadata is shared by sessions and runs, so this
+order also survives `ShapeMap.from_run(run)` without a session. Canonical
+anonymous identities are local to a fixed graph and library version, not public
+persistent IDs. Normalized IDs are local to a compiled schema.
 
 ## Lazy evidence and values
 

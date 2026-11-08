@@ -47,6 +47,8 @@ from __future__ import annotations
 
 import collections.abc
 import dataclasses
+import json
+from decimal import Decimal, InvalidOperation
 from typing import TYPE_CHECKING, Any, Callable, Iterator, Optional, Sequence, Union
 
 from .terms import BNode, Iri, Literal, Term
@@ -237,9 +239,7 @@ class Key:
     __match_args__ = ("path", "qualifier")
     path: Optional[Path]  # None for pathless constraints (nodeKind…)
     qualifier: Optional[Qualifier]
-    ordinal: int = (
-        1  # disambiguates identical (path, qualifier); n-th in lowering order
-    )
+    ordinal: int = 1  # disambiguates identical keys in stable binding order
     kind: str = "count"  # constraint tag fallback for pathless keys
 
     def __str__(self) -> str:
@@ -294,6 +294,25 @@ class _Catalog:
 
     def logical(self, constraint_id: Optional[int]):
         return self.get(self.unwrap(constraint_id))
+
+    def signature(self, constraint_id: int, stack: tuple[int, ...] = ()) -> str:
+        """Structural fallback for synthetic constraints with no RDF source."""
+        if constraint_id in stack:
+            return json.dumps(["cycle", stack.index(constraint_id)])
+        constraint = self.get(constraint_id)
+        stack = (*stack, constraint_id)
+        if isinstance(constraint, dict):
+            ((tag, body),) = constraint.items()
+            if tag in ("And", "Or"):
+                body = sorted(self.signature(child, stack) for child in body)
+            elif tag == "Not":
+                body = self.signature(body, stack)
+            elif tag in ("Count", "Annotated"):
+                body = dict(body)
+                field = "qualifier" if tag == "Count" else "shape"
+                body[field] = self.signature(body[field], stack)
+            constraint = {tag: body}
+        return json.dumps(constraint, sort_keys=True)
 
     def unwrap_checking_names(
         self,
@@ -690,6 +709,8 @@ class Binding:
         severity: str,
         names: "Optional[list[str]]",
         rejected_count_high: bool = False,
+        position: int = 1,
+        order: Optional[Decimal] = None,
     ) -> None:
         self.key = key
         self.status = status
@@ -699,6 +720,8 @@ class Binding:
         self.qualifier = key.qualifier
         self.severity = severity
         self.names = names
+        self.position = position
+        self.order = order
         self._rejected_count_high = rejected_count_high
         self._evidence = evidence
         self._resolve = resolve
@@ -857,7 +880,7 @@ class Mapping(collections.abc.Mapping):
 
     @property
     def successful(self) -> "list[tuple[Key, Binding]]":
-        """``(key, binding)`` for every bound key, in authored order."""
+        """``(key, binding)`` for every bound key, in stable binding order."""
         return [(k, b) for k, b in self.bindings.items() if b.ok]
 
     @property
@@ -1030,6 +1053,7 @@ class ShapeMap:
         data = run.to_dict()
         source_catalog = _Catalog(data["constraints"]["source"])
         normalized_catalog = _Catalog(data["constraints"]["normalized"])
+        layout = run._binding_layout()
         # Accept the public wrapper, the native session, and lightweight
         # session proxies used by instrumentation callers.
         inner: Any = getattr(session, "_inner", session)
@@ -1065,6 +1089,7 @@ class ShapeMap:
                     names_table,
                     shape_name_of,
                     source_owners,
+                    layout,
                 )
                 group.append(mapping)
                 all_mappings.append(mapping)
@@ -1089,6 +1114,7 @@ def _build_mapping(
     names_table: "dict[int, list[str]]",
     shape_name_of: "Optional[Callable[[int], Optional[str]]]",
     source_owners: "dict[int, int]",
+    layout: "dict[int, tuple[Optional[str], str]]",
 ) -> Mapping:
     conforms = focus["evidence"]["status"] == "pass"
     root = focus["evidence"]["evidence"]
@@ -1143,9 +1169,42 @@ def _build_mapping(
             group_order.append(owner)
         groups[owner].append(entry)
 
+    def slot_layout(owner):
+        source_id = groups[owner][0][2]
+        metadata = layout.get(owner)
+        # Singleton NodeShapes can transparently wrap their property's source.
+        seen = set()
+        while source_id not in seen:
+            seen.add(source_id)
+            if source_owners.get(source_id) == source_id:
+                metadata = layout.get(source_id)
+                break
+            constraint = source_catalog.get(source_id)
+            if not (isinstance(constraint, dict) and "Annotated" in constraint):
+                break
+            source_id = constraint["Annotated"]["shape"]
+        raw_order, identity = metadata or (None, source_catalog.signature(owner))
+        order = None
+        if raw_order is not None:
+            try:
+                value = Decimal(raw_order)
+                if value.is_finite():
+                    order = value
+            except InvalidOperation:
+                pass
+        return order, identity
+
+    slot_layouts = {owner: slot_layout(owner) for owner in group_order}
+    group_order.sort(
+        key=lambda owner: (
+            slot_layouts[owner][0] is None,
+            slot_layouts[owner][0] or Decimal(0),
+            slot_layouts[owner][1],
+        )
+    )
     bindings: "dict[Key, Binding]" = {}
     ordinals: "dict[tuple, int]" = {}
-    for owner in group_order:
+    for position, owner in enumerate(group_order, 1):
         group = groups[owner]
         info, status, source_id, normalized_ref, subtree = group[0]
         if len(group) > 1:
@@ -1217,6 +1276,8 @@ def _build_mapping(
             severity,
             names,
             _has_universal_value_constraint(source_catalog, source_id),
+            position,
+            slot_layouts[owner][0],
         )
 
     return Mapping(

@@ -31,6 +31,8 @@ use shifty_repair::{
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::{Arc, OnceLock};
 
+mod shapemap;
+
 // ── shared rendering (ports of the CLI renderers; kept local to the binding) ────
 
 fn path_str(p: &shifty_algebra::Path, px: &Prefixes) -> String {
@@ -2067,6 +2069,7 @@ pub struct EvidenceValidationOutcome {
     /// the run so `ShapeMap.from_run(run)` preserves property boundaries even
     /// when the originating EvidenceSession is not supplied.
     source_owners: HashMap<u32, u32>,
+    binding_layout: Arc<shapemap::BindingLayout>,
     json: String,
 }
 
@@ -2105,6 +2108,10 @@ impl EvidenceValidationOutcome {
 impl EvidenceValidationOutcome {
     fn _binding_source_ids(&self) -> HashMap<u32, u32> {
         self.source_owners.clone()
+    }
+
+    fn _binding_layout(&self) -> HashMap<u32, (Option<String>, String)> {
+        self.binding_layout.entries().clone()
     }
 
     #[getter]
@@ -2333,6 +2340,7 @@ pub struct EvidenceSession {
     path_graph: OnceLock<Graph>,
     graph_mode: shifty_engine::ValidationGraphMode,
     diagnostics: Vec<String>,
+    binding_layout: Arc<shapemap::BindingLayout>,
 }
 
 impl EvidenceSession {
@@ -2421,6 +2429,10 @@ impl EvidenceSession {
         let data = session.data_shared();
         let mapped_shapes = session.public_shapes_graph_if_relabelled();
         let shapes = compiled.source_shared();
+        let binding_layout = Arc::new(shapemap::BindingLayout::new(
+            Arc::clone(&raw_schema),
+            Arc::clone(&shapes),
+        ));
 
         Ok(Self {
             session,
@@ -2433,6 +2445,7 @@ impl EvidenceSession {
             path_graph: OnceLock::new(),
             graph_mode: mode,
             diagnostics,
+            binding_layout,
         })
     }
 
@@ -2879,6 +2892,7 @@ impl EvidenceSession {
             covered_shapes,
             known_shapes,
             source_owners: self.binding_source_ids_impl(),
+            binding_layout: Arc::clone(&self.binding_layout),
             json,
         })
     }

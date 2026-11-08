@@ -100,6 +100,13 @@ Implements ``collections.abc.Mapping``, so ``items()``, ``keys()``, ``len()``,
 and ``mapping[key]`` behave normally. ``__getitem__`` also accepts a rendered
 key string, for interactive use.
 
+Bindings are ordered by ascending ``sh:order`` (including decimal values),
+followed by bindings with no order. Ties use source IRIs or canonical anonymous
+source identities, independently of RDF iteration and Turtle statement order.
+Anonymous tie-breaking is stable for the same shapes graph and library version;
+it is not a persistent identifier across schema edits or library upgrades.
+Duplicate-key ordinals are assigned in this order, consistently for every focus.
+
 .. list-table::
    :widths: 30 70
    :header-rows: 1
@@ -121,7 +128,7 @@ key string, for interactive use.
        ``Key``, falling back to ``str(key)`` for an unnamed binding;
        ``python=True`` converts terms to plain Python values.
    * - ``by_name(name)``
-     - The first binding with that name, in authored order. Names need not be
+     - The first binding with that name, in binding order. Names need not be
        unique; use ``Key`` when uniqueness matters.
    * - ``evaluation``
      - The underlying ``FocusEvaluation`` — the way back to the full evidence
@@ -138,6 +145,11 @@ key string, for interactive use.
      - Meaning
    * - ``ok``
      - Whether the obligation was satisfied.
+   * - ``position``
+     - One-based position among all obligations for this mapping, including
+       failing obligations. Separate from key equality and hashing.
+   * - ``order``
+     - Authored ``sh:order`` as a ``decimal.Decimal``, or ``None``.
    * - ``name`` / ``names``
      - The resolved slot name, and every value ``name_path`` reached.
    * - ``values``

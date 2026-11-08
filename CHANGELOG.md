@@ -4,6 +4,9 @@
 
 ### Fixed
 
+- Shape-map bindings and duplicate-key ordinals use stable source order,
+  honoring decimal `sh:order`. Bindings expose `position` and `order` even
+  when constructed from a run without its session.
 - Local RDF files resolve relative IRIs against their own file URIs, including
   paths containing spaces, Unicode, or URI punctuation.
 - W3C reports include complex property-path structures and identify the
