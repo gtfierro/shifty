@@ -17,6 +17,9 @@
 
 ### Fixed
 
+- Failed inference targets, rule conditions, and node filters reject the run
+  before accepting derived triples. Python repair operations preserve
+  `ValidationFailure` for query execution errors.
 - `Mapping.value_map()` preserves known-empty successful slots as `[]`,
   distinguishes them from unavailable values, and retains authored empty names.
 - Shape maps recover qualifying values alongside rejected universal-check

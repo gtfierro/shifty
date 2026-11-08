@@ -30,6 +30,7 @@
 //! a pass until its whole order group has finished reading its snapshot.
 
 use crate::compiled::ParsedQueries;
+use crate::error::EvaluationError;
 use crate::focus::{FocusNodes, FocusScope, IndexedFocus};
 use crate::frozen::{FrozenIndexedDataset, SourceStorage};
 use crate::path::{node_of, succ};
@@ -55,7 +56,7 @@ pub(crate) fn infer_with_compiled_functions(
     functions: &[FunctionDef],
     schedule: &[crate::compiled::CompiledRuleSchedule],
     source: (Arc<SourceStorage>, bool, Arc<ParsedQueries>),
-) -> InferenceRun {
+) -> Result<InferenceRun, EvaluationError> {
     let (source_storage, separate, parsed_queries) = source;
     let dataset =
         FrozenIndexedDataset::from_data_with_source(data, source_storage, separate, separate);
@@ -148,9 +149,11 @@ pub(crate) fn infer_with_compiled_functions(
                     },
                 );
                 let focus: &dyn FocusNodes = &indexed_focus;
-                let focus_nodes = focus_cache.entry(sel.clone()).or_insert_with(|| {
-                    focus_nodes_with(focus, backend, sel, &schema.arena, &sparql)
-                });
+                let focus_nodes = sparql.checked(|| {
+                    focus_cache.entry(sel.clone()).or_insert_with(|| {
+                        focus_nodes_with(focus, backend, sel, &schema.arena, &sparql)
+                    })
+                })?;
                 let mut delta_focus_nodes = Vec::new();
                 let execution_focus_nodes = match &scheduled.rule.head {
                     RuleHead::Sparql(construct)
@@ -193,13 +196,18 @@ pub(crate) fn infer_with_compiled_functions(
                     functions,
                     input_blank_nodes: &input_blank_nodes,
                 };
-                fire_rule(
-                    execution_focus_nodes,
-                    scheduled.rule,
-                    &runtime,
-                    &mut candidates,
-                    &mut diags,
-                );
+                // Conditions and filter expressions use boolean shape evaluation.
+                // Check its retained failures before committing any candidate
+                // triples, including results produced through negation.
+                sparql.checked(|| {
+                    fire_rule(
+                        execution_focus_nodes,
+                        scheduled.rule,
+                        &runtime,
+                        &mut candidates,
+                        &mut diags,
+                    );
+                })?;
                 crate::profile::record_shape(&rule_label, rule_t.elapsed().as_micros() as u64);
             }
             sparql.extend_triples(candidates.iter());
@@ -231,11 +239,11 @@ pub(crate) fn infer_with_compiled_functions(
         }
     }
 
-    InferenceRun {
+    Ok(InferenceRun {
         inferred,
         diagnostics: diags.into_iter().collect(),
         dataset: sparql.into_frozen().expect("compiled inference dataset"),
-    }
+    })
 }
 
 struct ScheduledRule<'a> {

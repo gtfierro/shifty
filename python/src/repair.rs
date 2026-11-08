@@ -812,12 +812,14 @@ impl RepairSession {
             }
         };
         py.detach(move || {
-            let compiled = CompiledShapes::compile(shapes_spec.load(base.as_deref())?)
-                .map_err(|error| error.to_string())?;
+            let compiled =
+                CompiledShapes::compile(shapes_spec.load(base.as_deref()).map_err(py_value_error)?)
+                    .map_err(|error| py_value_error(error.to_string()))?;
 
             let data_loaded = data_spec
                 .map(|spec| spec.load(base.as_deref()))
-                .transpose()?;
+                .transpose()
+                .map_err(py_value_error)?;
             let separate = data_loaded.is_some();
             let session_data = data_loaded.map_or(SessionData::Embedded, |loaded| {
                 SessionData::Separate(loaded.graph)
@@ -830,7 +832,7 @@ impl RepairSession {
                         ..SessionOptions::default()
                     },
                 )
-                .map_err(|error| error.to_string())?;
+                .map_err(crate::py_session_error)?;
             let diagnostics = compiled
                 .diagnostics()
                 .iter()
@@ -870,7 +872,6 @@ impl RepairSession {
                 diagnostics,
             ))
         })
-        .map_err(py_value_error)
     }
 
     #[getter]
@@ -882,7 +883,7 @@ impl RepairSession {
     fn witnesses(&self, py: Python<'_>) -> PyResult<Vec<Py<FocusWitness>>> {
         let raw = py
             .detach(|| witness_violations(&self.data, &self.context, &self.schema))
-            .map_err(|e| py_value_error(format!("non-stratifiable schema: {e}")))?;
+            .map_err(crate::py_validation_error)?;
         let mut seen = HashSet::new();
         let mut out = Vec::new();
         for fw in raw {
@@ -904,7 +905,7 @@ impl RepairSession {
         let shape = self.resolve_shape(shape_iri)?;
         let raw = py
             .detach(|| witness_shape(&self.data, &self.context, &self.schema, shape))
-            .map_err(|e| py_value_error(format!("non-stratifiable schema: {e}")))?;
+            .map_err(crate::py_validation_error)?;
         let mut seen = HashSet::new();
         let mut out = Vec::new();
         for fw in raw {
@@ -930,7 +931,7 @@ impl RepairSession {
         let shape = self.resolve_shape(shape_iri)?;
         let raw = py
             .detach(|| satisfy_shape(&self.data, &self.context, &self.schema, shape))
-            .map_err(|e| py_value_error(format!("non-stratifiable schema: {e}")))?;
+            .map_err(crate::py_validation_error)?;
         raw.into_iter()
             .map(|fs| {
                 let statement_id = self.provenance_statement(fs.statement)?;
@@ -996,7 +997,7 @@ impl RepairSession {
                 )?;
                 session.gate(&delta.inner)
             })
-            .map_err(|error| py_value_error(error.to_string()))?;
+            .map_err(crate::py_session_error)?;
         let sound = outcome.is_sound();
         let progress = outcome.is_progress();
         let to_py = |vs: &[shifty_engine::Violation]| -> PyResult<Vec<Py<Violation>>> {
@@ -1042,7 +1043,7 @@ impl RepairSession {
         let term = parse_term(node).map_err(py_value_error)?;
         let fw = py
             .detach(|| witness_node(&self.context, &self.schema, &term, ShapeId(shape_id)))
-            .map_err(|e| py_value_error(format!("non-stratifiable schema: {e}")))?;
+            .map_err(crate::py_validation_error)?;
         Ok(fw.map(|fw| {
             let synthesized = synthesize_with_origins(&self.schema.arena, &fw);
             RepairTree {
@@ -2416,7 +2417,7 @@ impl EvidenceSession {
                     engine,
                 },
             )
-            .map_err(|error| py_value_error(error.to_string()))?;
+            .map_err(crate::py_session_error)?;
         let diagnostics = compiled
             .diagnostics()
             .iter()
@@ -2509,7 +2510,7 @@ impl EvidenceSession {
         let next = self
             .session
             .with_delta_and_inference(&delta.inner, run_infer)
-            .map_err(|error| py_value_error(error.to_string()))?;
+            .map_err(crate::py_session_error)?;
         let outcome = next
             .evidence_with_validation(&options, true)
             .map_err(crate::py_execution_error)?;
@@ -2637,7 +2638,7 @@ impl EvidenceSession {
         &self,
         focus: &str,
         constraint_id: u32,
-    ) -> PyResult<Option<(Vec<String>, Vec<String>, Option<u64>)>> {
+    ) -> PyResult<Option<shapemap::Observation>> {
         self.binding_observation_impl(focus, constraint_id)
     }
 

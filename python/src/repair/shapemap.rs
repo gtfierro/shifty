@@ -116,7 +116,7 @@ pub(super) struct BindingLayout {
     entries: OnceLock<LayoutEntries>,
 }
 
-type Observation = (Vec<String>, Vec<String>, Option<u64>);
+pub(super) type Observation = (Vec<String>, Vec<String>, Option<u64>);
 
 impl super::EvidenceSession {
     /// Observe an authored property's path independently of which successes the

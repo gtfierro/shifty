@@ -353,7 +353,8 @@ impl CompiledShapes {
                     &self.inner.functions,
                     &self.inner.rules,
                     (self.source_storage(), separate, self.parsed_queries()),
-                );
+                )
+                .map_err(SessionError::Evaluation)?;
                 let diagnostics: Vec<_> = run
                     .diagnostics
                     .into_iter()

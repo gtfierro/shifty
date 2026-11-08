@@ -43,9 +43,12 @@ fn compiled_session(
     mode: ValidationGraphMode,
     run_infer: bool,
     engine: EngineOptions,
-) -> Result<(CompiledShapes, EvaluationSession), String> {
-    let data_loaded = data.load(base)?;
-    let shapes_loaded = shapes.map(|input| input.load(base)).transpose()?;
+) -> PyResult<(CompiledShapes, EvaluationSession)> {
+    let data_loaded = data.load(base).map_err(py_value_error)?;
+    let shapes_loaded = shapes
+        .map(|input| input.load(base))
+        .transpose()
+        .map_err(py_value_error)?;
     compiled_session_loaded(data_loaded, shapes_loaded, mode, run_infer, engine)
 }
 
@@ -55,14 +58,15 @@ fn compiled_session_loaded(
     mode: ValidationGraphMode,
     run_infer: bool,
     engine: EngineOptions,
-) -> Result<(CompiledShapes, EvaluationSession), String> {
+) -> PyResult<(CompiledShapes, EvaluationSession)> {
     let (source, session_data) = if let Some(source) = shapes_loaded {
-        check_explicit_shapes_not_empty(Some(&source))?;
+        check_explicit_shapes_not_empty(Some(&source)).map_err(py_value_error)?;
         (source, SessionData::Separate(data_loaded.graph))
     } else {
         (data_loaded, SessionData::Embedded)
     };
-    let compiled = CompiledShapes::compile(source).map_err(|error| error.to_string())?;
+    let compiled =
+        CompiledShapes::compile(source).map_err(|error| py_value_error(error.to_string()))?;
     let session = compiled
         .session(
             session_data,
@@ -72,7 +76,7 @@ fn compiled_session_loaded(
                 engine,
             },
         )
-        .map_err(|error| error.to_string())?;
+        .map_err(py_session_error)?;
     Ok((compiled, session))
 }
 
@@ -791,6 +795,20 @@ pub(crate) fn py_execution_error(error: shifty_engine::EvaluationError) -> PyErr
     }
 }
 
+pub(crate) fn py_session_error(error: shifty_engine::SessionError) -> PyErr {
+    match error {
+        shifty_engine::SessionError::Evaluation(error) => py_execution_error(error),
+        _ => py_value_error(error.to_string()),
+    }
+}
+
+pub(crate) fn py_validation_error(error: shifty_engine::ValidationError) -> PyErr {
+    match error {
+        shifty_engine::ValidationError::Evaluation(error) => py_execution_error(error),
+        _ => py_value_error(error.to_string()),
+    }
+}
+
 pub(crate) fn py_value_error(message: String) -> PyErr {
     PyValueError::new_err(message)
 }
@@ -1302,8 +1320,7 @@ pub fn _validate_algebra(
             mode,
             inference.run,
             options.engine,
-        )
-        .map_err(py_value_error)?;
+        )?;
         let outcome = session
             .validate(&finding_options(&options))
             .map_err(py_execution_error)?;
@@ -1386,8 +1403,7 @@ pub fn _validate_w3c(
             mode,
             inference.run,
             options.engine,
-        )
-        .map_err(py_value_error)?;
+        )?;
         let report = session
             .report(&finding_options(&options))
             .map_err(py_execution_error)?;
@@ -1437,10 +1453,11 @@ pub fn _infer(
     };
     let engine = engine_options(on_unsupported).map_err(py_value_error)?;
     py.detach(move || {
-        let data_loaded = data.load(base.as_deref())?;
+        let data_loaded = data.load(base.as_deref()).map_err(py_value_error)?;
         let shapes_loaded = shapes
             .map(|input| input.load(base.as_deref()))
-            .transpose()?;
+            .transpose()
+            .map_err(py_value_error)?;
         if shapes_loaded
             .as_ref()
             .is_some_and(|source| source.graph.is_empty())
@@ -1475,7 +1492,6 @@ pub fn _infer(
             inferred_ntriples_cache: OnceLock::new(),
         })
     })
-    .map_err(py_value_error)
 }
 
 #[pyclass]
@@ -1575,7 +1591,7 @@ impl PreparedValidator {
                         engine: options.engine,
                     },
                 )
-                .map_err(|error| py_value_error(error.to_string()))?;
+                .map_err(py_session_error)?;
             let outcome = session
                 .validate(&finding_options(&options))
                 .map_err(py_execution_error)?;
@@ -1643,7 +1659,7 @@ impl PreparedValidator {
                         engine: options.engine,
                     },
                 )
-                .map_err(|error| py_value_error(error.to_string()))?;
+                .map_err(py_session_error)?;
             let report = session
                 .report(&finding_options(&options))
                 .map_err(py_execution_error)?;
@@ -1710,7 +1726,7 @@ impl PreparedValidator {
                         engine,
                     },
                 )
-                .map_err(|error| py_value_error(error.to_string()))?;
+                .map_err(py_session_error)?;
             session
                 .property_witnesses(key_path.as_ref(), &FindingOptions::default())
                 .map_err(py_execution_error)

@@ -1,7 +1,7 @@
 use oxrdf::{Graph, NamedNode, Term};
 use shifty_engine::{
     CompiledShapes, ConformanceOptions, EngineOptions, EvaluationError, EvidenceOptions,
-    FindingOptions, SessionData, SessionOptions, SparqlOperation, UnsupportedPolicy,
+    FindingOptions, SessionData, SessionError, SessionOptions, SparqlOperation, UnsupportedPolicy,
     ValidationReport, ValidationResult, report_to_graph, validate_report,
 };
 
@@ -93,6 +93,72 @@ fn ignore_does_not_suppress_execution_errors_or_wrong_query_forms() {
     let session = session(shape, UnsupportedPolicy::Ignore);
     assert!(session.report(&FindingOptions::default()).is_err());
     assert!(session.validate(&FindingOptions::default()).is_err());
+}
+
+#[test]
+fn inference_rejects_failed_targets_conditions_and_node_filters() {
+    for (target, condition, subject, operation) in [
+        (
+            r#"sh:target [ a sh:SPARQLTarget ; sh:select "SELECT ?this WHERE { BIND(<http://ex/exists>() AS ?this) }" ]"#,
+            "",
+            "sh:this",
+            SparqlOperation::Target,
+        ),
+        (
+            "sh:targetNode ex:x",
+            "sh:condition ex:Guard ;",
+            "sh:this",
+            SparqlOperation::Constraint,
+        ),
+        (
+            "sh:targetNode ex:x",
+            "",
+            "[ sh:filterShape ex:Guard ; sh:nodes sh:this ]",
+            SparqlOperation::Constraint,
+        ),
+    ] {
+        let loaded = shifty_parse::load_turtle(
+            format!(
+                r#"{PREFIXES} {FUNCTION}
+                ex:x ex:p "present" .
+                ex:Guard a sh:NodeShape ; sh:not [ sh:sparql [
+                    sh:select "SELECT $this WHERE {{ FILTER (<http://ex/exists>()) }}"
+                ] ] .
+                ex:S a sh:NodeShape ; {target} ; sh:rule [ a sh:TripleRule ;
+                    {condition} sh:subject {subject} ; sh:predicate ex:derived ; sh:object true ] ."#
+            )
+            .as_bytes(),
+            None,
+        )
+        .unwrap();
+        let compiled = CompiledShapes::compile(loaded).unwrap();
+        let error = compiled
+            .session(
+                SessionData::Embedded,
+                SessionOptions {
+                    inference: true,
+                    ..Default::default()
+                },
+            )
+            .err()
+            .expect("failed rule guards must reject the inferred snapshot");
+        assert!(
+            matches!(error, SessionError::Evaluation(EvaluationError::Sparql { operation: actual, .. }) if actual == operation)
+        );
+        let legacy = compiled
+            .session(
+                SessionData::Embedded,
+                SessionOptions {
+                    inference: true,
+                    engine: EngineOptions {
+                        unsupported: UnsupportedPolicy::Ignore,
+                    },
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        assert!(legacy.inferred().is_empty());
+    }
 }
 
 #[test]

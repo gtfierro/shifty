@@ -42,7 +42,10 @@ not execute supplies neither verdict. In Python, catch that case separately:
        raise RuntimeError("Validation could not complete") from error
 
 Malformed inputs and shapes still raise ``ValueError``. Session admission and
-inference errors also reject the call. JavaScript throws an ``Error``; C returns
+inference errors also reject the call. Failed inference targets, rule conditions,
+and node filters raise ``ValidationFailure`` before an inferred snapshot is
+returned or written back. Repair gates and witness operations raise the same
+exception for query execution failures. JavaScript throws an ``Error``; C returns
 ``SHIFTY_STATUS_VALIDATION_ERROR`` and C++ throws ``shifty::Error`` with that
 status. The C ABI version is now 7; rebuild C++ applications against the new
 headers and library.
