@@ -85,6 +85,9 @@ const VALID: &[&str] = &[
     "shape S {\n  fan: W(\n    ex:C,\n    body = { speed: ex:p required },\n  )\n}",
     "shape T(\n  x,\n  y = ex:Y,\n) { ex:p each x }",
     "shape S { T(ex:a,) }",
+    "shape S { value: ex:p required; length: ex:q each string }",
+    "shape S { ex:p { is: ex:A; of: ex:B } }",
+    "shape R { S.value }",
 ];
 
 const INVALID: &[&str] = &[

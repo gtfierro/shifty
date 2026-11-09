@@ -254,6 +254,20 @@ fn labels_name_what_their_lines_make() {
 }
 
 #[test]
+fn keywords_can_be_labels() {
+    // the colon sets a label apart, so `value:` is not the keyword `value`
+    let got = names(
+        "shape S {\n value: ex:p required\n length: ex:q each string\n \
+         ex:hasPoint { is: ex:A; of: ex:B }\n}\nshape R { S.value }",
+    );
+    has(&got, &["S.value", "S.length", "S.is", "S.of"]);
+    formats_as(
+        "shape S {\n  value: ex:p required\n  ex:q { node: ex:N }\n}\n",
+        "shape S {\n  value: ex:p required\n  ex:q { node: ex:N }\n}\n",
+    );
+}
+
+#[test]
 fn argument_errors_explain_themselves() {
     let t = "shape T(cls, room = ex:Room) { ex:p each cls }\n";
     let cases = [

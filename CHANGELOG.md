@@ -84,6 +84,9 @@
   `components.py`, `vav_cooling_only.py` for 4.1, and `sz_vav_ahu.py` for
   4.8) regenerate their `.shm` files exactly, importing one another as the
   `.shm` modules do.
+- A Shapeshift keyword can label a field or a group row (`value:`,
+  `length:`): the colon sets it apart. Names and template parameters, which
+  are written bare, still cannot be keywords.
 - Shape algebra: `Schema` carries imports, source origins, and docstrings,
   and supports `merge`. `shifty_opt::refused_components` reports the odd
   cycle that makes a component inadmissible. A shape-based target is

@@ -753,11 +753,9 @@ impl Parser {
                         Tok::Newline | Tok::Semi | Tok::RBrace | Tok::Eof
                     ) =>
             {
-                // `name: path ...` or `name: { ... }`
+                // `name: path ...` or `name: { ... }`. A label may be a
+                // keyword (`value:`, `length:`): the colon sets it apart.
                 self.bump();
-                if KEYWORDS.contains(&prefix.as_str()) {
-                    return self.fail(format!("`{prefix}` is a keyword and cannot name a field"));
-                }
                 if matches!(self.peek(), Tok::LBrace) {
                     LineKind::Field(self.field_block(prefix, &mut annotations)?)
                 } else {
@@ -950,9 +948,7 @@ impl Parser {
                 Tok::Newline | Tok::Semi | Tok::RBrace | Tok::Eof
             )
         {
-            if KEYWORDS.contains(&prefix.as_str()) {
-                return self.fail(format!("`{prefix}` is a keyword and cannot name a row"));
-            }
+            // as for a field, a keyword may label a row
             self.bump();
             label = Some(prefix);
         }
