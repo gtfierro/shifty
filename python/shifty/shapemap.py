@@ -895,6 +895,8 @@ class Binding:
         qualifying near-matches (same as ``partial_values``). ``None`` means
         the complete qualifying set cannot be recovered without a session,
         including a failing universal check whose witness omits valid values.
+        Without a session, mixed count domains also report an unknown set:
+        matches for an ordinary count may not satisfy a qualified count.
         An unbounded
         ``sh:qualifiedValueShape`` is vacuous for validation but still
         extracts every qualifying value when the originating session is
@@ -908,6 +910,7 @@ class Binding:
                 self._values = (
                     _top_values(evidence, rejected_count_high=self._rejected_count_high)
                     if evidence is not None
+                    and not self._ambiguous_counts
                     and not (
                         self._vacuous_property and evidence.get("type") == "irrefutable"
                     )

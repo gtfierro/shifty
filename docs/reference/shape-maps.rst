@@ -181,6 +181,8 @@ Duplicate-key ordinals are assigned in this order, consistently for every focus.
        recover it. An unbounded ``sh:qualifiedValueShape`` still yields its
        qualifying values, despite normalizing to a vacuous validation
        constraint.
+       Without a session, bindings combining distinct count domains report
+       ``None`` rather than projecting matches from an unrelated domain.
    * - ``partial_values``
      - The same qualifying values as ``values`` on an unsatisfied obligation,
        or ``None`` when that set is unknown. Empty on a successful obligation.

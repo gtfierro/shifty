@@ -192,6 +192,30 @@ def test_distinct_count_domains_do_not_report_a_single_count(with_session):
     assert binding.observed is None
     if with_session:
         assert binding.values == [Iri("http://ex/good")]
+    else:
+        assert binding.values is None
+
+
+@pytest.mark.parametrize("with_session", [False, True])
+@pytest.mark.parametrize("minimum, ok", [(2, True), (3, False)])
+@pytest.mark.parametrize(
+    "values, accepted", [('"text", 7', [Literal("text")]), ("7, 8", [])]
+)
+def test_mixed_count_domains_do_not_project_unqualified_evidence_as_matches(
+    with_session, minimum, ok, values, accepted
+):
+    binding = make_binding(
+        f"sh:minCount {minimum} ; "
+        "sh:qualifiedValueShape [ sh:datatype xsd:string ] ; sh:qualifiedMaxCount 1",
+        values,
+        session=with_session,
+    )
+    assert binding.ok is ok
+    assert binding.values == (accepted if with_session else None)
+    assert binding.partial_values == (
+        [] if ok else (accepted if with_session else None)
+    )
+    assert binding.observed is None
 
 
 @pytest.mark.parametrize("with_session", [False, True])

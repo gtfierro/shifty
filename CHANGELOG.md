@@ -15,6 +15,8 @@
 
 ### Fixed
 
+- Session-free shape maps report unknown values for mixed count domains instead
+  of treating unqualified cardinality matches as qualifying values.
 - `Binding.expects_single` requires a single count domain and cannot combine
   ordinary lower bounds with qualified upper bounds into a false `1..1` hint.
 - Shape-map qualifier representatives use stable type and RDF-identity ordering,
