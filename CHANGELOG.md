@@ -34,20 +34,28 @@
 - Shapeshift bare terms and composition. Where a test is expected (after
   `each`, `is`, in a group row, as an argument), a bare class is `a C` and a
   bare shape is `matches S`: `brick:hasPoint each brick:Point`,
-  `is brick:AHU`. A shape or template call alone on a line composes it, as
-  `include` does. A node value is written `is one of X`; a literal stays
-  `is "x"`. Directly after a path a bare term is an error with a hint
-  (`ex:p ex:q` is more likely `ex:p/ex:q`).
+  `is brick:AHU`. A shape or template call alone on a line composes it. A
+  node value is written `is one of X`; a literal stays `is "x"`. Directly
+  after a path a bare term is an error with a hint (`ex:p ex:q` is more
+  likely `ex:p/ex:q`).
 - Shapeshift template arguments. Parameters can have defaults, which may use
-  earlier parameters (`shape T(cls, room = brick:Room, zone = cls)`);
-  arguments can be named (`T(brick:X, room = brick:Space)`); and a `{ ... }`
-  after a call is its last argument (`W(brick:VAV) { brick:hasUnit required }`).
-  After a shape that is not a template, the block adds lines. A parameter
-  used as a bare test takes a class or a shape. Arity, unknown-name,
-  duplicate, and missing-argument errors show the signature.
+  earlier parameters (`shape T(cls, room = brick:Room, zone = cls)`), and
+  arguments can be named (`T(brick:X, room = brick:Space)`). An inline shape
+  is an argument like any other (`W(brick:VAV, { brick:hasUnit required })`).
+  A parameter used as a bare test takes a class or a shape. Arity,
+  unknown-name, duplicate, and missing-argument errors show the signature.
+- `include` is deprecated: write the shape or call alone on the line. It
+  still parses, with a warning, and `shifty shape fmt` rewrites it.
+- Shapeshift labels nest. A label names what its line makes, and the names
+  made on that line nest under it: `fan: vfd(brick:Supply_Fan)` in shape `ahu`
+  is `ahu.fan`, and the `speed:` row inside `vfd` is `ahu.fan.speed`. The same
+  holds for rows and fields that call templates, for inline shapes
+  (`sat: p each { unit: ... }` names `S.sat.unit`, formerly `S.unit`),
+  including inline shapes passed as arguments. Unlabelled template calls
+  still share one expansion per argument list.
 - Shapeshift path templates: `path downstream(p = brick:hasPart?) = brick:feeds+/p`,
-  used as `downstream(brick:hasPoint)` anywhere a path is written; a group
-  along one is written `(downstream(brick:hasPoint)) { ... }`.
+  used as `downstream(brick:hasPoint)` anywhere a path is written, including
+  a group head (`downstream(brick:hasPoint) { ... }`).
 - `examples/shapeshift/g36/`: ASHRAE Guideline 36 sequences and AFDD fault
   conditions translated from BuildingMOTIF's Brick library. An ignored test
   (`BUILDINGMOTIF_G36=… cargo test -p shapeshift-raise --test round_trip

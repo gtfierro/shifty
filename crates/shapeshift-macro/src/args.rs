@@ -81,25 +81,6 @@ pub fn match_args(
         }
         out[i] = Some(n.value.clone());
     }
-    if let Some(b) = &call.block {
-        let Some(last) = params.last() else {
-            return Err(err(
-                format!("`{callee}` takes no arguments, so no block"),
-                None,
-            ));
-        };
-        let i = params.len() - 1;
-        if out[i].is_some() {
-            return Err(err(
-                format!(
-                    "the block after `{callee}(...)` is its last argument, `{}`, which is already given",
-                    last.name
-                ),
-                Some(format!("its parameters are {}", sig())),
-            ));
-        }
-        out[i] = Some(Arg::Shape(b.clone()));
-    }
     let missing: Vec<&str> = params
         .iter()
         .zip(&out)

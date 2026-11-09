@@ -240,12 +240,15 @@ fn line(out: &mut String, l: &Line, depth: usize) {
         }
         LineKind::Field(Field {
             path: PathExpr::Call(c),
-            name: None,
+            name,
             count: None,
             qualifiers,
             ..
         }) if qualifiers.is_empty() => {
             write!(out, "{indent}").unwrap();
+            if let Some(n) = name {
+                write!(out, "{n}: ").unwrap();
+            }
             call_text(out, c, depth);
             writeln!(out, "{trailing}").unwrap();
         }
@@ -253,7 +256,7 @@ fn line(out: &mut String, l: &Line, depth: usize) {
             writeln!(out, "{indent}{}{trailing}", field_text(f)).unwrap();
         }
         LineKind::Include(c) => {
-            write!(out, "{indent}include ").unwrap();
+            write!(out, "{indent}").unwrap();
             call_text(out, c, depth);
             writeln!(out, "{trailing}").unwrap();
         }
@@ -278,23 +281,46 @@ fn is_line(t: &Test) -> String {
     }
 }
 
-/// A call, with its block opened over several lines when it is long.
+/// A call, with an inline shape passed last opened over several lines
+/// when it does not fit on one.
 fn call_text(out: &mut String, c: &Call, depth: usize) {
-    out.push_str(&call_head(c));
-    if let Some(b) = &c.block {
-        out.push(' ');
-        block_text(out, b, depth);
+    let last = c
+        .named
+        .last()
+        .map(|n| (Some(n.name.as_str()), &n.value))
+        .or_else(|| c.args.last().map(|a| (None, a)));
+    let Some((name, Arg::Shape(b))) = last else {
+        out.push_str(&call(c));
+        return;
+    };
+    if inline_block(b).is_some() {
+        out.push_str(&call(c));
+        return;
     }
+    let mut head = c.clone();
+    if name.is_some() {
+        head.named.pop();
+    } else {
+        head.args.pop();
+    }
+    let mut before = call(&head);
+    if head.args.is_empty() && head.named.is_empty() {
+        before.push('(');
+    } else {
+        before.pop();
+        before.push_str(", ");
+    }
+    out.push_str(&before);
+    if let Some(n) = name {
+        write!(out, "{n} = ").unwrap();
+    }
+    block_text(out, b, depth);
+    out.push(')');
 }
 
 /// `PATH COUNT?`, the head of a group.
 fn group_head(g: &Group) -> String {
-    // `T(x) { ... }` alone on a line composes `T`; a group along a path
-    // template is written in parentheses.
-    let mut head = match &g.path {
-        PathExpr::Call(_) => format!("({})", path(&g.path)),
-        p => path(p),
-    };
+    let mut head = path(&g.path);
     if let Some(c) = &g.count {
         write!(head, " {}", count(c)).unwrap();
     }
@@ -391,7 +417,7 @@ pub fn params(ps: &[Param]) -> String {
 pub fn line_text(l: &Line) -> String {
     match &l.kind {
         LineKind::Field(f) => field_text(f),
-        LineKind::Include(c) => format!("include {}", call(c)),
+        LineKind::Include(c) => call(c),
         LineKind::Closed => "only these properties".into(),
         LineKind::Is(t) => is_line(t),
         LineKind::Boolean(b) => {
@@ -453,7 +479,7 @@ fn inline_line(l: &Line) -> Option<String> {
     }
     match &l.kind {
         LineKind::Field(f) if !f.block => Some(field_text(f)),
-        LineKind::Include(c) => Some(format!("include {}", call(c))),
+        LineKind::Include(c) => Some(call(c)),
         LineKind::Closed => Some("only these properties".into()),
         LineKind::Is(t) => Some(is_line(t)),
         LineKind::Group(g) => group_inline(g),
@@ -719,19 +745,9 @@ pub fn value(v: &Value) -> String {
     }
 }
 
+/// `T(a, b = c)`.
 pub fn call(c: &Call) -> String {
-    match &c.block {
-        None => call_head(c),
-        Some(b) => format!("{} {}", call_head(c), block_one_line(b)),
-    }
-}
-
-/// `T(a, b = c)`, without the block.
-pub fn call_head(c: &Call) -> String {
     if c.args.is_empty() && c.named.is_empty() {
-        if c.block.is_some() {
-            return format!("{}()", c.name);
-        }
         return c.name.clone();
     }
     let args = c.args.iter().map(arg).chain(

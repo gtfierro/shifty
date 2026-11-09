@@ -42,7 +42,7 @@ const qualifiers = ($) => [
 const tests = ($) => [
   seq('a', field('class', $._node)),
   seq('is', 'a', field('class', $._node)),
-  prec.right(seq('matches', $.call, optional($.block))),
+  seq('matches', $.call),
   seq('is', $._literal),
   seq('is', $._item),
   seq('one', 'of', repeat1($._value)),
@@ -143,19 +143,11 @@ module.exports = grammar({
 
     _line: ($) =>
       choice(
-        $.annotation, $.field, $.include, $.composition, $.boolean, $.closed, $.is_line, $.group,
+        $.annotation, $.field, $.include, $.boolean, $.closed, $.is_line, $.group,
       ),
 
     /** `is brick:AHU`: a test on the focus node itself. */
     is_line: ($) => seq('is', choice($.test, $._literal)),
-
-    /**
-     * `T(args) { ... }` alone on a line: compose `T`, the block its last
-     * argument. (`T(args)` and `Sensor` alone parse as a field's path; the
-     * compiler composes them too.) A group along a path template is written
-     * `(p(args)) { ... }`.
-     */
-    composition: ($) => prec(1, $._call_block),
 
     /** `brick:hasPoint [count] { row* }`: named fields along one path. */
     group: ($) =>
@@ -173,7 +165,8 @@ module.exports = grammar({
         repeat(choice($.count, $.annotation, $.block)),
       ),
 
-    include: ($) => seq('include', $.call, optional($.block)),
+    /** Deprecated: `Sensor` alone on a line composes it (and parses as a field's path). */
+    include: ($) => seq('include', $.call),
 
     closed: (_) => seq('only', 'these', 'properties'),
 
@@ -231,18 +224,8 @@ module.exports = grammar({
 
     _plain_test: ($) => choice(...tests($)),
 
-    /** A class or a shape, with the block a template call may take. */
-    // only a shape takes a block: `brick:AHU { ... }` is an error
-    _item: ($) =>
-      choice(
-        alias($._class_call, $.call),
-        prec.right(seq(alias($._shape_call, $.call), optional($.block))),
-      ),
-
-    _class_call: ($) =>
-      seq(field('name', choice($.prefixed_name, $.iri)), optional($.arguments)),
-
-    _shape_call: ($) => seq(field('name', $.identifier), optional($.arguments)),
+    /** A class or a shape. */
+    _item: ($) => $.call,
 
 
     datatype: (_) =>
@@ -283,11 +266,9 @@ module.exports = grammar({
     // `T(x)` here is a shape or a path template, told apart once names are
     // resolved; it parses as a path.
     _arg: ($) =>
-      choice($._path, $.string, $._number, $.boolean_literal, $.block, $._call_block),
+      choice($._path, $.string, $._number, $.boolean_literal, $.block),
 
     _call_args: ($) => seq(field('name', $.identifier), $.arguments),
-
-    _call_block: ($) => prec(1, seq(alias($._call_args, $.call), $.block)),
 
     _path: ($) =>
       choice($.alternative_path, $.sequence_path, $.inverse_path, $.modified_path, $._path_primary),

@@ -69,17 +69,19 @@ const VALID: &[&str] = &[
     "shape S { Sensor }",
     "shape S { T(ex:C) }",
     "shape S { T(ex:C, room = ex:R, n = 2) }",
-    "shape S { W() { ex:p required } }",
-    "shape S { W(ex:C) {\n  ex:p required\n} }",
-    "shape S { include W() { ex:p required } }",
+    "shape S { W(ex:C) { x: ex:X } }",
+    "shape S { W(ex:C) {\n  x: ex:X\n} }",
     "shape S { T(ex:C, { ex:p required }) }",
-    "shape S { T(U(ex:C) { ex:p required }) }",
+    "shape S { T(ex:C, body = {\n  ex:p required\n}) }",
+    "shape S { T(U(ex:C, { ex:p required })) }",
     "shape T(cls, room = ex:Room, n = 1) { ex:p at least n is cls }",
     "path d(p = ex:x?) = ex:f+/p",
     "path d(p) = ex:f+/p\nshape S { d(ex:y) required }",
     "shape S { d(p = ex:y)/ex:z each ex:C }",
     "shape S { (d(ex:y)) { t: ex:T } }",
     "shape S { points { x: W(ex:X) { ex:unit required } } }",
+    "shape S { fan: T(ex:C) }",
+    "shape S { fan: W(ex:C, { speed: ex:p required }) }",
 ];
 
 const INVALID: &[&str] = &[
@@ -97,9 +99,13 @@ const INVALID: &[&str] = &[
     "shape S { points { sat: } }",
     "shape S { points { sat: ex:A ex:B } }",
     "shape S { ex:p ex:C }",
-    // (`ex:p each ex:C { ... }` is left out: tree-sitter reads two qualifiers,
-    // `each ex:C` and an inline shape, where the compiler stops to ask for
-    // `each { is ex:C; ... }`, the likelier meaning.)
+    "shape S { include W() { ex:p required } }",
+    "shape S { T(U(ex:C) { ex:p required }) }",
+    "shape S { fan: W(ex:C) { speed: ex:p required } }",
+    // (`ex:p at least 1 is ex:C { ... }` is left out: tree-sitter reads two
+    // qualifiers, the count and an inline shape for every value, where the
+    // compiler stops to ask for `at least 1 is { is ex:C; ... }`, the likelier
+    // meaning.)
     "shape S { T(x = ) }",
     "shape S { T(x = ex:a, ex:b }",
     "path d( = ex:f",
@@ -187,13 +193,10 @@ fn group_wins_over_field_with_inline_shape() {
         assert!(sexp.contains("(group"), "{src}\n{sexp}");
         assert!(!sexp.contains("(field"), "{src}\n{sexp}");
     }
-    // `T(args) { ... }` alone on a line composes `T`
-    let src = "shape S { W(ex:C) { ex:q required } }";
+    // so does `p(args) { ... }`, along a path template
+    let src = "shape S { downstream(ex:x) { t: ex:T } }";
     let sexp = parser().parse(src, None).unwrap().root_node().to_sexp();
-    assert!(
-        sexp.contains("(composition") && !sexp.contains("(group"),
-        "{sexp}"
-    );
+    assert!(sexp.contains("(group"), "{sexp}");
     // `each { ... }` is the inline shape
     let src = "shape S { ex:p each { ex:q required } }";
     let sexp = parser().parse(src, None).unwrap().root_node().to_sexp();

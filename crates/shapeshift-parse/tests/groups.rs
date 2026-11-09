@@ -90,7 +90,7 @@ shape S
 {
   points each a ex:Point
   ^downstream optional
-  include T(downstream)
+  T(downstream)
   ex:name same as label
   ex:part each matches T(points)
 }
@@ -108,7 +108,7 @@ shape T(p) { p required }
 shape S for every node with ex:hasPoint {
   ex:hasPoint each a ex:Point
   ^(ex:feeds+/ex:hasPoint) optional
-  include T(ex:feeds+/ex:hasPoint)
+  T(ex:feeds+/ex:hasPoint)
   ex:name same as ex:label
   ex:part each matches T(ex:hasPoint)
 }

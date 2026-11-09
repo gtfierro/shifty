@@ -452,10 +452,6 @@ pub struct Call {
     /// `name = value` arguments, after the positional ones.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub named: Vec<NamedArg>,
-    /// `T(args) { ... }`: for a template, its last argument; for a shape,
-    /// lines that the value must also satisfy.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub block: Option<Block>,
     #[serde(default)]
     pub span: Span,
 }

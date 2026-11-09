@@ -241,6 +241,22 @@ struct Ctx {
     /// The named shape whose body this is, for named fields nested in
     /// inline shapes.
     owner: Option<(usize, usize)>,
+    /// The label of the line being built. Template calls on it expand
+    /// afresh, and the names they make nest under the label.
+    scope: Option<Scope>,
+    /// The module whose base mints the names made in this body.
+    name_module: usize,
+}
+
+/// A label, as the names nested under it start: `vav.fan` for the line
+/// `fan: ...` of shape `vav`.
+#[derive(Clone)]
+struct Scope {
+    /// Local name, minted in `module`.
+    local: String,
+    /// Name in messages.
+    display: String,
+    module: usize,
 }
 
 enum Resolved {
@@ -259,6 +275,11 @@ struct Builder<'p> {
     expanded: HashSet<(usize, usize)>,
     in_progress: HashSet<(usize, usize)>,
     expansions: HashMap<(usize, usize, Vec<String>), ShapeId>,
+    /// Expansions under way, by template and arguments, outermost first.
+    expanding: Vec<(usize, usize, Vec<String>)>,
+    /// Names minted for lines of template expansions, to catch two lines
+    /// given one name.
+    minted: HashMap<String, ShapeId>,
     expansion_list: Vec<Expansion>,
     sorts: HashMap<(usize, usize), Vec<Sort>>,
     display: HashMap<ShapeId, String>,
@@ -291,6 +312,8 @@ impl<'p> Builder<'p> {
             expanded: HashSet::new(),
             in_progress: HashSet::new(),
             expansions: HashMap::new(),
+            expanding: Vec::new(),
+            minted: HashMap::new(),
             expansion_list: Vec::new(),
             sorts: HashMap::new(),
             display: HashMap::new(),
@@ -445,7 +468,7 @@ impl<'p> Builder<'p> {
                 }
                 self.slots.insert((m, d), slot);
                 let mut names = Vec::new();
-                collect_field_names(&decl.body, &mut names);
+                collect_field_names(&decl.body, "", &mut names);
                 let mut seen = HashSet::new();
                 for (name, span) in names {
                     if !seen.insert(name.clone()) {
@@ -934,6 +957,8 @@ impl<'p> Builder<'p> {
             env: Arc::new(HashMap::new()),
             template: false,
             owner: Some((m, d)),
+            scope: None,
+            name_module: m,
         };
         let body = self.block(&ctx, &decl.body, Some((m, d)));
         let (severity, messages) = self.annotation_values(&decl.annotations);
@@ -1142,6 +1167,13 @@ impl<'p> Builder<'p> {
             {
                 self.item(ctx, l.span, call)?
             }
+            // `fan: vfd(brick:Fan)`: the composition gets the label's name
+            LineKind::Field(f)
+                if let Some(call) = &composed
+                    && f.name.is_some() =>
+            {
+                return self.labelled_composition(ctx, l, f, call, owner, mark);
+            }
             LineKind::Field(_) if let Some(call) = &composed => self.include(ctx, l, call)?,
             LineKind::Field(f) => return self.field(ctx, l, f, owner, mark),
             LineKind::Include(call) => self.include(ctx, l, call)?,
@@ -1153,13 +1185,17 @@ impl<'p> Builder<'p> {
         Some(self.annotate(ctx, l, slot, mark))
     }
 
-    /// `Sensor` alone on a line: a shape to compose, not a property.
+    /// `Sensor` alone on a line, or `fan: vfd(brick:Fan)`: a shape to
+    /// compose, not a property. (An unlabelled call alone on a line is an
+    /// `Include` by now, and a path template is expanded.)
     fn composed(&self, ctx: &Ctx, f: &Field) -> Option<Call> {
-        if f.name.is_some() || f.count.is_some() || !f.qualifiers.is_empty() {
+        if f.count.is_some() || !f.qualifiers.is_empty() {
             return None;
         }
-        let PathExpr::Node(NodeRef::Name(n)) = &f.path else {
-            return None;
+        let n = match &f.path {
+            PathExpr::Node(NodeRef::Name(n)) => n,
+            PathExpr::Call(c) => return Some(c.clone()),
+            _ => return None,
         };
         let shape = match ctx.env.get(n) {
             Some(b) => matches!(b, Bound_::Shape(_) | Bound_::Node(_)),
@@ -1169,9 +1205,80 @@ impl<'p> Builder<'p> {
             name: n.clone(),
             args: Vec::new(),
             named: Vec::new(),
-            block: None,
             span: Span::default(),
         })
+    }
+
+    /// The name of the line labelled `name`: under the label of the line
+    /// it is written in, if any, else under the shape or expansion.
+    fn line_name(&self, ctx: &Ctx, name: &str, owner: Option<(usize, usize)>) -> Option<Scope> {
+        if let Some(s) = &ctx.scope {
+            return Some(Scope {
+                local: format!("{}.{name}", s.local),
+                display: format!("{}.{name}", s.display),
+                module: s.module,
+            });
+        }
+        match (owner, &ctx.shape_name) {
+            (Some((m, d)), _) if !ctx.template => {
+                let local = format!("{}.{name}", self.decl(m, d).name);
+                Some(Scope {
+                    display: format!("{}{local}", self.qualifier(m)),
+                    local,
+                    module: m,
+                })
+            }
+            (_, Some(base)) if ctx.template => Some(Scope {
+                local: format!("{base}.{name}"),
+                display: format!("{}.{name}", ctx.shape),
+                module: ctx.name_module,
+            }),
+            _ => None,
+        }
+    }
+
+    /// `ctx` for what is written on the line labelled `name`, if it has a
+    /// label: the names made there, by its blocks and the templates it
+    /// calls, nest under the label.
+    fn labelled(&self, ctx: &Ctx, name: Option<&str>, owner: Option<(usize, usize)>) -> Ctx {
+        match name.and_then(|n| self.line_name(ctx, n, owner)) {
+            Some(scope) => Ctx {
+                scope: Some(scope),
+                ..ctx.clone()
+            },
+            None => ctx.clone(),
+        }
+    }
+
+    fn labelled_composition(
+        &mut self,
+        ctx: &Ctx,
+        l: &Line,
+        f: &Field,
+        call: &Call,
+        owner: Option<(usize, usize)>,
+        mark: u32,
+    ) -> Option<ShapeId> {
+        let lctx = self.labelled(ctx, f.name.as_deref(), owner);
+        let mut call = call.clone();
+        if call.span == Span::default() {
+            call.span = l.span;
+        }
+        let body = if ctx.env.contains_key(&call.name) {
+            self.item(&lctx, l.span, &call)?
+        } else {
+            self.include(&lctx, l, &call)?
+        };
+        let origin = Origin::new(
+            OriginKind::Field {
+                shape: ctx.shape.clone(),
+                name: f.name.clone(),
+                path: display::call(&call),
+                text: display::field_text(f),
+            },
+            self.loc(ctx.module, l.span),
+        );
+        Some(self.name_line(ctx, l, f.name.as_deref(), owner, body, mark, origin))
     }
 
     fn include(&mut self, ctx: &Ctx, l: &Line, call: &Call) -> Option<ShapeId> {
@@ -1215,6 +1322,8 @@ impl<'p> Builder<'p> {
     ) -> Option<ShapeId> {
         let span = l.span;
         let path = self.path(ctx, span, &f.path)?;
+        let outer = ctx;
+        let ctx = &self.labelled(ctx, f.name.as_deref(), owner);
         let mut parts = Vec::new();
         let mut each = Vec::new();
         for q in &f.qualifiers {
@@ -1297,10 +1406,30 @@ impl<'p> Builder<'p> {
             },
             self.loc(ctx.module, span),
         );
-        // A named field of a named shape has a reserved slot of its own.
-        let reserved = match (&f.name, owner) {
-            (Some(name), Some((m, d))) if !ctx.template => {
-                self.fields.get(&(m, d, name.clone())).copied()
+        Some(self.name_line(outer, l, f.name.as_deref(), owner, body, mark, origin))
+    }
+
+    /// The slot for line `l`, built as `body`: a labelled line gets a name.
+    #[allow(clippy::too_many_arguments)]
+    fn name_line(
+        &mut self,
+        ctx: &Ctx,
+        l: &Line,
+        name: Option<&str>,
+        owner: Option<(usize, usize)>,
+        body: ShapeId,
+        mark: u32,
+        origin: Origin,
+    ) -> ShapeId {
+        let named = name.and_then(|n| self.line_name(ctx, n, owner));
+        // A named line of a named shape has a reserved slot of its own.
+        let reserved = match (&named, owner) {
+            (Some(n), Some((m, d))) if !ctx.template => {
+                let shape = format!("{}.", self.decl(m, d).name);
+                n.local
+                    .strip_prefix(&shape)
+                    .and_then(|rel| self.fields.get(&(m, d, rel.to_string())))
+                    .copied()
             }
             _ => None,
         };
@@ -1318,21 +1447,36 @@ impl<'p> Builder<'p> {
                 self.schema.docs.insert(r, doc.clone());
             }
             r
-        } else if f.name.is_some() && ctx.template {
-            // Named field inside a template expansion: name it after the
-            // expansion so it still exports as a named property shape.
+        } else if let Some(n) = named.filter(|_| ctx.template || ctx.scope.is_some()) {
+            // A named line of a template expansion: named after the
+            // expansion (or the label it was reached through), so it still
+            // exports as a named shape. Its slot is its own, so the name
+            // does not land on an interned shape used elsewhere.
             let (severity, messages) = self.annotation_values(&l.annotations);
-            let s = self.schema.arena.insert(Shape::Annotated {
-                severity,
-                messages,
-                shape: body,
-            });
-            if let Some(base) = &ctx.shape_name {
-                let fname = format!("{base}.{}", f.name.as_deref().unwrap());
-                self.schema.add_name(s, self.mint(ctx.module, &fname));
-                self.display
-                    .insert(s, format!("{}.{}", ctx.shape, f.name.as_deref().unwrap()));
+            let s = self.schema.arena.reserve();
+            self.schema.arena.set(
+                s,
+                Shape::Annotated {
+                    severity,
+                    messages,
+                    shape: body,
+                },
+            );
+            let iri = self.mint(n.module, &n.local);
+            if self.minted.insert(iri.clone(), s).is_some() {
+                let d = self.error(
+                    ctx.module,
+                    l.span,
+                    format!("`{}` names two lines", n.display),
+                );
+                d.hint = Some(
+                    "the names under a label come from everything on its line; \
+                     give the templates it calls lines and labels of their own"
+                        .into(),
+                );
             }
+            self.schema.add_name(s, iri);
+            self.display.insert(s, n.display);
             if let Some(doc) = &l.annotations.doc {
                 self.schema.docs.insert(s, doc.clone());
             }
@@ -1343,7 +1487,7 @@ impl<'p> Builder<'p> {
         if slot.0 >= mark || reserved.is_some() {
             self.schema.add_origin(slot, origin);
         }
-        Some(slot)
+        slot
     }
 
     fn path(&mut self, ctx: &Ctx, span: Span, p: &PathExpr) -> Option<Path> {
@@ -1377,7 +1521,7 @@ impl<'p> Builder<'p> {
                             format!("did you mean the path `{n}`?")
                         } else if shapeish {
                             format!(
-                                "to add the constraints of `{name}` here, write `include {name}`"
+                                "to add the constraints of `{name}` here, write `{name}` alone on a line"
                             )
                         } else {
                             format!(
@@ -1556,18 +1700,10 @@ impl<'p> Builder<'p> {
             }
             _ => return self.call(ctx, call, false),
         };
-        match &call.block {
-            None => Some(base),
-            Some(b) => {
-                let extra = self.block(ctx, &b.lines, ctx.owner);
-                Some(self.schema.arena.and(vec![base, extra]))
-            }
-        }
+        Some(base)
     }
 
-    /// Resolve and (for templates) expand a call to a shape slot. A block
-    /// after a template call is its last argument; after a shape, it is more
-    /// lines the value must satisfy.
+    /// Resolve and (for templates) expand a call to a shape slot.
     fn call(&mut self, ctx: &Ctx, call: &Call, include: bool) -> Option<ShapeId> {
         if matches!(
             self.lookup_shape(ctx, &call.name),
@@ -1583,14 +1719,7 @@ impl<'p> Builder<'p> {
             );
             return None;
         }
-        let s = self.call_target(ctx, call, include)?;
-        match &call.block {
-            None => Some(s),
-            Some(b) => {
-                let extra = self.block(ctx, &b.lines, ctx.owner);
-                Some(self.schema.arena.and(vec![s, extra]))
-            }
-        }
+        self.call_target(ctx, call, include)
     }
 
     fn call_target(&mut self, ctx: &Ctx, call: &Call, include: bool) -> Option<ShapeId> {
@@ -1736,7 +1865,6 @@ impl<'p> Builder<'p> {
                     name: n.clone(),
                     args: Vec::new(),
                     named: Vec::new(),
-                    block: None,
                     span,
                 };
                 Some(Bound_::Shape(self.call(ctx, &c, false)?))
@@ -1762,7 +1890,6 @@ impl<'p> Builder<'p> {
                     name: n.clone(),
                     args: Vec::new(),
                     named: Vec::new(),
-                    block: None,
                     span,
                 };
                 Some(Bound_::Shape(self.call(ctx, &c, false)?))
@@ -1802,7 +1929,6 @@ impl<'p> Builder<'p> {
                         name: name.clone(),
                         args: Vec::new(),
                         named: Vec::new(),
-                        block: None,
                         span,
                     };
                     return Some(Bound_::Shape(self.call(ctx, &c, false)?));
@@ -1842,6 +1968,7 @@ impl<'p> Builder<'p> {
 
     fn expand_template(&mut self, ctx: &Ctx, call: &Call, m: usize, d: usize) -> Option<ShapeId> {
         let decl = self.decl(m, d);
+        let scope = ctx.scope.clone();
         let span = call.span;
         let matched = match crate::args::match_args(&call.name, &decl.params, call) {
             Ok(a) => a,
@@ -1869,6 +1996,8 @@ impl<'p> Builder<'p> {
                         env: Arc::new(env.clone()),
                         template: true,
                         owner: None,
+                        scope: None,
+                        name_module: m,
                     };
                     self.eval_arg(&at, decl.span, default, sort)?
                 }
@@ -1878,7 +2007,14 @@ impl<'p> Builder<'p> {
             shown.push(self.arg_display(&v));
             env.insert(p.name.clone(), v);
         }
-        let key = (m, d, keys.clone());
+        let shared = (m, d, keys.clone());
+        // A template that calls itself under a label would nest names
+        // without end; the inner call shares the expansion instead.
+        let scope = scope.filter(|_| !self.expanding.contains(&shared));
+        let mut key = shared.clone();
+        if let Some(s) = &scope {
+            key.2.push(format!("\u{1e}{}\u{1e}{}", s.module, s.local));
+        }
         if let Some(s) = self.expansions.get(&key) {
             return Some(*s);
         }
@@ -1894,8 +2030,16 @@ impl<'p> Builder<'p> {
         self.expansions.insert(key, slot);
         let q = self.qualifier(m);
         let display = format!("{q}{}({})", decl.name, shown.join(", "));
-        let local = format!("{}-{}", decl.name, stable_hash(&keys.join("\u{1f}")));
-        self.schema.add_name(slot, self.mint(m, &local));
+        // Shared, the expansion is named for its arguments and its names
+        // hang off that; under a label, they hang off the label.
+        let (shape, local, name_module) = match &scope {
+            Some(s) => (s.display.clone(), s.local.clone(), s.module),
+            None => {
+                let local = format!("{}-{}", decl.name, stable_hash(&keys.join("\u{1f}")));
+                self.schema.add_name(slot, self.mint(m, &local));
+                (display.clone(), local, m)
+            }
+        };
         self.display.insert(slot, display.clone());
         if m != 0
             && let Some(base) = &self.module(m).base
@@ -1909,14 +2053,18 @@ impl<'p> Builder<'p> {
         });
         let inner = Ctx {
             module: m,
-            shape: display.clone(),
+            shape,
             shape_name: Some(local),
             env: Arc::new(env),
             template: true,
             owner: None,
+            scope: None,
+            name_module,
         };
         self.depth += 1;
+        self.expanding.push(shared);
         let body = self.block(&inner, &decl.body, None);
+        self.expanding.pop();
         self.depth -= 1;
         let (severity, messages) = self.annotation_values(&decl.annotations);
         self.schema.arena.set(
@@ -2144,38 +2292,58 @@ pub fn stable_hash(s: &str) -> String {
     format!("{:08x}", (h >> 32) as u32 ^ (h as u32))
 }
 
-fn collect_field_names(lines: &[Line], out: &mut Vec<(String, Span)>) {
+/// The names a shape's body gives its lines, relative to the shape: `sat`,
+/// and `sat.unit` for a line `unit: ...` written inside the line `sat: ...`
+/// (in an inline shape, or a block passed to a call).
+fn collect_field_names(lines: &[Line], prefix: &str, out: &mut Vec<(String, Span)>) {
     for l in lines {
+        let mut inner = prefix.to_string();
+        if let LineKind::Field(f) = &l.kind
+            && let Some(n) = &f.name
+        {
+            let name = format!("{prefix}{n}");
+            inner = format!("{name}.");
+            out.push((name, l.span));
+        }
+        let mut blocks: Vec<&[Line]> = Vec::new();
         match &l.kind {
             LineKind::Field(f) => {
-                if let Some(n) = &f.name {
-                    out.push((n.clone(), l.span));
+                if let PathExpr::Call(c) = &f.path {
+                    call_blocks(c, &mut blocks);
+                }
+                for q in &f.qualifiers {
+                    if let Qualifier::Each(t) | Qualifier::Qualified { test: t, .. } = q {
+                        test_blocks(t, &mut blocks);
+                    }
                 }
             }
-            LineKind::Boolean(b) => {
-                for blk in &b.blocks {
-                    collect_field_names(&blk.lines, out);
-                }
-            }
-            _ => {}
+            LineKind::Boolean(b) => blocks.extend(b.blocks.iter().map(|b| b.lines.as_slice())),
+            LineKind::Include(c) => call_blocks(c, &mut blocks),
+            LineKind::Is(t) => test_blocks(t, &mut blocks),
+            LineKind::Closed | LineKind::Group(_) => {}
         }
-        // named fields inside inline shapes belong to the enclosing shape
-        let tests: Vec<&Test> = match &l.kind {
-            LineKind::Field(f) => f
-                .qualifiers
-                .iter()
-                .filter_map(|q| match q {
-                    Qualifier::Each(t) | Qualifier::Qualified { test: t, .. } => Some(t),
-                    _ => None,
-                })
-                .collect(),
-            LineKind::Is(t) => vec![t],
-            _ => Vec::new(),
-        };
-        for t in tests {
-            if let Test::Shape(b) = t {
-                collect_field_names(&b.lines, out);
-            }
+        for b in blocks {
+            collect_field_names(b, &inner, out);
+        }
+    }
+}
+
+/// Blocks written inside a test: an inline shape, or a call's blocks.
+fn test_blocks<'a>(t: &'a Test, out: &mut Vec<&'a [Line]>) {
+    match t {
+        Test::Shape(b) => out.push(&b.lines),
+        Test::Matches(c) | Test::Item(Item::Shape(c)) => call_blocks(c, out),
+        _ => {}
+    }
+}
+
+/// Blocks written in a call: inline shapes among its arguments.
+fn call_blocks<'a>(c: &'a Call, out: &mut Vec<&'a [Line]>) {
+    for a in c.args.iter().chain(c.named.iter().map(|n| &n.value)) {
+        match a {
+            Arg::Shape(b) => out.push(&b.lines),
+            Arg::Call(c) => call_blocks(c, out),
+            _ => {}
         }
     }
 }
@@ -2271,9 +2439,6 @@ impl SortVisitor<'_, '_, '_> {
                 _ => {}
             }
         }
-        if let Some(b) = &c.block {
-            self.lines(&b.lines);
-        }
     }
 
     fn lines(&mut self, lines: &[Line]) {
@@ -2290,7 +2455,6 @@ impl SortVisitor<'_, '_, '_> {
             Test::Item(Item::Shape(c))
                 if c.args.is_empty()
                     && c.named.is_empty()
-                    && c.block.is_none()
                     && self.params.contains(c.name.as_str()) =>
             {
                 self.use_(&c.name, Sort::Test, c.span)
@@ -2317,14 +2481,20 @@ impl SortVisitor<'_, '_, '_> {
         match &l.kind {
             // a parameter alone on a line is a class or shape to compose
             LineKind::Field(f)
-                if f.name.is_none()
-                    && f.count.is_none()
+                if f.count.is_none()
                     && f.qualifiers.is_empty()
                     && matches!(&f.path, PathExpr::Node(NodeRef::Name(x)) if self.params.contains(x.as_str())) =>
             {
                 if let PathExpr::Node(NodeRef::Name(x)) = &f.path {
                     self.use_(x, Sort::Test, span);
                 }
+            }
+            // `fan: vfd(c)`
+            LineKind::Field(f)
+                if let PathExpr::Call(c) = &f.path
+                    && f.qualifiers.is_empty() =>
+            {
+                self.call(c)
             }
             LineKind::Field(f) => {
                 self.path(&f.path, span);

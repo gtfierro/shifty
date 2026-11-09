@@ -10,6 +10,6 @@ shape Sensor {
 }
 
 shape TempSensor {
-  include Sensor
+  Sensor
   brick:hasUnit each one of unit:DEG_C unit:DEG_F
 }

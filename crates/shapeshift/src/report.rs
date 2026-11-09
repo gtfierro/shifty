@@ -21,7 +21,7 @@ const RDFS_SUBCLASS_OF: &str = "http://www.w3.org/2000/01/rdf-schema#subClassOf"
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Step {
-    /// `include HasPointOf(brick:AHU)`, `when`, ...
+    /// `HasPointOf(brick:AHU)` composed, `when`, ...
     pub text: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub location: Option<SourceLocation>,
@@ -153,7 +153,7 @@ impl ReportContext<'_> {
             for o in self.schema().origins_of(*id) {
                 match &o.kind {
                     OriginKind::Include { from, into } if *into == owner => via.push(Step {
-                        text: format!("include {from}"),
+                        text: from.clone(),
                         location: o.location.clone(),
                     }),
                     OriginKind::Frame { frame, .. } => via.push(Step {

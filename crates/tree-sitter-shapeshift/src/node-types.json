@@ -180,10 +180,6 @@
           "named": true
         },
         {
-          "type": "composition",
-          "named": true
-        },
-        {
           "type": "field",
           "named": true
         },
@@ -220,10 +216,6 @@
         },
         {
           "type": "closed",
-          "named": true
-        },
-        {
-          "type": "composition",
           "named": true
         },
         {
@@ -334,25 +326,6 @@
     "type": "closed",
     "named": true,
     "fields": {}
-  },
-  {
-    "type": "composition",
-    "named": true,
-    "fields": {},
-    "children": {
-      "multiple": true,
-      "required": true,
-      "types": [
-        {
-          "type": "block",
-          "named": true
-        },
-        {
-          "type": "call",
-          "named": true
-        }
-      ]
-    }
   },
   {
     "type": "count",
@@ -645,13 +618,9 @@
     "named": true,
     "fields": {},
     "children": {
-      "multiple": true,
+      "multiple": false,
       "required": true,
       "types": [
-        {
-          "type": "block",
-          "named": true
-        },
         {
           "type": "call",
           "named": true
@@ -1511,11 +1480,11 @@
   },
   {
     "type": "decimal",
-    "named": false
+    "named": true
   },
   {
     "type": "decimal",
-    "named": true
+    "named": false
   },
   {
     "type": "different",
@@ -1587,11 +1556,11 @@
   },
   {
     "type": "iri",
-    "named": true
+    "named": false
   },
   {
     "type": "iri",
-    "named": false
+    "named": true
   },
   {
     "type": "is",
@@ -1715,11 +1684,11 @@
   },
   {
     "type": "string",
-    "named": true
+    "named": false
   },
   {
     "type": "string",
-    "named": false
+    "named": true
   },
   {
     "type": "than",

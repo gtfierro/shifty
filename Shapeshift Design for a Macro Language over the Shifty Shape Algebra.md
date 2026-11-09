@@ -88,7 +88,7 @@ target      := 'for' 'every' node                  -- class, with subclass closu
              | 'for' 'every' 'node' 'matching' NAME -- shape-based target (shifty)
              | 'for' 'sparql' STRING               -- escape hatch
 
-line        := doc? (field | 'include' call | boolean | 'only' 'these' 'properties')
+line        := doc? (field | call | boolean | 'only' 'these' 'properties')   -- a call alone composes
              | ('severity' | 'message') ...        -- annotations, apply to the next line
 field       := (NAME ':')? path count? (',' qualifier)*   -- one-line form
              | NAME ':' '{' path count? qualifier* '}'      -- block form: one qualifier per line
@@ -131,7 +131,7 @@ shape HasPointOf(cls) {
 }
 
 shape VAV for every brick:VAV {
-  include HasPointOf(brick:Supply_Air_Temperature_Sensor)
+  HasPointOf(brick:Supply_Air_Temperature_Sensor)
   brick:hasPoint      each matches sensors.Sensor
   brick:isFedBy       exactly 1, a brick:AHU
   brick:hasUnit       optional, each one of brick:Degree_Celsius brick:Degree_Fahrenheit
@@ -154,7 +154,7 @@ Two kinds, with different fates. A `--` comment runs to the end of the line; the
 ```
 doc "A VAV must report supply-air temperature and be fed by exactly one AHU."
 shape VAV for every brick:VAV {
-  include HasPointOf(brick:Supply_Air_Temperature_Sensor)
+  HasPointOf(brick:Supply_Air_Temperature_Sensor)
   doc "Downstream of one AHU only; dual-duct VAVs are modelled as two VAVs."
   brick:isFedBy       exactly 1, a brick:AHU
 }
@@ -164,7 +164,7 @@ shape VAV for every brick:VAV {
 | --- | --- | --- | --- |
 | before `shape S` | `Schema.docs[S]` (sidecar, like `origins`) | `rdfs:comment` on the `sh:NodeShape` | LSP hover on `S` and on `matches S`; report header for failures of `S` |
 | before a field line | `Schema.docs[slot of that Count]` | `sh:description` on the property shape | report line for that field, under the failure, before any hint |
-| before a boolean block or `include` | `Schema.docs[slot]` | `rdfs:comment` on the blank node or `sh:and` member | report, LSP |
+| before a boolean block or a composition | `Schema.docs[slot]` | `rdfs:comment` on the blank node or `sh:and` member | report, LSP |
 | before a template `shape S(x)` | on the template, copied to each expansion | `rdfs:comment` on each expanded shape, with the arguments appended | hover on each call site |
 
 Docstrings are distinct from `message`: a `message` is what the validator says when the line fails, written for the data author; a `doc` is what the line is for, written for the next person reading the shapes. Both may appear on one line. Imported SHACL graphs map `rdfs:comment` and `sh:description` back to docstrings, so hover works on `bs:PointShape` too.
@@ -196,7 +196,7 @@ Every surface construct compiles to one arena term, built with shifty's existing
 | `p less than q` / `p at most q` | `Lt(p, q)` / `Le(p, q)` | `sh:lessThan` / `sh:lessThanOrEquals` |
 | `p unique language` | `UniqueLang(p)` | `sh:uniqueLang true` |
 | `only these properties` | `Closed(Q)`, Q = predicates named in the block | `sh:closed true` |
-| `S(...)` or `include S(...)` alone on a line | `And` member referencing `S`'s slot | `sh:and` or inlined, see Raising |
+| `S(...)` alone on a line | `And` member referencing `S`'s slot | `sh:and` or inlined, see Raising |
 | `any of {A} {B}` | `Or([A, B])` | `sh:or` |
 | `exactly one of {A} {B}` | `xone([A, B])` | `sh:xone` |
 | `none of {A} {B}` | `Not(Or([A, B]))` | `sh:not [ sh:or (...) ]` |
@@ -224,9 +224,11 @@ Every shape has a name, and a name is the unit of reuse. There are no anonymous 
 
 **Templates are data.** The serialized AST of a `.shm` file carries templates unexpanded, with their parameter sorts. A binding in another language can therefore ship a template definition to Rust and have it expanded, checked and raised there. Templates can call templates; the expansion is a tree.
 
-**`include` is conjunction.** `include S(args)` inside a block adds `S`'s slot to the enclosing `And`. Including a shape that has `for` clauses brings its constraints and not its targets: `S`'s `Statement`s stay where they are. Severity and message annotations travel with the included constraints, since they are part of the constraint's meaning (`Annotated` is transparent to `And`). Overriding them would be a separate, explicit form if ever needed.
+**Composition is conjunction.** `S(args)` alone on a line adds `S`'s slot to the enclosing `And`. (An earlier draft spelled this `include S(args)`; that form still parses, with a deprecation warning, and `fmt` rewrites it.) Including a shape that has `for` clauses brings its constraints and not its targets: `S`'s `Statement`s stay where they are. Severity and message annotations travel with the included constraints, since they are part of the constraint's meaning (`Annotated` is transparent to `And`). Overriding them would be a separate, explicit form if ever needed.
 
-**Named fields.** A field line may carry a name: `supplyTemp: brick:hasPoint at least 1 is a brick:Supply_Air_Temperature_Sensor`. The name is optional and changes nothing about the constraint; it gives the line an identity. The `Count` slot gets `VAV.supplyTemp` in `Schema.names`, so on export it becomes a named `sh:PropertyShape` (`<base>#VAV.supplyTemp`) instead of a blank node, reports and `message` templates can refer to it, and other shapes can pull in that one line with `include VAV.supplyTemp`, which is how a shape says "like VAV, but only the point rule". Named fields are also the natural key for shifty's property witnesses (`witnesses(key_path=...)`): the key becomes a name rather than a path string. Unnamed fields stay blank nodes on export, as they are in most hand-written SHACL.
+**Named fields.** A field line may carry a name: `supplyTemp: brick:hasPoint at least 1 is a brick:Supply_Air_Temperature_Sensor`. The name is optional and changes nothing about the constraint; it gives the line an identity. The `Count` slot gets `VAV.supplyTemp` in `Schema.names`, so on export it becomes a named `sh:PropertyShape` (`<base>#VAV.supplyTemp`) instead of a blank node, reports and `message` templates can refer to it, and other shapes can pull in that one line by writing `VAV.supplyTemp` alone on a line, which is how a shape says "like VAV, but only the point rule". Named fields are also the natural key for shifty's property witnesses (`witnesses(key_path=...)`): the key becomes a name rather than a path string. Unnamed fields stay blank nodes on export, as they are in most hand-written SHACL.
+
+**A label names what its line makes, and the names made on the line nest under it.** `fan: vfd(brick:Supply_Fan)` names the composition `ahu.fan`, and the `speed:` line inside `vfd` becomes `ahu.fan.speed`. The same holds for a field whose test calls a template (`fan: brick:hasPart exactly 1 is vfd(...)`, or the row `fan: vfd(...)`), for inline shapes (`sat: p each { unit: ... }` gives `S.sat.unit`), and for inline shapes passed as arguments. A template call reached without a label shares one expansion per argument tuple, and its names hang off that expansion (`vfd-1a2b3c4d.speed`). A labelled call gets its own expansion, so two fans' `speed` lines are two shapes with two names, and reports and shape maps can tell them apart. Names are hygienic by construction: a template's labels can only clash with each other, and two calls on one labelled line that make the same name are an error. A template that calls itself under a label shares the inner expansion rather than nesting names without end.
 
 Two spellings, same algebra. The one-line form suits a field with one or two qualifiers; the block form opens a named field into its own braces, one qualifier per line, for fields that carry several qualifiers or a docstring and message of their own. A `;` ends a line anywhere a newline would, so short blocks can stay on one line.
 
@@ -249,13 +251,13 @@ shape VAV for every brick:VAV {
 }
 
 shape ReheatVAV for every brick:RVAV {
-  include VAV.supplyTemp          -- one named field, not the whole shape
-  include VAV.fedBy
+  VAV.supplyTemp          -- one named field, not the whole shape
+  VAV.fedBy
   reheat: brick:hasPoint at least 1 is a brick:Reheat_Valve_Command
 }
 ```
 
-Inside a field block the first line is the path; `count`, qualifiers, `doc` and `message` follow in any order. The block compiles to the same single `Count` as the one-line form, so `include VAV.fedBy` and the export are identical either way.
+Inside a field block the first line is the path; `count`, qualifiers, `doc` and `message` follow in any order. The block compiles to the same single `Count` as the one-line form, so composing `VAV.fedBy` and the export are identical either way.
 
 **Scoping and IRIs.** Names are file-local. `import "x.shm" as m` exposes `m.Name`. On export, a shape's IRI is minted under the base of the file that *defines* it, so two files importing `sensors.shm` export the same IRI for `sensors.Sensor` and downstream `owl:imports` graphs can refer to it stably. A file with no `base` cannot be imported by name and exports with blank-node shapes; the CLI warns.
 
@@ -269,7 +271,7 @@ Disjunction and negation are written as blocks with a leading phrase, never as i
 
 ```
 shape Sensor {
-  any of          { include TempSensor } { include PressureSensor } { include FlowSensor }
+  any of          { TempSensor } { PressureSensor } { FlowSensor }
   exactly one of  { brick:hasUnit required } { brick:hasTag required }
   none of         { brick:hasPart required }
   when            { brick:hasPoint at least 1 is a brick:Economizer_Status }
@@ -393,7 +395,7 @@ shape Odd {
 }
 ```
 
-`each matches S` is `Count{max 0, Not(S)}`: the upper bound and the negation each flip polarity, so the dependency is positive and `S := ∀p.S` is admitted, as shifty's docs note it must be. `at most n is matches S` alone is a negative edge; `none of` is a negative edge; `when {C} then {B}` is negative on `C`. `include`, `any of`, `at least n is matches S` and field lines with `required` are positive.
+`each matches S` is `Count{max 0, Not(S)}`: the upper bound and the negation each flip polarity, so the dependency is positive and `S := ∀p.S` is admitted, as shifty's docs note it must be. `at most n is matches S` alone is a negative edge; `none of` is a negative edge; `when {C} then {B}` is negative on `C`. composition, `any of`, `at least n is matches S` and field lines with `required` are positive.
 
 **Build-time admission.** `shape` declarations are two-phase: every name is reserved as a `Pending` slot before any body is expanded, so forward and mutual references resolve without ordering rules. After expansion, the builder runs shifty-engine's admission check on the un-normalized arena. A refused SCC is reported as a path, in the author's names, with the sign-flipping steps marked:
 
@@ -434,7 +436,7 @@ Provenance makes the `when` and `exactly one of` cases possible: after expansion
 
 **Round-trip property.** Lowering the raised graph with `shifty-parse` and normalizing must yield an arena equal to normalizing the builder's arena. This is the correctness test for the raiser and runs in CI over the examples corpus.
 
-**`include` on export.** An included named shape is emitted as `sh:node <S>` on the including shape when `S` is a node-level shape. Where `include` would create a property shape nesting that SHACL cannot express as `sh:node`, the raiser uses `sh:and ( <S> )`. Both round-trip.
+**Composition on export.** A composed named shape is emitted as `sh:node <S>` on the including shape when `S` is a node-level shape. Where composition would create a property shape nesting that SHACL cannot express as `sh:node`, the raiser uses `sh:and ( <S> )`. Both round-trip.
 
 **Portability flags.** The ontology header records anything a strict SHACL Core engine will not understand: `shapeshift:recursive`, `shapeshift:shapeTargets`, `shapeshift:sparqlTargets`. `shapeshift export --core` fails if any flag is set, for pipelines that must stay portable.
 
@@ -442,11 +444,11 @@ Provenance makes the `when` and `exactly one of` cases possible: after expansion
 
 ## Validation reports and error messages
 
-A violation is reported against the line the author wrote, through every macro and include it passed through. This is the payoff of compiling to one algebra: shifty's `Reason.constraint` already identifies the algebra node that failed, and the provenance sidecar maps that node back to Shapeshift origins.
+A violation is reported against the line the author wrote, through every macro and composition it passed through. This is the payoff of compiling to one algebra: shifty's `Reason.constraint` already identifies the algebra node that failed, and the provenance sidecar maps that node back to Shapeshift origins.
 
 ```
 ex:vav-7 fails VAV (hvac.shm:12)
-  via include HasPointOf(brick:Supply_Air_Temperature_Sensor)   (hvac.shm:7)
+  via HasPointOf(brick:Supply_Air_Temperature_Sensor)   (hvac.shm:7)
   brick:hasPoint  at least 1 is a brick:Supply_Air_Temperature_Sensor
   found 3 values of brick:hasPoint; none is a brick:Supply_Air_Temperature_Sensor
     ex:p1  a brick:Zone_Air_Temperature_Sensor

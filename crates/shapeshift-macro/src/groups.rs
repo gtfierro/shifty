@@ -30,7 +30,7 @@
 //! replaced by their paths and every group is rewritten into ordinary field
 //! lines, so a row is a field in every respect: `speed` exports as the
 //! property shape `SupplyFan.speed`, reports quote it, and
-//! `include SupplyFan.speed` pulls in that one row. The row above becomes
+//! `SupplyFan.speed` alone on a line pulls in that one row. The row above becomes
 //!
 //! ```text
 //! speed: brick:hasPoint exactly 1 is a brick:Frequency_Command
@@ -215,15 +215,16 @@ impl Cx<'_> {
             LineKind::Field(f) => {
                 // `HasPoint(brick:X)` alone on a line composes that shape;
                 // a path template there would be a field with no constraint.
-                if f.name.is_none()
-                    && f.count.is_none()
+                if f.count.is_none()
                     && f.qualifiers.is_empty()
-                    && let PathExpr::Call(c) = &f.path
+                    && let PathExpr::Call(c) = &mut f.path
                     && self.resolve(&c.name).is_none()
                 {
-                    let mut c = c.clone();
-                    self.call(&mut c, span);
-                    *kind = LineKind::Include(c);
+                    self.call(c, span);
+                    // `fan: vfd(brick:Fan)` stays a field, for its label
+                    if f.name.is_none() {
+                        *kind = LineKind::Include(c.clone());
+                    }
                     return;
                 }
                 f.path = self.path(&f.path, span);
@@ -257,16 +258,13 @@ impl Cx<'_> {
     }
 
     /// Expand aliases and path templates passed to a shape, and groups in
-    /// the blocks it is given.
+    /// the inline shapes it is given.
     fn call(&mut self, c: &mut Call, span: Span) {
         for a in &mut c.args {
             self.arg(a, span);
         }
         for n in &mut c.named {
             self.arg(&mut n.value, span);
-        }
-        if let Some(b) = &mut c.block {
-            b.lines = self.lines(&b.lines);
         }
     }
 
@@ -314,7 +312,6 @@ impl Cx<'_> {
                     name: n.clone(),
                     args: Vec::new(),
                     named: Vec::new(),
-                    block: None,
                     span,
                 };
                 self.expand_path(&call, span).unwrap_or_else(|| p.clone())
@@ -487,6 +484,39 @@ impl Cx<'_> {
     }
 
     fn group(&mut self, line: &Line, g: &Group, out: &mut Vec<Line>) {
+        // `W(x) { ... }` with `W` a shape: a block after a call, which is
+        // written as an argument instead
+        let shape = match &g.path {
+            PathExpr::Call(c) => Some((c.name.as_str(), crate::display::call(c))),
+            PathExpr::Node(NodeRef::Name(n)) => Some((n.as_str(), n.clone())),
+            _ => None,
+        };
+        if let Some((name, head)) = shape
+            && g.count.is_none()
+            && !self.params.iter().any(|p| p == name)
+            && self.is_local_shape(name)
+        {
+            let template = self.p.modules[self.m]
+                .module
+                .shapes
+                .iter()
+                .any(|s| s.name == name && !s.params.is_empty());
+            let add = format!("to add the lines, write them on lines of their own after `{head}`");
+            let hint = if template {
+                format!(
+                    "to pass the lines to `{name}`, write `{}`; {add}",
+                    with_block_arg(&head)
+                )
+            } else {
+                add
+            };
+            self.error(
+                line.span,
+                format!("`{name}` is a shape, so `{head} {{ ... }}` is not a group"),
+                Some(hint),
+            );
+            return;
+        }
         let path = self.path(&g.path, line.span);
         let default = g.count.clone().unwrap_or(Count::Exactly(IntArg::Lit(1)));
         // Comments and annotations written on the group line go to its first row.
@@ -540,9 +570,8 @@ impl Cx<'_> {
         }
     }
 
-    /// A row's item as a test. Its `{ ... }` is the block of a shape item
-    /// (the last argument of a template, more lines for a shape), and more
-    /// lines for a class.
+    /// A row's item as a test; its `{ ... }` is more lines the value must
+    /// satisfy.
     fn row_test(&mut self, r: &Row) -> Test {
         let mut item = r.item.clone();
         if let Item::Shape(c) = &mut item {
@@ -551,32 +580,20 @@ impl Cx<'_> {
         let Some(body) = &r.body else {
             return Test::Item(item);
         };
-        let lines = self.lines(&body.lines);
-        match item {
-            Item::Shape(mut c) if c.block.is_none() => {
-                c.block = Some(Block {
-                    lines,
-                    ..body.clone()
-                });
-                Test::Item(Item::Shape(c))
-            }
-            item => {
-                let first = Line {
-                    kind: LineKind::Is(Test::Item(item)),
-                    annotations: Annotations::default(),
-                    span: r.span,
-                    comments: Vec::new(),
-                    trailing_comment: None,
-                };
-                let mut all = vec![first];
-                all.extend(lines);
-                Test::Shape(Block {
-                    lines: all,
-                    span: body.span,
-                    trailing_comments: Vec::new(),
-                })
-            }
-        }
+        let first = Line {
+            kind: LineKind::Is(Test::Item(item)),
+            annotations: Annotations::default(),
+            span: r.span,
+            comments: Vec::new(),
+            trailing_comment: None,
+        };
+        let mut all = vec![first];
+        all.extend(self.lines(&body.lines));
+        Test::Shape(Block {
+            lines: all,
+            span: body.span,
+            trailing_comments: Vec::new(),
+        })
     }
 
     /// A path from module `dm`, with prefixes this module may not share
@@ -661,5 +678,14 @@ fn bounds(c: &Count) -> Vec<(QualifiedBound, IntArg)> {
             (QualifiedBound::AtLeast, a.clone()),
             (QualifiedBound::AtMost, b.clone()),
         ],
+    }
+}
+
+/// `W(x)` as `W(x, { ... })`, and `U` as `U({ ... })`.
+fn with_block_arg(head: &str) -> String {
+    match head.strip_suffix(')') {
+        Some(h) if h.ends_with('(') => format!("{h}{{ ... }})"),
+        Some(h) => format!("{h}, {{ ... }})"),
+        None => format!("{head}({{ ... }})"),
     }
 }

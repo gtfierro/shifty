@@ -33,25 +33,27 @@ path downstream = brick:feeds+/brick:hasPart?
 
 doc "At least `n` points of class `cls` on the box, or a zone it feeds with one, or a `room` with a `room_cls`."
 shape on-box-or-downstream(cls, room = brick:Room, room_cls = cls, n = 1) {
-  any of { points at least n { cls } }
-         { downstream at least n is {
+  any of { points at least n { on_box: cls } }
+         { downstream: downstream at least n is {
              any of { is brick:HVAC_Zone; points required { cls } }
                     { is room; points required { room_cls } } } }
 }
 
 doc "A zone temperature sensor, on the box or in a zone or room it feeds."
 shape zone-temperature {
-  on-box-or-downstream(brick:Zone_Air_Temperature_Sensor, room_cls = brick:Temperature_Sensor)
+  ztemp: on-box-or-downstream(brick:Zone_Air_Temperature_Sensor, room_cls = brick:Temperature_Sensor)
 }
 
 -- G36 lists occupancy, CO2, and the window switch as optional. The library
 -- states that as `at least 0`, which every node satisfies: these shapes
 -- document the points and never fail.
 doc "Optional: an occupancy sensor, on the box or in a zone or room it feeds."
-shape occupancy-sensor { on-box-or-downstream(brick:Occupancy_Sensor, n = 0) }
+shape occupancy-sensor { occ: on-box-or-downstream(brick:Occupancy_Sensor, n = 0) }
 
 doc "Optional: a CO2 sensor, on the box or in a zone or space it feeds."
-shape zone-co2-level { on-box-or-downstream(brick:CO2_Level_Sensor, room = brick:Space, n = 0) }
+shape zone-co2-level {
+  co2: on-box-or-downstream(brick:CO2_Level_Sensor, room = brick:Space, n = 0)
+}
 
 doc "Optional: a window switch in a room of a zone the box feeds."
 shape window-switch { brick:feeds+ at least 0 is zone-with-room }

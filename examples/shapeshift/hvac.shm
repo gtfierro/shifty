@@ -11,7 +11,7 @@ shape HasPointOf(cls) {
 
 doc "A VAV must report supply-air temperature and be fed by exactly one AHU."
 shape VAV for every brick:VAV {
-  include HasPointOf(brick:Supply_Air_Temperature_Sensor)
+  HasPointOf(brick:Supply_Air_Temperature_Sensor)
   brick:hasPoint each matches sensors.Sensor
   fedBy: {
     brick:isFedBy
@@ -26,7 +26,7 @@ shape VAV for every brick:VAV {
 }
 
 shape ReheatVAV for every brick:RVAV {
-  include VAV.fedBy -- one named field, not the whole shape
+  VAV.fedBy -- one named field, not the whole shape
   reheat: brick:hasPoint at least 1 is a brick:Reheat_Valve_Command
 }
 

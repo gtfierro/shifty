@@ -675,8 +675,19 @@ impl Parser {
         let mut annotations = annotations;
         let kind = match self.peek().clone() {
             Tok::Name(k) if k == "include" => {
+                let at = self.span();
                 self.bump();
-                LineKind::Include(self.call_with_block()?)
+                let c = self.call()?;
+                let text = shapeshift_macro::display::call(&c);
+                let loc = self.loc(at);
+                self.diags.push(
+                    Diagnostic::warning(
+                        format!("`include` is deprecated: write `{text}` alone on the line"),
+                        loc,
+                    )
+                    .with_hint("`shifty shape fmt` rewrites it"),
+                );
+                LineKind::Include(c)
             }
             Tok::Name(k) if k == "only" => {
                 self.bump();
@@ -1041,27 +1052,8 @@ impl Parser {
     /// `PATH COUNT? qualifiers` (a field) or `PATH COUNT? { row* }` (a group).
     fn path_line(&mut self, name: Option<String>) -> R<LineKind> {
         let path_span = self.span();
-        let parenthesized = matches!(self.peek(), Tok::LParen);
         let path = self.path()?;
         let count = self.try_count()?;
-        // `T(args) { ... }` alone on a line composes `T` with a block;
-        // `(p(args)) { ... }` is a group along a path template.
-        if let PathExpr::Call(c) = &path
-            && name.is_none()
-            && count.is_none()
-            && !parenthesized
-            && matches!(self.peek(), Tok::LBrace)
-        {
-            let mut c = c.clone();
-            c.block = Some(self.block()?);
-            return Ok(LineKind::Field(Field {
-                name: None,
-                path: PathExpr::Call(c),
-                count: None,
-                qualifiers: Vec::new(),
-                block: false,
-            }));
-        }
         if matches!(self.peek(), Tok::LBrace) {
             let head = shapeshift_macro::display::path(&path);
             if let Some(n) = name {
@@ -1291,6 +1283,18 @@ impl Parser {
                 );
             }
             let test = self.test_or_value()?;
+            if let Test::Item(item) = &test
+                && matches!(self.peek(), Tok::LBrace)
+            {
+                let t = match item {
+                    Item::Class(n) => display_node(n),
+                    Item::Shape(c) => shapeshift_macro::display::call(c),
+                };
+                return self.fail_hint(
+                    format!("a `{{ ... }}` after `is {t}` is a test of every value, not of these"),
+                    format!("for values that are `{t}` and satisfy the lines, write `is {{ is {t}; ... }}`"),
+                );
+            }
             return Ok(Qualifier::Qualified { bound, n, test });
         }
         if is_kw(&t0, "same") {
@@ -1384,21 +1388,13 @@ impl Parser {
         // a bare class or shape
         match self.peek().clone() {
             Tok::PName { .. } | Tok::Iri(_) => {
-                let n = self.node()?;
-                if matches!(self.peek(), Tok::LBrace) {
-                    let c = display_node(&n);
-                    return self.fail_hint(
-                        format!("a class takes no block: `{c} {{ ... }}`"),
-                        format!("write `{{ is {c}; ... }}` for values that are `{c}` and satisfy the lines"),
-                    );
-                }
-                return Ok(Test::Item(Item::Class(n)));
+                return Ok(Test::Item(Item::Class(self.node()?)));
             }
             Tok::Name(n)
                 if !KEYWORDS.contains(&n.as_str())
                     && !DATATYPE_KEYWORDS.iter().any(|(w, _)| *w == n) =>
             {
-                return Ok(Test::Item(Item::Shape(self.call_with_block()?)));
+                return Ok(Test::Item(Item::Shape(self.call()?)));
             }
             _ => {}
         }
@@ -1414,7 +1410,7 @@ impl Parser {
         self.bump();
         Ok(match k.as_str() {
             "a" => Test::Class(self.node()?),
-            "matches" => Test::Matches(self.call_with_block()?),
+            "matches" => Test::Matches(self.call()?),
             "is" => {
                 if self.eat_kw("a") {
                     Test::Class(self.node()?)
@@ -1641,18 +1637,8 @@ impl Parser {
             name,
             args,
             named,
-            block: None,
             span,
         })
-    }
-
-    /// A call, and the block after it if there is one: `T(args) { ... }`.
-    fn call_with_block(&mut self) -> R<Call> {
-        let mut c = self.call()?;
-        if matches!(self.peek(), Tok::LBrace) {
-            c.block = Some(self.block()?);
-        }
-        Ok(c)
     }
 
     fn arg(&mut self) -> R<Arg> {
@@ -1670,12 +1656,7 @@ impl Parser {
                 let p = self.path()?;
                 Ok(match p {
                     PathExpr::Node(n) => Arg::Node(n),
-                    PathExpr::Call(mut c) => {
-                        if matches!(self.peek(), Tok::LBrace) {
-                            c.block = Some(self.block()?);
-                        }
-                        Arg::Call(c)
-                    }
+                    PathExpr::Call(c) => Arg::Call(c),
                     other => Arg::Path(other),
                 })
             }
