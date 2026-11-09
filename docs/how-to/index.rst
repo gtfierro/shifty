@@ -15,6 +15,7 @@ starting point.
    infer
    explain-failures
    shape-maps
+   shapeshift-python
    inspect-pipeline
    conformance
    browser
