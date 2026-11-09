@@ -409,6 +409,15 @@ impl PreparedEvidenceValidator {
         }
     }
 
+    /// The normalized arena slot produced by an authored constraint.
+    ///
+    /// Unreachable or out-of-range source slots have no normalized identity.
+    /// Several authored constraints may share a slot after common-subexpression
+    /// elimination, while retaining distinct source meanings for projections.
+    pub fn normalized_constraint(&self, source: ShapeId) -> Option<ShapeId> {
+        self.shape_map.get(source.0 as usize).copied().flatten()
+    }
+
     /// Decide one retained authored/raw constraint directly.
     ///
     /// Most callers should use normalized constraints and

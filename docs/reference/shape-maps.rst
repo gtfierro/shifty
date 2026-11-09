@@ -183,6 +183,10 @@ Duplicate-key ordinals are assigned in this order, consistently for every focus.
        constraint.
        Without a session, bindings combining distinct count domains report
        ``None`` rather than projecting matches from an unrelated domain.
+       Source provenance distinguishes universal value checks from authored
+       counts even when their evidence has the same structure. A successful
+       universal whose trace contains only the zero counterexample count has
+       unavailable values, rather than a known empty set.
    * - ``partial_values``
      - The same qualifying values as ``values`` on an unsatisfied obligation,
        or ``None`` when that set is unknown. Empty on a successful obligation.

@@ -15,6 +15,10 @@
 
 ### Fixed
 
+- Shape-map evidence readers distinguish authored counts from universal value
+  checks using source-to-normalized constraint provenance. Negated qualified
+  overflows keep qualifying values out of the rejection list, and zero-match
+  counterexample counts do not masquerade as empty successful bindings.
 - Session-free shape maps report unknown values for mixed count domains instead
   of treating unqualified cardinality matches as qualifying values.
 - `Binding.expects_single` requires a single count domain and cannot combine
