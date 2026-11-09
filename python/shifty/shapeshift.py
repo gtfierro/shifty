@@ -27,6 +27,7 @@ formatted as ``shifty shape fmt`` would, or raises them to SHACL::
     print(m)             # the .shm text
     m.write("shapes/")   # vav.shm, and the modules it imports
     ttl = m.export()     # SHACL Turtle, for shifty.validate
+    m.write_shacl("shapes/vav.ttl")
 
 Definitions
     Assigning to a module defines a name: ``m.zone_temperature = Shape(...)``
@@ -66,6 +67,7 @@ from __future__ import annotations
 import copy
 import difflib
 import inspect
+import os
 import pathlib
 import re
 import tempfile
@@ -1749,6 +1751,27 @@ class Module:
                 self.source(), self.filename, d, _catalog(catalog), core
             )
         return ttl
+
+    def write_shacl(
+        self,
+        path: Union[str, pathlib.Path],
+        *,
+        core: bool = False,
+        catalog: Optional[Dict[str, Union[str, pathlib.Path]]] = None,
+    ) -> pathlib.Path:
+        """Write the module's SHACL Turtle (as :meth:`export` makes it) to `path`.
+
+        If `path` is a directory (or ends with ``/``), the file is
+        ``<name>.ttl`` inside it. Missing directories are created. Returns the
+        file written.
+        """
+        out = pathlib.Path(path)
+        if out.is_dir() or str(path).endswith(("/", os.sep)):
+            out = out / f"{self._name}.ttl"
+        ttl = self.export(core=core, catalog=catalog)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(ttl, encoding="utf-8")
+        return out
 
     def __repr__(self) -> str:
         return f"<Module {self._name}>"

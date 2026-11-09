@@ -78,8 +78,9 @@
   turns a function into a template, with Python defaults as its defaults and
   `Class`-annotated parameters as classes. Prefixes and imports are declared
   from use. `Module.source()` returns the text as `shifty shape fmt` formats
-  it; `write`, `check`, and `export` (SHACL Turtle) go through the CLI's
-  pipeline. `examples/shapeshift/g36/4.1-vav-cooling-only.py` regenerates the G36
+  it; `write`, `check`, `export` (SHACL Turtle), and `write_shacl` (to a
+  `.ttl` file) go through the CLI's pipeline.
+  `examples/shapeshift/g36/4.1-vav-cooling-only.py` regenerates the G36
   `brick.shm` and `4.1-vav-cooling-only.shm` exactly.
 - Shape algebra: `Schema` carries imports, source origins, and docstrings,
   and supports `merge`. `shifty_opt::refused_components` reports the odd

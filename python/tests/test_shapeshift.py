@@ -84,6 +84,23 @@ def test_exported_shapes_validate():
     assert not shifty.validate(bad, shapes)[0]
 
 
+def test_write_shacl(tmp_path):
+    m = ss.Module("t", base="urn:t/")
+    m.S = Shape(EX.p.required(), for_every=EX.C)
+    # into a directory: <name>.ttl
+    written = m.write_shacl(tmp_path)
+    assert written == tmp_path / "t.ttl"
+    assert written.read_text() == m.export()
+    # to a file, creating its directory
+    nested = m.write_shacl(tmp_path / "out" / "shapes.ttl", core=True)
+    assert nested == tmp_path / "out" / "shapes.ttl"
+    g = rdflib.Graph().parse(nested, format="turtle")
+    SH = rdflib.Namespace("http://www.w3.org/ns/shacl#")
+    assert (rdflib.URIRef("urn:t/S"), SH.targetClass, rdflib.URIRef(EX.C.iri)) in g
+    # a trailing slash names a directory, even one that does not exist yet
+    assert m.write_shacl(f"{tmp_path}/new/") == tmp_path / "new" / "t.ttl"
+
+
 def test_assignment_defines_names():
     m = ss.Module("t")
     m.points = ss.Path(EX.hasPoint)

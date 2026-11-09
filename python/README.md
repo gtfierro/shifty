@@ -133,6 +133,7 @@ m.damper_command = m.points.required(BRICK.Damper_Position_Command)
 
 print(m)            # vav.shm, formatted as `shifty shape fmt` would
 ttl = m.export()    # SHACL Turtle for shifty.validate
+m.write_shacl("shapes/")   # or write it to shapes/vav.ttl
 ```
 
 Assigning to a module defines a name (`m.damper` is `shape damper`), and
