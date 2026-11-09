@@ -27,15 +27,25 @@ Assigning to a module defines a name. Reading one refers to it.
   when the module is written, so shapes and template calls can come before
   their definitions. An unknown name fails at that point, with a suggestion.
 - Any assigned value becomes a shape, except ``Path(...)``. A path expression
-  such as ``BRICK.feeds.plus`` becomes a path. Assigning a bare term is an
-  error, because it could mean either: write ``Path(BRICK.hasPoint)`` or
-  ``Shape(BRICK.Point)``.
+  such as ``BRICK.feeds.plus`` becomes a path. Assigning a bare term, or
+  ``A | B`` of terms, is an error, because it could mean either: write
+  ``Path(BRICK.hasPoint)`` or ``Shape(BRICK.Point)``.
+- Shapeshift keywords (``a``, ``is``, ``value``, ``length``, ...) cannot name
+  definitions or template parameters, which are written bare. They can be
+  labels: ``Shape(value=...)`` is ``value: ...``.
 
 Shapes
 ------
 
 ``Shape(*lines, **labelled)`` is a conjunction of lines. Keyword arguments are
 named lines (``temp: ...``), which become named property shapes on export.
+
+``&``, ``|``, and ``~`` mean *and*, *or*, and *not* everywhere. On shapes they
+are shape logic. On terms they depend on where the result goes, as a term
+does: a path where a path goes (``BRICK.feeds | BRICK.serves`` is
+``brick:feeds or brick:serves``), class logic where a line or test goes
+(``points.each(BRICK.A | BRICK.B)`` is either class). A template argument is
+read as a path; pass ``any_of(BRICK.A, BRICK.B)`` for either class.
 
 .. list-table::
    :header-rows: 1
@@ -48,10 +58,10 @@ named lines (``temp: ...``), which become named property shapes on export.
      - composes it: ``damper``, ``with-point(...)``
    * - ``a & b``
      - both: the same as ``Shape(a, b)``
-   * - ``a | b``
-     - ``any of { a } { b }``
-   * - ``~a``
-     - ``none of { a }``
+   * - ``a | b``, ``BRICK.A | BRICK.B``
+     - ``any of { a } { b }``, ``any of { is brick:A } { is brick:B }``
+   * - ``~a``, ``~BRICK.A``
+     - ``none of { a }``, ``none of { is brick:A }``
    * - ``any_of(a, b, k=c)``, ``all_of``, ``exactly_one_of``, ``none_of``,
        ``at_least_of(n, ...)``
      - frames; a keyword argument is a branch of one named line
@@ -69,7 +79,8 @@ Paths and fields
 
 A term is a property where a path goes. Paths combine with ``/`` (sequence),
 ``|`` (``or``), ``~`` (``^``), ``.plus``, ``.star``, and ``.maybe``. ``SELF`` is
-the empty path.
+the empty path. Only ``|`` and ``~`` of bare terms double as class logic; a
+path with steps, like ``BRICK.feeds.plus / BRICK.hasPart``, is only a path.
 
 A path's methods make fields:
 
@@ -172,21 +183,28 @@ Output
    * - ``m.write_shacl(path, core=False)``
      - the Turtle, written to ``path``, or to ``<name>.ttl`` if ``path`` is a
        directory
+   * - ``m.validate(data, targets=None, **options)``
+     - ``shifty.validate``'s ``(conforms, report_graph, report_text)``
 
 ``check`` returns a list of ``Diagnostic`` objects; ``str(d)`` is the CLI's
 rendering. ``source``, ``export``, and ``write_shacl`` raise
 ``ShapeshiftError``, carrying the diagnostics, when the module does not parse
 or build. ``core=True`` keeps to SHACL Core.
 
-Pitfalls
---------
+A shape without a target checks no nodes, so a module of such shapes, like a
+library, validates anything. ``validate`` refuses to: it raises
+``ValueError`` unless some shape has a target. Pass ``targets`` to give
+shapes their nodes for this validation:
 
-- ``BRICK.A | BRICK.B`` is a path alternative. For either class, write
-  ``any_of(BRICK.A, BRICK.B)``.
-- Shapeshift keywords (``a``, ``is``, ``shape``, ``doc``, ...) cannot be names,
-  labels, or parameter names.
-- Shapes without targets validate nothing. Give one ``for_every=``, or wrap
-  it: ``check.every_vav = Shape(vav.vav_cooling_only, for_every=BRICK.VAV)``.
+.. code-block:: python
+
+   conforms, report, text = vav.validate(
+       model, targets={vav.vav_cooling_only: BRICK.VAV}
+   )
+
+A target is a class, a target such as ``ss.subjects_of(p)``, or a list of
+either. To keep the targets, write them into a module:
+``check.every_vav = Shape(vav.vav_cooling_only, for_every=BRICK.VAV)``.
 
 Larger examples
 ---------------

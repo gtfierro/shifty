@@ -157,8 +157,21 @@ def _check_name(name: str, what: str) -> str:
             "starting with a letter or `_`"
         )
     if name in _KEYWORDS:
-        raise ValueError(f"{what} {name!r} is a Shapeshift keyword")
+        raise ValueError(
+            f"{what} {name!r} is a Shapeshift keyword: a {what} is written bare, where "
+            f"`{name}` reads as the keyword. Choose another name (labels may be keywords)"
+        )
     return name
+
+
+def _check_label(label: str) -> str:
+    """A label: any name, keywords included, since its colon sets it apart."""
+    if not isinstance(label, str) or not _NAME.match(label):
+        raise ValueError(
+            f"label {label!r} is not a valid name: use letters, digits, `_` and `-`, "
+            "starting with a letter or `_`"
+        )
+    return label
 
 
 def _kebab(name: str) -> str:
@@ -234,6 +247,27 @@ def _block(ctx: _Ctx, lines: Sequence[Line]) -> str:
     return "{\n" + "\n".join(body) + "\n}"
 
 
+def _class_logic(x: Any) -> Optional[Line]:
+    """`A | B` or `~A` of classes, as the line it is where a line or test goes.
+
+    Where a path goes these are path operators; where a test goes, a class
+    alternative is ``any of`` and an inverted class is ``none of``.
+    """
+
+    def leaf(y: Any) -> bool:
+        return isinstance(y, (Term, Param)) or _class_logic(y) is not None
+
+    if isinstance(x, _Alt) and all(leaf(a) for a in x.alts):
+        return _Frame("any of", [_lines(a) for a in x.alts])
+    if isinstance(x, _Inv):
+        inner = x.inner
+        if isinstance(inner, _Alt) and all(leaf(a) for a in inner.alts):
+            return _Frame("none of", [_lines(a) for a in inner.alts])
+        if leaf(inner):
+            return _Frame("none of", [_lines(inner)])
+    return None
+
+
 def _lines(x: Any) -> List[Line]:
     """`x` as lines of a block."""
     if isinstance(x, (list, tuple)):
@@ -246,6 +280,9 @@ def _lines(x: Any) -> List[Line]:
         return [_Is(x)] if x.kind == "class" else [_Use(x)]
     if isinstance(x, Term):
         return [_Is(x)]
+    logic = _class_logic(x)
+    if logic is not None:
+        return [logic]
     if isinstance(x, _PathOps):
         raise TypeError(
             f"{x!r} is a path, not a line: say what it needs, as in `p.required()` "
@@ -260,7 +297,7 @@ def _lines(x: Any) -> List[Line]:
 def _labelled(named: Dict[str, Any]) -> List[Line]:
     out: List[Line] = []
     for label, x in named.items():
-        _check_name(label, "label")
+        _check_label(label)
         lines = _lines(x)
         if len(lines) != 1 or not lines[0]._labellable:
             raise TypeError(f"`{label}=` names a field or a composed shape, not {x!r}")
@@ -313,6 +350,9 @@ def _test(ctx: _Ctx, x: Any) -> str:
         return _block(ctx, _lines(x))
     if _is_literal(x):
         return "is " + _value(ctx, x)
+    logic = _class_logic(x)
+    if logic is not None:
+        return _block(ctx, [logic])
     raise TypeError(
         f"{x!r} is not a test: use a class, a shape, a value, or a test like `one_of(...)`"
     )
@@ -402,6 +442,9 @@ class _Logic:
 def _either(a: Any, b: Any) -> Line:
     branches: List[List[Line]] = []
     for x in (a, b):
+        logic = _class_logic(x)
+        if logic is not None and isinstance(x, _Alt):
+            x = logic
         if isinstance(x, _Frame) and x.phrase == "any of" and not x._annotated():
             branches += x.branches
         else:
@@ -442,6 +485,12 @@ class _PathOps:
 
     def __invert__(self) -> _PathOps:
         return _Inv(self)
+
+    def __and__(self, other: Any) -> Shape:
+        return Shape(self, other)
+
+    def __rand__(self, other: Any) -> Shape:
+        return Shape(other, self)
 
     @property
     def plus(self) -> _PathOps:
@@ -526,6 +575,9 @@ class _Seq(_PathOps):
     def _path(self, ctx: _Ctx) -> str:
         return "/".join(p._operand(ctx, 2) for p in self.parts)
 
+    def __repr__(self) -> str:
+        return " / ".join(map(repr, self.parts))
+
 
 class _Alt(_PathOps):
     _prec = 0
@@ -535,6 +587,9 @@ class _Alt(_PathOps):
 
     def _path(self, ctx: _Ctx) -> str:
         return " or ".join(p._operand(ctx, 1) for p in self.alts)
+
+    def __repr__(self) -> str:
+        return " | ".join(map(repr, self.alts))
 
 
 class _Inv(_PathOps):
@@ -546,6 +601,9 @@ class _Inv(_PathOps):
     def _path(self, ctx: _Ctx) -> str:
         return "^" + self.inner._operand(ctx, 3)
 
+    def __repr__(self) -> str:
+        return f"~{self.inner!r}"
+
 
 class _Mod(_PathOps):
     _prec = 2
@@ -556,6 +614,10 @@ class _Mod(_PathOps):
 
     def _path(self, ctx: _Ctx) -> str:
         return self.inner._operand(ctx, 3) + self.op
+
+    def __repr__(self) -> str:
+        word = {"+": "plus", "*": "star", "?": "maybe"}[self.op]
+        return f"{self.inner!r}.{word}"
 
 
 class _Self(_PathOps):
@@ -616,12 +678,6 @@ class Term(_PathOps):
 
     def _path(self, ctx: _Ctx) -> str:
         return self._render(ctx)
-
-    def __and__(self, other: Any) -> Shape:
-        return Shape(self, other)
-
-    def __rand__(self, other: Any) -> Shape:
-        return Shape(other, self)
 
     def __eq__(self, other: object) -> bool:
         return isinstance(other, Term) and other.iri == self.iri
@@ -969,7 +1025,7 @@ def row(item: Any, count: Any = None, *, doc: Optional[str] = None) -> Any:
 
 def _rows(rows: Sequence[Any], named: Dict[str, Any]) -> List[_Row]:
     out = [_Row(r) for r in rows]
-    out += [_Row(r, label=_check_name(k, "label")) for k, r in named.items()]
+    out += [_Row(r, label=_check_label(k)) for k, r in named.items()]
     return out
 
 
@@ -1296,12 +1352,6 @@ class Param(_PathOps):
     def _path(self, ctx: _Ctx) -> str:
         return self.name
 
-    def __and__(self, other: Any) -> Shape:
-        return Shape(self, other)
-
-    def __rand__(self, other: Any) -> Shape:
-        return Shape(other, self)
-
     def __repr__(self) -> str:
         return f"P.{self.name}"
 
@@ -1610,10 +1660,10 @@ class Module:
             d = value
         elif isinstance(value, Path) and value.module is None:
             d = value
-        elif isinstance(value, Term):
+        elif isinstance(value, Term) or _class_logic(value) is not None:
             raise TypeError(
-                f"{value!r} is a term: write `Path({value!r})` to name it as a path, "
-                f"or `Shape({value!r})` for the shape of its instances"
+                f"`{value!r}` could be a path or a shape: write `Path({value!r})` "
+                f"to name it as a path, or `Shape({value!r})` for the shape"
             )
         elif isinstance(value, _PathOps) and not isinstance(value, Param):
             d = Path(value)
@@ -1781,8 +1831,66 @@ class Module:
         out.write_text(ttl, encoding="utf-8")
         return out
 
+    def validate(
+        self,
+        data: Any,
+        *,
+        targets: Optional[Dict[Any, Any]] = None,
+        catalog: Optional[Dict[str, Union[str, pathlib.Path]]] = None,
+        **options: Any,
+    ) -> Tuple[bool, Any, str]:
+        """Validate `data` against this module: :func:`shifty.validate`'s
+        ``(conforms, report_graph, report_text)``.
+
+        `targets` gives shapes written without a target the nodes to check:
+        ``{vav.vav_cooling_only: BRICK.VAV}`` checks every ``brick:VAV``. A
+        value is a class, a target such as ``subjects_of(p)``, or a list of
+        either. Raises :class:`ValueError` if no shape has a target, since
+        validation would then check nothing. Other keyword arguments go to
+        :func:`shifty.validate`.
+        """
+        import rdflib
+
+        import shifty
+
+        module = self
+        if targets:
+            module = Module(
+                f"{self._name}-targets", base=f"urn:shapeshift:targets:{self._name}/"
+            )
+            for i, (shape, target) in enumerate(targets.items(), 1):
+                module[f"target-{i}"] = Shape(shape, **_target_options(target))
+        if not any(
+            isinstance(d, Shape) and d.targets
+            for m in module.closure()
+            for d in m._defs
+        ):
+            raise ValueError(
+                f"no shape in module {self._name!r} (or what it imports) has a target, "
+                "so validation would check nothing: pass `targets={shape: Class}`, or "
+                "give a shape `for_every=`"
+            )
+        shapes = rdflib.Graph().parse(
+            data=module.export(catalog=catalog), format="turtle"
+        )
+        return shifty.validate(data, shapes, **options)
+
     def __repr__(self) -> str:
         return f"<Module {self._name}>"
+
+
+def _target_options(target: Any) -> Dict[str, Any]:
+    """`Shape` keyword arguments for a class, a target, or a list of either."""
+    items = list(target) if isinstance(target, (list, tuple)) else [target]
+    for t in items:
+        if not isinstance(t, (Term, _Target)):
+            raise TypeError(
+                f"{t!r} is not a target: use a class, or a target like `subjects_of(p)`"
+            )
+    return {
+        "for_every": [t for t in items if isinstance(t, Term)],
+        "targets": [t for t in items if isinstance(t, _Target)],
+    }
 
 
 def _catalog(

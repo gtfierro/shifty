@@ -84,6 +84,11 @@
   `components.py`, `vav_cooling_only.py` for 4.1, and `sz_vav_ahu.py` for
   4.8) regenerate their `.shm` files exactly, importing one another as the
   `.shm` modules do.
+- In Python, `|` and `~` of terms are class logic where a line or test goes
+  (`points.each(BRICK.A | BRICK.B)` is either class) and path operators
+  where a path goes. `Module.validate(data, targets={shape: Class})` validates
+  against the module, giving untargeted shapes their nodes, and raises
+  `ValueError` instead of passing when no shape has a target.
 - A Shapeshift keyword can label a field or a group row (`value:`,
   `length:`): the colon sets it apart. Names and template parameters, which
   are written bare, still cannot be keywords.

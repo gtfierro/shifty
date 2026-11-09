@@ -85,12 +85,10 @@ ex:temp a brick:Zone_Air_Temperature_Sensor .
 
 def test_exported_shapes_validate(g36):
     vav, BRICK = g36["vav_cooling_only"].vav, g36["brick"].BRICK
-    # The G36 shapes have no targets; hold every VAV to the 4.1 shape.
-    check = ss.Module("check", base="urn:example/check/")
-    check.every_vav = Shape(vav.vav_cooling_only, for_every=BRICK.VAV)
-    shapes = rdflib.Graph().parse(data=check.export(), format="turtle")
     good = rdflib.Graph().parse(data=VAV_MODEL, format="turtle")
-    assert shifty.validate(good, shapes)[0]
+    # the G36 shapes have no targets: say which nodes to check
+    targets = {vav.vav_cooling_only: BRICK.VAV}
+    assert vav.validate(good, targets=targets)[0]
     # without the damper position command, the box fails
     bad = rdflib.Graph().parse(
         data=VAV_MODEL.replace(
@@ -98,7 +96,26 @@ def test_exported_shapes_validate(g36):
         ),
         format="turtle",
     )
-    assert not shifty.validate(bad, shapes)[0]
+    conforms, _report, text = vav.validate(bad, targets=targets)
+    assert not conforms and "urn:ex/vav" in text
+    # the same, with a target written into a module and shifty.validate
+    check = ss.Module("check", base="urn:example/check/")
+    check.every_vav = Shape(vav.vav_cooling_only, for_every=BRICK.VAV)
+    shapes = rdflib.Graph().parse(data=check.export(), format="turtle")
+    assert shifty.validate(good, shapes)[0] and not shifty.validate(bad, shapes)[0]
+    assert check.validate(good)[0]
+
+
+def test_validating_without_targets_is_an_error():
+    m = ss.Module("t", base="urn:t/")
+    m.S = Shape(EX.p.required())
+    data = rdflib.Graph()
+    with pytest.raises(ValueError, match="would check nothing"):
+        m.validate(data)
+    # targets may be classes, other targets, or lists of either
+    assert m.validate(data, targets={m.S: [EX.C, ss.subjects_of(EX.q)]})[0]
+    with pytest.raises(TypeError, match="not a target"):
+        m.validate(data, targets={m.S: "ex:C"})
 
 
 def test_write_shacl(tmp_path):
@@ -139,6 +156,36 @@ def test_assignment_defines_names():
         "with_underscore",
         "fed",
     ]
+
+
+def test_keywords_can_be_labels_but_not_names():
+    m = ss.Module("t", base="urn:t/")
+    m.S = Shape(
+        EX.p.has(length=EX.Length, node=EX.Node),
+        any_of(value=EX.v.required(), path=EX.w.required()),
+        language=EX.q.required(),
+    )
+    assert body(m) == (
+        "shape S {\n"
+        "  ex:p {\n"
+        "    length: ex:Length\n"
+        "    node:   ex:Node\n"
+        "  }\n"
+        "  any of { value: ex:v required } { path: ex:w required }\n"
+        "  language: ex:q required\n"
+        "}\n"
+    )
+    assert m.check() == []
+    ttl = m.export()
+    assert ":S.length\n" in ttl and ":S.value\n" in ttl
+    # a name or parameter is written bare, where a keyword reads as the keyword
+    with pytest.raises(ValueError, match="`value` reads as the keyword"):
+        m.value = Shape()
+    with pytest.raises(ValueError, match="parameter 'length'"):
+
+        @m.template
+        def t(length):
+            return EX.p.exactly(length)
 
 
 def test_definitions_are_checked():
@@ -259,6 +306,49 @@ def test_unnamed_shapes_are_written_in_place():
     )
     with pytest.raises(ValueError, match="only a named shape"):
         one(EX.p.each(Shape(EX.C, doc="hmm")))
+
+
+def test_or_and_not_of_classes_depend_on_where_they_go():
+    m = ss.Module("t")
+    m.fed = ss.Path(EX.feeds | EX.serves)  # where a path goes: `or`
+    m.S = Shape(
+        EX.A | EX.B,  # where a line goes: any of
+        ~EX.C,  # none of
+        ~(EX.D | EX.E),
+        EX.p.each(EX.A | EX.B),  # where a test goes, too
+        EX.q.at_least(1, ~EX.C),
+        (EX.A | EX.B) | EX.r.required(),  # one frame, not two
+        m.fed.required(),
+    )
+    assert body(m) == (
+        "path fed = ex:feeds or ex:serves\n\n"
+        "shape S {\n"
+        "  any of { is ex:A } { is ex:B }\n"
+        "  none of { is ex:C }\n"
+        "  none of { is ex:D } { is ex:E }\n"
+        "  ex:p each {\n"
+        "    any of { is ex:A } { is ex:B }\n"
+        "  }\n"
+        "  ex:q at least 1 is {\n"
+        "    none of { is ex:C }\n"
+        "  }\n"
+        "  any of { is ex:A } { is ex:B } { ex:r required }\n"
+        "  fed required\n"
+        "}\n"
+    )
+    # in a template, class parameters combine the same way
+    t = ss.Module("u")
+
+    @t.template
+    def either(x: Class, y: Class):
+        return EX.p.each(x | y)
+
+    assert "  ex:p each {\n    any of { is x } { is y }\n  }" in t.source()
+    # assigned, it could be either; a path expression with steps is a path
+    with pytest.raises(TypeError, match="could be a path or a shape"):
+        m.x = EX.A | EX.B
+    with pytest.raises(TypeError, match="is a path, not a line"):
+        Shape(EX.p / EX.q | EX.r)
 
 
 def test_paths_parenthesize_by_precedence():
