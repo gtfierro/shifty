@@ -36,7 +36,7 @@ def one(*lines, **named) -> str:
 def g36(monkeypatch):
     """The Python modules in `examples/shapeshift/g36`, imported."""
     monkeypatch.syspath_prepend(str(G36))
-    names = ("brick", "components", "vav_cooling_only", "sz_vav_ahu")
+    names = ("brick", "components", "vav_cooling_only", "vav_with_reheat", "sz_vav_ahu")
     return {name: importlib.import_module(name) for name in names}
 
 
@@ -46,6 +46,7 @@ def g36(monkeypatch):
         ("brick", "brick", "brick.shm"),
         ("components", "components", "components.shm"),
         ("vav_cooling_only", "vav", "4.1-vav-cooling-only.shm"),
+        ("vav_with_reheat", "reheat", "4.2-vav-with-reheat.shm"),
         ("sz_vav_ahu", "ahu", "4.8-sz-vav-ahu.shm"),
     ],
 )
@@ -104,6 +105,30 @@ def test_exported_shapes_validate(g36):
     shapes = rdflib.Graph().parse(data=check.export(), format="turtle")
     assert shifty.validate(good, shapes)[0] and not shifty.validate(bad, shapes)[0]
     assert check.validate(good)[0]
+
+
+def test_reheat_boxes_need_a_heating_signal(g36):
+    reheat, BRICK = g36["vav_with_reheat"].reheat, g36["brick"].BRICK
+    targets = {reheat.vav_with_reheat: BRICK.RVAV}
+    # without the Brick ontology, say outright that the box is also a VAV
+    box = VAV_MODEL.replace("ex:vav a brick:VAV", "ex:vav a brick:RVAV, brick:VAV")
+    # 4.1 alone is not enough: the box needs a heating signal
+    without = rdflib.Graph().parse(data=box, format="turtle")
+    assert not reheat.validate(without, targets=targets)[0]
+    # a heating command on the box is one
+    command = box + "ex:vav brick:hasPoint ex:htg .\nex:htg a brick:Heating_Command .\n"
+    assert reheat.validate(
+        rdflib.Graph().parse(data=command, format="turtle"), targets=targets
+    )[0]
+    # a position command on its heating coil is the other
+    coil = box + (
+        "ex:vav brick:hasPart ex:coil .\n"
+        "ex:coil a brick:Heating_Coil ; brick:hasPoint ex:pos .\n"
+        "ex:pos a brick:Position_Command .\n"
+    )
+    assert reheat.validate(
+        rdflib.Graph().parse(data=coil, format="turtle"), targets=targets
+    )[0]
 
 
 def test_validating_without_targets_is_an_error():

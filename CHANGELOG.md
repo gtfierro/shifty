@@ -81,9 +81,9 @@
   it; `write`, `check`, `export` (SHACL Turtle), and `write_shacl` (to a
   `.ttl` file) go through the CLI's pipeline.
   The Python files in `examples/shapeshift/g36/` (`brick.py`,
-  `components.py`, `vav_cooling_only.py` for 4.1, and `sz_vav_ahu.py` for
-  4.8) regenerate their `.shm` files exactly, importing one another as the
-  `.shm` modules do.
+  `components.py`, `vav_cooling_only.py` for 4.1, `vav_with_reheat.py` for
+  4.2, and `sz_vav_ahu.py` for 4.8) regenerate their `.shm` files exactly,
+  importing one another as the `.shm` modules do.
 - In Python, `|` and `~` of terms are class logic where a line or test goes
   (`points.each(BRICK.A | BRICK.B)` is either class) and path operators
   where a path goes. `Module.validate(data, targets={shape: Class})` validates

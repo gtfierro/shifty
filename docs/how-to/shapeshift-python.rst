@@ -210,6 +210,7 @@ Larger examples
 ---------------
 
 ``examples/shapeshift/g36/`` in the repository writes Guideline 36 sections 4.1
-(``vav_cooling_only.py``) and 4.8 (``sz_vav_ahu.py``), with the modules they
-import (``brick.py``, ``components.py``). Each regenerates its ``.shm`` file
+(``vav_cooling_only.py``), 4.2 (``vav_with_reheat.py``), and 4.8
+(``sz_vav_ahu.py``), with the modules they import (``brick.py``,
+``components.py``). Each regenerates its ``.shm`` file
 exactly.
