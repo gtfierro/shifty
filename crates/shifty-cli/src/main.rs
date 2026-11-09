@@ -11,6 +11,8 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 use std::time::{Duration, Instant};
 
+mod shape;
+
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 #[derive(Parser)]
@@ -32,6 +34,9 @@ enum Command {
     Infer(InferArgs),
     /// Show symbolic-repair structures for a data graph's violations.
     Repair(RepairArgs),
+    /// Write shapes in Shapeshift (`.shm`): check, export to SHACL, validate, REPL.
+    #[command(subcommand)]
+    Shape(shape::ShapeCommand),
 }
 
 #[derive(Args)]
@@ -252,6 +257,7 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
         Command::Validate(args) => validate(args),
         Command::Infer(args) => infer(args),
         Command::Repair(args) => repair(args),
+        Command::Shape(cmd) => shape::run(cmd),
     }
 }
 

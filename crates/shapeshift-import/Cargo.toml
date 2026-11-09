@@ -1,0 +1,23 @@
+[package]
+name = "shapeshift-import"
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+edition.workspace = true
+description = "Shapeshift import resolution: .shm modules, SHACL shapes graphs, and ontologies"
+repository.workspace = true
+documentation.workspace = true
+readme.workspace = true
+
+[dependencies]
+shapeshift-macro.workspace = true
+shapeshift-parse.workspace = true
+shifty-algebra.workspace = true
+shifty-parse.workspace = true
+oxrdf.workspace = true
+serde.workspace = true
+ureq.workspace = true
+sha2 = "0.11"
+
+[dev-dependencies]
+shifty-engine.workspace = true

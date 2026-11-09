@@ -155,6 +155,38 @@ impl Shape {
             _ => Vec::new(),
         }
     }
+
+    /// This shape with every child reference passed through `f`. Leaves are
+    /// returned unchanged. Used to re-index slots when merging arenas.
+    pub fn remap(&self, f: &impl Fn(ShapeId) -> ShapeId) -> Shape {
+        match self {
+            Shape::Annotated {
+                severity,
+                messages,
+                shape,
+            } => Shape::Annotated {
+                severity: severity.clone(),
+                messages: messages.clone(),
+                shape: f(*shape),
+            },
+            Shape::Not(c) => Shape::Not(f(*c)),
+            Shape::And(cs) => Shape::And(cs.iter().map(|c| f(*c)).collect()),
+            Shape::Or(cs) => Shape::Or(cs.iter().map(|c| f(*c)).collect()),
+            Shape::Count {
+                path,
+                min,
+                max,
+                qualifier,
+            } => Shape::Count {
+                path: path.clone(),
+                min: *min,
+                max: *max,
+                qualifier: f(*qualifier),
+            },
+            Shape::Expression(e) => Shape::Expression(e.remap(f)),
+            other => other.clone(),
+        }
+    }
 }
 
 impl ShapeArena {

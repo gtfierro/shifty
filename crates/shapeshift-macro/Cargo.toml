@@ -1,0 +1,19 @@
+[package]
+name = "shapeshift-macro"
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+edition.workspace = true
+description = "Shapeshift kernel builder: AST, template expansion, provenance, and build-time admission over the shifty shape algebra"
+repository.workspace = true
+documentation.workspace = true
+readme.workspace = true
+
+[dependencies]
+shifty-algebra.workspace = true
+shifty-opt.workspace = true
+oxrdf.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+spargebra.workspace = true
+regex.workspace = true

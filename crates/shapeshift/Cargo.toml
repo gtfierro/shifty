@@ -1,0 +1,25 @@
+[package]
+name = "shapeshift"
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+edition.workspace = true
+description = "Shapeshift, a macro language for RDF validation over the shifty shape algebra: sessions, reports, and the layers underneath"
+repository.workspace = true
+documentation.workspace = true
+readme.workspace = true
+
+[dependencies]
+shapeshift-macro.workspace = true
+shapeshift-parse.workspace = true
+shapeshift-raise.workspace = true
+shapeshift-import.workspace = true
+shifty-algebra.workspace = true
+shifty-parse.workspace = true
+shifty-engine.workspace = true
+oxrdf.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+tempfile = "3"

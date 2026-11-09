@@ -2,6 +2,29 @@
 
 ## Unreleased
 
+### Added
+
+- Shapeshift, a text language (`.shm`) for writing shapes that compiles to
+  the shape algebra and raises to readable SHACL Turtle. Crates:
+  `shapeshift-parse` (parser and formatter), `shapeshift-macro` (AST,
+  templates, compilation, admission), `shapeshift-import` (`.shm` and RDF
+  imports, vocabulary checks), `shapeshift-raise` (SHACL output),
+  `shapeshift` (sessions, images, reports in source terms), and
+  `tree-sitter-shapeshift` (editor grammar). Examples are in
+  `examples/shapeshift/`.
+- `shifty shape` subcommands: `check`, `build`, `fmt`, `export [--core]`,
+  `validate`, `imports`, `explain`, and `repl`. The REPL colors input and
+  underlines syntax errors with the tree-sitter grammar, shows the first error
+  inline, and completes keywords, shape names, and commands. A definition is
+  applied only if the whole session still builds. `:save` writes `.shm`;
+  `:image save` / `:image load` keep shapes, data, import settings, and
+  history in one JSON file.
+- Shape algebra: `Schema` carries imports, source origins, and docstrings,
+  and supports `merge`. `shifty_opt::refused_components` reports the odd
+  cycle that makes a component inadmissible. A shape-based target is
+  encoded in SHACL as `shapeshift:targetShape` / `shapeshift:targetFor`,
+  and the parser lowers it back to a `HasPath(self, T)` selector.
+
 ### Changed
 
 - Python shape-map `Key.kind` now describes authored SHACL families, such as

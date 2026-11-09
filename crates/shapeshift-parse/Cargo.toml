@@ -1,0 +1,17 @@
+[package]
+name = "shapeshift-parse"
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+edition.workspace = true
+description = "Shapeshift text front end: lexer, parser, and formatter"
+repository.workspace = true
+documentation.workspace = true
+readme.workspace = true
+
+[dependencies]
+shapeshift-macro.workspace = true
+shifty-algebra.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true

@@ -106,6 +106,94 @@ pub fn analyze(arena: &ShapeArena) -> Stratification {
     }
 }
 
+/// A refused recursive component, with one witness cycle through it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RefusedComponent {
+    /// Every shape in the strongly connected component, sorted.
+    pub shapes: Vec<ShapeId>,
+    /// A directed cycle with net-negative polarity, as consecutive edges: the
+    /// `to` of each edge is the `from` of the next, and the last edge returns
+    /// to the first edge's `from`. This is what a front end shows the author.
+    pub cycle: Vec<DepEdge>,
+}
+
+/// The admission check as a standalone function: every recursive component
+/// that is refused because it recurses through net negation, each with a
+/// witness cycle. Empty when the arena is admissible.
+///
+/// Runs on any arena, including an un-normalized one, so a front end can
+/// report recursion errors in the author's names before anything is
+/// validated.
+pub fn refused_components(arena: &ShapeArena) -> Vec<RefusedComponent> {
+    let analysis = analyze(arena);
+    if analysis.stratifiable {
+        return Vec::new();
+    }
+    let edges = dependency_edges(arena);
+    analysis
+        .strata
+        .iter()
+        .filter(|s| !s.stratifiable)
+        .map(|s| RefusedComponent {
+            shapes: s.shapes.clone(),
+            cycle: odd_cycle(&s.shapes, &edges).unwrap_or_default(),
+        })
+        .collect()
+}
+
+/// A directed closed walk with net-negative polarity inside `members`.
+///
+/// In a strongly connected component, the undirected sign test of
+/// [`sign_balanced`] fails exactly when some directed closed walk is negative,
+/// so a breadth-first search over `(shape, parity)` pairs from each member
+/// finds one whenever the component was refused. Starts are tried in id order,
+/// and BFS returns the shortest walk from that start, which keeps reports
+/// stable and short.
+pub fn odd_cycle(members: &[ShapeId], edges: &[DepEdge]) -> Option<Vec<DepEdge>> {
+    let set: HashSet<ShapeId> = members.iter().copied().collect();
+    let mut out: HashMap<ShapeId, Vec<DepEdge>> = HashMap::new();
+    for e in edges {
+        if set.contains(&e.from) && set.contains(&e.to) {
+            out.entry(e.from).or_default().push(*e);
+        }
+    }
+    let mut starts: Vec<ShapeId> = members.to_vec();
+    starts.sort();
+    for start in starts {
+        // parent[(node, parity)] = edge used to reach it
+        let mut parent: HashMap<(ShapeId, bool), DepEdge> = HashMap::new();
+        let mut queue = std::collections::VecDeque::new();
+        queue.push_back((start, false));
+        let mut seen: HashSet<(ShapeId, bool)> = HashSet::new();
+        seen.insert((start, false));
+        while let Some((node, parity)) = queue.pop_front() {
+            for e in out.get(&node).map(Vec::as_slice).unwrap_or(&[]) {
+                let next = (
+                    e.to,
+                    parity ^ (e.polarity == crate::deps::Polarity::Negative),
+                );
+                if seen.insert(next) {
+                    parent.insert(next, *e);
+                    if next == (start, true) {
+                        let mut cycle = Vec::new();
+                        let mut cur = next;
+                        while cur != (start, false) {
+                            let edge = parent[&cur];
+                            cycle.push(edge);
+                            let flip = edge.polarity == crate::deps::Polarity::Negative;
+                            cur = (edge.from, cur.1 ^ flip);
+                        }
+                        cycle.reverse();
+                        return Some(cycle);
+                    }
+                    queue.push_back(next);
+                }
+            }
+        }
+    }
+    None
+}
+
 /// Longest dependency-chain depth of each SCC (an SCC with no out-edges to other
 /// SCCs has depth 0; a dependant is one deeper than its deepest dependee).
 fn scc_depths(
@@ -188,6 +276,47 @@ mod tests {
 
     fn pred() -> NamedNode {
         NamedNode::new("http://ex/p").unwrap()
+    }
+
+    #[test]
+    fn refused_component_reports_a_negative_cycle() {
+        // S := ¬∃≥1 p.S  — one negation on the loop
+        let mut arena = ShapeArena::new();
+        let s = arena.reserve();
+        let c = arena.insert(Shape::Count {
+            path: Path::Pred(pred()),
+            min: Some(1),
+            max: None,
+            qualifier: s,
+        });
+        arena.set(s, Shape::Not(c));
+        let refused = refused_components(&arena);
+        assert_eq!(refused.len(), 1);
+        let cycle = &refused[0].cycle;
+        assert_eq!(cycle.first().unwrap().from, cycle.last().unwrap().to);
+        let negatives = cycle
+            .iter()
+            .filter(|e| e.polarity == crate::deps::Polarity::Negative)
+            .count();
+        assert_eq!(negatives % 2, 1);
+    }
+
+    #[test]
+    fn admissible_arena_has_no_refused_components() {
+        // S := ∀p.S
+        let mut arena = ShapeArena::new();
+        let s = arena.reserve();
+        let ns = arena.insert(Shape::Not(s));
+        arena.set(
+            s,
+            Shape::Count {
+                path: Path::Pred(pred()),
+                min: None,
+                max: Some(0),
+                qualifier: ns,
+            },
+        );
+        assert!(refused_components(&arena).is_empty());
     }
 
     #[test]

@@ -57,4 +57,24 @@ impl NodeExpr {
             NodeExpr::This | NodeExpr::Constant(_) | NodeExpr::Path(_) => {}
         }
     }
+
+    /// This expression with every `sh:filterShape` reference passed through
+    /// `f`.
+    pub fn remap(&self, f: &impl Fn(ShapeId) -> ShapeId) -> NodeExpr {
+        match self {
+            NodeExpr::Filter { input, shape } => NodeExpr::Filter {
+                input: Box::new(input.remap(f)),
+                shape: f(*shape),
+            },
+            NodeExpr::Intersection(es) => {
+                NodeExpr::Intersection(es.iter().map(|e| e.remap(f)).collect())
+            }
+            NodeExpr::Union(es) => NodeExpr::Union(es.iter().map(|e| e.remap(f)).collect()),
+            NodeExpr::Function { iri, args } => NodeExpr::Function {
+                iri: iri.clone(),
+                args: args.iter().map(|e| e.remap(f)).collect(),
+            },
+            other => other.clone(),
+        }
+    }
 }

@@ -1,0 +1,45 @@
+-- The worked example from the Shapeshift design, made self-contained:
+-- it imports its sensor vocabulary from sensors.shm.
+base   <https://example.org/shapes/hvac>
+import "./sensors.shm" as sensors
+prefix brick: <https://brickschema.org/schema/Brick#>
+prefix ex: <https://example.org/building#>
+
+shape HasPointOf(cls) {
+  brick:hasPoint at least 1 is a cls
+}
+
+doc "A VAV must report supply-air temperature and be fed by exactly one AHU."
+shape VAV for every brick:VAV {
+  include HasPointOf(brick:Supply_Air_Temperature_Sensor)
+  brick:hasPoint each matches sensors.Sensor
+  fedBy: {
+    brick:isFedBy
+    exactly 1
+    each a brick:AHU
+    doc "Dual-duct VAVs are modelled as two VAVs."
+    message "A VAV must be fed by exactly one AHU."
+  }
+  unit: { brick:hasUnit; optional; each one of brick:Degree_Celsius brick:Degree_Fahrenheit }
+  when { brick:hasPoint at least 1 is a brick:Economizer_Status }
+  then { brick:hasPoint at least 1 is a brick:Outside_Air_Damper }
+}
+
+shape ReheatVAV for every brick:RVAV {
+  include VAV.fedBy -- one named field, not the whole shape
+  reheat: brick:hasPoint at least 1 is a brick:Reheat_Valve_Command
+}
+
+shape Space for every brick:Space {
+  brick:hasPart each matches Space
+  rdf:type required
+  only these properties
+}
+
+shape Zone for every brick:HVAC_Zone {
+  severity warning
+  temp: brick:hasPoint at least 1 is a brick:Zone_Air_Temperature_Sensor
+  at least 2 of { brick:hasPart required } { brick:isPartOf required } { brick:feeds required }
+  exactly one of { brick:hasTag required } { rdfs:label required, each string }
+  none of { brick:hasLocation required }
+}

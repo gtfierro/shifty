@@ -96,6 +96,26 @@ pub fn normalize_with_mapping_and_analysis(
         list.sort();
         list.dedup();
     }
+    // Authoring provenance follows the same memo: a merged slot keeps every
+    // origin of every raw slot that collapsed onto it, so a report against the
+    // normalized schema can still name each line the author wrote.
+    let mut origins: HashMap<ShapeId, Vec<shifty_algebra::Origin>> = HashMap::new();
+    for (old, old_origins) in &schema.origins {
+        let Some(new) = z.memo.get(old) else { continue };
+        let list = origins.entry(*new).or_default();
+        for origin in old_origins {
+            let origin = origin.remap(&|id| z.memo.get(&id).copied().unwrap_or(id));
+            if !list.contains(&origin) {
+                list.push(origin);
+            }
+        }
+    }
+    let mut docs: HashMap<ShapeId, String> = HashMap::new();
+    for (old, doc) in &schema.docs {
+        if let Some(new) = z.memo.get(old) {
+            docs.entry(*new).or_insert_with(|| doc.clone());
+        }
+    }
     let shape_map = (0..schema.arena.len())
         .map(|index| z.memo.get(&ShapeId(index as u32)).copied())
         .collect();
@@ -108,6 +128,9 @@ pub fn normalize_with_mapping_and_analysis(
         // Normalization rewrites the algebra, never the vocabulary it was
         // authored in; reports built from the normalized schema need it too.
         prefixes: schema.prefixes.clone(),
+        imports: schema.imports.clone(),
+        origins,
+        docs,
     };
     normalized.arena.debug_assert_finalized();
     NormalizedSchema {
@@ -748,6 +771,7 @@ mod tests {
             names: Default::default(),
             sources: Default::default(),
             prefixes: Default::default(),
+            ..Default::default()
         }
     }
 
@@ -1255,6 +1279,7 @@ mod tests {
             names: Default::default(),
             sources: Default::default(),
             prefixes: Default::default(),
+            ..Default::default()
         };
         let n = normalize(&schema);
         assert_eq!(n.statements[0].selector, Selector::HasOut(q));
@@ -1276,6 +1301,7 @@ mod tests {
             names: Default::default(),
             sources: Default::default(),
             prefixes: Default::default(),
+            ..Default::default()
         };
         let n = normalize(&schema);
         assert_eq!(n.statements[0].selector, Selector::HasIn(q));
@@ -1304,6 +1330,7 @@ mod tests {
             names: Default::default(),
             sources: Default::default(),
             prefixes: Default::default(),
+            ..Default::default()
         };
         let n = normalize(&schema);
         assert_eq!(n.statements.len(), 1);
@@ -1332,6 +1359,7 @@ mod tests {
             names: Default::default(),
             sources: Default::default(),
             prefixes: Default::default(),
+            ..Default::default()
         };
         let n = normalize_with_mapping(&schema);
         assert_eq!(n.schema.statements.len(), 1);

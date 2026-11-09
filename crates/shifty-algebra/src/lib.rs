@@ -20,10 +20,14 @@
 //! - [`rule`] — SHACL-AF rule skeleton (gap-analysis AF-R).
 //! - [`sparql`] — opaque SPARQL escape-hatch leaves.
 //! - [`schema`] — a SHACL schema `S = { (sel, φ) }` plus rules.
+//! - [`provenance`] — authoring origins of slots built by a text front end.
+//! - [`import`] — import declarations carried by a schema.
 
 pub mod expr;
+pub mod import;
 pub mod path;
 pub mod prefix;
+pub mod provenance;
 pub mod render;
 pub mod rule;
 pub mod schema;
@@ -35,10 +39,12 @@ pub mod term;
 pub mod value_type;
 
 pub use expr::NodeExpr;
+pub use import::{Import, ImportKind, ImportSource};
 pub use path::Path;
 pub use prefix::Prefixes;
+pub use provenance::{BooleanFrame, Origin, OriginKind, SourceLocation};
 pub use rule::{Rule, RuleHead};
-pub use schema::{Schema, Statement};
+pub use schema::{Schema, ShapeRemap, Statement};
 pub use selector::Selector;
 pub use severity::Severity;
 pub use shape::{ConstraintKind, Shape, ShapeArena, ShapeId};

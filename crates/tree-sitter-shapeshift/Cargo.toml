@@ -1,0 +1,25 @@
+[package]
+name = "tree-sitter-shapeshift"
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+edition.workspace = true
+description = "Shapeshift grammar for tree-sitter: highlighting and as-you-type feedback for editors and the REPL"
+repository.workspace = true
+documentation.workspace = true
+readme.workspace = true
+build = "bindings/rust/build.rs"
+include = ["bindings/rust/*", "grammar.js", "queries/*", "src/*", "tree-sitter.json"]
+
+[lib]
+path = "bindings/rust/lib.rs"
+
+[dependencies]
+tree-sitter-language = "0.1"
+
+[build-dependencies]
+cc = "1.2"
+
+[dev-dependencies]
+tree-sitter = "0.25"
+shapeshift-parse.workspace = true
