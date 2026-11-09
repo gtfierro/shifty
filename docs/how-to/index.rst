@@ -27,10 +27,13 @@ Experimental
    :maxdepth: 1
 
    repair
+   generate-violations
 
 The :doc:`repair` guide covers candidate edits for supported constraint kinds.
 The API may change. Applications choose values and validate each candidate
-before applying it.
+before applying it. :doc:`generate-violations` runs in the other direction. It
+injects violations with known repairs into a conforming graph to build repair
+benchmarks.
 
 :doc:`../shapeshift/index` is a language for writing SHACL shapes, with a
 Python module that writes it. Its pages are experimental too.

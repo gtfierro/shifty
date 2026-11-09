@@ -4,6 +4,14 @@
 
 ### Added
 
+- Experimental `shifty.multivio` and `python -m shifty.multivio` generate
+  multi-violation repair benchmarks from a conforming reference graph. Each
+  case has an invalid graph, the injected delta, and the inverse delta as the
+  ground-truth repair. Candidate violations come from satisfaction evidence
+  through a VIO/SAT rewrite over the normalized algebra. Cases are drawn by
+  weighted reservoir sampling with per-predicate and per-kind weights, then
+  composed without conflicts and checked by revalidation. Seeded output is
+  reproducible across processes. See `docs/how-to/generate-violations.rst`.
 - Shapeshift, a text language (`.shm`) for writing shapes that compiles to
   the shape algebra and raises to readable SHACL Turtle. It is experimental,
   and so is its Rust interface: the `shifty-experimental` crate, as
