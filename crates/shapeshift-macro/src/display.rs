@@ -21,12 +21,48 @@ pub fn format_module(m: &Module) -> String {
         }
         o.extend((0..m.prefixes.len()).map(HeaderRef::Prefix));
         o.extend((0..m.imports.len()).map(HeaderRef::Import));
+        o.extend((0..m.paths.len()).map(HeaderRef::Path));
         o
     } else {
-        m.header_order.clone()
+        let mut o = m.header_order.clone();
+        // Paths declared by hand (not parsed) may be missing from the order.
+        for i in 0..m.paths.len() {
+            if !o.contains(&HeaderRef::Path(i)) {
+                o.push(HeaderRef::Path(i));
+            }
+        }
+        o
     };
+    let mut last_was_path = false;
     for h in &order {
+        let is_path = matches!(h, HeaderRef::Path(_));
+        let documented = match h {
+            HeaderRef::Path(i) => {
+                !m.paths[*i].annotations.is_empty() || !m.paths[*i].comments.is_empty()
+            }
+            _ => false,
+        };
+        if (is_path != last_was_path || (is_path && documented)) && !out.is_empty() {
+            out.push('\n');
+        }
+        last_was_path = is_path;
         match h {
+            HeaderRef::Path(i) => {
+                let l = &m.paths[*i];
+                for c in &l.comments {
+                    writeln!(out, "{}", comment(c)).unwrap();
+                }
+                annotations(&mut out, &l.annotations, "");
+                let mut line = if l.params.is_empty() {
+                    format!("path {} = {}", l.name, path(&l.path))
+                } else {
+                    format!("path {}({}) = {}", l.name, params(&l.params), path(&l.path))
+                };
+                if let Some(c) = &l.trailing_comment {
+                    write!(line, "  {}", comment(c)).unwrap();
+                }
+                writeln!(out, "{line}").unwrap();
+            }
             HeaderRef::Base => {
                 if let Some(b) = &m.base {
                     writeln!(out, "base <{b}>").unwrap();
@@ -59,10 +95,14 @@ pub fn format_module(m: &Module) -> String {
             }
         }
     }
+    let mut prev_bare = false;
     for s in &m.shapes {
-        if !out.is_empty() {
+        // Undocumented one-line shapes in a row stay together, like a table.
+        let bare = s.annotations.is_empty() && one_line_body(s).is_some();
+        if !out.is_empty() && !(bare && prev_bare && s.comments.is_empty()) {
             out.push('\n');
         }
+        prev_bare = bare;
         format_shape(&mut out, s);
     }
     if !m.trailing_comments.is_empty() {
@@ -101,7 +141,7 @@ fn format_shape(out: &mut String, s: &ShapeDecl) {
     annotations(out, &s.annotations, "");
     let mut head = format!("shape {}", s.name);
     if !s.params.is_empty() {
-        write!(head, "({})", s.params.join(", ")).unwrap();
+        write!(head, "({})", params(&s.params)).unwrap();
     }
     let inline_target = s.targets.len() == 1 && s.targets[0].trailing_comment.is_none();
     if inline_target {
@@ -118,6 +158,11 @@ fn format_shape(out: &mut String, s: &ShapeDecl) {
         if !s.targets.is_empty() {
             out.push('\n');
         }
+    }
+    if let Some(t) = one_line_body(s) {
+        // `head` is already written
+        writeln!(out, " {{ {t} }}").unwrap();
+        return;
     }
     if s.body.is_empty() && s.trailing_comments.is_empty() {
         out.push_str(if !s.targets.is_empty() && !inline_target {
@@ -137,6 +182,26 @@ fn format_shape(out: &mut String, s: &ShapeDecl) {
         writeln!(out, "  {}", comment(c)).unwrap();
     }
     out.push_str("}\n");
+}
+
+/// The body of a shape that fits on its header line: `shape S { is a C }`.
+fn one_line_body(s: &ShapeDecl) -> Option<String> {
+    let inline_target = s.targets.len() == 1 && s.targets[0].trailing_comment.is_none();
+    if !s.trailing_comments.is_empty() || !(s.targets.is_empty() || inline_target) {
+        return None;
+    }
+    let [only] = s.body.as_slice() else {
+        return None;
+    };
+    let t = inline_line(only)?;
+    let mut head = format!("shape {}", s.name);
+    if !s.params.is_empty() {
+        write!(head, "({})", params(&s.params)).unwrap();
+    }
+    if inline_target {
+        write!(head, " {}", target(&s.targets[0].kind)).unwrap();
+    }
+    (head.len() + t.len() + 5 <= 88).then_some(t)
 }
 
 fn lines(out: &mut String, ls: &[Line], depth: usize) {
@@ -173,11 +238,24 @@ fn line(out: &mut String, l: &Line, depth: usize) {
             annotations(out, &l.annotations, &inner);
             writeln!(out, "{indent}}}").unwrap();
         }
+        LineKind::Field(Field {
+            path: PathExpr::Call(c),
+            name: None,
+            count: None,
+            qualifiers,
+            ..
+        }) if qualifiers.is_empty() => {
+            write!(out, "{indent}").unwrap();
+            call_text(out, c, depth);
+            writeln!(out, "{trailing}").unwrap();
+        }
         LineKind::Field(f) => {
             writeln!(out, "{indent}{}{trailing}", field_text(f)).unwrap();
         }
         LineKind::Include(c) => {
-            writeln!(out, "{indent}include {}{trailing}", call(c)).unwrap();
+            write!(out, "{indent}include ").unwrap();
+            call_text(out, c, depth);
+            writeln!(out, "{trailing}").unwrap();
         }
         LineKind::Closed => {
             writeln!(out, "{indent}only these properties{trailing}").unwrap();
@@ -185,35 +263,251 @@ fn line(out: &mut String, l: &Line, depth: usize) {
         LineKind::Boolean(b) => {
             boolean(out, b, depth, &trailing);
         }
+        LineKind::Is(t) => {
+            writeln!(out, "{indent}{}{trailing}", is_line(t)).unwrap();
+        }
+        LineKind::Group(g) => group(out, g, depth, &trailing),
     }
 }
 
+fn is_line(t: &Test) -> String {
+    match t {
+        Test::Is(v @ Value::Node(_)) => format!("is one of {}", value(v)),
+        Test::Is(v) => format!("is {}", value(v)),
+        other => format!("is {}", test(other)),
+    }
+}
+
+/// A call, with its block opened over several lines when it is long.
+fn call_text(out: &mut String, c: &Call, depth: usize) {
+    out.push_str(&call_head(c));
+    if let Some(b) = &c.block {
+        out.push(' ');
+        block_text(out, b, depth);
+    }
+}
+
+/// `PATH COUNT?`, the head of a group.
+fn group_head(g: &Group) -> String {
+    // `T(x) { ... }` alone on a line composes `T`; a group along a path
+    // template is written in parentheses.
+    let mut head = match &g.path {
+        PathExpr::Call(_) => format!("({})", path(&g.path)),
+        p => path(p),
+    };
+    if let Some(c) = &g.count {
+        write!(head, " {}", count(c)).unwrap();
+    }
+    head
+}
+
+fn group(out: &mut String, u: &Group, depth: usize, trailing: &str) {
+    let indent = "  ".repeat(depth);
+    let head = group_head(u);
+    if let Some(t) = group_inline(u) {
+        writeln!(out, "{indent}{t}{trailing}").unwrap();
+        return;
+    }
+    writeln!(out, "{indent}{head} {{{trailing}").unwrap();
+    let inner = "  ".repeat(depth + 1);
+    // Align the items of labelled rows, as point lists are usually written.
+    let width = u
+        .rows
+        .iter()
+        .filter_map(|r| r.label.as_ref().map(|l| l.len() + 1))
+        .max()
+        .unwrap_or(0);
+    for r in &u.rows {
+        for c in &r.comments {
+            writeln!(out, "{inner}{}", comment(c)).unwrap();
+        }
+        let mut text = String::new();
+        if let Some(l) = &r.label {
+            write!(text, "{:<width$} ", format!("{l}:")).unwrap();
+        }
+        text.push_str(&row_tail(r));
+        out.push_str(&inner);
+        out.push_str(&text);
+        if let Some(b) = &r.body {
+            out.push(' ');
+            block_text(out, b, depth + 1);
+        }
+        if let Some(c) = &r.trailing_comment {
+            write!(out, "  {}", comment(c)).unwrap();
+        }
+        out.push('\n');
+    }
+    for c in &u.trailing_comments {
+        writeln!(out, "{inner}{}", comment(c)).unwrap();
+    }
+    writeln!(out, "{indent}}}").unwrap();
+}
+
+/// A row without its body: `label: ITEM COUNT annotations`.
+fn row_head(r: &Row) -> String {
+    match &r.label {
+        Some(l) => format!("{l}: {}", row_tail(r)),
+        None => row_tail(r),
+    }
+}
+
+fn row_tail(r: &Row) -> String {
+    let mut text = row_item(&r.item);
+    if let Some(c) = &r.count {
+        write!(text, " {}", count(c)).unwrap();
+    }
+    let a = &r.annotations;
+    if let Some(s) = &a.severity {
+        write!(text, " severity {}", s.word()).unwrap();
+    }
+    if let Some(d) = &a.doc {
+        write!(text, " doc {}", string_lit(d)).unwrap();
+    }
+    for m in &a.messages {
+        write!(text, " message {}", string_lit(m)).unwrap();
+    }
+    text
+}
+
+pub fn row_item(i: &Item) -> String {
+    match i {
+        Item::Class(n) => node(n),
+        Item::Shape(c) => call(c),
+    }
+}
+
+/// `a, b = ex:x`
+pub fn params(ps: &[Param]) -> String {
+    ps.iter()
+        .map(|p| match &p.default {
+            Some(d) => format!("{} = {}", p.name, arg(d)),
+            None => p.name.clone(),
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// A line in one-line form (comments dropped), for inline shapes in reports.
+pub fn line_text(l: &Line) -> String {
+    match &l.kind {
+        LineKind::Field(f) => field_text(f),
+        LineKind::Include(c) => format!("include {}", call(c)),
+        LineKind::Closed => "only these properties".into(),
+        LineKind::Is(t) => is_line(t),
+        LineKind::Boolean(b) => {
+            let blocks: Vec<String> = b.blocks.iter().map(block_one_line).collect();
+            match b.frame {
+                Frame::When => format!("when {} then {}", blocks[0], blocks[1]),
+                Frame::AllOf => format!("all of {}", blocks.join(" ")),
+                Frame::AnyOf => format!("any of {}", blocks.join(" ")),
+                Frame::ExactlyOneOf => format!("exactly one of {}", blocks.join(" ")),
+                Frame::NoneOf => format!("none of {}", blocks.join(" ")),
+                Frame::AtLeast(n) => format!("at least {n} of {}", blocks.join(" ")),
+            }
+        }
+        LineKind::Group(u) => {
+            let head = group_head(u);
+            let rows: Vec<String> = u
+                .rows
+                .iter()
+                .map(|r| {
+                    let mut t = String::new();
+                    if let Some(l) = &r.label {
+                        write!(t, "{l}: ").unwrap();
+                    }
+                    t.push_str(&row_item(&r.item));
+                    if let Some(c) = &r.count {
+                        write!(t, " {}", count(c)).unwrap();
+                    }
+                    if let Some(b) = &r.body {
+                        write!(t, " {}", block_one_line(b)).unwrap();
+                    }
+                    t
+                })
+                .collect();
+            if rows.is_empty() {
+                format!("{head} {{ }}")
+            } else {
+                format!("{head} {{ {} }}", rows.join("; "))
+            }
+        }
+    }
+}
+
+fn block_one_line(b: &Block) -> String {
+    if b.lines.is_empty() {
+        "{ }".into()
+    } else {
+        format!(
+            "{{ {} }}",
+            b.lines.iter().map(line_text).collect::<Vec<_>>().join("; ")
+        )
+    }
+}
+
+/// A line in one-line form, if it reads well that way (no comments, no
+/// annotations, nothing that is better as a table).
+fn inline_line(l: &Line) -> Option<String> {
+    if !l.comments.is_empty() || l.trailing_comment.is_some() || !l.annotations.is_empty() {
+        return None;
+    }
+    match &l.kind {
+        LineKind::Field(f) if !f.block => Some(field_text(f)),
+        LineKind::Include(c) => Some(format!("include {}", call(c))),
+        LineKind::Closed => Some("only these properties".into()),
+        LineKind::Is(t) => Some(is_line(t)),
+        LineKind::Group(g) => group_inline(g),
+        _ => None,
+    }
+}
+
+/// `inputs { SAT_AVG; MAT_AVG }`: a group stays on one line when it is
+/// short and is not a table of labelled rows.
+fn group_inline(u: &Group) -> Option<String> {
+    if !u.trailing_comments.is_empty() {
+        return None;
+    }
+    let labelled = u.rows.iter().filter(|r| r.label.is_some()).count();
+    if labelled > 1 {
+        return None;
+    }
+    let mut rows = Vec::new();
+    for r in &u.rows {
+        if !r.comments.is_empty() || r.trailing_comment.is_some() {
+            return None;
+        }
+        let mut t = row_head(r);
+        if let Some(b) = &r.body {
+            t.push(' ');
+            t.push_str(&inline_block(b)?);
+        }
+        rows.push(t);
+    }
+    let head = group_head(u);
+    let text = if rows.is_empty() {
+        format!("{head} {{ }}")
+    } else {
+        format!("{head} {{ {} }}", rows.join("; "))
+    };
+    (text.len() <= 72).then_some(text)
+}
+
 fn inline_block(b: &Block) -> Option<String> {
+    inline_block_within(b, 72)
+}
+
+fn inline_block_within(b: &Block, max: usize) -> Option<String> {
     if !b.trailing_comments.is_empty() {
         return None;
     }
-    let parts: Option<Vec<String>> = b
-        .lines
-        .iter()
-        .map(|l| {
-            if !l.comments.is_empty() || l.trailing_comment.is_some() || !l.annotations.is_empty() {
-                return None;
-            }
-            match &l.kind {
-                LineKind::Field(f) if !f.block => Some(field_text(f)),
-                LineKind::Include(c) => Some(format!("include {}", call(c))),
-                LineKind::Closed => Some("only these properties".into()),
-                _ => None,
-            }
-        })
-        .collect();
+    let parts: Option<Vec<String>> = b.lines.iter().map(inline_line).collect();
     let parts = parts?;
     let text = if parts.is_empty() {
         "{ }".to_string()
     } else {
         format!("{{ {} }}", parts.join("; "))
     };
-    (text.len() <= 72).then_some(text)
+    (text.len() <= max).then_some(text)
 }
 
 fn block_text(out: &mut String, b: &Block, depth: usize) {
@@ -248,6 +542,28 @@ fn boolean(out: &mut String, b: &Boolean, depth: usize, trailing: &str) {
                 Frame::AtLeast(n) => format!("at least {n} of"),
                 Frame::When => unreachable!(),
             };
+            let pad = indent.len() + phrase.len() + 1;
+            let inline: Option<Vec<String>> = b
+                .blocks
+                .iter()
+                .map(|blk| inline_block_within(blk, 88usize.saturating_sub(pad)))
+                .collect();
+            if let Some(blocks) = inline {
+                let one = format!("{indent}{phrase} {}", blocks.join(" "));
+                if one.len() <= 88 || blocks.len() < 2 {
+                    writeln!(out, "{one}{trailing}").unwrap();
+                } else {
+                    // any of { ... }
+                    //        { ... }
+                    let pad = " ".repeat(pad);
+                    write!(out, "{indent}{phrase} {}", blocks[0]).unwrap();
+                    for blk in &blocks[1..] {
+                        write!(out, "\n{pad}{blk}").unwrap();
+                    }
+                    writeln!(out, "{trailing}").unwrap();
+                }
+                return;
+            }
             write!(out, "{indent}{phrase}").unwrap();
             for blk in &b.blocks {
                 out.push(' ');
@@ -321,6 +637,7 @@ pub fn qualifier(q: &Qualifier) -> String {
                 QualifiedBound::Exactly => "exactly",
             };
             let t = match t {
+                Test::Is(v @ Value::Node(_)) => format!("one of {}", value(v)),
                 Test::Is(v) => value(v),
                 other => test(other),
             };
@@ -338,7 +655,10 @@ pub fn test(t: &Test) -> String {
     match t {
         Test::Class(n) => format!("a {}", node(n)),
         Test::Matches(c) => format!("matches {}", call(c)),
+        // a bare node is a class; node equality is `one of`
+        Test::Is(v @ Value::Node(_)) => format!("one of {}", value(v)),
         Test::Is(v) => format!("is {}", value(v)),
+        Test::Item(i) => row_item(i),
         Test::OneOf(vs) => format!(
             "one of {}",
             vs.iter().map(value).collect::<Vec<_>>().join(" ")
@@ -368,6 +688,7 @@ pub fn test(t: &Test) -> String {
                 format!("pattern {} flags {}", string_lit(regex), string_lit(flags))
             }
         }
+        Test::Shape(b) => block_one_line(b),
         Test::Language(ls) => format!(
             "language {}",
             ls.iter()
@@ -399,15 +720,26 @@ pub fn value(v: &Value) -> String {
 }
 
 pub fn call(c: &Call) -> String {
-    if c.args.is_empty() {
-        c.name.clone()
-    } else {
-        format!(
-            "{}({})",
-            c.name,
-            c.args.iter().map(arg).collect::<Vec<_>>().join(", ")
-        )
+    match &c.block {
+        None => call_head(c),
+        Some(b) => format!("{} {}", call_head(c), block_one_line(b)),
     }
+}
+
+/// `T(a, b = c)`, without the block.
+pub fn call_head(c: &Call) -> String {
+    if c.args.is_empty() && c.named.is_empty() {
+        if c.block.is_some() {
+            return format!("{}()", c.name);
+        }
+        return c.name.clone();
+    }
+    let args = c.args.iter().map(arg).chain(
+        c.named
+            .iter()
+            .map(|n| format!("{} = {}", n.name, arg(&n.value))),
+    );
+    format!("{}({})", c.name, args.collect::<Vec<_>>().join(", "))
 }
 
 pub fn arg(a: &Arg) -> String {
@@ -417,6 +749,7 @@ pub fn arg(a: &Arg) -> String {
         Arg::Path(p) => path(p),
         Arg::Int(n) => n.to_string(),
         Arg::Call(c) => call(c),
+        Arg::Shape(b) => block_one_line(b),
     }
 }
 
@@ -449,6 +782,7 @@ pub fn path(p: &PathExpr) -> String {
         PathExpr::Star(i) => format!("{}*", wrap(i, 2)),
         PathExpr::Plus(i) => format!("{}+", wrap(i, 2)),
         PathExpr::Optional(i) => format!("{}?", wrap(i, 2)),
+        PathExpr::Call(c) => call(c),
     }
 }
 

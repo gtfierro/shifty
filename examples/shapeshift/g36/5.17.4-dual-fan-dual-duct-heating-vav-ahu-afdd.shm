@@ -1,0 +1,34 @@
+-- ASHRAE Guideline 36-2021, 5.17.4: AFDD for dual-fan dual-duct heating VAV air handling units.
+-- Translated from BuildingMOTIF's
+-- libraries/ashrae/guideline36/5.17.4-dual-fan-dual-duct-heating-vav-ahu-afdd.ttl.
+base <urn:ashrae/g36/5.17.4/dual-fan-dual-duct-heating-vav-ahu-afdd/>
+import "./brick.shm"
+import "./afdd.shm"
+import "./components.shm" as components
+prefix brick: <https://brickschema.org/schema/Brick#>
+
+doc "FC#1: Duct static pressure is too low with fan at full speed"
+shape fc-1 {
+  is brick:Air_Handling_Unit
+  points required { DSP; DSPSP }
+  -- The library puts `sh:qualifiedMinCount 1` inside the value shape here,
+  -- where SHACL ignores it, so its fan requirement never fails. This is
+  -- the intended requirement, as in 5.16.14.
+  parts required {
+    vfd: components.variable-speed-fan-vfd { points required { VFDSPD } }  -- TODO only applies to supply fan
+  }
+}
+
+doc "FC#2: SAT too low in full heating"
+shape fc-2 {
+  is brick:Air_Handling_Unit
+  points required { SAT_AVG; SATSP }
+  parts required { hw_coil: brick:Hot_Water_Coil { points { HC } } }
+}
+
+doc "FC#3: Temperature rise across inactive heating coil"
+shape fc-3 {
+  is brick:Air_Handling_Unit
+  points required { RAT_AVG; SAT_AVG }
+  parts required { hw_coil: brick:Hot_Water_Coil { points { HC } } }
+}

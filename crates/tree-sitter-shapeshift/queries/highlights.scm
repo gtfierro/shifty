@@ -11,7 +11,7 @@
   "base" "prefix" "import" "as"
   "shape" "for" "every" "node" "value" "of" "with" "matching" "sparql"
   "include" "only" "these" "properties"
-  "when" "then" "one"
+  "when" "then" "one" "path"
 ] @keyword
 
 [
@@ -29,7 +29,11 @@
 (self) @variable.builtin
 
 (shape_decl name: (identifier) @type.definition)
-(parameters param: (identifier) @variable.parameter)
+(path_decl name: (identifier) @function.macro)
+(group path: (identifier) @function.macro)
+(row name: (label) @property)
+(parameter name: (identifier) @variable.parameter)
+(named_argument name: (identifier) @variable.parameter)
 (call name: (_) @function)
 (test class: (_) @type)
 (target class: (_) @type)

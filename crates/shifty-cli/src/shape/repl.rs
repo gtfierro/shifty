@@ -183,7 +183,7 @@ fn color_for(node: tree_sitter::Node) -> Option<&'static str> {
             return Some(match parent {
                 "datatype" => "36",
                 "shape_decl" | "base_decl" | "prefix_decl" | "import_decl" | "target"
-                | "boolean" | "frame" | "include" | "closed" => "1;35",
+                | "boolean" | "frame" | "include" | "closed" | "path_decl" | "is_line" => "1;35",
                 "annotation" => "33",
                 _ => "34",
             });
@@ -203,8 +203,9 @@ fn color_for(node: tree_sitter::Node) -> Option<&'static str> {
         "self" => Some("35"),
         "identifier" => Some(match parent {
             "shape_decl" => "1;33",
+            "path_decl" | "group" => "1;36",
             "call" => "1;34",
-            "parameters" => "3",
+            "parameter" | "named_argument" => "3",
             _ => "0",
         }),
         _ => None,
@@ -577,7 +578,7 @@ impl Repl {
                     let params = if s.params.is_empty() {
                         String::new()
                     } else {
-                        format!("({})", s.params.join(", "))
+                        format!("({})", shapeshift::macros::display::params(&s.params))
                     };
                     let targets = s.targets.len();
                     let t = match targets {

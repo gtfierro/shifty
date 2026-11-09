@@ -7,6 +7,7 @@
 //! - [`ast`] — the serializable AST, the interchange format between layers.
 //! - [`build`] — two-phase construction of named shapes, template expansion
 //!   with inferred parameter sorts, provenance, and build-time admission.
+//! - [`groups`] — path aliases and field groups, rewritten into field lines.
 //! - [`display`] — AST back to canonical text (the formatter's back half).
 //! - [`diagnostic`] — build-time diagnostics shared by every layer.
 //! - [`vocab`] — vocabulary index from imported ontologies.
@@ -14,10 +15,12 @@
 //! Nothing here defines a constraint of its own: every construct bottoms out
 //! in an arena `Shape` built with shifty's smart constructors.
 
+pub mod args;
 pub mod ast;
 pub mod build;
 pub mod diagnostic;
 pub mod display;
+pub mod groups;
 pub mod vocab;
 
 pub use build::{

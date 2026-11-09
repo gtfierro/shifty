@@ -45,6 +45,19 @@ fn a_definition_that_does_not_build_leaves_the_session_unchanged() {
 }
 
 #[test]
+fn path_aliases_persist_across_inputs() {
+    let mut s = Session::new("t");
+    s.apply(PREFIXES);
+    assert!(s.apply("path names = ex:name").accepted);
+    let r = s.apply("shape Named { names { first: ex:Name } }");
+    assert!(r.accepted, "{:?}", r.diagnostics);
+    // redefining the alias replaces it
+    assert!(s.apply("path names = ex:label").accepted);
+    assert_eq!(s.module.paths.len(), 1);
+    assert!(s.source().contains("path names = ex:label"));
+}
+
+#[test]
 fn removing_a_shape_that_others_use_is_refused() {
     let mut s = Session::new("t");
     s.apply(PREFIXES);

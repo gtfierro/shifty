@@ -38,6 +38,8 @@ pub enum Tok {
     Star,
     Plus,
     Question,
+    /// `=`
+    Eq,
     Newline,
     /// `-- text` (text without the dashes, trimmed).
     Comment(String),
@@ -64,6 +66,7 @@ impl Tok {
             Tok::Star => "`*`".into(),
             Tok::Plus => "`+`".into(),
             Tok::Question => "`?`".into(),
+            Tok::Eq => "`=`".into(),
             Tok::Newline => "end of line".into(),
             Tok::Comment(_) => "a comment".into(),
             Tok::Eof => "end of file".into(),
@@ -140,11 +143,19 @@ pub fn lex(src: &str) -> (Vec<Token>, Vec<LexError>) {
                     text.push(bump!());
                 }
                 out.push(Token {
-                    tok: Tok::Comment(text.trim().to_string()),
+                    // Drop the one space after `--` but keep any further
+                    // indentation, so code examples in comments survive
+                    // formatting.
+                    tok: Tok::Comment(
+                        text.strip_prefix(' ')
+                            .unwrap_or(&text)
+                            .trim_end()
+                            .to_string(),
+                    ),
                     span,
                 });
             }
-            '{' | '}' | '(' | ')' | ',' | ';' | '^' | '/' | '*' | '+' | '?' => {
+            '{' | '}' | '(' | ')' | ',' | ';' | '^' | '/' | '*' | '+' | '?' | '=' => {
                 bump!();
                 let tok = match c {
                     '{' => Tok::LBrace,
@@ -157,6 +168,7 @@ pub fn lex(src: &str) -> (Vec<Token>, Vec<LexError>) {
                     '/' => Tok::Slash,
                     '*' => Tok::Star,
                     '+' => Tok::Plus,
+                    '=' => Tok::Eq,
                     _ => Tok::Question,
                 };
                 out.push(Token { tok, span });
@@ -340,10 +352,13 @@ pub fn lex(src: &str) -> (Vec<Token>, Vec<LexError>) {
             }
             other => {
                 bump!();
-                errors.push(LexError {
-                    message: format!("unexpected character `{other}`"),
-                    span,
-                });
+                let message = match other {
+                    '|' => {
+                        "unexpected character `|`: alternative paths are written `p or q`".into()
+                    }
+                    _ => format!("unexpected character `{other}`"),
+                };
+                errors.push(LexError { message, span });
             }
         }
     }

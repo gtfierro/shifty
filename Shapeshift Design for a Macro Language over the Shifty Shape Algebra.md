@@ -185,9 +185,9 @@ Every surface construct compiles to one arena term, built with shifty's existing
 | `p ..., each T` | `Count{p, max 0, Not(T)}` (∀) | `sh:class`, `sh:node`, `sh:datatype`, `sh:in` ... on the property shape |
 | `p at least n is T` | `Count{p, min n, T}` | `sh:qualifiedValueShape` + `sh:qualifiedMinCount` |
 | `p at most n is T` | `Count{p, max n, T}` | `sh:qualifiedValueShape` + `sh:qualifiedMaxCount` |
-| `a X` | `Count{CLASS, min 1, TestConst(X)}` | `sh:class X` |
-| `matches S` | reference to slot `S` | `sh:node S` |
-| `is X` | `TestConst(X)` | `sh:hasValue X` |
+| `a X`, or a bare `X` where a test is expected | `Count{CLASS, min 1, TestConst(X)}` | `sh:class X` |
+| `matches S`, or a bare `S` | reference to slot `S` | `sh:node S` |
+| `is "lit"` / `is one of X` | `TestConst("lit")` / `TestConst(X)` | `sh:hasValue` |
 | `one of X Y` | `Or([TestConst(X), TestConst(Y)])` | `sh:in (X Y)` |
 | `string`, `integer`, `datatype D` | `TestType(Datatype(D))` | `sh:datatype` |
 | `iri` / `literal` / `blank` | `TestKind` | `sh:nodeKind` |
@@ -196,7 +196,7 @@ Every surface construct compiles to one arena term, built with shifty's existing
 | `p less than q` / `p at most q` | `Lt(p, q)` / `Le(p, q)` | `sh:lessThan` / `sh:lessThanOrEquals` |
 | `p unique language` | `UniqueLang(p)` | `sh:uniqueLang true` |
 | `only these properties` | `Closed(Q)`, Q = predicates named in the block | `sh:closed true` |
-| `include S(...)` | `And` member referencing `S`'s slot | `sh:and` or inlined, see Raising |
+| `S(...)` or `include S(...)` alone on a line | `And` member referencing `S`'s slot | `sh:and` or inlined, see Raising |
 | `any of {A} {B}` | `Or([A, B])` | `sh:or` |
 | `exactly one of {A} {B}` | `xone([A, B])` | `sh:xone` |
 | `none of {A} {B}` | `Not(Or([A, B]))` | `sh:not [ sh:or (...) ]` |

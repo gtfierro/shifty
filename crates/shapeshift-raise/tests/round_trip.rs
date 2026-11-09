@@ -67,10 +67,25 @@ fn mk_or(parts: Vec<C>) -> C {
 struct Canon<'a> {
     s: &'a Schema,
     bodies: BTreeMap<String, C>,
+    /// Expand named shapes in place (to compare schemas that name
+    /// different intermediate shapes), stopping only at recursion.
+    inline: bool,
+    stack: Vec<ShapeId>,
 }
 
 impl Canon<'_> {
     fn shape(&mut self, id: ShapeId, top: bool) -> C {
+        if self.inline {
+            if let Some(name) = self.s.name_of(id)
+                && self.stack.contains(&id)
+            {
+                return C::Ref(name.to_string());
+            }
+            self.stack.push(id);
+            let c = self.shape_body(id);
+            self.stack.pop();
+            return c;
+        }
         if !top && let Some(name) = self.s.name_of(id) {
             let name = name.to_string();
             if !self.bodies.contains_key(&name) {
@@ -80,6 +95,10 @@ impl Canon<'_> {
             }
             return C::Ref(name);
         }
+        self.shape_body(id)
+    }
+
+    fn shape_body(&mut self, id: ShapeId) -> C {
         match self.s.arena.get(id).clone() {
             Shape::Annotated {
                 severity,
@@ -115,12 +134,19 @@ impl Canon<'_> {
                 min,
                 max,
                 qualifier,
-            } => C::Count(
-                format!("{path:?}"),
-                min,
-                max,
-                Box::new(self.shape(qualifier, false)),
-            ),
+            } => {
+                // `at least 0` is no constraint at all
+                let min = min.filter(|m| *m > 0);
+                if min.is_none() && max.is_none() {
+                    return C::Top;
+                }
+                C::Count(
+                    format!("{path:?}"),
+                    min,
+                    max,
+                    Box::new(self.shape(qualifier, false)),
+                )
+            }
             other => C::Leaf(format!("{other:?}")),
         }
     }
@@ -137,6 +163,8 @@ fn canonical(s: &Schema, skip: &BTreeSet<usize>) -> (BTreeSet<String>, BTreeMap<
     let mut c = Canon {
         s,
         bodies: BTreeMap::new(),
+        inline: false,
+        stack: Vec::new(),
     };
     let mut statements = BTreeSet::new();
     for (i, st) in s.statements.iter().enumerate() {
@@ -261,4 +289,134 @@ shape Person for every ex:Person {
     let built = build_module("v.shm", &parsed.module);
     assert!(!built.has_errors(), "{}", render_all(&built.diagnostics));
     check_round_trip(&built);
+}
+
+fn g36_files() -> Vec<PathBuf> {
+    let mut files: Vec<PathBuf> = std::fs::read_dir(example("g36"))
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .filter(|p| p.extension().is_some_and(|x| x == "shm"))
+        .collect();
+    files.sort();
+    files
+}
+
+fn build_file(path: &std::path::Path) -> BuildOutput {
+    let (resolved, diags) = resolve_file(path, &FsResolver::default(), true).unwrap();
+    assert!(
+        diags.is_empty(),
+        "{}: {}",
+        path.display(),
+        render_all(&diags)
+    );
+    let built = build(&resolved.program);
+    assert!(
+        !built.has_errors(),
+        "{}: {}",
+        path.display(),
+        render_all(&built.diagnostics)
+    );
+    built
+}
+
+#[test]
+fn g36_round_trips_through_shacl() {
+    for f in g36_files() {
+        check_round_trip(&build_file(&f));
+    }
+}
+
+/// Every shape in BuildingMOTIF's Guideline 36 library means the same as its
+/// Shapeshift translation in `examples/shapeshift/g36`. Point
+/// `BUILDINGMOTIF_G36` at `BuildingMOTIF/libraries/ashrae/guideline36` and
+/// run with `--ignored`.
+///
+/// BuildingMOTIF composes shapes with `rdfs:subClassOf`; the translation
+/// writes `include`. The original is read with that composition made explicit
+/// (`sh:node`), as BuildingMOTIF applies it.
+#[test]
+#[ignore = "needs a BuildingMOTIF checkout (set BUILDINGMOTIF_G36)"]
+fn g36_matches_buildingmotif() {
+    let Some(dir) = std::env::var_os("BUILDINGMOTIF_G36") else {
+        panic!("set BUILDINGMOTIF_G36 to BuildingMOTIF/libraries/ashrae/guideline36");
+    };
+    let mut entries: Vec<PathBuf> = std::fs::read_dir(PathBuf::from(dir))
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .filter(|p| p.extension().is_some_and(|x| x == "ttl"))
+        .collect();
+    entries.sort();
+    let mut original: Option<shifty_parse::Loaded> = None;
+    for p in entries {
+        let loaded = shifty_parse::load_turtle(&std::fs::read(&p).unwrap(), None).unwrap();
+        match &mut original {
+            None => original = Some(loaded),
+            Some(o) => {
+                for t in loaded.graph.iter() {
+                    o.graph.insert(t);
+                }
+            }
+        }
+    }
+    let mut original = original.expect("Turtle files in BUILDINGMOTIF_G36");
+    let sub = oxrdf::NamedNode::new_unchecked("http://www.w3.org/2000/01/rdf-schema#subClassOf");
+    let node = oxrdf::NamedNode::new_unchecked("http://www.w3.org/ns/shacl#node");
+    let composed: Vec<oxrdf::Triple> = original
+        .graph
+        .triples_for_predicate(&sub)
+        .filter(|t| matches!(t.object, oxrdf::TermRef::NamedNode(n) if n.as_str().starts_with("urn:ashrae/g36/")))
+        .map(|t| oxrdf::Triple::new(t.subject.into_owned(), node.clone(), t.object.into_owned()))
+        .collect();
+    for t in &composed {
+        original.graph.insert(t);
+    }
+    let lowered = shifty_parse::parse_loaded(&original).schema;
+
+    let builds: Vec<BuildOutput> = g36_files().iter().map(|f| build_file(f)).collect();
+    // The translation fixes one bug on purpose: 5.17.4 FC#1 places
+    // `sh:qualifiedMinCount` inside the value shape, where SHACL ignores it.
+    let deliberate = ["urn:ashrae/g36/5.17.4/dual-fan-dual-duct-heating-vav-ahu-afdd/fc-1"];
+    let canon = |s: &Schema, id: ShapeId| {
+        Canon {
+            s,
+            bodies: BTreeMap::new(),
+            inline: true,
+            stack: Vec::new(),
+        }
+        .shape(id, true)
+    };
+    let mut compared = 0;
+    let mut absent = Vec::new();
+    let mut differ = Vec::new();
+    let mut names: Vec<String> = (0..lowered.arena.len())
+        .filter_map(|i| lowered.name_of(ShapeId(i as u32)).map(str::to_string))
+        .filter(|n| n.starts_with("urn:ashrae/g36/"))
+        .collect();
+    names.sort();
+    names.dedup();
+    for name in names {
+        let a = lowered.slot_named(&name).unwrap();
+        let Some((b, ours)) = builds
+            .iter()
+            .find_map(|bo| bo.schema.slot_named(&name).map(|s| (s, bo)))
+        else {
+            absent.push(name);
+            continue;
+        };
+        compared += 1;
+        let (ca, cb) = (canon(&lowered, a), canon(&ours.schema, b));
+        if ca != cb && !deliberate.contains(&name.as_str()) {
+            differ.push(format!(
+                "{name}\n  BuildingMOTIF: {ca:?}\n  Shapeshift:    {cb:?}"
+            ));
+        }
+    }
+    println!("compared {compared} shapes; not separate shapes in the translation: {absent:?}");
+    assert!(
+        differ.is_empty(),
+        "{} shapes differ:\n{}",
+        differ.len(),
+        differ.join("\n")
+    );
+    assert!(compared > 80, "only {compared} shapes compared");
 }

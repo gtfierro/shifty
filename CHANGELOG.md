@@ -19,6 +19,40 @@
   applied only if the whole session still builds. `:save` writes `.shm`;
   `:image save` / `:image load` keep shapes, data, import settings, and
   history in one JSON file.
+- Shapeshift field groups and path aliases. In a shape body,
+  `brick:hasPoint { sat: brick:Supply_Air_Temperature_Sensor; flow: brick:Air_Flow_Sensor optional }`
+  expands to named fields along one path. The path can be any property path.
+  Each row counts the values that are instances of its class (or match its
+  shape): `exactly 1` unless the row or the group (`brick:hasPoint required { ... }`)
+  gives a count. A row can carry `doc` and a `{ ... }` body.
+  `path points = brick:hasPoint` names a path for use anywhere a path is
+  written, including other modules that import it.
+- An `is a brick:AHU` line tests the focus node itself. `{ ... }` is an inline
+  shape anywhere a test is expected; directly after a field's path it is
+  written `each { ... }`, since `PATH {` starts a group.
+- Typing `|` in a path now suggests `or`, the alternative-path operator.
+- Shapeshift bare terms and composition. Where a test is expected (after
+  `each`, `is`, in a group row, as an argument), a bare class is `a C` and a
+  bare shape is `matches S`: `brick:hasPoint each brick:Point`,
+  `is brick:AHU`. A shape or template call alone on a line composes it, as
+  `include` does. A node value is written `is one of X`; a literal stays
+  `is "x"`. Directly after a path a bare term is an error with a hint
+  (`ex:p ex:q` is more likely `ex:p/ex:q`).
+- Shapeshift template arguments. Parameters can have defaults, which may use
+  earlier parameters (`shape T(cls, room = brick:Room, zone = cls)`);
+  arguments can be named (`T(brick:X, room = brick:Space)`); and a `{ ... }`
+  after a call is its last argument (`W(brick:VAV) { brick:hasUnit required }`).
+  After a shape that is not a template, the block adds lines. A parameter
+  used as a bare test takes a class or a shape. Arity, unknown-name,
+  duplicate, and missing-argument errors show the signature.
+- Shapeshift path templates: `path downstream(p = brick:hasPart?) = brick:feeds+/p`,
+  used as `downstream(brick:hasPoint)` anywhere a path is written; a group
+  along one is written `(downstream(brick:hasPoint)) { ... }`.
+- `examples/shapeshift/g36/`: ASHRAE Guideline 36 sequences and AFDD fault
+  conditions translated from BuildingMOTIF's Brick library. An ignored test
+  (`BUILDINGMOTIF_G36=… cargo test -p shapeshift-raise --test round_trip
+  g36_matches -- --ignored`) checks every shape the translation keeps as a
+  separate shape (84) against the original.
 - Shape algebra: `Schema` carries imports, source origins, and docstrings,
   and supports `merge`. `shifty_opt::refused_components` reports the odd
   cycle that makes a component inadmissible. A shape-based target is

@@ -53,6 +53,7 @@ pub const KEYWORDS: &[&str] = &[
     "only",
     "optional",
     "or",
+    "path",
     "pattern",
     "prefix",
     "properties",
@@ -260,7 +261,10 @@ impl Parser {
                 Tok::Name(n)
                     if depth <= 0
                         && line_start
-                        && matches!(n.as_str(), "shape" | "prefix" | "import" | "base" | "doc") =>
+                        && matches!(
+                            n.as_str(),
+                            "shape" | "path" | "prefix" | "import" | "base" | "doc"
+                        ) =>
                 {
                     return;
                 }
@@ -413,6 +417,17 @@ impl Parser {
                 Tok::Name(k) if matches!(k.as_str(), "doc" | "severity" | "message") => {
                     self.annotation(&mut pending)
                 }
+                Tok::Name(k) if k == "path" => {
+                    let annotations = std::mem::take(&mut pending);
+                    match self.path_decl(annotations) {
+                        Ok(l) => {
+                            m.header_order.push(HeaderRef::Path(m.paths.len()));
+                            m.paths.push(l);
+                            self.end_header()
+                        }
+                        Err(e) => Err(e),
+                    }
+                }
                 Tok::Name(k) if k == "shape" => match self.shape(std::mem::take(&mut pending)) {
                     Ok(s) => {
                         m.shapes.push(s);
@@ -422,7 +437,7 @@ impl Parser {
                 },
                 other => self.fail_hint(
                     format!(
-                        "expected `shape`, `prefix`, `import`, or `base`, found {}",
+                        "expected `shape`, `path`, `prefix`, `import`, or `base`, found {}",
                         other.describe()
                     ),
                     "every rule starts with `shape Name { ... }`",
@@ -506,41 +521,7 @@ impl Parser {
         let comments = self.take_comments();
         self.bump(); // shape
         let name = self.name("a shape name")?;
-        let mut params = Vec::new();
-        if matches!(self.peek(), Tok::LParen) {
-            self.bump();
-            loop {
-                self.skip_nl();
-                if matches!(self.peek(), Tok::RParen) {
-                    self.bump();
-                    break;
-                }
-                params.push(self.name("a parameter name")?);
-                self.skip_nl();
-                match self.peek() {
-                    Tok::Comma => {
-                        self.bump();
-                    }
-                    Tok::RParen => {
-                        self.bump();
-                        break;
-                    }
-                    other => {
-                        let d = other.describe();
-                        return self.fail(format!(
-                            "expected `,` or `)` in the parameter list, found {d}"
-                        ));
-                    }
-                }
-            }
-            if params.is_empty() {
-                let loc = self.loc(span);
-                self.diags.push(
-                    Diagnostic::error(format!("shape `{name}()` has an empty parameter list"), loc)
-                        .with_hint(format!("write `shape {name}` without parentheses")),
-                );
-            }
-        }
+        let params = self.params("shape", &name, span)?;
         let mut targets = Vec::new();
         loop {
             // targets may each sit on their own line
@@ -695,7 +676,7 @@ impl Parser {
         let kind = match self.peek().clone() {
             Tok::Name(k) if k == "include" => {
                 self.bump();
-                LineKind::Include(self.call()?)
+                LineKind::Include(self.call_with_block()?)
             }
             Tok::Name(k) if k == "only" => {
                 self.bump();
@@ -750,6 +731,10 @@ impl Parser {
             Tok::Name(k) if k == "then" => {
                 return self.fail("`then` without a `when` before it");
             }
+            Tok::Name(k) if k == "is" => {
+                self.bump();
+                LineKind::Is(self.test_or_value()?)
+            }
             Tok::PName { prefix, local }
                 if local.is_empty()
                     && !matches!(
@@ -765,16 +750,243 @@ impl Parser {
                 if matches!(self.peek(), Tok::LBrace) {
                     LineKind::Field(self.field_block(prefix, &mut annotations)?)
                 } else {
-                    let mut f = self.field_line()?;
-                    f.name = Some(prefix);
-                    LineKind::Field(f)
+                    self.path_line(Some(prefix))?
                 }
             }
-            _ => LineKind::Field(self.field_line()?),
+            _ => self.path_line(None)?,
         };
         let trailing_comment = self.trailing_comment();
         Ok(Line {
             kind,
+            annotations,
+            span,
+            comments,
+            trailing_comment,
+        })
+    }
+
+    /// `(a, b = default, ...)`, if present.
+    fn params(&mut self, what: &str, name: &str, span: Span) -> R<Vec<Param>> {
+        let mut params: Vec<Param> = Vec::new();
+        if !matches!(self.peek(), Tok::LParen) {
+            return Ok(params);
+        }
+        self.bump();
+        loop {
+            self.skip_nl();
+            if matches!(self.peek(), Tok::RParen) {
+                self.bump();
+                break;
+            }
+            let pname = self.name("a parameter name")?;
+            let default = if matches!(self.peek(), Tok::Eq) {
+                self.bump();
+                Some(self.arg()?)
+            } else {
+                if let Some(prev) = params.iter().rev().find(|p| p.default.is_some()) {
+                    let prev = prev.name.clone();
+                    return self.fail_hint(
+                        format!(
+                            "parameter `{pname}` needs a default, since `{prev}` before it has one"
+                        ),
+                        "put the parameters with defaults last",
+                    );
+                }
+                None
+            };
+            params.push(Param {
+                name: pname,
+                default,
+            });
+            self.skip_nl();
+            match self.peek() {
+                Tok::Comma => {
+                    self.bump();
+                }
+                Tok::RParen => {
+                    self.bump();
+                    break;
+                }
+                other => {
+                    let d = other.describe();
+                    return self.fail(format!(
+                        "expected `,` or `)` in the parameter list, found {d}"
+                    ));
+                }
+            }
+        }
+        if params.is_empty() {
+            let loc = self.loc(span);
+            self.diags.push(
+                Diagnostic::error(
+                    format!("{what} `{name}()` has an empty parameter list"),
+                    loc,
+                )
+                .with_hint(format!("write `{what} {name}` without parentheses")),
+            );
+        }
+        Ok(params)
+    }
+
+    // ---------------------------------------------------------- paths, groups
+
+    /// `path NAME = PATH`
+    fn path_decl(&mut self, annotations: Annotations) -> R<PathDecl> {
+        let span = self.span();
+        let comments = self.take_comments();
+        self.bump(); // path
+        let name = self.name("a path name")?;
+        let params = self.params("path", &name, span)?;
+        if !matches!(self.peek(), Tok::Eq) {
+            let found = self.peek().describe();
+            return self.fail_hint(
+                format!("expected `=` after `path {name}`, found {found}"),
+                format!("write `path {name} = brick:hasPoint`"),
+            );
+        }
+        self.bump(); // =
+        let path = self.path()?;
+        let trailing_comment = self.trailing_comment();
+        Ok(PathDecl {
+            name,
+            params,
+            path,
+            annotations,
+            span,
+            comments,
+            trailing_comment,
+        })
+    }
+
+    /// The rows of a group, from its `{` through the matching `}`.
+    fn group_rows(&mut self, head: &str) -> R<(Vec<Row>, Vec<String>)> {
+        let open = self.span();
+        self.bump(); // {
+        let mut rows = Vec::new();
+        let mut pending = Annotations::default();
+        loop {
+            loop {
+                match self.peek().clone() {
+                    Tok::Newline | Tok::Semi => {
+                        self.bump();
+                    }
+                    Tok::Comment(c) => {
+                        self.comments.push(c);
+                        self.bump();
+                    }
+                    _ => break,
+                }
+            }
+            match self.peek() {
+                Tok::RBrace => {
+                    self.bump();
+                    break;
+                }
+                Tok::Eof => {
+                    let loc = self.loc(open);
+                    self.diags.push(
+                        Diagnostic::error(format!("the `{head}` group is never closed"), loc)
+                            .with_hint("add a `}` after the last row"),
+                    );
+                    return Err(Fail);
+                }
+                _ => {}
+            }
+            if matches!(self.peek(), Tok::Name(k) if matches!(k.as_str(), "doc" | "severity" | "message"))
+            {
+                if self.annotation(&mut pending).is_err() {
+                    self.recover_line();
+                }
+                continue;
+            }
+            let comments = self.take_comments();
+            match self.row(std::mem::take(&mut pending), comments) {
+                Ok(r) => {
+                    rows.push(r);
+                    match self.peek() {
+                        Tok::Newline | Tok::Semi | Tok::RBrace | Tok::Eof => {}
+                        other => {
+                            let d = other.describe();
+                            let _ = self.fail::<()>(format!(
+                                "unexpected {d}; each row of a group is one line"
+                            ));
+                            self.recover_line();
+                        }
+                    }
+                }
+                Err(_) => self.recover_line(),
+            }
+        }
+        if !pending.is_empty() {
+            let loc = self.loc(self.toks[self.pos.saturating_sub(1)].span);
+            self.diags.push(Diagnostic::error(
+                "a `doc`, `severity`, or `message` line must be followed by the row it describes",
+                loc,
+            ));
+        }
+        Ok((rows, self.take_comments()))
+    }
+
+    /// `label: ITEM COUNT? (doc "..." | message "..." | severity L)* { line* }?`
+    fn row(&mut self, annotations: Annotations, comments: Vec<String>) -> R<Row> {
+        let span = self.span();
+        let mut annotations = annotations;
+        let mut label = None;
+        if let Tok::PName { prefix, local } = self.peek().clone()
+            && local.is_empty()
+            && !matches!(
+                self.peek_at(1),
+                Tok::Newline | Tok::Semi | Tok::RBrace | Tok::Eof
+            )
+        {
+            if KEYWORDS.contains(&prefix.as_str()) {
+                return self.fail(format!("`{prefix}` is a keyword and cannot name a row"));
+            }
+            self.bump();
+            label = Some(prefix);
+        }
+        let item = match self.peek().clone() {
+            Tok::PName { local, .. } if !local.is_empty() => Item::Class(self.node()?),
+            Tok::Iri(_) => Item::Class(self.node()?),
+            Tok::Name(n) if !KEYWORDS.contains(&n.as_str()) => Item::Shape(self.call()?),
+            other => {
+                return self.fail_hint(
+                    format!("expected a class or a shape in this row, found {}", other.describe()),
+                    "a row reads `label: brick:Fan_Status`, `label: SupplyFan`, or `label: brick:Damper { ... }`",
+                );
+            }
+        };
+        let mut count = None;
+        let mut body = None;
+        while !self.at_line_end() {
+            if count.is_none()
+                && body.is_none()
+                && let Some(c) = self.try_count()?
+            {
+                count = Some(c);
+                continue;
+            }
+            if matches!(self.peek(), Tok::Name(k) if matches!(k.as_str(), "doc" | "severity" | "message"))
+            {
+                self.annotation(&mut annotations)?;
+                continue;
+            }
+            if body.is_none() && matches!(self.peek(), Tok::LBrace) {
+                body = Some(self.block()?);
+                continue;
+            }
+            let found = self.peek().describe();
+            return self.fail_hint(
+                format!("unexpected {found} in a group row"),
+                "after the class or shape a row may have a count (`optional`, `at least 2`), `doc \"...\"`, and a `{ ... }` block",
+            );
+        }
+        let trailing_comment = self.trailing_comment();
+        Ok(Row {
+            label,
+            item,
+            count,
+            body,
             annotations,
             span,
             comments,
@@ -826,11 +1038,63 @@ impl Parser {
         )
     }
 
-    fn field_line(&mut self) -> R<Field> {
+    /// `PATH COUNT? qualifiers` (a field) or `PATH COUNT? { row* }` (a group).
+    fn path_line(&mut self, name: Option<String>) -> R<LineKind> {
+        let path_span = self.span();
+        let parenthesized = matches!(self.peek(), Tok::LParen);
         let path = self.path()?;
-        let mut count = None;
+        let count = self.try_count()?;
+        // `T(args) { ... }` alone on a line composes `T` with a block;
+        // `(p(args)) { ... }` is a group along a path template.
+        if let PathExpr::Call(c) = &path
+            && name.is_none()
+            && count.is_none()
+            && !parenthesized
+            && matches!(self.peek(), Tok::LBrace)
+        {
+            let mut c = c.clone();
+            c.block = Some(self.block()?);
+            return Ok(LineKind::Field(Field {
+                name: None,
+                path: PathExpr::Call(c),
+                count: None,
+                qualifiers: Vec::new(),
+                block: false,
+            }));
+        }
+        if matches!(self.peek(), Tok::LBrace) {
+            let head = shapeshift_macro::display::path(&path);
+            if let Some(n) = name {
+                let loc = self.loc(path_span);
+                self.diags.push(
+                    Diagnostic::error(
+                        format!("a group has no name of its own; `{n}:` would name nothing"),
+                        loc,
+                    )
+                    .with_hint(format!(
+                        "name its rows instead (`{head} {{ {n}: brick:Point }}`), or write `{n}: {head} each {{ ... }}` for values that match an inline shape"
+                    )),
+                );
+                let _ = self.group_rows(&head);
+                return Err(Fail);
+            }
+            let (rows, trailing_comments) = self.group_rows(&head)?;
+            return Ok(LineKind::Group(Group {
+                path,
+                count,
+                rows,
+                trailing_comments,
+            }));
+        }
+        let mut f = self.field_rest(path, count)?;
+        f.name = name;
+        Ok(LineKind::Field(f))
+    }
+
+    fn field_rest(&mut self, path: PathExpr, count: Option<Count>) -> R<Field> {
+        let mut count = count;
         let mut qualifiers = Vec::new();
-        let mut first = true;
+        let mut first = count.is_none();
         while !self.at_line_end() {
             if !first && matches!(self.peek(), Tok::Comma) {
                 self.bump();
@@ -1053,6 +1317,22 @@ impl Parser {
             return Ok(Qualifier::Each(self.test()?));
         }
         let found = t0.describe();
+        if matches!(t0, Tok::PName { .. } | Tok::Iri(_))
+            || matches!(&t0, Tok::Name(n) if !KEYWORDS.contains(&n.as_str()))
+        {
+            let term = match &t0 {
+                Tok::PName { prefix, local } => format!("{prefix}:{local}"),
+                Tok::Iri(i) => format!("<{i}>"),
+                Tok::Name(n) => n.clone(),
+                _ => unreachable!(),
+            };
+            return self.fail_hint(
+                format!("unexpected {found} in a field line"),
+                format!(
+                    "for values that are `{term}`, write `each {term}`; to follow another property, write a path like `ex:p/{term}`"
+                ),
+            );
+        }
         self.fail_hint(
             format!("unexpected {found} in a field line"),
             "a field reads `<property> <count>, <qualifier>`, e.g. `brick:hasPoint required, each a brick:Point`",
@@ -1061,6 +1341,7 @@ impl Parser {
 
     fn at_test_start(&self) -> bool {
         match self.peek() {
+            Tok::LBrace => true,
             Tok::Name(k) => {
                 matches!(
                     k.as_str(),
@@ -1082,33 +1363,63 @@ impl Parser {
         }
     }
 
+    fn at_literal(&self) -> bool {
+        matches!(self.peek(), Tok::Str { .. } | Tok::Int(_) | Tok::Num(_))
+            || matches!(self.peek(), Tok::Name(n) if n == "true" || n == "false")
+    }
+
+    /// After `is`: a test, a bare class or shape, or a literal value.
     fn test_or_value(&mut self) -> R<Test> {
-        if self.at_test_start() {
-            self.test()
-        } else {
+        if self.at_literal() {
             Ok(Test::Is(self.value()?))
+        } else {
+            self.test()
         }
     }
 
     fn test(&mut self) -> R<Test> {
+        if matches!(self.peek(), Tok::LBrace) {
+            return Ok(Test::Shape(self.block()?));
+        }
+        // a bare class or shape
+        match self.peek().clone() {
+            Tok::PName { .. } | Tok::Iri(_) => {
+                let n = self.node()?;
+                if matches!(self.peek(), Tok::LBrace) {
+                    let c = display_node(&n);
+                    return self.fail_hint(
+                        format!("a class takes no block: `{c} {{ ... }}`"),
+                        format!("write `{{ is {c}; ... }}` for values that are `{c}` and satisfy the lines"),
+                    );
+                }
+                return Ok(Test::Item(Item::Class(n)));
+            }
+            Tok::Name(n)
+                if !KEYWORDS.contains(&n.as_str())
+                    && !DATATYPE_KEYWORDS.iter().any(|(w, _)| *w == n) =>
+            {
+                return Ok(Test::Item(Item::Shape(self.call_with_block()?)));
+            }
+            _ => {}
+        }
         let t0 = self.peek().clone();
         let Tok::Name(k) = &t0 else {
             let found = t0.describe();
             return self.fail_hint(
                 format!("expected a test, found {found}"),
-                "tests are `a <class>`, `matches <Shape>`, `is <node>`, `one of ...`, a datatype like `string`, `iri`, `length`, `from ... to ...`, `pattern`, or `language`",
+                "tests are a class (`brick:AHU`), a shape (`Sensor`), `one of ...`, a datatype like `string`, `iri`, `length`, `from ... to ...`, `pattern`, or `language`",
             );
         };
         let k = k.clone();
         self.bump();
         Ok(match k.as_str() {
             "a" => Test::Class(self.node()?),
-            "matches" => Test::Matches(self.call()?),
+            "matches" => Test::Matches(self.call_with_block()?),
             "is" => {
                 if self.eat_kw("a") {
                     Test::Class(self.node()?)
                 } else {
-                    Test::Is(self.value()?)
+                    self.test_or_value()?
                 }
             }
             "one" => {
@@ -1282,6 +1593,7 @@ impl Parser {
             }
         };
         let mut args = Vec::new();
+        let mut named: Vec<NamedArg> = Vec::new();
         if matches!(self.peek(), Tok::LParen) {
             self.bump();
             loop {
@@ -1290,7 +1602,23 @@ impl Parser {
                     self.bump();
                     break;
                 }
-                args.push(self.arg()?);
+                if let Tok::Name(n) = self.peek().clone()
+                    && matches!(self.peek_at(1), Tok::Eq)
+                {
+                    self.bump();
+                    self.bump();
+                    let value = self.arg()?;
+                    named.push(NamedArg { name: n, value });
+                } else {
+                    if let Some(n) = named.last() {
+                        let n = n.name.clone();
+                        return self.fail_hint(
+                            format!("a positional argument after the named argument `{n}`"),
+                            "put positional arguments first",
+                        );
+                    }
+                    args.push(self.arg()?);
+                }
                 self.skip_nl();
                 match self.peek() {
                     Tok::Comma => {
@@ -1309,7 +1637,22 @@ impl Parser {
                 }
             }
         }
-        Ok(Call { name, args, span })
+        Ok(Call {
+            name,
+            args,
+            named,
+            block: None,
+            span,
+        })
+    }
+
+    /// A call, and the block after it if there is one: `T(args) { ... }`.
+    fn call_with_block(&mut self) -> R<Call> {
+        let mut c = self.call()?;
+        if matches!(self.peek(), Tok::LBrace) {
+            c.block = Some(self.block()?);
+        }
+        Ok(c)
     }
 
     fn arg(&mut self) -> R<Arg> {
@@ -1320,11 +1663,19 @@ impl Parser {
             }
             Tok::Str { .. } | Tok::Num(_) => Ok(Arg::Literal(self.value()?)),
             Tok::Name(n) if n == "true" || n == "false" => Ok(Arg::Literal(self.value()?)),
-            Tok::Name(_) if matches!(self.peek_at(1), Tok::LParen) => Ok(Arg::Call(self.call()?)),
+            Tok::LBrace => Ok(Arg::Shape(self.block()?)),
             _ => {
+                // `T(x)` is a shape or a path template; which one is known
+                // once names are resolved.
                 let p = self.path()?;
                 Ok(match p {
                     PathExpr::Node(n) => Arg::Node(n),
+                    PathExpr::Call(mut c) => {
+                        if matches!(self.peek(), Tok::LBrace) {
+                            c.block = Some(self.block()?);
+                        }
+                        Arg::Call(c)
+                    }
                     other => Arg::Path(other),
                 })
             }
@@ -1382,6 +1733,7 @@ impl Parser {
                     "a field starts with the property it constrains, e.g. `brick:hasPoint required`",
                 );
             }
+            Tok::Name(_) if matches!(self.peek_at(1), Tok::LParen) => PathExpr::Call(self.call()?),
             _ => PathExpr::Node(self.node()?),
         };
         loop {
@@ -1395,4 +1747,8 @@ impl Parser {
         }
         Ok(p)
     }
+}
+
+fn display_node(n: &NodeRef) -> String {
+    shapeshift_macro::display::node(n)
 }

@@ -6,12 +6,20 @@ fn examples() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../examples/shapeshift")
 }
 
+/// Every `.shm` file under `examples/shapeshift`, subdirectories included.
 fn shm_files() -> Vec<PathBuf> {
-    let mut v: Vec<PathBuf> = std::fs::read_dir(examples())
-        .unwrap()
-        .map(|e| e.unwrap().path())
-        .filter(|p| p.extension().is_some_and(|e| e == "shm"))
-        .collect();
+    fn walk(dir: &std::path::Path, out: &mut Vec<PathBuf>) {
+        for e in std::fs::read_dir(dir).unwrap() {
+            let p = e.unwrap().path();
+            if p.is_dir() {
+                walk(&p, out);
+            } else if p.extension().is_some_and(|e| e == "shm") {
+                out.push(p);
+            }
+        }
+    }
+    let mut v = Vec::new();
+    walk(&examples(), &mut v);
     v.sort();
     v
 }

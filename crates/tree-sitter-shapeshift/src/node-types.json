@@ -12,6 +12,10 @@
           "named": true
         },
         {
+          "type": "call",
+          "named": true
+        },
+        {
           "type": "identifier",
           "named": true
         },
@@ -81,6 +85,10 @@
           "named": true
         },
         {
+          "type": "block",
+          "named": true
+        },
+        {
           "type": "boolean_literal",
           "named": true
         },
@@ -110,6 +118,10 @@
         },
         {
           "type": "modified_path",
+          "named": true
+        },
+        {
+          "type": "named_argument",
           "named": true
         },
         {
@@ -168,11 +180,23 @@
           "named": true
         },
         {
+          "type": "composition",
+          "named": true
+        },
+        {
           "type": "field",
           "named": true
         },
         {
+          "type": "group",
+          "named": true
+        },
+        {
           "type": "include",
+          "named": true
+        },
+        {
+          "type": "is_line",
           "named": true
         }
       ]
@@ -199,11 +223,23 @@
           "named": true
         },
         {
+          "type": "composition",
+          "named": true
+        },
+        {
           "type": "field",
           "named": true
         },
         {
+          "type": "group",
+          "named": true
+        },
+        {
           "type": "include",
+          "named": true
+        },
+        {
+          "type": "is_line",
           "named": true
         }
       ]
@@ -300,6 +336,25 @@
     "fields": {}
   },
   {
+    "type": "composition",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "block",
+          "named": true
+        },
+        {
+          "type": "call",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
     "type": "count",
     "named": true,
     "fields": {},
@@ -351,6 +406,10 @@
           },
           {
             "type": "alternative_path",
+            "named": true
+          },
+          {
+            "type": "call",
             "named": true
           },
           {
@@ -424,6 +483,10 @@
             "named": true
           },
           {
+            "type": "call",
+            "named": true
+          },
+          {
             "type": "identifier",
             "named": true
           },
@@ -474,6 +537,80 @@
     }
   },
   {
+    "type": "group",
+    "named": true,
+    "fields": {
+      "path": {
+        "multiple": true,
+        "required": true,
+        "types": [
+          {
+            "type": "(",
+            "named": false
+          },
+          {
+            "type": ")",
+            "named": false
+          },
+          {
+            "type": "alternative_path",
+            "named": true
+          },
+          {
+            "type": "call",
+            "named": true
+          },
+          {
+            "type": "identifier",
+            "named": true
+          },
+          {
+            "type": "inverse_path",
+            "named": true
+          },
+          {
+            "type": "iri",
+            "named": true
+          },
+          {
+            "type": "modified_path",
+            "named": true
+          },
+          {
+            "type": "prefixed_name",
+            "named": true
+          },
+          {
+            "type": "self",
+            "named": true
+          },
+          {
+            "type": "sequence_path",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "annotation",
+          "named": true
+        },
+        {
+          "type": "count",
+          "named": true
+        },
+        {
+          "type": "row",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
     "type": "import_decl",
     "named": true,
     "fields": {
@@ -508,9 +645,13 @@
     "named": true,
     "fields": {},
     "children": {
-      "multiple": false,
+      "multiple": true,
       "required": true,
       "types": [
+        {
+          "type": "block",
+          "named": true
+        },
         {
           "type": "call",
           "named": true
@@ -531,6 +672,10 @@
           "named": true
         },
         {
+          "type": "call",
+          "named": true
+        },
+        {
           "type": "identifier",
           "named": true
         },
@@ -556,6 +701,37 @@
         },
         {
           "type": "sequence_path",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "is_line",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "boolean_literal",
+          "named": true
+        },
+        {
+          "type": "decimal",
+          "named": true
+        },
+        {
+          "type": "integer",
+          "named": true
+        },
+        {
+          "type": "string",
+          "named": true
+        },
+        {
+          "type": "test",
           "named": true
         }
       ]
@@ -574,6 +750,10 @@
           "named": true
         },
         {
+          "type": "call",
+          "named": true
+        },
+        {
           "type": "identifier",
           "named": true
         },
@@ -605,11 +785,167 @@
     }
   },
   {
-    "type": "parameters",
+    "type": "named_argument",
     "named": true,
     "fields": {
-      "param": {
+      "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "value": {
         "multiple": true,
+        "required": true,
+        "types": [
+          {
+            "type": "(",
+            "named": false
+          },
+          {
+            "type": ")",
+            "named": false
+          },
+          {
+            "type": "alternative_path",
+            "named": true
+          },
+          {
+            "type": "block",
+            "named": true
+          },
+          {
+            "type": "boolean_literal",
+            "named": true
+          },
+          {
+            "type": "call",
+            "named": true
+          },
+          {
+            "type": "decimal",
+            "named": true
+          },
+          {
+            "type": "identifier",
+            "named": true
+          },
+          {
+            "type": "integer",
+            "named": true
+          },
+          {
+            "type": "inverse_path",
+            "named": true
+          },
+          {
+            "type": "iri",
+            "named": true
+          },
+          {
+            "type": "modified_path",
+            "named": true
+          },
+          {
+            "type": "prefixed_name",
+            "named": true
+          },
+          {
+            "type": "self",
+            "named": true
+          },
+          {
+            "type": "sequence_path",
+            "named": true
+          },
+          {
+            "type": "string",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "parameter",
+    "named": true,
+    "fields": {
+      "default": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "(",
+            "named": false
+          },
+          {
+            "type": ")",
+            "named": false
+          },
+          {
+            "type": "alternative_path",
+            "named": true
+          },
+          {
+            "type": "block",
+            "named": true
+          },
+          {
+            "type": "boolean_literal",
+            "named": true
+          },
+          {
+            "type": "call",
+            "named": true
+          },
+          {
+            "type": "decimal",
+            "named": true
+          },
+          {
+            "type": "identifier",
+            "named": true
+          },
+          {
+            "type": "integer",
+            "named": true
+          },
+          {
+            "type": "inverse_path",
+            "named": true
+          },
+          {
+            "type": "iri",
+            "named": true
+          },
+          {
+            "type": "modified_path",
+            "named": true
+          },
+          {
+            "type": "prefixed_name",
+            "named": true
+          },
+          {
+            "type": "self",
+            "named": true
+          },
+          {
+            "type": "sequence_path",
+            "named": true
+          },
+          {
+            "type": "string",
+            "named": true
+          }
+        ]
+      },
+      "name": {
+        "multiple": false,
         "required": true,
         "types": [
           {
@@ -618,6 +954,98 @@
           }
         ]
       }
+    }
+  },
+  {
+    "type": "parameters",
+    "named": true,
+    "fields": {
+      "param": {
+        "multiple": true,
+        "required": true,
+        "types": [
+          {
+            "type": "parameter",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "path_decl",
+    "named": true,
+    "fields": {
+      "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "path": {
+        "multiple": true,
+        "required": true,
+        "types": [
+          {
+            "type": "(",
+            "named": false
+          },
+          {
+            "type": ")",
+            "named": false
+          },
+          {
+            "type": "alternative_path",
+            "named": true
+          },
+          {
+            "type": "call",
+            "named": true
+          },
+          {
+            "type": "identifier",
+            "named": true
+          },
+          {
+            "type": "inverse_path",
+            "named": true
+          },
+          {
+            "type": "iri",
+            "named": true
+          },
+          {
+            "type": "modified_path",
+            "named": true
+          },
+          {
+            "type": "prefixed_name",
+            "named": true
+          },
+          {
+            "type": "self",
+            "named": true
+          },
+          {
+            "type": "sequence_path",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": false,
+      "required": false,
+      "types": [
+        {
+          "type": "parameters",
+          "named": true
+        }
+      ]
     }
   },
   {
@@ -690,6 +1118,50 @@
     }
   },
   {
+    "type": "row",
+    "named": true,
+    "fields": {
+      "item": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "call",
+            "named": true
+          }
+        ]
+      },
+      "name": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "label",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "annotation",
+          "named": true
+        },
+        {
+          "type": "block",
+          "named": true
+        },
+        {
+          "type": "count",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
     "type": "sequence_path",
     "named": true,
     "fields": {},
@@ -699,6 +1171,10 @@
       "types": [
         {
           "type": "alternative_path",
+          "named": true
+        },
+        {
+          "type": "call",
           "named": true
         },
         {
@@ -791,6 +1267,10 @@
         },
         {
           "type": "import_decl",
+          "named": true
+        },
+        {
+          "type": "path_decl",
           "named": true
         },
         {
@@ -894,6 +1374,10 @@
       "required": false,
       "types": [
         {
+          "type": "block",
+          "named": true
+        },
+        {
           "type": "boolean_literal",
           "named": true
         },
@@ -961,6 +1445,10 @@
     "named": false
   },
   {
+    "type": "=",
+    "named": false
+  },
+  {
     "type": "?",
     "named": false
   },
@@ -1023,11 +1511,11 @@
   },
   {
     "type": "decimal",
-    "named": true
+    "named": false
   },
   {
     "type": "decimal",
-    "named": false
+    "named": true
   },
   {
     "type": "different",
@@ -1099,11 +1587,11 @@
   },
   {
     "type": "iri",
-    "named": false
+    "named": true
   },
   {
     "type": "iri",
-    "named": true
+    "named": false
   },
   {
     "type": "is",
@@ -1178,6 +1666,10 @@
     "named": false
   },
   {
+    "type": "path",
+    "named": false
+  },
+  {
     "type": "pattern",
     "named": false
   },
@@ -1223,11 +1715,11 @@
   },
   {
     "type": "string",
-    "named": false
+    "named": true
   },
   {
     "type": "string",
-    "named": true
+    "named": false
   },
   {
     "type": "than",

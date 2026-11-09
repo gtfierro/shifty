@@ -1,0 +1,93 @@
+-- ASHRAE Guideline 36-2021, 5.18.13: AFDD for single-zone VAV air handling units.
+-- Translated from BuildingMOTIF's
+-- libraries/ashrae/guideline36/5.18.13-single-zone-vav-ahu-afdd.ttl.
+base <urn:ashrae/g36/5.18.13/single-zone-vav-ahu-afdd/>
+import "./brick.shm"
+import "./afdd.shm"
+prefix brick: <https://brickschema.org/schema/Brick#>
+
+doc "FC#1: This fault condition is not used in single zone units, as it requires a static pressure setpoint."
+shape fc-1 { is brick:Air_Handling_Unit }
+
+doc "FC#2: MAT too low; should be between OAT and RAT"
+shape fc-2 {
+  is brick:Air_Handling_Unit
+  points required { MAT_AVG; RAT_AVG; OAT_AVG }
+}
+
+doc "FC#3: MAT too high; should be between OAT and RAT"
+shape fc-3 { fc-2 }
+
+doc "FC#4: Too many changes in Operating State"
+shape fc-4 {
+  is brick:Air_Handling_Unit
+  points required { Delta_OS }
+}
+
+doc "FC#5: SAT too low; should be higher than MAT"
+shape fc-5 {
+  is brick:Air_Handling_Unit
+  points required { SAT_AVG; MAT_AVG }
+}
+
+doc "FC#6: OA fraction is too high; MAT should be closer to RAT than to OAT"
+shape fc-6 {
+  is brick:Air_Handling_Unit
+  points required { RAT_AVG; OAT_AVG; MAT_AVG }
+}
+
+doc "FC#7: SAT too low in full heating"
+shape fc-7 {
+  is brick:Air_Handling_Unit
+  points required { SAT_AVG; SATSP }
+  parts required { hw_coil: brick:Hot_Water_Coil { points { HC } } }
+}
+
+doc "FC#8: SAT and MAT should be approximately equal"
+shape fc-8 {
+  is brick:Air_Handling_Unit
+  points required { SAT_AVG; MAT_AVG }
+}
+
+doc "FC#9: OAT is too high for free cooling without additional mechanical cooling"
+shape fc-9 {
+  is brick:Air_Handling_Unit
+  points required { OAT_AVG; SATSP }
+}
+
+doc "FC#10: OAT and MAT should be approximately equal"
+shape fc-10 {
+  is brick:Air_Handling_Unit
+  points required { MAT_AVG; OAT_AVG }
+}
+
+doc "FC#11: OAT is too low for mechanical cooling"
+shape fc-11 {
+  is brick:Air_Handling_Unit
+  points required { OAT_AVG; SATSP }
+}
+
+doc "FC#12: SAT too high; should be less than MAT"
+shape fc-12 {
+  is brick:Air_Handling_Unit
+  points required { SAT_AVG; MAT_AVG }
+}
+
+doc "FC#13: SAT too high in full cooling"
+shape fc-13 {
+  is brick:Air_Handling_Unit
+  points required { SAT_AVG; SATsp-C }
+  parts required { chw_coil: brick:Chilled_Water_Coil { points { CC } } }
+}
+
+doc "FC#14: Temperature drop across inactive cooling coil"
+shape fc-14 {
+  is brick:Air_Handling_Unit
+  points required { CCET_AVG; CCLT_AVG }
+}
+
+doc "FC#15: Temperature rise across inactive heating coil"
+shape fc-15 {
+  is brick:Air_Handling_Unit
+  points required { HCLT_AVG; HCET_AVG }
+}

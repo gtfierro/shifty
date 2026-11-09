@@ -126,6 +126,12 @@ pub fn merge_modules(base: &mut Module, extra: Module) -> (Vec<String>, Vec<Stri
             base.imports.push(i);
         }
     }
+    for p in extra.paths {
+        match base.paths.iter_mut().find(|q| q.name == p.name) {
+            Some(slot) => *slot = p,
+            None => base.paths.push(p),
+        }
+    }
     base.header_order.clear();
     let mut defined = Vec::new();
     let mut redefined = Vec::new();

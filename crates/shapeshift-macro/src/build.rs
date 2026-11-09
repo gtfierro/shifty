@@ -80,6 +80,9 @@ pub enum Sort {
     Path,
     Shape,
     Int,
+    /// Used as a bare test (`each x`, a row `x`): a class or a shape,
+    /// decided by the argument.
+    Test,
 }
 
 impl Sort {
@@ -90,6 +93,7 @@ impl Sort {
             Sort::Path => "path",
             Sort::Shape => "shape",
             Sort::Int => "int",
+            Sort::Test => "class or shape",
         }
     }
 }
@@ -199,7 +203,15 @@ impl BuildOutput {
 
 /// Build a program into a schema.
 pub fn build(program: &Program) -> BuildOutput {
-    let mut b = Builder::new(program);
+    if program.modules.is_empty() {
+        // The builder reads the root module's header; give it an empty one.
+        let mut p = Program::single("<empty>", Module::default());
+        p.rdf = program.rdf.clone();
+        return build(&p);
+    }
+    let (program, diags) = crate::groups::desugar(program);
+    let mut b = Builder::new(&program);
+    b.diags.extend(diags);
     b.run();
     b.finish()
 }
@@ -226,6 +238,9 @@ struct Ctx {
     shape_name: Option<String>,
     env: Arc<HashMap<String, Bound_>>,
     template: bool,
+    /// The named shape whose body this is, for named fields nested in
+    /// inline shapes.
+    owner: Option<(usize, usize)>,
 }
 
 enum Resolved {
@@ -850,7 +865,7 @@ impl<'p> Builder<'p> {
     fn infer_sorts(&mut self, m: usize, d: usize, report: bool) -> Vec<Sort> {
         let decl = self.decl(m, d);
         let mut uses: HashMap<String, Vec<(Sort, Span)>> = HashMap::new();
-        let params: HashSet<&str> = decl.params.iter().map(String::as_str).collect();
+        let params: HashSet<&str> = decl.params.iter().map(|p| p.name.as_str()).collect();
         {
             let mut v = SortVisitor {
                 b: self,
@@ -863,13 +878,15 @@ impl<'p> Builder<'p> {
             }
         }
         let mut out = Vec::new();
-        for p in &decl.params {
+        for p in decl.params.iter().map(|p| &p.name) {
             let mut sort = Sort::Any;
             let mut conflict = None;
             for (s, span) in uses.get(p).map(Vec::as_slice).unwrap_or(&[]) {
                 sort = match (sort, *s) {
                     (Sort::Any, x) | (x, Sort::Any) => x,
                     (a, b) if a == b => a,
+                    (Sort::Test, x @ (Sort::Node | Sort::Shape))
+                    | (x @ (Sort::Node | Sort::Shape), Sort::Test) => x,
                     (Sort::Node, Sort::Path) | (Sort::Path, Sort::Node) => Sort::Node,
                     (a, b) => {
                         conflict = Some((a, b, *span));
@@ -916,6 +933,7 @@ impl<'p> Builder<'p> {
             shape_name: Some(decl.name.clone()),
             env: Arc::new(HashMap::new()),
             template: false,
+            owner: Some((m, d)),
         };
         let body = self.block(&ctx, &decl.body, Some((m, d)));
         let (severity, messages) = self.annotation_values(&decl.annotations);
@@ -1112,25 +1130,66 @@ impl<'p> Builder<'p> {
 
     fn line(&mut self, ctx: &Ctx, l: &Line, owner: Option<(usize, usize)>) -> Option<ShapeId> {
         let mark = self.schema.arena.len() as u32;
+        let composed = match &l.kind {
+            LineKind::Field(f) => self.composed(ctx, f),
+            _ => None,
+        };
         let slot = match &l.kind {
-            LineKind::Field(f) => return self.field(ctx, l, f, owner, mark),
-            LineKind::Include(call) => {
-                let s = self.call(ctx, call, true)?;
-                let into = ctx.shape.clone();
-                let from = display::call(call);
-                self.schema.add_origin(
-                    s,
-                    Origin::new(
-                        OriginKind::Include { from, into },
-                        self.loc(ctx.module, l.span),
-                    ),
-                );
-                s
+            // a parameter alone on a line stands for the class or shape it was given
+            LineKind::Field(_)
+                if let Some(call) = &composed
+                    && ctx.env.contains_key(&call.name) =>
+            {
+                self.item(ctx, l.span, call)?
             }
+            LineKind::Field(_) if let Some(call) = &composed => self.include(ctx, l, call)?,
+            LineKind::Field(f) => return self.field(ctx, l, f, owner, mark),
+            LineKind::Include(call) => self.include(ctx, l, call)?,
             LineKind::Boolean(b) => self.boolean(ctx, l, b, owner)?,
+            LineKind::Is(t) => self.test(ctx, l.span, t)?,
             LineKind::Closed => unreachable!("handled by block"),
+            LineKind::Group(_) => unreachable!("groups are rewritten before building"),
         };
         Some(self.annotate(ctx, l, slot, mark))
+    }
+
+    /// `Sensor` alone on a line: a shape to compose, not a property.
+    fn composed(&self, ctx: &Ctx, f: &Field) -> Option<Call> {
+        if f.name.is_some() || f.count.is_some() || !f.qualifiers.is_empty() {
+            return None;
+        }
+        let PathExpr::Node(NodeRef::Name(n)) = &f.path else {
+            return None;
+        };
+        let shape = match ctx.env.get(n) {
+            Some(b) => matches!(b, Bound_::Shape(_) | Bound_::Node(_)),
+            None => self.lookup_shape(ctx, n).is_some(),
+        };
+        shape.then(|| Call {
+            name: n.clone(),
+            args: Vec::new(),
+            named: Vec::new(),
+            block: None,
+            span: Span::default(),
+        })
+    }
+
+    fn include(&mut self, ctx: &Ctx, l: &Line, call: &Call) -> Option<ShapeId> {
+        let mut call = call.clone();
+        if call.span == Span::default() {
+            call.span = l.span;
+        }
+        let s = self.call(ctx, &call, true)?;
+        let into = ctx.shape.clone();
+        let from = display::call(&call);
+        self.schema.add_origin(
+            s,
+            Origin::new(
+                OriginKind::Include { from, into },
+                self.loc(ctx.module, l.span),
+            ),
+        );
+        Some(s)
     }
 
     fn int(&mut self, ctx: &Ctx, span: Span, i: &IntArg) -> Option<u64> {
@@ -1302,16 +1361,30 @@ impl<'p> Builder<'p> {
                 }
                 None => {
                     let shapeish = name.contains('.') || self.lookup_shape(ctx, name).is_some();
+                    let paths = crate::groups::visible_paths(self.p, ctx.module);
+                    if paths.iter().any(|p| p == name) {
+                        // An alias left in place: it is cyclic, and that is
+                        // already reported.
+                        return None;
+                    }
                     let d = self.error(
                         ctx.module,
                         span,
                         format!("`{name}` is not a property or path"),
                     );
-                    d.hint = Some(if shapeish {
-                        format!("to add the constraints of `{name}` here, write `include {name}`")
-                    } else {
-                        "write the property as a prefixed name, e.g. `brick:hasPoint`".into()
-                    });
+                    d.hint = Some(
+                        if let Some(n) = nearest(name, paths.iter().map(String::as_str)) {
+                            format!("did you mean the path `{n}`?")
+                        } else if shapeish {
+                            format!(
+                                "to add the constraints of `{name}` here, write `include {name}`"
+                            )
+                        } else {
+                            format!(
+                                "write the property as a prefixed name (`brick:hasPoint`), or name a path: `path {name} = brick:hasPoint`"
+                            )
+                        },
+                    );
                     return None;
                 }
             },
@@ -1319,6 +1392,8 @@ impl<'p> Builder<'p> {
                 Path::Pred(self.named_node(ctx, span, n, Some(TermKind::Property))?)
             }
             PathExpr::SelfPath => Path::Id,
+            // reported when path templates are expanded
+            PathExpr::Call(_) => return None,
             PathExpr::Inverse(i) => self.path(ctx, span, i)?.inverse(),
             PathExpr::Seq(ps) => {
                 let mut out = Vec::new();
@@ -1350,6 +1425,12 @@ impl<'p> Builder<'p> {
                 self.schema.arena.count(class_path(), Some(1), None, tc)
             }
             Test::Matches(call) => self.call(ctx, call, false)?,
+            Test::Item(Item::Class(n)) => {
+                let c = self.resolve_node(ctx, span, n, Some(TermKind::Class))?;
+                self.class_test(c)
+            }
+            Test::Item(Item::Shape(call)) => self.item(ctx, span, call)?,
+            Test::Shape(b) => self.block(ctx, &b.lines, ctx.owner),
             Test::Is(v) => {
                 let t = self.value_term(ctx, span, v)?;
                 self.schema.arena.insert(Shape::TestConst(t))
@@ -1447,8 +1528,72 @@ impl<'p> Builder<'p> {
         })
     }
 
-    /// Resolve and (for templates) expand a call to a shape slot.
+    fn class_test(&mut self, c: Term) -> ShapeId {
+        let tc = self.schema.arena.insert(Shape::TestConst(c));
+        self.schema.arena.count(class_path(), Some(1), None, tc)
+    }
+
+    /// A bare name or call where a test is expected. A parameter stands for
+    /// the class or shape it was given.
+    fn item(&mut self, ctx: &Ctx, span: Span, call: &Call) -> Option<ShapeId> {
+        let bare = call.args.is_empty() && call.named.is_empty();
+        let base = match ctx.env.get(&call.name) {
+            Some(Bound_::Node(t)) if bare => self.class_test(t.clone()),
+            Some(Bound_::Path(Path::Pred(p))) if bare => {
+                self.class_test(Term::NamedNode(p.clone()))
+            }
+            Some(Bound_::Shape(s)) if bare => *s,
+            Some(Bound_::Path(_) | Bound_::Int(_)) if bare => {
+                self.error(
+                    ctx.module,
+                    span,
+                    format!(
+                        "`{}` is a parameter that is not a class or a shape",
+                        call.name
+                    ),
+                );
+                return None;
+            }
+            _ => return self.call(ctx, call, false),
+        };
+        match &call.block {
+            None => Some(base),
+            Some(b) => {
+                let extra = self.block(ctx, &b.lines, ctx.owner);
+                Some(self.schema.arena.and(vec![base, extra]))
+            }
+        }
+    }
+
+    /// Resolve and (for templates) expand a call to a shape slot. A block
+    /// after a template call is its last argument; after a shape, it is more
+    /// lines the value must satisfy.
     fn call(&mut self, ctx: &Ctx, call: &Call, include: bool) -> Option<ShapeId> {
+        if matches!(
+            self.lookup_shape(ctx, &call.name),
+            Some(Resolved::Template(..))
+        ) {
+            return self.call_target(ctx, call, include);
+        }
+        if !call.named.is_empty() {
+            self.error(
+                ctx.module,
+                call.span,
+                format!("`{}` takes no arguments", call.name),
+            );
+            return None;
+        }
+        let s = self.call_target(ctx, call, include)?;
+        match &call.block {
+            None => Some(s),
+            Some(b) => {
+                let extra = self.block(ctx, &b.lines, ctx.owner);
+                Some(self.schema.arena.and(vec![s, extra]))
+            }
+        }
+    }
+
+    fn call_target(&mut self, ctx: &Ctx, call: &Call, include: bool) -> Option<ShapeId> {
         let span = call.span;
         if call.name.contains(':') || call.name.starts_with('<') {
             if !call.args.is_empty() {
@@ -1563,6 +1708,7 @@ impl<'p> Builder<'p> {
                         | (Sort::Path, Bound_::Node(Term::NamedNode(_)))
                         | (Sort::Shape, Bound_::Shape(_))
                         | (Sort::Int, Bound_::Int(_))
+                        | (Sort::Test, Bound_::Node(_) | Bound_::Shape(_))
                 );
                 if !ok {
                     self.error(
@@ -1574,6 +1720,38 @@ impl<'p> Builder<'p> {
                 }
                 Some(b)
             }
+            (Sort::Shape | Sort::Test | Sort::Any, Arg::Shape(b)) => {
+                Some(Bound_::Shape(self.block(ctx, &b.lines, ctx.owner)))
+            }
+            (_, Arg::Shape(_)) => {
+                self.error(
+                    ctx.module,
+                    span,
+                    format!("expected a {}, found a block", sort.word()),
+                );
+                None
+            }
+            (Sort::Test, Arg::Node(NodeRef::Name(n))) => {
+                let c = Call {
+                    name: n.clone(),
+                    args: Vec::new(),
+                    named: Vec::new(),
+                    block: None,
+                    span,
+                };
+                Some(Bound_::Shape(self.call(ctx, &c, false)?))
+            }
+            (Sort::Test, Arg::Node(n)) => Some(Bound_::Node(self.resolve_node(
+                ctx,
+                span,
+                n,
+                Some(TermKind::Class),
+            )?)),
+            (Sort::Test, Arg::Call(c)) => Some(Bound_::Shape(self.call(ctx, c, false)?)),
+            (Sort::Test, _) => {
+                self.error(ctx.module, span, "expected a class or a shape");
+                None
+            }
             (Sort::Int, Arg::Int(n)) => Some(Bound_::Int(*n)),
             (Sort::Int, _) => {
                 self.error(ctx.module, span, "expected a whole number");
@@ -1583,6 +1761,8 @@ impl<'p> Builder<'p> {
                 let c = Call {
                     name: n.clone(),
                     args: Vec::new(),
+                    named: Vec::new(),
+                    block: None,
                     span,
                 };
                 Some(Bound_::Shape(self.call(ctx, &c, false)?))
@@ -1621,6 +1801,8 @@ impl<'p> Builder<'p> {
                     let c = Call {
                         name: name.clone(),
                         args: Vec::new(),
+                        named: Vec::new(),
+                        block: None,
                         span,
                     };
                     return Some(Bound_::Shape(self.call(ctx, &c, false)?));
@@ -1661,31 +1843,40 @@ impl<'p> Builder<'p> {
     fn expand_template(&mut self, ctx: &Ctx, call: &Call, m: usize, d: usize) -> Option<ShapeId> {
         let decl = self.decl(m, d);
         let span = call.span;
-        if call.args.len() != decl.params.len() {
-            self.error(
-                ctx.module,
-                span,
-                format!(
-                    "`{}` takes {} argument{} ({}), but was given {}",
-                    decl.name,
-                    decl.params.len(),
-                    if decl.params.len() == 1 { "" } else { "s" },
-                    decl.params.join(", "),
-                    call.args.len()
-                ),
-            );
-            return None;
-        }
+        let matched = match crate::args::match_args(&call.name, &decl.params, call) {
+            Ok(a) => a,
+            Err(e) => {
+                let d = self.error(ctx.module, span, e.message);
+                d.hint = e.hint;
+                return None;
+            }
+        };
         let sorts = self.sorts.get(&(m, d)).cloned().unwrap_or_default();
         let mut env = HashMap::new();
         let mut keys = Vec::new();
         let mut shown = Vec::new();
-        for (i, (p, a)) in decl.params.iter().zip(&call.args).enumerate() {
+        for (i, (p, a)) in decl.params.iter().zip(&matched).enumerate() {
             let sort = sorts.get(i).copied().unwrap_or(Sort::Any);
-            let v = self.eval_arg(ctx, span, a, sort)?;
+            let v = match (a, &p.default) {
+                (Some(a), _) => self.eval_arg(ctx, span, a, sort)?,
+                // A default is read where the template is written, and may
+                // use the parameters before it.
+                (None, Some(default)) => {
+                    let at = Ctx {
+                        module: m,
+                        shape: ctx.shape.clone(),
+                        shape_name: None,
+                        env: Arc::new(env.clone()),
+                        template: true,
+                        owner: None,
+                    };
+                    self.eval_arg(&at, decl.span, default, sort)?
+                }
+                (None, None) => unreachable!("match_args requires it"),
+            };
             keys.push(self.arg_key(&v));
             shown.push(self.arg_display(&v));
-            env.insert(p.clone(), v);
+            env.insert(p.name.clone(), v);
         }
         let key = (m, d, keys.clone());
         if let Some(s) = self.expansions.get(&key) {
@@ -1722,6 +1913,7 @@ impl<'p> Builder<'p> {
             shape_name: Some(local),
             env: Arc::new(env),
             template: true,
+            owner: None,
         };
         self.depth += 1;
         let body = self.block(&inner, &decl.body, None);
@@ -1967,6 +2159,24 @@ fn collect_field_names(lines: &[Line], out: &mut Vec<(String, Span)>) {
             }
             _ => {}
         }
+        // named fields inside inline shapes belong to the enclosing shape
+        let tests: Vec<&Test> = match &l.kind {
+            LineKind::Field(f) => f
+                .qualifiers
+                .iter()
+                .filter_map(|q| match q {
+                    Qualifier::Each(t) | Qualifier::Qualified { test: t, .. } => Some(t),
+                    _ => None,
+                })
+                .collect(),
+            LineKind::Is(t) => vec![t],
+            _ => Vec::new(),
+        };
+        for t in tests {
+            if let Test::Shape(b) = t {
+                collect_field_names(&b.lines, out);
+            }
+        }
     }
 }
 
@@ -2009,7 +2219,7 @@ impl SortVisitor<'_, '_, '_> {
     fn path(&mut self, p: &PathExpr, span: Span) {
         match p {
             PathExpr::Node(NodeRef::Name(x)) => self.use_(x, Sort::Path, span),
-            PathExpr::Node(_) | PathExpr::SelfPath => {}
+            PathExpr::Node(_) | PathExpr::SelfPath | PathExpr::Call(_) => {}
             PathExpr::Inverse(i)
             | PathExpr::Star(i)
             | PathExpr::Plus(i)
@@ -2027,15 +2237,29 @@ impl SortVisitor<'_, '_, '_> {
             self.use_(&c.name, Sort::Shape, c.span);
         }
         let callee = self.b.lookup_in_module(self.m, &c.name, true);
-        let sorts = match callee {
-            Some(Resolved::Template(m, d)) => self.b.sorts.get(&(m, d)).cloned(),
-            _ => None,
+        let (sorts, names) = match callee {
+            Some(Resolved::Template(m, d)) => (
+                self.b.sorts.get(&(m, d)).cloned(),
+                self.b.decl(m, d).param_names(),
+            ),
+            _ => (None, Vec::new()),
         };
-        for (i, a) in c.args.iter().enumerate() {
-            let expected = sorts.as_ref().and_then(|s| s.get(i).copied());
+        let expected =
+            |i: Option<usize>| -> Option<Sort> { sorts.as_ref().and_then(|s| s.get(i?).copied()) };
+        let named = c
+            .named
+            .iter()
+            .map(|n| (names.iter().position(|p| *p == n.name), &n.value));
+        for (i, a) in c
+            .args
+            .iter()
+            .enumerate()
+            .map(|(i, a)| (Some(i), a))
+            .chain(named)
+        {
             match a {
                 Arg::Node(NodeRef::Name(x)) => {
-                    if let Some(s) = expected
+                    if let Some(s) = expected(i)
                         && s != Sort::Any
                     {
                         self.use_(x, s, c.span);
@@ -2043,8 +2267,18 @@ impl SortVisitor<'_, '_, '_> {
                 }
                 Arg::Path(p) => self.path(p, c.span),
                 Arg::Call(inner) => self.call(inner),
+                Arg::Shape(b) => self.lines(&b.lines),
                 _ => {}
             }
+        }
+        if let Some(b) = &c.block {
+            self.lines(&b.lines);
+        }
+    }
+
+    fn lines(&mut self, lines: &[Line]) {
+        for l in lines {
+            self.line(l);
         }
     }
 
@@ -2052,6 +2286,16 @@ impl SortVisitor<'_, '_, '_> {
         match t {
             Test::Class(n) => self.node(n, span),
             Test::Matches(c) => self.call(c),
+            Test::Item(Item::Class(n)) => self.node(n, span),
+            Test::Item(Item::Shape(c))
+                if c.args.is_empty()
+                    && c.named.is_empty()
+                    && c.block.is_none()
+                    && self.params.contains(c.name.as_str()) =>
+            {
+                self.use_(&c.name, Sort::Test, c.span)
+            }
+            Test::Item(Item::Shape(c)) => self.call(c),
             Test::Is(v) => self.value(v, span),
             Test::OneOf(vs) => {
                 for v in vs {
@@ -2059,6 +2303,11 @@ impl SortVisitor<'_, '_, '_> {
                 }
             }
             Test::Datatype(DatatypeRef::Node(n)) => self.node(n, span),
+            Test::Shape(b) => {
+                for l in &b.lines {
+                    self.line(l);
+                }
+            }
             _ => {}
         }
     }
@@ -2066,6 +2315,17 @@ impl SortVisitor<'_, '_, '_> {
     fn line(&mut self, l: &Line) {
         let span = l.span;
         match &l.kind {
+            // a parameter alone on a line is a class or shape to compose
+            LineKind::Field(f)
+                if f.name.is_none()
+                    && f.count.is_none()
+                    && f.qualifiers.is_empty()
+                    && matches!(&f.path, PathExpr::Node(NodeRef::Name(x)) if self.params.contains(x.as_str())) =>
+            {
+                if let PathExpr::Node(NodeRef::Name(x)) = &f.path {
+                    self.use_(x, Sort::Test, span);
+                }
+            }
             LineKind::Field(f) => {
                 self.path(&f.path, span);
                 if let Some(c) = &f.count {
@@ -2103,7 +2363,8 @@ impl SortVisitor<'_, '_, '_> {
                     }
                 }
             }
-            LineKind::Closed => {}
+            LineKind::Is(t) => self.test(t, span),
+            LineKind::Closed | LineKind::Group(_) => {}
         }
     }
 }

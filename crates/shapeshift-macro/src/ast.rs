@@ -36,6 +36,9 @@ pub struct Module {
     pub imports: Vec<ImportDecl>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub shapes: Vec<ShapeDecl>,
+    /// `path NAME = PATH` declarations.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub paths: Vec<PathDecl>,
     /// Comments before the first declaration (formatter trivia).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub leading_comments: Vec<String>,
@@ -53,6 +56,74 @@ pub enum HeaderRef {
     Base,
     Prefix(usize),
     Import(usize),
+    Path(usize),
+}
+
+/// `path NAME(params)? = PATH` — a name for a property path. `NAME` (or
+/// `NAME(args)`) stands for `PATH` wherever a path is written, in this module
+/// and in modules that import it (as `NAME` without an alias, `alias.NAME`
+/// with one).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PathDecl {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub params: Vec<Param>,
+    pub path: PathExpr,
+    #[serde(default, skip_serializing_if = "Annotations::is_empty")]
+    pub annotations: Annotations,
+    #[serde(default)]
+    pub span: Span,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub comments: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trailing_comment: Option<String>,
+}
+
+/// `PATH COUNT? { row* }` in a shape body: a group of named fields that
+/// share a path. Each row counts the values along `PATH` that are instances
+/// of its class (or match its shape): `COUNT` of them, `exactly 1` when no
+/// count is given, unless the row gives its own.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Group {
+    pub path: PathExpr,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub count: Option<Count>,
+    #[serde(default)]
+    pub rows: Vec<Row>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub trailing_comments: Vec<String>,
+}
+
+/// `label: ITEM COUNT? { line* }?` — one row of a group. The label names the
+/// row as a field (`Shape.label`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Row {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    pub item: Item,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub count: Option<Count>,
+    /// Further requirements on the value itself (its own points, parts, ...).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub body: Option<Block>,
+    #[serde(default, skip_serializing_if = "Annotations::is_empty")]
+    pub annotations: Annotations,
+    #[serde(default)]
+    pub span: Span,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub comments: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trailing_comment: Option<String>,
+}
+
+/// A bare term where a test is expected: a class or a shape.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum Item {
+    /// A prefixed name or IRI: the value is an instance of this class.
+    Class(NodeRef),
+    /// A shape name or template call: the value matches it. A bare name may
+    /// also be a template parameter, which stands for a class or a shape.
+    Shape(Call),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -127,7 +198,7 @@ impl Annotations {
 pub struct ShapeDecl {
     pub name: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub params: Vec<String>,
+    pub params: Vec<Param>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub targets: Vec<TargetDecl>,
     #[serde(default)]
@@ -146,6 +217,28 @@ pub struct ShapeDecl {
 impl ShapeDecl {
     pub fn is_template(&self) -> bool {
         !self.params.is_empty()
+    }
+
+    pub fn param_names(&self) -> Vec<String> {
+        self.params.iter().map(|p| p.name.clone()).collect()
+    }
+}
+
+/// A template parameter: `name`, or `name = default`. A default may refer
+/// to the parameters before it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Param {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default: Option<Arg>,
+}
+
+impl Param {
+    pub fn new(name: impl Into<String>) -> Self {
+        Param {
+            name: name.into(),
+            default: None,
+        }
     }
 }
 
@@ -194,6 +287,10 @@ pub enum LineKind {
     Boolean(Boolean),
     /// `only these properties`
     Closed,
+    /// `is a C`, `is iri`, ... — a test on the focus node itself.
+    Is(Test),
+    /// `brick:hasPoint { ... }` — a group of named fields along one path.
+    Group(Group),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -303,6 +400,10 @@ pub enum Test {
     },
     /// `language "en" "fr"`.
     Language(Vec<String>),
+    /// `{ line* }` — an inline, unnamed shape.
+    Shape(Block),
+    /// A bare class or shape: `brick:AHU`, `Sensor`, `HasPoint(brick:X)`.
+    Item(Item),
 }
 
 /// A numeric literal as written; keeps the lexical form so `1.50` round-trips.
@@ -348,6 +449,13 @@ pub struct Call {
     pub name: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub args: Vec<Arg>,
+    /// `name = value` arguments, after the positional ones.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub named: Vec<NamedArg>,
+    /// `T(args) { ... }`: for a template, its last argument; for a shape,
+    /// lines that the value must also satisfy.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub block: Option<Block>,
     #[serde(default)]
     pub span: Span,
 }
@@ -363,6 +471,14 @@ pub enum Arg {
     Int(u64),
     /// A shape call with arguments.
     Call(Call),
+    /// `{ ... }` — an inline shape.
+    Shape(Block),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct NamedArg {
+    pub name: String,
+    pub value: Arg,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -382,6 +498,9 @@ pub enum PathExpr {
     Plus(Box<PathExpr>),
     /// `p?`
     Optional(Box<PathExpr>),
+    /// `name(args)` — a parameterized `path` declaration, expanded before
+    /// building. Alone on a line, a call names a shape to compose instead.
+    Call(Call),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

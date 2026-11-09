@@ -1,0 +1,26 @@
+-- ASHRAE Guideline 36-2021, 4.3: fan-powered terminal unit.
+-- Translated from BuildingMOTIF's libraries/ashrae/guideline36/4.3-fan-powered.ttl.
+base <urn:ashrae/g36/4.3/fan-powered/>
+import "./brick.shm"
+import "./components.shm" as components
+import "./4.1-vav-cooling-only.shm" as vav41
+import "./4.2-vav-with-reheat.shm" as vav42
+prefix brick: <https://brickschema.org/schema/Brick#>
+
+doc "4.3 Fan-powered terminal unit"
+shape terminal-unit {
+  is brick:Terminal_Unit
+  vav41.zone-temperature
+  vav42.heating-signal
+  parts {
+    fan:    fan
+    damper: damper
+  }
+  points {
+    sa_flow: brick:Supply_Air_Flow_Sensor
+    sa_temp: brick:Supply_Air_Temperature_Sensor
+  }
+}
+
+shape fan { components.vfd-fan(brick:Fan) }
+shape damper { components.positioned-damper(brick:Damper) }
