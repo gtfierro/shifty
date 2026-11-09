@@ -15,6 +15,8 @@ This module tests various SHACL constraint components:
 Note: Some SHACL features may not be fully implemented yet.
 """
 
+import pytest
+
 import shifty
 
 PREFIXES = """\
@@ -341,71 +343,18 @@ ex:shape a sh:NodeShape ;
 """
 
 
-class TestCustomConstraintComponent:
-    """Tests for sh:SPARQLAskValidator with a graph-wide aggregate count.
-
-    The correct pattern for counting class instances uses a subquery to compute
-    the aggregate and a FILTER in the outer ASK — not SELECT * … HAVING, which
-    is invalid SPARQL (SELECT * with an implicit GROUP BY from HAVING).
-    """
-
-    def test_ask_validator_no_instances_fails(self):
-        data = b"@prefix ex: <urn:ex/> . ex:sentinel a ex:Sentinel ."
-        conforms, _, _ = shifty.validate(
-            data,
-            _EXACT_COUNT_SHAPES.encode(),
-            minimum_severity="violation",
-        )
-        assert not conforms, "zero instances of ex:Thing with exactCount=1 must fail"
-
-    def test_ask_validator_exact_count_conforms(self):
-        data = b"@prefix ex: <urn:ex/> . ex:sentinel a ex:Sentinel . ex:t1 a ex:Thing ."
-        conforms, _, _ = shifty.validate(
-            data,
-            _EXACT_COUNT_SHAPES.encode(),
-            minimum_severity="violation",
-        )
-        assert conforms, "exactly one ex:Thing with exactCount=1 must conform"
-
-    def test_ask_validator_too_many_instances_fails(self):
-        data = b"@prefix ex: <urn:ex/> . ex:sentinel a ex:Sentinel . ex:t1 a ex:Thing . ex:t2 a ex:Thing ."
-        conforms, _, _ = shifty.validate(
-            data,
-            _EXACT_COUNT_SHAPES.encode(),
-            minimum_severity="violation",
-        )
-        assert not conforms, "two instances of ex:Thing with exactCount=1 must fail"
-
-    # validate_algebra now evaluates custom constraint components by lowering
-    # them into Shape::Sparql nodes with pre-substituted parameter bindings.
-
-    def test_algebra_no_instances_fails(self):
-        data = b"@prefix ex: <urn:ex/> . ex:sentinel a ex:Sentinel ."
-        result = shifty.validate_algebra(
-            data,
-            _EXACT_COUNT_SHAPES.encode(),
-        )
-        assert not result.conforms, (
-            "zero instances of ex:Thing with exactCount=1 must fail"
-        )
-
-    def test_algebra_exact_count_conforms(self):
-        data = b"@prefix ex: <urn:ex/> . ex:sentinel a ex:Sentinel . ex:t1 a ex:Thing ."
-        result = shifty.validate_algebra(
-            data,
-            _EXACT_COUNT_SHAPES.encode(),
-        )
-        assert result.conforms, "exactly one ex:Thing with exactCount=1 must conform"
-
-    def test_algebra_too_many_instances_fails(self):
-        data = b"@prefix ex: <urn:ex/> . ex:sentinel a ex:Sentinel . ex:t1 a ex:Thing . ex:t2 a ex:Thing ."
-        result = shifty.validate_algebra(
-            data,
-            _EXACT_COUNT_SHAPES.encode(),
-        )
-        assert not result.conforms, (
-            "two instances of ex:Thing with exactCount=1 must fail"
-        )
+@pytest.mark.parametrize("interface", ["validate", "validate_algebra"])
+@pytest.mark.parametrize("count", [0, 1, 2], ids=["none", "exact", "excess"])
+def test_custom_component_counts_instances(interface, count):
+    # The aggregate must run over the graph even when it has no matching instances.
+    data = "@prefix ex: <urn:ex/> . ex:sentinel a ex:Sentinel ." + "".join(
+        f" ex:t{i} a ex:Thing ." for i in range(count)
+    )
+    result = getattr(shifty, interface)(
+        data.encode(), _EXACT_COUNT_SHAPES.encode(), minimum_severity="violation"
+    )
+    conforms = result[0] if interface == "validate" else result.conforms
+    assert conforms is (count == 1)
 
 
 # ── Nested property paths ────────────────────────────────────────────────────

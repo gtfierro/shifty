@@ -1,0 +1,11 @@
+@prefix sh:  <http://www.w3.org/ns/shacl#> .
+@prefix zea: <http://example.org/zea#> .
+@prefix ex:  <http://example.org/> .
+
+ex:Profile a sh:NodeShape ;
+    sh:targetNode ex:good, ex:bad ;
+    sh:property [
+        zea:roleName "outsideAirTemp" ;
+        sh:path ex:hasPoint ;
+        sh:minCount 1 ;
+    ] .

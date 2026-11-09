@@ -29,11 +29,6 @@ class TestToTurtleBytes:
         assert result == data
         assert isinstance(result, bytes)
 
-    def test_bytes_input_preserves_content(self):
-        original = b"@prefix ex: <http://example.org/> . ex:a ex:b ex:c ."
-        result = _to_turtle_bytes(original)
-        assert result == original
-
     def test_pathlib_path_file_exists(self, tmp_path):
         test_file = tmp_path / "data.ttl"
         original_content = "@prefix ex: <http://example.org/> . ex:a ex:b ex:c ."
@@ -72,8 +67,6 @@ class TestToTurtleBytes:
 
     def test_string_raw_ttl_text(self):
         ttl_text = "@prefix ex: <http://example.org/> . ex:a ex:b ex:c ."
-        result = _to_turtle_bytes(ttl_text)
-        assert result == ttl_text.encode("utf-8")
         result = _to_turtle_bytes(ttl_text)
         assert result == ttl_text.encode("utf-8")
 
@@ -394,26 +387,3 @@ class TestToTurtleBytes:
         assert "rdflib.Graph" in str(exc_info.value)
         assert "pathlib.Path" in str(exc_info.value)
         assert "bytes" in str(exc_info.value)
-
-
-# ── Integration tests with _to_turtle_bytes ──────────────────────────────────
-
-
-class TestToTurtleBytesIntegration:
-    def test_validate_with_bytes(self):
-        shapes = "@prefix sh: <http://www.w3.org/ns/shacl#> . @prefix ex: <http://example.org/> . [] a sh:NodeShape ; sh:targetClass ex:Person ; sh:property [ sh:path ex:name ; sh:minCount 1 ] ."
-        data = '@prefix ex: <http://example.org/> . ex:a a ex:Person ; ex:name "Test" .'
-        conforms, _, _ = shifty.validate(data.encode(), shapes.encode())
-        assert conforms is True
-
-    def test_validate_algebra_with_bytes(self):
-        shapes = "@prefix sh: <http://www.w3.org/ns/shacl#> . @prefix ex: <http://example.org/> . [] a sh:NodeShape ; sh:targetClass ex:Person ; sh:property [ sh:path ex:name ; sh:minCount 1 ] ."
-        data = '@prefix ex: <http://example.org/> . ex:a a ex:Person ; ex:name "Test" .'
-        result = shifty.validate_algebra(data.encode(), shapes.encode())
-        assert result.conforms is True
-
-    def test_infer_with_bytes(self):
-        shapes = "@prefix sh: <http://www.w3.org/ns/shacl#> . @prefix ex: <http://example.org/> . [] a sh:NodeShape ; sh:targetClass ex:Thing ; sh:rule [ a sh:TripleRule ; sh:subject sh:this ; sh:predicate ex:derived ; sh:object ex:Thing ] ."
-        data = "@prefix ex: <http://example.org/> . ex:a a ex:Thing ."
-        result = shifty.infer(data.encode(), shapes.encode())
-        assert result.inferred_count == 1

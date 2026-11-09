@@ -21,8 +21,12 @@ fn value_strings(values: &[Term]) -> Vec<String> {
 }
 
 fn shapes_and_data(ttl: &[u8]) -> (shifty_parse::Loaded, oxrdf::Graph) {
-    let shapes = shifty_parse::load_turtle(ttl, None).expect("valid shapes");
-    let data = shifty_parse::load_turtle(ttl, None)
+    split_shapes_and_data(ttl, ttl)
+}
+
+fn split_shapes_and_data(shapes: &[u8], data: &[u8]) -> (shifty_parse::Loaded, oxrdf::Graph) {
+    let shapes = shifty_parse::load_turtle(shapes, None).expect("valid shapes");
+    let data = shifty_parse::load_turtle(data, None)
         .expect("valid data")
         .graph;
     (shapes, data)
@@ -138,24 +142,10 @@ fn multi_hop_key_path_resolves_through_an_intermediate_node() {
 fn inverse_key_path_resolves_through_a_reverse_hop() {
     // The role descriptor points *at* the property shape rather than being
     // pointed to by it, so the key path needs an inverse hop.
-    let ttl = br#"
-        @prefix sh:  <http://www.w3.org/ns/shacl#> .
-        @prefix zea: <http://zea.example/ns#> .
-        @prefix ex:  <http://ex/> .
-
-        ex:Profile a sh:NodeShape ;
-            sh:targetNode ex:vav1 ;
-            sh:property ex:OatProp .
-        ex:OatProp a sh:PropertyShape ;
-            sh:path ex:hasPoint ;
-            sh:qualifiedValueShape [ sh:hasValue ex:oat ] ;
-            sh:qualifiedMinCount 1 ;
-            sh:qualifiedMaxCount 1 .
-        ex:RoleDescriptor zea:describes ex:OatProp ; zea:roleName "outsideAirTemp" .
-
-        ex:vav1 ex:hasPoint ex:oat, ex:sat .
-    "#;
-    let (shapes, data) = shapes_and_data(ttl);
+    let (shapes, data) = split_shapes_and_data(
+        include_bytes!("../../../testdata/regressions/witnesses/inverse-key-shapes.ttl"),
+        include_bytes!("../../../testdata/regressions/witnesses/inverse-key-data.ttl"),
+    );
 
     let key_path = parse_property_path("^zea:describes/zea:roleName", &shapes).unwrap();
     let witnesses = property_witnesses_graphs_with_mode(
@@ -172,23 +162,10 @@ fn inverse_key_path_resolves_through_a_reverse_hop() {
 
 #[test]
 fn violating_focus_yields_no_witnesses() {
-    let ttl = br#"
-        @prefix sh:  <http://www.w3.org/ns/shacl#> .
-        @prefix zea: <http://zea.example/ns#> .
-        @prefix ex:  <http://ex/> .
-
-        ex:Profile a sh:NodeShape ;
-            sh:targetNode ex:good, ex:bad ;
-            sh:property [
-                zea:roleName "outsideAirTemp" ;
-                sh:path ex:hasPoint ;
-                sh:minCount 1 ;
-            ] .
-
-        ex:good ex:hasPoint ex:oat .
-        ex:bad a ex:Thing .
-    "#;
-    let (shapes, data) = shapes_and_data(ttl);
+    let (shapes, data) = split_shapes_and_data(
+        include_bytes!("../../../testdata/regressions/witnesses/passing-focus-shapes.ttl"),
+        include_bytes!("../../../testdata/regressions/witnesses/passing-focus-data.ttl"),
+    );
 
     let key_path = parse_property_path("zea:roleName", &shapes).unwrap();
     let witnesses = property_witnesses_graphs_with_mode(
@@ -204,8 +181,11 @@ fn violating_focus_yields_no_witnesses() {
         1,
         "only the conforming focus witnesses: {witnesses:?}"
     );
-    assert_eq!(witnesses[0].focus.to_string(), "<http://ex/good>");
-    assert_eq!(value_strings(&witnesses[0].values), vec!["<http://ex/oat>"]);
+    assert_eq!(witnesses[0].focus.to_string(), "<http://example.org/good>");
+    assert_eq!(
+        value_strings(&witnesses[0].values),
+        vec!["<http://example.org/oat>"]
+    );
 }
 
 #[test]
@@ -246,46 +226,28 @@ fn plain_cardinality_property_yields_raw_path_values() {
 
 #[test]
 fn missing_key_path_falls_back_to_property_shape_node() {
-    let ttl = br#"
-        @prefix sh: <http://www.w3.org/ns/shacl#> .
-        @prefix ex: <http://ex/> .
-
-        ex:Profile a sh:NodeShape ;
-            sh:targetNode ex:vav1 ;
-            sh:property ex:PointRole .
-        ex:PointRole a sh:PropertyShape ;
-            sh:path ex:hasPoint ;
-            sh:minCount 1 .
-
-        ex:vav1 ex:hasPoint ex:a .
-    "#;
-    let (shapes, data) = shapes_and_data(ttl);
+    let (shapes, data) = split_shapes_and_data(
+        include_bytes!("../../../testdata/regressions/witnesses/fallback-key-shapes.ttl"),
+        include_bytes!("../../../testdata/regressions/witnesses/fallback-key-data.ttl"),
+    );
 
     let witnesses =
         property_witnesses_graphs_with_mode(&shapes, &data, ValidationGraphMode::Union, None)
             .unwrap();
 
     assert_eq!(witnesses.len(), 1);
-    assert_eq!(witnesses[0].key.to_string(), "<http://ex/PointRole>");
+    assert_eq!(
+        witnesses[0].key.to_string(),
+        "<http://example.org/PointRole>"
+    );
 }
 
 #[test]
 fn key_path_resolving_to_nothing_falls_back_to_property_shape_node() {
-    let ttl = br#"
-        @prefix sh:  <http://www.w3.org/ns/shacl#> .
-        @prefix zea: <http://zea.example/ns#> .
-        @prefix ex:  <http://ex/> .
-
-        ex:Profile a sh:NodeShape ;
-            sh:targetNode ex:vav1 ;
-            sh:property ex:PointRole .
-        ex:PointRole a sh:PropertyShape ;
-            sh:path ex:hasPoint ;
-            sh:minCount 1 .
-
-        ex:vav1 ex:hasPoint ex:a .
-    "#;
-    let (shapes, data) = shapes_and_data(ttl);
+    let (shapes, data) = split_shapes_and_data(
+        include_bytes!("../../../testdata/regressions/witnesses/fallback-key-shapes.ttl"),
+        include_bytes!("../../../testdata/regressions/witnesses/fallback-key-data.ttl"),
+    );
 
     // ex:PointRole has no zea:roleName, so the key path resolves to nothing.
     let key_path = parse_property_path("zea:roleName", &shapes).unwrap();
@@ -298,7 +260,10 @@ fn key_path_resolving_to_nothing_falls_back_to_property_shape_node() {
     .unwrap();
 
     assert_eq!(witnesses.len(), 1);
-    assert_eq!(witnesses[0].key.to_string(), "<http://ex/PointRole>");
+    assert_eq!(
+        witnesses[0].key.to_string(),
+        "<http://example.org/PointRole>"
+    );
 }
 
 #[test]

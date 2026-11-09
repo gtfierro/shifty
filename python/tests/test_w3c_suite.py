@@ -141,41 +141,16 @@ def _collect_test_cases() -> list:
 _TEST_CASES = _collect_test_cases()
 
 
+@pytest.mark.parametrize("interface", ["validate", "validate_algebra"])
 @pytest.mark.parametrize("data_file,shapes_file,expected_conforms", _TEST_CASES)
-def test_suite_validate_algebra_matches_expected(
+def test_suite_matches_expected(
     data_file: pathlib.Path,
     shapes_file: pathlib.Path,
     expected_conforms: bool,
+    interface: str,
 ) -> None:
     data = data_file.read_bytes()
     shapes = shapes_file.read_bytes()
-    result = shifty.validate_algebra(data, shapes, infer=False)
-    assert result.conforms == expected_conforms
-
-
-@pytest.mark.parametrize("data_file,shapes_file,expected_conforms", _TEST_CASES)
-def test_suite_validate_matches_expected(
-    data_file: pathlib.Path,
-    shapes_file: pathlib.Path,
-    expected_conforms: bool,
-) -> None:
-    data = data_file.read_bytes()
-    shapes = shapes_file.read_bytes()
-    conforms, _, _ = shifty.validate(data, shapes, infer=False)
+    result = getattr(shifty, interface)(data, shapes, infer=False)
+    conforms = result[0] if interface == "validate" else result.conforms
     assert conforms == expected_conforms
-
-
-@pytest.mark.parametrize("data_file,shapes_file,expected_conforms", _TEST_CASES)
-def test_suite_validate_and_algebra_agree(
-    data_file: pathlib.Path,
-    shapes_file: pathlib.Path,
-    expected_conforms: bool,
-) -> None:
-    data = data_file.read_bytes()
-    shapes = shapes_file.read_bytes()
-    conforms_w3c, _, _ = shifty.validate(data, shapes, infer=False)
-    conforms_algebra = shifty.validate_algebra(data, shapes, infer=False).conforms
-    assert conforms_w3c == conforms_algebra, (
-        f"validate() returned {conforms_w3c} but validate_algebra() returned "
-        f"{conforms_algebra} (expected {expected_conforms})"
-    )

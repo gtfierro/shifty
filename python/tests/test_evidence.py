@@ -995,12 +995,6 @@ def compaction_fixture():
     return shifty.EvidenceSession(shapes, data, infer=False).validate()
 
 
-def test_compact_round_trips_through_expand():
-    run = compaction_fixture()
-    restored = shifty.expand_evidence(run.to_compact_json())
-    assert restored == run.to_dict()
-
-
 def test_compact_accepts_and_returns_either_text_or_dicts():
     run = compaction_fixture()
     from_text = shifty.expand_evidence(run.to_compact_json())

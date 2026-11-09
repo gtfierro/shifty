@@ -11,7 +11,6 @@ This module provides comprehensive integration tests covering:
 - Type coercion and boolean evaluation
 """
 
-import pathlib
 import textwrap
 
 import pytest
@@ -19,7 +18,7 @@ import rdflib
 from rdflib.compare import isomorphic
 
 import shifty
-from shifty import AlgebraResult, InferResult, validate, validate_algebra
+from shifty import validate, validate_algebra
 
 PREFIXES = textwrap.dedent("""\
     @prefix sh:  <http://www.w3.org/ns/shacl#> .
@@ -52,11 +51,6 @@ CONFORMS_DATA = PREFIXES + textwrap.dedent("""\
 
 VIOLATION_DATA = PREFIXES + textwrap.dedent("""\
     ex:Bob a ex:Person .
-""")
-
-MULTI_VIOLATION_DATA = PREFIXES + textwrap.dedent("""\
-    ex:Bob   a ex:Person .
-    ex:Carol a ex:Person ; ex:name "Carol" ; ex:age 1 ; ex:age 2 .
 """)
 
 
@@ -120,42 +114,24 @@ def test_default_wrappers_do_not_read_delta(monkeypatch, wrapper, native_name):
 
 
 class TestValidatePyshacl:
-    def test_returns_tuple(self):
-        result = validate(CONFORMS_DATA.encode(), SHAPES.encode())
+    @pytest.mark.parametrize(
+        "data, expected",
+        [(CONFORMS_DATA, True), (VIOLATION_DATA, False)],
+        ids=["passing", "failing"],
+    )
+    def test_report_contract(self, data, expected):
+        result = validate(data.encode(), SHAPES.encode())
         assert isinstance(result, tuple) and len(result) == 3
-
-    def test_conforms_true(self):
-        conforms, report_graph, text = validate(CONFORMS_DATA.encode(), SHAPES.encode())
-        assert conforms is True
-
-    def test_conforms_false(self):
-        conforms, _, _ = validate(VIOLATION_DATA.encode(), SHAPES.encode())
-        assert conforms is False
-
-    def test_report_graph_is_rdflib(self):
-        _, report_graph, _ = validate(VIOLATION_DATA.encode(), SHAPES.encode())
-        assert isinstance(report_graph, rdflib.Graph)
-
-    def test_report_graph_has_validation_report(self):
+        conforms, report, text = result
+        assert conforms is expected
+        assert isinstance(report, rdflib.Graph)
         SH = rdflib.Namespace("http://www.w3.org/ns/shacl#")
-        _, report_graph, _ = validate(VIOLATION_DATA.encode(), SHAPES.encode())
-        reports = list(report_graph.subjects(rdflib.RDF.type, SH.ValidationReport))
-        assert len(reports) == 1
-
-    def test_report_graph_conforms_false(self):
-        SH = rdflib.Namespace("http://www.w3.org/ns/shacl#")
-        _, report_graph, _ = validate(VIOLATION_DATA.encode(), SHAPES.encode())
-        conforms_vals = list(report_graph.objects(None, SH.conforms))
-        assert any(str(v) == "false" for v in conforms_vals)
-
-    def test_results_text_contains_summary(self):
-        _, _, text = validate(VIOLATION_DATA.encode(), SHAPES.encode())
+        (report_node,) = report.subjects(rdflib.RDF.type, SH.ValidationReport)
+        assert list(report.objects(report_node, SH.conforms)) == [
+            rdflib.Literal(expected)
+        ]
         assert "Validation Report" in text
-        assert "Conforms: False" in text
-
-    def test_results_text_empty_when_conforms(self):
-        _, _, text = validate(CONFORMS_DATA.encode(), SHAPES.encode())
-        assert "Conforms: True" in text
+        assert f"Conforms: {expected}" in text
 
     def test_shapes_none_uses_data(self):
         # When shapes=None the data graph should be used as the shapes graph too.
@@ -189,22 +165,6 @@ class TestValidatePyshacl:
 
         conforms, _, _ = validate(combined_file, infer=False)
 
-        assert conforms is True
-
-    def test_accepts_file_path(self, tmp_path):
-        data_file = tmp_path / "data.ttl"
-        shapes_file = tmp_path / "shapes.ttl"
-        data_file.write_text(CONFORMS_DATA)
-        shapes_file.write_text(SHAPES)
-        conforms, _, _ = validate(data_file, shapes_file)
-        assert conforms is True
-
-    def test_accepts_pathlib_path(self, tmp_path):
-        data_file = tmp_path / "data.ttl"
-        shapes_file = tmp_path / "shapes.ttl"
-        data_file.write_text(CONFORMS_DATA)
-        shapes_file.write_text(SHAPES)
-        conforms, _, _ = validate(pathlib.Path(data_file), pathlib.Path(shapes_file))
         assert conforms is True
 
     def test_accepts_http_urls(self, monkeypatch):
@@ -258,55 +218,11 @@ class TestValidatePyshacl:
         conforms, _, _ = validate(data_g, shapes_g)
         assert conforms is True
 
-    def test_bool_coercion(self):
-        conforms, _, _ = validate(CONFORMS_DATA.encode(), SHAPES.encode())
-        assert conforms
-        conforms, _, _ = validate(VIOLATION_DATA.encode(), SHAPES.encode())
-        assert not conforms
-
 
 # ── validate_algebra() — structured violations ───────────────────────────────
 
 
 class TestValidateAlgebra:
-    def test_returns_algebra_result(self):
-        result = validate_algebra(CONFORMS_DATA.encode(), SHAPES.encode())
-        assert isinstance(result, AlgebraResult)
-
-    def test_conforms_true(self):
-        result = validate_algebra(CONFORMS_DATA.encode(), SHAPES.encode())
-        assert result.conforms is True
-        assert result.violations == []
-
-    def test_conforms_false(self):
-        result = validate_algebra(VIOLATION_DATA.encode(), SHAPES.encode())
-        assert result.conforms is False
-        assert len(result.violations) > 0
-
-    def test_violation_has_focus_node(self):
-        result = validate_algebra(VIOLATION_DATA.encode(), SHAPES.encode())
-        focus_nodes = [v.focus_node for v in result.violations]
-        assert any("Bob" in fn for fn in focus_nodes)
-
-    def test_violation_has_reasons(self):
-        result = validate_algebra(VIOLATION_DATA.encode(), SHAPES.encode())
-        assert all(len(v.reasons) > 0 for v in result.violations)
-
-    def test_reason_has_message(self):
-        result = validate_algebra(VIOLATION_DATA.encode(), SHAPES.encode())
-        all_messages = [r.message for v in result.violations for r in v.reasons]
-        assert any(
-            "name" in m.lower() or "minCount" in m or "1" in m for m in all_messages
-        )
-
-    def test_multi_violation(self):
-        result = validate_algebra(MULTI_VIOLATION_DATA.encode(), SHAPES.encode())
-        assert not result.conforms
-        # Bob (no name) and Carol (age > maxCount 1) both violate
-        focus_nodes = {v.focus_node for v in result.violations}
-        assert any("Bob" in fn for fn in focus_nodes)
-        assert any("Carol" in fn for fn in focus_nodes)
-
     def test_severity_threshold_and_ordering(self):
         shapes = PREFIXES + textwrap.dedent("""\
             ex:InfoShape a sh:NodeShape ;
@@ -352,16 +268,6 @@ class TestValidateAlgebra:
             "Warning",
             "Info",
         ]
-
-    def test_bool_coercion(self):
-        assert validate_algebra(CONFORMS_DATA.encode(), SHAPES.encode())
-        assert not validate_algebra(VIOLATION_DATA.encode(), SHAPES.encode())
-
-    def test_repr(self):
-        r = validate_algebra(CONFORMS_DATA.encode(), SHAPES.encode())
-        assert "conforms=True" in repr(r)
-        r = validate_algebra(VIOLATION_DATA.encode(), SHAPES.encode())
-        assert "conforms=False" in repr(r)
 
     def test_graph_mode_data(self):
         # "data" mode: shapes are embedded in data, class target found
@@ -469,26 +375,6 @@ def _derived_area(graph):
 
 
 class TestInfer:
-    def test_returns_infer_result(self):
-        result = shifty.infer(INFER_DATA.encode(), INFER_SHAPES.encode())
-        assert isinstance(result, InferResult)
-
-    def test_inferred_count(self):
-        result = shifty.infer(INFER_DATA.encode(), INFER_SHAPES.encode())
-        assert result.inferred_count == 1
-
-    def test_graph_ntriples_is_string(self):
-        result = shifty.infer(INFER_DATA.encode(), INFER_SHAPES.encode())
-        assert isinstance(result.graph_ntriples, str)
-        assert "knows2" in result.graph_ntriples
-
-    def test_graph_returns_rdflib(self):
-        result = shifty.infer(INFER_DATA.encode(), INFER_SHAPES.encode())
-        g = result.graph()
-        assert isinstance(g, rdflib.Graph)
-        EX = rdflib.Namespace("http://example.org/")
-        assert (EX.a, EX.knows2, EX.b) in g
-
     def test_embedded_graph_matches_explicit_self_inference(self):
         combined = (INFER_SHAPES + "\n" + INFER_DATA).encode()
         embedded = shifty.infer(combined)
@@ -501,10 +387,6 @@ class TestInfer:
         combined = (INFER_SHAPES + "\n" + INFER_DATA).encode()
         result = shifty.infer(combined, None)
         assert result.inferred_count == 1
-
-    def test_repr(self):
-        result = shifty.infer(INFER_DATA.encode(), INFER_SHAPES.encode())
-        assert "inferred=1" in repr(result)
 
     def test_inferred_ntriples_is_just_the_delta(self):
         result = shifty.infer(INFER_DATA.encode(), INFER_SHAPES.encode())

@@ -1,0 +1,10 @@
+@prefix zea: <http://example.org/zea#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix ex: <http://example.org/> .
+
+ex:Profile a sh:NodeShape ;
+    sh:targetNode ex:vav1 ;
+    sh:property ex:PointRole .
+ex:PointRole a sh:PropertyShape ;
+    sh:path ex:hasPoint ;
+    sh:minCount 1 .

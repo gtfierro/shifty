@@ -1,6 +1,21 @@
 """Tests for PreparedValidator.witnesses() — the inverse of validation."""
 
+from pathlib import Path
+
+import pytest
+
 import shifty
+
+FIXTURES = (
+    Path(__file__).resolve().parents[2] / "testdata" / "regressions" / "witnesses"
+)
+
+
+def witness_fixture(name):
+    return tuple(
+        (FIXTURES / f"{name}-{kind}.ttl").read_bytes() for kind in ("shapes", "data")
+    )
+
 
 SHAPES = b"""
 @prefix sh:  <http://www.w3.org/ns/shacl#> .
@@ -53,25 +68,7 @@ def test_multi_hop_key_path_disambiguates_same_typed_siblings():
 
 
 def test_inverse_key_path_resolves_through_a_reverse_hop():
-    shapes = b"""
-    @prefix sh:  <http://www.w3.org/ns/shacl#> .
-    @prefix zea: <http://example.org/zea#> .
-    @prefix ex:  <http://example.org/> .
-
-    ex:Profile a sh:NodeShape ;
-        sh:targetNode ex:vav1 ;
-        sh:property ex:OatProp .
-    ex:OatProp a sh:PropertyShape ;
-        sh:path ex:hasPoint ;
-        sh:qualifiedValueShape [ sh:hasValue ex:oat ] ;
-        sh:qualifiedMinCount 1 ;
-        sh:qualifiedMaxCount 1 .
-    ex:RoleDescriptor zea:describes ex:OatProp ; zea:roleName "outsideAirTemp" .
-    """
-    data = b"""
-    @prefix ex: <http://example.org/> .
-    ex:vav1 ex:hasPoint ex:oat, ex:sat .
-    """
+    shapes, data = witness_fixture("inverse-key")
     validator = shifty.PreparedValidator(shapes)
     witnesses = validator.witnesses(
         data, key_path="^zea:describes/zea:roleName", infer=False
@@ -103,24 +100,7 @@ def test_single_predicate_key_path_still_works():
 
 
 def test_violating_focus_yields_no_witnesses():
-    shapes = b"""
-    @prefix sh:  <http://www.w3.org/ns/shacl#> .
-    @prefix zea: <http://example.org/zea#> .
-    @prefix ex:  <http://example.org/> .
-
-    ex:Profile a sh:NodeShape ;
-        sh:targetNode ex:good, ex:bad ;
-        sh:property [
-            zea:roleName "outsideAirTemp" ;
-            sh:path ex:hasPoint ;
-            sh:minCount 1 ;
-        ] .
-    """
-    data = b"""
-    @prefix ex: <http://example.org/> .
-    ex:good ex:hasPoint ex:oat .
-    ex:bad a ex:Thing .
-    """
+    shapes, data = witness_fixture("passing-focus")
     validator = shifty.PreparedValidator(shapes)
     witnesses = validator.witnesses(data, key_path="zea:roleName", infer=False)
 
@@ -130,21 +110,7 @@ def test_violating_focus_yields_no_witnesses():
 
 
 def test_missing_key_path_falls_back_to_property_shape_node():
-    shapes = b"""
-    @prefix sh: <http://www.w3.org/ns/shacl#> .
-    @prefix ex: <http://example.org/> .
-
-    ex:Profile a sh:NodeShape ;
-        sh:targetNode ex:vav1 ;
-        sh:property ex:PointRole .
-    ex:PointRole a sh:PropertyShape ;
-        sh:path ex:hasPoint ;
-        sh:minCount 1 .
-    """
-    data = b"""
-    @prefix ex: <http://example.org/> .
-    ex:vav1 ex:hasPoint ex:a .
-    """
+    shapes, data = witness_fixture("fallback-key")
     validator = shifty.PreparedValidator(shapes)
     witnesses = validator.witnesses(data, infer=False)
 
@@ -154,12 +120,8 @@ def test_missing_key_path_falls_back_to_property_shape_node():
 
 def test_invalid_key_path_raises_value_error():
     validator = shifty.PreparedValidator(SHAPES)
-    try:
+    with pytest.raises(ValueError):
         validator.witnesses(DATA, key_path="zea:role/", infer=False)
-    except ValueError:
-        pass
-    else:
-        raise AssertionError("expected a ValueError for a malformed key_path")
 
 
 def test_repr_is_readable():

@@ -1,0 +1,2 @@
+@prefix ex: <http://example.org/> .
+ex:vav1 ex:hasPoint ex:a .

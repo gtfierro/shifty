@@ -15,9 +15,11 @@
 //! `owl:imports` to vendored sibling ontologies are merged so a test's data
 //! graph is complete. Only JS-based cases (`sh:js*`) remain skipped.
 
+mod common;
+
+use common::{Key, expected_report, result_key};
 use oxrdf::{Graph, NamedNode, NamedNodeRef, NamedOrBlankNode, Term, Triple};
-use shifty_algebra::render::path_to_string;
-use shifty_engine::{CompiledShapes, SessionData, SessionOptions, ValidationResult};
+use shifty_engine::{CompiledShapes, SessionData, SessionOptions};
 use shifty_parse::vocab;
 use std::path::{Path, PathBuf};
 
@@ -221,79 +223,6 @@ fn expected_inferred(loaded: &shifty_parse::Loaded) -> Vec<Triple> {
         }
     }
     out
-}
-
-// --- validation-report comparison (mirrors data_shapes_report) ---
-
-type Key = (String, Option<String>, Option<String>, String, String);
-
-/// Canonical key for a path term that may be a blank-node sub-graph.
-/// Parses and re-serializes complex paths so structurally identical paths
-/// compare equal even when the blank-node IDs differ.
-fn path_term_key(loaded: &shifty_parse::Loaded, t: &Term) -> String {
-    if matches!(t, Term::BlankNode(_))
-        && let Ok(p) = shifty_parse::path::parse_path(loaded, t)
-    {
-        return path_to_string(&p);
-    }
-    t.to_string()
-}
-
-/// Wildcards blank-node source shapes because test expectations sometimes use
-/// empty `[ ]` placeholders for anonymous shapes.
-fn shape_term_key(t: &Term) -> String {
-    match t {
-        Term::BlankNode(_) => "_:BLANK".to_string(),
-        other => other.to_string(),
-    }
-}
-
-fn result_key(loaded: &shifty_parse::Loaded, r: &ValidationResult) -> Key {
-    (
-        r.focus.to_string(),
-        r.path.as_ref().map(|p| path_term_key(loaded, p)),
-        r.value.as_ref().map(|v| v.to_string()),
-        format!("<{}>", r.component.as_str()),
-        shape_term_key(&r.source_shape),
-    )
-}
-
-/// Expected (conforms, result-keys) from the embedded `sh:ValidationReport`.
-fn expected_report(loaded: &shifty_parse::Loaded) -> Option<(bool, Vec<Key>)> {
-    let report: NamedOrBlankNode = loaded
-        .graph
-        .subjects_for_predicate_object(vocab::RDF_TYPE, vocab::SH_VALIDATION_REPORT)
-        .next()?
-        .into_owned();
-
-    let conforms = matches!(
-        loaded.object(&report, vocab::SH_CONFORMS),
-        Some(Term::Literal(ref l)) if l.value() == "true"
-    );
-
-    let mut keys = Vec::new();
-    for res in loaded.objects(&report, vocab::SH_RESULT) {
-        let Some(rn) = shifty_parse::graph::term_to_node(&res) else {
-            continue;
-        };
-        let focus = loaded.object(&rn, vocab::SH_FOCUS_NODE)?;
-        let component = loaded.object(&rn, vocab::SH_SOURCE_CONSTRAINT_COMPONENT)?;
-        let source = loaded.object(&rn, vocab::SH_SOURCE_SHAPE)?;
-        keys.push((
-            focus.to_string(),
-            loaded
-                .object(&rn, vocab::SH_RESULT_PATH)
-                .as_ref()
-                .map(|p| path_term_key(loaded, p)),
-            loaded
-                .object(&rn, vocab::SH_VALUE)
-                .as_ref()
-                .map(|v| v.to_string()),
-            component.to_string(),
-            shape_term_key(&source),
-        ));
-    }
-    Some((conforms, keys))
 }
 
 #[test]

@@ -1,0 +1,3 @@
+@prefix ex: <http://example.org/> .
+ex:good ex:hasPoint ex:oat .
+ex:bad a ex:Thing .

@@ -1,5 +1,10 @@
 # Test fixtures
 
+`regressions/` contains project-owned cases shared across language bindings.
+The split shapes/data files under `regressions/witnesses/` are consumed by
+Python's `test_witnesses.py` and Rust's `property_witnesses.rs`; keep each
+pair together when updating a scenario.
+
 `w3c-shacl/tests/` contains the unmodified SHACL 1.0 Core/SPARQL suite from
 [`w3c/data-shapes`](https://github.com/w3c/data-shapes), commit
 `40231dfb97c5b606d22ae733947c0d14b4f45c07`, directory

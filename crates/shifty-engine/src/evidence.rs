@@ -1834,7 +1834,9 @@ mod tests {
         // Each reported failure explains to failure evidence, and nothing that
         // failed in the full run is missing from the list.
         for pair in &failures {
-            for evaluation in validator.explain(pair).unwrap() {
+            let explained = validator.explain(pair).unwrap();
+            assert!(!explained.is_empty(), "failure {pair:?} had no explanation");
+            for evaluation in explained {
                 assert!(matches!(
                     evaluation.selected_foci[0].evidence,
                     Evidence::Failure(_)
@@ -1845,21 +1847,27 @@ mod tests {
             .statements
             .iter()
             .flat_map(|statement| {
-                statement.selected_foci.iter().map(|focus| {
-                    (
-                        statement.normalized_statement_id.unwrap(),
-                        focus.focus.to_string(),
-                    )
-                })
+                statement
+                    .selected_foci
+                    .iter()
+                    .filter(|focus| matches!(focus.evidence, Evidence::Failure(_)))
+                    .map(|focus| {
+                        (
+                            statement.normalized_statement_id.unwrap(),
+                            focus.focus.to_string(),
+                        )
+                    })
             })
-            .filter(|_| true)
             .collect();
-        for pair in &failures {
-            assert!(
-                full_failures.contains(&(pair.normalized_statement(), pair.focus().to_string())),
-                "failure {pair:?} was not a pair of the full run"
-            );
-        }
+        let found: HashSet<_> = failures
+            .iter()
+            .map(|pair| (pair.normalized_statement(), pair.focus().to_string()))
+            .collect();
+        assert_eq!(found.len(), failures.len(), "duplicate failure handles");
+        assert_eq!(
+            found, full_failures,
+            "failure pairs differ from the full run"
+        );
     }
 
     #[test]

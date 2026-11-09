@@ -1,120 +1,64 @@
-# Test Summary for pyshifty
+# Python and Rust test coverage
 
-## Test Coverage Overview
+The suites share regression data where they exercise the same scenario, while
+keeping assertions at the layer that owns the behavior.
 
-**Total Tests**: 132 tests  
-**Test Files**: 5 files  
-**Code Coverage**: 100% of `shifty/__init__.py`
+- Rust unit tests cover algebra, parsing, normalization, planning, execution,
+  evidence, and repair semantics. Engine corpus tests also compare reference,
+  normalized, and planned execution; these comparisons remain independent of
+  Python interface tests.
+- Python tests cover public argument handling, result objects, RDFLib conversion,
+  serialization, in-place mutation, and exception propagation.
+- `testdata/regressions/witnesses/` holds split shapes/data fixtures consumed by
+  both `test_witnesses.py` and Rust's `property_witnesses.rs`. Each suite retains
+  its own assertions about its public interface.
 
-## Test Files
+## Python test ownership
 
-### 1. `test_errors.py` (33 tests)
-Error handling tests covering:
-- Invalid graph_mode values
-- Parse errors for invalid RDF syntax
-- Unsupported input types (int, dict, list, None, etc.)
-- File path errors (nonexistent files)
-- Empty/None inputs handling
-- Blank node handling in validation and inference
-- Large input handling (100+ triples)
-- Temporary file operations
+| Tests | Responsibility |
+| --- | --- |
+| `test_results.py` | Passing/failing algebra result contracts, inference result contracts, reason provenance, multiple violations |
+| `test_shifty.py` | W3C report contract, embedded shapes, inference deltas, in-place operations, blank-node identity, combined graph inputs |
+| `test_errors.py` | Parameterized input admission, parse errors, missing files, empty inputs, and explicit bases across entry points |
+| `test_convert.py` | Conversion-specific syntax, namespaces, literals, blank nodes, and unsupported types |
+| `test_prepared.py` | Prepared-validator reuse, parity with one-shot validation, in-place behavior, lazy deltas, and GIL release |
+| `test_shacl_features.py` | SHACL component smoke tests and custom-component boundary cases |
+| `test_w3c_suite.py` | Adapted local corpus verdicts, once per case and validation interface |
+| `test_conformance.py`, `test_interface_parity.py` | Upstream manifest runner and CLI comparison infrastructure |
+| `test_interface_agreement.py`, `test_execution_failures.py` | Admission, diagnostics, and failure propagation across interfaces |
+| `test_evidence.py`, `test_repair.py`, `test_witnesses.py` | Evidence, repair, and witness APIs |
+| `test_shapemap*.py` | ShapeMap construction, projection, ordering, components, and value recovery |
+| `test_file_inputs.py`, `test_sparql_graph_input.py` | File bases and SPARQL prefixes through graph conversion |
+| `test_typing.py`, `test_sdist.py` | Stub completeness and source-distribution packaging |
 
-### 2. `test_convert.py` (22 tests)
-Unit tests for type conversion:
-- `_to_turtle_bytes()` function with all input types:
-  - bytes (passthrough)
-  - pathlib.Path (file reading)
-  - str (file path or raw Turtle text)
-  - rdflib.Graph (Turtle serialization)
-- Error cases for unsupported types
-- Integration with validate/validate_algebra/infer
+When extending coverage, add a named parameter case for another input or public
+entry point with the same contract. Combine related result-field assertions over
+one execution. Keep distinct regressions separate when their setup or failure
+mode differs, particularly session availability, graph scope, normalization, and
+blank-node ownership. Keep mutable graphs and sessions local to each test.
 
-### 3. `test_results.py` (30 tests)
-Unit tests for result classes:
-- `InferResult` class:
-  - `inferred_count` property
-  - `diagnostics` property
-  - `graph_ntriples` property
-  - `graph()` method
-  - `__repr__()` method
-- `AlgebraResult` class:
-  - `conforms` property
-  - `violations` list
-  - `Violation` objects (focus_node, shape, reasons)
-  - `Reason` objects (message, path, value)
-  - `__repr__()` and bool() coercion
-- Multiple violations handling
-- Edge cases (empty shapes, empty data, complex paths)
+Rust's adapted report corpus tests share helpers in
+`crates/shifty-engine/tests/common/`; CLI fixtures and command helpers live in
+`crates/shifty-cli/tests/common/`. The adapted report helpers retain their local
+anonymous-shape matching rules. Full upstream report comparison belongs to the
+stricter manifest runner described in `testdata/README.md`.
 
-### 4. `test_shacl_features.py` (16 tests)
-SHACL feature coverage tests:
-- Datatype constraints (sh:datatype)
-- Cardinality constraints (sh:minCount, sh:maxCount)
-- NodeKind constraints (sh:nodeKind)
-- Value set constraints (sh:in)
-- Pattern constraints (sh:pattern)
-- Closed shapes (sh:closed)
-- Target types (sh:targetClass, sh:targetNode)
-- Logical operators (sh:and)
-- Nested property paths
+## Verification
 
-### 5. `test_shifty.py` (31 tests)
-Existing integration tests (from original test suite):
-- `validate()` function (pyshacl-compatible interface):
-  - Return type verification
-  - W3C ValidationReport graph generation
-  - Human-readable text output
-  - Various input types
-- `validate_algebra()` function (algebraic interface):
-  - AlgebraResult structure
-  - Violation objects with reasons
-  - Multiple violations handling
-- `infer()` function (SHACL-AF inference):
-  - Inferred triple counting
-  - Graph construction
-- `graph_mode` parameter (union, data, union-all)
+Run from `python/`, rebuilding the extension after Rust changes:
 
-## Running Tests
-
-```bash
-# Run all tests
-cd python
-.venv/bin/python -m pytest tests/
-
-# Run specific test file
-.venv/bin/python -m pytest tests/test_errors.py
-
-# Run with coverage
-.venv/bin/python -m pytest tests/ --cov=shifty --cov-report=term-missing
-
-# Run with verbose output
-.venv/bin/python -m pytest tests/ -v
+```sh
+uv sync --dev --frozen --reinstall-package pyshifty
+uv run ruff check .
+uv run ruff format --check .
+uv run ty check shifty
+uv run pytest -q
 ```
 
-## Implementation Status
+Run Rust checks from the repository root:
 
-### Completed
-- ✅ Type conversion tests
-- ✅ Error handling tests
-- ✅ Result class unit tests
-- ✅ SHACL constraint tests
-- ✅ Integration tests
-- ✅ 100% code coverage
-
-### Future Enhancements
-- 📝 SPARQL constraint tests (sh:sparql)
-- 📝 Complex SHACL-AF inference tests (recursive rules)
-- 📝 Blank node inference tests
-- 📝 More complex SHACL patterns (sh:or, sh:not)
-
-## Test Structure
-
-```
-python/tests/
-├── test_convert.py          # Type conversion unit tests
-├── test_errors.py           # Error handling tests
-├── test_results.py          # Result class unit tests
-├── test_shacl_features.py   # SHACL feature coverage tests
-├── test_shifty.py           # Existing integration tests
-└── TEST_SUMMARY.md          # This file
+```sh
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets --all-features -- -D warnings
+cargo test --workspace
 ```

@@ -6,46 +6,9 @@
 //! none at all, and whether a file was read as the format its extension
 //! suggests or as something else entirely.
 
-use std::process::Command;
+mod common;
 
-struct Fixture {
-    dir: std::path::PathBuf,
-}
-
-impl Fixture {
-    fn new(name: &str) -> Self {
-        let dir =
-            std::env::temp_dir().join(format!("shifty-cli-profile-{name}-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        Self { dir }
-    }
-
-    fn write(&self, name: &str, contents: &str) -> String {
-        let path = self.dir.join(name);
-        std::fs::write(&path, contents).unwrap();
-        path.to_str().unwrap().to_string()
-    }
-}
-
-impl Drop for Fixture {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.dir);
-    }
-}
-
-fn run(args: &[&str]) -> String {
-    let output = Command::new(env!("CARGO_BIN_EXE_shifty"))
-        .args(args)
-        .output()
-        .unwrap();
-    assert!(
-        output.status.success(),
-        "stderr: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    String::from_utf8(output.stdout).unwrap()
-}
+use common::{Fixture, run};
 
 const SHAPES: &str = r#"
 @prefix sh: <http://www.w3.org/ns/shacl#> .

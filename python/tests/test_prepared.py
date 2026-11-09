@@ -77,56 +77,33 @@ def test_prepared_validator_rejects_empty_shapes():
         shifty.PreparedValidator(rdflib.Graph())
 
 
-def test_prepared_validator_validate_in_place_adds_inferred_triples():
+@pytest.mark.parametrize("method", ["validate", "validate_algebra"])
+def test_prepared_validator_in_place_adds_inferred_triples(method):
     prepared = shifty.PreparedValidator(RULE_SHAPES)
     data = rdflib.Graph()
     data.parse(data=RULE_DATA, format="turtle")
 
-    conforms, _, _ = prepared.validate(data, in_place=True)
+    result = getattr(prepared, method)(data, in_place=True)
 
     EX = rdflib.Namespace("http://example.org/")
-    assert conforms
+    assert result[0] if method == "validate" else result.conforms
     assert (EX.a, EX.knows2, EX.b) in data
 
 
-def test_prepared_validator_validate_in_place_requires_rdflib_graph():
+@pytest.mark.parametrize("method", ["validate", "validate_algebra"])
+def test_prepared_validator_in_place_requires_rdflib_graph(method):
     prepared = shifty.PreparedValidator(RULE_SHAPES)
     with pytest.raises(TypeError):
-        prepared.validate(RULE_DATA.encode(), in_place=True)
+        getattr(prepared, method)(RULE_DATA.encode(), in_place=True)
 
 
-def test_prepared_validator_validate_in_place_requires_infer_true():
+@pytest.mark.parametrize("method", ["validate", "validate_algebra"])
+def test_prepared_validator_in_place_requires_infer_true(method):
     prepared = shifty.PreparedValidator(RULE_SHAPES)
     data = rdflib.Graph()
     data.parse(data=RULE_DATA, format="turtle")
     with pytest.raises(ValueError):
-        prepared.validate(data, in_place=True, infer=False)
-
-
-def test_prepared_validator_validate_algebra_in_place_adds_inferred_triples():
-    prepared = shifty.PreparedValidator(RULE_SHAPES)
-    data = rdflib.Graph()
-    data.parse(data=RULE_DATA, format="turtle")
-
-    result = prepared.validate_algebra(data, in_place=True)
-
-    EX = rdflib.Namespace("http://example.org/")
-    assert result.conforms
-    assert (EX.a, EX.knows2, EX.b) in data
-
-
-def test_prepared_validator_validate_algebra_in_place_requires_rdflib_graph():
-    prepared = shifty.PreparedValidator(RULE_SHAPES)
-    with pytest.raises(TypeError):
-        prepared.validate_algebra(RULE_DATA.encode(), in_place=True)
-
-
-def test_prepared_validator_validate_algebra_in_place_requires_infer_true():
-    prepared = shifty.PreparedValidator(RULE_SHAPES)
-    data = rdflib.Graph()
-    data.parse(data=RULE_DATA, format="turtle")
-    with pytest.raises(ValueError):
-        prepared.validate_algebra(data, in_place=True, infer=False)
+        getattr(prepared, method)(data, in_place=True, infer=False)
 
 
 @pytest.mark.parametrize("method", ["validate_algebra", "validate_w3c"])
