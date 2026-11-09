@@ -115,6 +115,24 @@ check("version is exported", typeof version() === "string" && version().length >
   }
 }
 
+// Inference must reject failed guards before returning any derived snapshot.
+{
+  const prefixes = `@prefix sh: <http://www.w3.org/ns/shacl#> .
+    @prefix ex: <http://ex/> .`;
+  const shapes = `${prefixes}
+    ex:exists a sh:SPARQLFunction ; sh:ask "ASK { ?s ?p ?o }" .
+    ex:Guard a sh:NodeShape ; sh:not [ sh:sparql [
+      sh:select "SELECT $this WHERE { FILTER (<http://ex/exists>()) }" ] ] .
+    ex:S a sh:NodeShape ; sh:targetNode ex:x ; sh:rule [ a sh:TripleRule ;
+      sh:condition ex:Guard ; sh:subject sh:this ; sh:predicate ex:derived ; sh:object true ] .`;
+  const data = `${prefixes} ex:x ex:p ex:y .`;
+  for (const call of [validate, validateW3c, infer]) {
+    let rejected = false;
+    try { call(shapes, data); } catch (error) { rejected = String(error).includes("graph-reading SPARQL function"); }
+    check(`${call.name}: failed inference guard rejects the run`, rejected);
+  }
+}
+
 if (failures) {
   console.error(`\n${failures} check(s) failed`);
   process.exit(1);

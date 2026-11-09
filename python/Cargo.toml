@@ -7,6 +7,8 @@ license = "BSD-3-Clause"
 documentation.workspace = true
 homepage = "https://github.com/gtfierro/shifty"
 repository = "https://github.com/gtfierro/shifty"
+# Keep source archives independent of local reports, examples, and scratch data.
+include = ["src/**", "shifty/**", "Cargo.toml", "pyproject.toml", "README.md", "LICENSE"]
 
 [lib]
 name = "_shifty"

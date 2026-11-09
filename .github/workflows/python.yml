@@ -36,7 +36,7 @@ jobs:
         run: uv python install 3.12
       - name: Install project and dependencies
         working-directory: python
-        run: uv sync --dev --frozen
+        run: uv sync --dev --frozen --reinstall-package pyshifty
       - name: Lint and check formatting
         working-directory: python
         run: |
@@ -178,11 +178,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: astral-sh/setup-uv@v7
       - name: Build sdist
-        uses: PyO3/maturin-action@v1
-        with:
-          command: sdist
-          args: --out dist --manifest-path python/Cargo.toml
+        working-directory: python
+        run: |
+          uv sync --dev --frozen --no-install-project
+          uv run --no-sync python tools/build_sdist.py --out ../dist --verify
       - name: Upload sdist
         uses: actions/upload-artifact@v6
         with:

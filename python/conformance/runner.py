@@ -368,7 +368,8 @@ def metadata(suite: dict) -> dict:
         source_hash.update(b"\0")
     extension = Path(importlib.import_module("shifty._shifty").__file__)
     return {
-        "shifty_version": importlib.metadata.version("pyshifty"),
+        "shifty_version": shifty.version(),
+        "python_distribution_version": importlib.metadata.version("pyshifty"),
         "source_revision": subprocess.check_output(
             ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True
         ).strip(),

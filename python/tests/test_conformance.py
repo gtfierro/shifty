@@ -20,6 +20,7 @@ from conformance.runner import (
     discover,
     earl_report,
     main,
+    metadata,
     report_graph,
     run_case,
     verify_fixtures,
@@ -390,6 +391,16 @@ def test_earl_keeps_partial_results_and_runner_errors_distinct():
         assertion = graph.value(None, EARL.test, URIRef(row.test))
         result = graph.value(assertion, EARL.result)
         assert graph.value(result, EARL.outcome) == outcome
+
+
+def test_run_metadata_distinguishes_engine_and_distribution_versions(monkeypatch):
+    monkeypatch.setattr("conformance.runner.shifty.version", lambda: "0.6.0-alpha.1")
+    monkeypatch.setattr(
+        "conformance.runner.importlib.metadata.version", lambda _: "0.6.0a1"
+    )
+    run = metadata({"revision": "test-suite"})
+    assert run["shifty_version"] == "0.6.0-alpha.1"
+    assert run["python_distribution_version"] == "0.6.0a1"
 
 
 def test_ntriples_decoding_preserves_lexical_forms_and_caller_nodes():

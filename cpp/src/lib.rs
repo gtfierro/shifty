@@ -960,18 +960,27 @@ impl ShapeMapSession {
             .collect();
 
         let graph = self.evaluation_graph();
-        let mut values: Vec<_> = shifty_engine::path::succ(graph, &focus, &path)
-            .into_iter()
-            .filter(|value| {
-                qualifying.iter().all(|shape| {
-                    self.session
-                        .prepared_evidence()
-                        .raw_constraint_holds(value, *shape)
-                        == Some(true)
-                })
-            })
-            .map(|value| shapemap::term_from_oxrdf(&value))
-            .collect();
+        let mut values = Vec::new();
+        for value in shifty_engine::path::succ(graph, &focus, &path) {
+            let mut accepted = true;
+            for shape in &qualifying {
+                if self
+                    .session
+                    .prepared_evidence()
+                    .raw_constraint_holds(&value, *shape)
+                    .map_err(|error| {
+                        ApiError::new(ShiftyStatus::ValidationError, error.to_string())
+                    })?
+                    != Some(true)
+                {
+                    accepted = false;
+                    break;
+                }
+            }
+            if accepted {
+                values.push(shapemap::term_from_oxrdf(&value));
+            }
+        }
         values.sort_by_key(shapemap::TermInfo::n3);
         values.dedup();
         Ok(values)
@@ -1045,22 +1054,33 @@ impl ShapeMapSession {
                     .collect(),
             })
             .collect();
+        // The projection callbacks use strings internally; retain an API error
+        // alongside them so execution failures keep their public status.
+        let callback_error = RefCell::new(None);
+        let record_error = |error: ApiError| {
+            let message = error.message.clone();
+            callback_error.replace(Some(error));
+            message
+        };
         let inputs = shapemap::ShapeMapBuildInputs {
             shape_name_of: &|id| self.shape_name_of(id),
-            binding_names: &|name_path| {
-                self.binding_names(name_path).map_err(|error| error.message)
-            },
+            binding_names: &|name_path| self.binding_names(name_path).map_err(record_error),
             binding_values: &|focus, constraint_id| {
                 self.binding_values(focus, constraint_id)
-                    .map_err(|error| error.message)
+                    .map_err(record_error)
             },
             materialize_constraint: &|focus, ref_id| {
-                let term = parse_term(focus).map_err(|error| error.message)?;
+                let term = parse_term(focus).map_err(record_error)?;
                 let evidence = self
                     .session
                     .prepared_evidence()
                     .explain_constraint(&term, ShapeId(ref_id))
-                    .map_err(|error| error.to_string())?
+                    .map_err(|error| {
+                        record_error(ApiError::new(
+                            ShiftyStatus::ValidationError,
+                            error.to_string(),
+                        ))
+                    })?
                     .map(|evidence| match evidence {
                         shifty_engine::Evidence::Satisfaction(trace) => {
                             serde_json::to_value(trace).ok()
@@ -1072,13 +1092,16 @@ impl ShapeMapSession {
                     .unwrap_or(None);
                 Ok(evidence)
             },
-            resolve_path: &|nodes, path| {
-                self.resolve_path(nodes, path)
-                    .map_err(|error| error.message)
-            },
+            resolve_path: &|nodes, path| self.resolve_path(nodes, path).map_err(record_error),
         };
-        let data = shapemap::build(&parsed, name_path, value_paths, &statements, &inputs)
-            .map_err(|error| ApiError::new(ShiftyStatus::InternalError, error))?;
+        let data = shapemap::build(&parsed, name_path, value_paths, &statements, &inputs).map_err(
+            |message| {
+                callback_error
+                    .borrow_mut()
+                    .take()
+                    .unwrap_or_else(|| ApiError::new(ShiftyStatus::InternalError, message))
+            },
+        )?;
         Ok(ShiftyShapeMap::from_data(data))
     }
 }

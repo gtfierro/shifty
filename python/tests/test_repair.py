@@ -790,3 +790,24 @@ def test_structured_target_kinds_and_values():
 
     # the structured value round-trips: a class IRI is a parseable N-Triples term
     assert all(t.value.startswith("<") for t in (subj, obj, node))
+
+
+ALT_PATH_SHAPES = """
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix ex: <http://example.org/> .
+ex:S a sh:NodeShape ; sh:targetNode ex:x ;
+    sh:property [ sh:path [ sh:alternativePath ( ex:feeds ( ex:hasPart ex:feeds ) ) ] ;
+        sh:minCount 1 ] .
+"""
+
+
+def test_min_count_over_alternative_path_is_not_blocked():
+    # An `Alt` path (and a `Seq` nested inside one) used to block with
+    # Unsupported("path materialization"); each branch is now a build option.
+    s = shifty.RepairSession(ALT_PATH_SHAPES, QUAL_DATA, infer=False)
+    tree = s.witnesses()[0].repair_tree()
+    assert not tree.is_blocked
+    delta = shifty.delta_from_graph(
+        "@prefix ex: <http://example.org/> . ex:x ex:hasPart ex:p . ex:p ex:feeds ex:y ."
+    )
+    assert s.gate(delta).is_progress

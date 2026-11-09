@@ -48,6 +48,45 @@ The C++ SDK and the WebAssembly module have their own gates:
    cmake --build build/cpp
    ctest --test-dir build/cpp --output-on-failure
 
+Prepare a Python source archive
+-------------------------------
+
+From ``python/``, use the locked Python 3.12 development environment:
+
+.. code-block:: bash
+
+   uv run python tools/build_sdist.py --out ../target/sdist --verify
+
+The helper builds with Maturin, then prunes the staged Cargo lockfile to match
+the archive's smaller workspace. Retained package versions and checksums must
+match the original lockfile. The checkout's lockfile is unchanged.
+``--verify`` rebuilds a wheel from a fresh extraction offline with ``--locked``.
+The Python CI and release jobs use this command. Calling ``maturin sdist``
+directly skips lockfile preparation.
+
+Prepare a release
+-----------------
+
+Use the Cargo prerelease spelling for the workspace version, internal crate
+dependencies, changelog heading, and Git tag. For the first 0.6 alpha these are
+``0.6.0-alpha.1`` and ``v0.6.0-alpha.1``. Maturin writes the Python distribution
+version as ``0.6.0a1``; the Python runtime's ``shifty.version()`` continues to
+report the Rust version.
+
+Run the Rust, Python, SDK, documentation, and pinned conformance checks above,
+then build and verify the Python source archive. Confirm that a wheel installed
+outside the checkout reports the expected version and can validate and infer.
+Keep generated release artifacts under ``target/``.
+
+Commit the release sources before tagging. Pushing a ``v*.*.*`` tag starts the
+release workflow: it checks that the tag matches Cargo and the changelog, builds
+CLI binaries and Python distributions, and smoke-tests wheels on Python 3.9 and
+3.14. After those checks pass it creates the GitHub release and publishes to
+PyPI. Tags containing a hyphen produce a GitHub prerelease and skip crates.io
+publication. Publishing uses the repository's ``publish`` and ``deploy``
+environments. Treat pushing the tag as the publication step; prepare and review
+the release commit first.
+
 Contribute to the documentation
 -------------------------------
 

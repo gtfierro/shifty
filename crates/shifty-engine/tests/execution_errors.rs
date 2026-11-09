@@ -96,6 +96,45 @@ fn ignore_does_not_suppress_execution_errors_or_wrong_query_forms() {
 }
 
 #[test]
+fn retained_raw_qualifiers_propagate_failures_after_normalization() {
+    let shape = r#"
+        ex:Bad a sh:NodeShape ; sh:not [ sh:sparql [
+            sh:select "SELECT $this WHERE { FILTER (<http://ex/exists>()) }"
+        ] ] .
+        ex:S a sh:NodeShape ; sh:targetNode ex:x ;
+            sh:property [ sh:path ex:p ; sh:qualifiedValueShape ex:Bad ] .
+        "#;
+    let loaded =
+        shifty_parse::load_turtle(format!("{PREFIXES} {FUNCTION} {shape}").as_bytes(), None)
+            .unwrap();
+    let compiled = CompiledShapes::compile(loaded).unwrap();
+    let bad = shifty_engine::shape_id_for_iri(compiled.authored_schema(), "http://ex/Bad").unwrap();
+    let session = compiled
+        .session(SessionData::Embedded, SessionOptions::default())
+        .unwrap();
+    assert!(
+        session
+            .validate(&FindingOptions::default())
+            .unwrap()
+            .conforms
+    );
+    let prepared = session.prepared_evidence();
+    let focus = NamedNode::new("http://ex/x").unwrap().into();
+    for _ in 0..2 {
+        assert!(matches!(
+            prepared.raw_constraint_holds(&focus, bad),
+            Err(EvaluationError::Sparql { .. })
+        ));
+    }
+    assert_eq!(
+        prepared
+            .raw_constraint_holds(&focus, shifty_algebra::ShapeId(u32::MAX))
+            .unwrap(),
+        None
+    );
+}
+
+#[test]
 fn inference_rejects_failed_targets_conditions_and_node_filters() {
     for (target, condition, subject, operation) in [
         (

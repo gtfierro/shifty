@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## 0.6.0-alpha.1
+
+First alpha for 0.6.0. The Rust and CLI version is `0.6.0-alpha.1`; the Python
+distribution version is `0.6.0a1`. Install the Python alpha with
+`python -m pip install "pyshifty[rdflib]==0.6.0a1"`.
+This release changes validation defaults and error handling. See
+`docs/how-to/upgrading-0.6.rst` before upgrading from 0.5.x.
+
 ### Changed
 
 - Unsupported features now default to errors in Rust, Python, CLI, C++, and
@@ -20,6 +28,14 @@
 - Failed inference targets, rule conditions, and node filters reject the run
   before accepting derived triples. Python repair operations preserve
   `ValidationFailure` for query execution errors.
+- Lazy shape-map qualification propagates query execution errors, including
+  qualifiers that validation normalized away.
+- CLI/Python conformance parity compares engine versions consistently for
+  prereleases and records Python's distribution version separately.
+- Python source archives exclude local scratch files and include the license
+  text. Their Cargo lockfile matches the packaged workspace and supports an
+  immediate `--locked` build without changing dependency versions or checksums.
+  Wheels also include the license text.
 - `Mapping.value_map()` preserves known-empty successful slots as `[]`,
   distinguishes them from unavailable values, and retains authored empty names.
 - Shape maps recover qualifying values alongside rejected universal-check
@@ -40,10 +56,13 @@
 
 ### Added
 
+- Repair synthesis offers finite construction choices for alternative paths,
+  inverse sequences, nested paths, and repetitions. Suggested edits still
+  require caller choices and whole-graph validation through the repair gate.
 - Shape-map bindings expose authored `constraint_components` independently
   of lowered `Key.kind`. JSON summaries retain component and ordering metadata.
 - CLI/Python file-input parity checks for the pinned suite, including CI coverage.
-- CLI validation accepts `--on-unsupported error` for strict feature handling.
+- CLI validation accepts `--on-unsupported ignore` for explicit best effort.
 - A pinned upstream SHACL 1.0 suite, manifest runner, complete report
   comparison, EARL output, and CI baseline covering 120 approved cases and
   one separately reported proposed case.
@@ -52,6 +71,8 @@
 
 - Simplified public overviews and consolidated current compiler, algorithm,
   and design references in `development_docs/`.
+- Consolidated Python result and input contracts, shared Rust test helpers and
+  witness fixtures across languages, and strengthened failure-set assertions.
 
 ### Rust API
 

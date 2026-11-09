@@ -34,12 +34,15 @@ jobs:
           test "$GITHUB_REF_NAME" = "v$VERSION"
           grep -F "## $VERSION" CHANGELOG.md
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-      - name: Test workspace
-        run: cargo test --workspace --locked
+      - name: Check and test workspace
+        run: |
+          cargo fmt --all -- --check
+          cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+          cargo test --workspace --locked
       - name: Validate Python package
         working-directory: python
         run: |
-          uv sync --dev --frozen
+          uv sync --dev --frozen --reinstall-package pyshifty
           uv run ruff check .
           uv run ruff format --check .
           uv run ty check shifty
@@ -198,11 +201,13 @@ jobs:
     needs: validate-release
     steps:
       - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: astral-sh/setup-uv@v7
       - name: Build sdist
-        uses: PyO3/maturin-action@v1
-        with:
-          command: sdist
-          args: --out dist --manifest-path python/Cargo.toml
+        working-directory: python
+        run: |
+          uv sync --dev --frozen --no-install-project
+          uv run --no-sync python tools/build_sdist.py --out ../dist --verify
       - name: Upload sdist
         uses: actions/upload-artifact@v6
         with:

@@ -238,13 +238,37 @@ impl super::EvidenceSession {
             .copied()
             .filter(|id| !matches!(self.raw_schema.arena.get(*id), Shape::Top))
             .collect();
-        let holds = |value: &Term, shape| {
-            self.session
-                .prepared_evidence()
-                .raw_constraint_holds(&self.session.internal_term(value), shape)
-                == Some(true)
-        };
         let values = shifty_engine::path::succ(self.path_graph(), &focus, &path);
+        // These authored qualifiers may have been normalized out of validation.
+        // Evaluate them fallibly before using their booleans for extraction or
+        // disjointness; negation must not turn a query failure into a match.
+        let checks: HashSet<_> = domains
+            .iter()
+            .chain(&qualified)
+            .chain(&excluded)
+            .chain(&value_checks)
+            .copied()
+            .filter(|shape| !matches!(self.raw_schema.arena.get(*shape), Shape::Top))
+            .collect();
+        let mut matches: HashMap<ShapeId, HashSet<Term>> = HashMap::new();
+        for shape in checks {
+            let matching = matches.entry(shape).or_default();
+            for value in &values {
+                if self
+                    .session
+                    .prepared_evidence()
+                    .raw_constraint_holds(&self.session.internal_term(value), shape)
+                    .map_err(crate::py_execution_error)?
+                    == Some(true)
+                {
+                    matching.insert(value.clone());
+                }
+            }
+        }
+        let holds = |value: &Term, shape| {
+            matches!(self.raw_schema.arena.get(shape), Shape::Top)
+                || matches.get(&shape).is_some_and(|set| set.contains(value))
+        };
         let observed = match domains.as_slice() {
             [] if qualified.is_empty() => Some(values.len() as u64),
             [] if qualified.len() == 1 => Some(

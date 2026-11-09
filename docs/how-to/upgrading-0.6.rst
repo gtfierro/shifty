@@ -1,6 +1,10 @@
 Upgrading to 0.6
 ================
 
+Try the first alpha with ``python -m pip install "pyshifty[rdflib]==0.6.0a1"``.
+The corresponding Rust and CLI version is ``0.6.0-alpha.1`` and the release tag
+is ``v0.6.0-alpha.1``. The changes below apply when upgrading from 0.5.x.
+
 Unsupported features fail by default
 ------------------------------------
 
@@ -57,6 +61,10 @@ errors with ``?``. Match ``EvaluationError::Sparql`` to inspect the operation an
 diagnostic. Standalone algebra validation returns ``ValidationError``, whose
 variants separate ``NonStratifiable`` from ``Evaluation`` failures. Standalone
 witness and repair-gate functions propagate the same error type.
+``PreparedEvidenceValidator::raw_constraint_holds`` returns
+``Result<Option<bool>, EvaluationError>``. Lazy shape-map value extraction can
+raise an execution error even after validation succeeds, when it evaluates an
+authored qualifier that validation normalized away.
 
 Construct Rust reports through the API
 --------------------------------------

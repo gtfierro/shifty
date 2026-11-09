@@ -39,6 +39,90 @@ use std::collections::{BTreeMap, BTreeSet};
 /// Add-edges plus the fresh interior holes they introduce.
 type Materialized = (Vec<Edit>, Vec<(Hole, HoleConstraint)>);
 
+/// One predicate hop of a materializable path word.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Step {
+    Fwd(oxrdf::NamedNode),
+    Bwd(oxrdf::NamedNode),
+}
+
+/// Upper bound on the alternative words one path may expand to, so a path with
+/// many nested `Alt`s cannot blow up the repair tree.
+const MAX_PATH_WORDS: usize = 16;
+
+/// The minimal non-empty predicate words that realize `path`, deduplicated and
+/// capped at [`MAX_PATH_WORDS`]. `Star` is first taken reflexively (zero hops),
+/// which is what makes `sh:class` buildable: `rdf:type/rdfs:subClassOf*` becomes
+/// `rdf:type` alone. Only if that leaves no concrete hop at all (e.g. a bare
+/// `π*` or `π?`) is each `Star` taken as a single application instead. Empty
+/// words are dropped: they reach the subject itself, adding nothing.
+fn path_words(path: &Path) -> Vec<Vec<Step>> {
+    for eager in [false, true] {
+        let mut words: Vec<Vec<Step>> = Vec::new();
+        for w in expand_path(path, eager) {
+            if !w.is_empty() && !words.contains(&w) {
+                words.push(w);
+            }
+        }
+        if !words.is_empty() {
+            words.truncate(MAX_PATH_WORDS);
+            return words;
+        }
+    }
+    Vec::new()
+}
+
+/// Every word of `path` (inverses pushed down to predicates, `Seq` concatenated,
+/// `Alt` unioned), with each `Star` read as zero hops, or as one hop if `eager`.
+fn expand_path(path: &Path, eager: bool) -> Vec<Vec<Step>> {
+    match path {
+        Path::Id => vec![vec![]],
+        Path::Pred(p) => vec![vec![Step::Fwd(p.clone())]],
+        Path::Inverse(inner) => expand_path(inner, eager)
+            .into_iter()
+            .map(|w| {
+                w.into_iter()
+                    .rev()
+                    .map(|s| match s {
+                        Step::Fwd(p) => Step::Bwd(p),
+                        Step::Bwd(p) => Step::Fwd(p),
+                    })
+                    .collect()
+            })
+            .collect(),
+        Path::Seq(steps) => {
+            let mut acc: Vec<Vec<Step>> = vec![vec![]];
+            for step in steps {
+                let next = expand_path(step, eager);
+                acc = acc
+                    .iter()
+                    .flat_map(|prefix| {
+                        next.iter().map(move |suffix| {
+                            let mut w = prefix.clone();
+                            w.extend(suffix.iter().cloned());
+                            w
+                        })
+                    })
+                    .take(4 * MAX_PATH_WORDS)
+                    .collect();
+            }
+            acc
+        }
+        Path::Alt(branches) => branches
+            .iter()
+            .flat_map(|b| expand_path(b, eager))
+            .take(4 * MAX_PATH_WORDS)
+            .collect(),
+        Path::Star(inner) => {
+            if eager {
+                expand_path(inner, eager)
+            } else {
+                vec![vec![]]
+            }
+        }
+    }
+}
+
 /// The exact evidence occurrence that justified a synthesized repair node.
 /// `path` is a child-index path from the root evidence node under `statement`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -496,98 +580,56 @@ impl<'a> Synth<'a> {
     /// `qualifiers` it must satisfy. The value hole carries `Typed`/`Kind`/`Const`
     /// for a single value-type qualifier, a `ConformsTo` for a single structural
     /// one, or a `ConformsToAll` conjunction for several (structural expansion
-    /// deferred to the driver).
+    /// deferred to the driver). A path with several minimal realizations (an
+    /// `Alt`, or a `Star` that must take a hop) yields an `Any` over them.
     fn build_value(&mut self, subject: &Term, path: &Path, qualifiers: &[ShapeId]) -> RepairTree {
-        let vh = self.hole();
-        let Some((edits, mut holes)) = self.materialize_path(subject.clone(), path, vh) else {
+        let words = path_words(path);
+        if words.is_empty() {
             return self.blocked(BlockReason::Unsupported("path materialization".into()));
-        };
-        holes.push((vh, self.value_constraint(qualifiers)));
-        self.edits(edits, holes)
-    }
-
-    /// Add-edges realizing `path` from `subject` to the value hole `vh`, plus any
-    /// fresh interior holes. Handles `Pred`, `Inverse(Pred)`, `Seq` of those, and
-    /// `Star` — the last reflexively, which is what makes `sh:class` buildable:
-    /// `rdf:type/rdfs:subClassOf*` materializes to `subject rdf:type ?vh` (a value
-    /// bound to the class `C`, since `C subClassOf* C`).
-    fn materialize_path(&mut self, subject: Term, path: &Path, vh: Hole) -> Option<Materialized> {
-        match path {
-            Path::Pred(p) => Some((
-                vec![Edit::add(TriplePattern::new(
-                    Slot::Bound(subject),
-                    Slot::Bound(Term::NamedNode(p.clone())),
-                    Slot::Open(vh),
-                ))],
-                vec![],
-            )),
-            Path::Inverse(inner) => {
-                if let Path::Pred(p) = inner.as_ref() {
-                    Some((
-                        vec![Edit::add(TriplePattern::new(
-                            Slot::Open(vh),
-                            Slot::Bound(Term::NamedNode(p.clone())),
-                            Slot::Bound(subject),
-                        ))],
-                        vec![],
-                    ))
-                } else {
-                    None
-                }
-            }
-            // `π*`: a single application is a valid member of the closure, so
-            // materialize one hop of the inner path.
-            Path::Star(inner) => self.materialize_path(subject, inner, vh),
-            Path::Seq(steps) => self.materialize_seq(subject, steps, vh),
-            _ => None,
+        }
+        let constraint = self.value_constraint(qualifiers);
+        let options = words
+            .iter()
+            .map(|word| {
+                let vh = self.hole();
+                let (edits, mut holes) = self.materialize_word(subject.clone(), word, vh);
+                holes.push((vh, constraint.clone()));
+                self.edits(edits, holes)
+            })
+            .collect::<Vec<_>>();
+        if options.len() == 1 {
+            options.into_iter().next().expect("one option")
+        } else {
+            self.any(options)
         }
     }
 
-    /// Materialize a `Seq` of steps from `subject` to `vh`. Trailing `Star` steps
-    /// are dropped: they are satisfied reflexively, so the value sits at the result
-    /// of the last concrete step. Each remaining step must be `Pred` or
-    /// `Inverse(Pred)`.
-    fn materialize_seq(&mut self, subject: Term, steps: &[Path], vh: Hole) -> Option<Materialized> {
-        let mut end = steps.len();
-        while end > 0 && matches!(steps[end - 1], Path::Star(_)) {
-            end -= 1;
-        }
-        let steps = &steps[..end];
-        if steps.is_empty() {
-            return None; // wholly reflexive: nothing concrete to add
-        }
-        let mut edits = Vec::new();
+    /// Add-edges realizing one non-empty `word` from `subject` to the value hole
+    /// `vh`, with a fresh interior hole between consecutive steps.
+    fn materialize_word(&mut self, subject: Term, word: &[Step], vh: Hole) -> Materialized {
+        let mut edits = Vec::with_capacity(word.len());
         let mut holes = Vec::new();
         let mut cursor = Slot::Bound(subject);
-        for (i, step) in steps.iter().enumerate() {
-            let target = if i == steps.len() - 1 {
+        for (i, step) in word.iter().enumerate() {
+            let target = if i == word.len() - 1 {
                 Slot::Open(vh)
             } else {
                 let m = self.hole();
                 holes.push((m, HoleConstraint::Fresh));
                 Slot::Open(m)
             };
-            match step {
-                Path::Pred(p) => edits.push(Edit::add(TriplePattern::new(
-                    cursor.clone(),
-                    Slot::Bound(Term::NamedNode(p.clone())),
-                    target.clone(),
-                ))),
-                Path::Inverse(inner) => {
-                    let Path::Pred(p) = inner.as_ref() else {
-                        return None;
-                    };
-                    edits.push(Edit::add(TriplePattern::new(
-                        target.clone(),
-                        Slot::Bound(Term::NamedNode(p.clone())),
-                        cursor.clone(),
-                    )));
-                }
-                _ => return None, // interior Star / Alt / nested Seq not supported
-            }
+            let (s, p, o) = match step {
+                Step::Fwd(p) => (cursor.clone(), p, target.clone()),
+                Step::Bwd(p) => (target.clone(), p, cursor.clone()),
+            };
+            edits.push(Edit::add(TriplePattern::new(
+                s,
+                Slot::Bound(Term::NamedNode(p.clone())),
+                o,
+            )));
             cursor = target;
         }
-        Some((edits, holes))
+        (edits, holes)
     }
 
     /// Every shape a value added to satisfy this `CountLow` must conform to: the
@@ -848,6 +890,109 @@ mod tests {
                 .any(|origin| origin.status == EvaluationStatus::Pass),
             "repairing a failed Not must link its deletive operators to the inner satisfaction",
         );
+    }
+
+    #[test]
+    fn min_count_over_any_path_form_materializes_instead_of_blocking() {
+        for path in [
+            "[ sh:alternativePath ( ex:p ex:q ) ]",
+            "[ sh:oneOrMorePath ex:p ]",
+            "[ sh:inversePath ( ex:p ex:q ) ]",
+            "( ex:p [ sh:zeroOrMorePath ex:q ] ex:r )",
+            "( ex:p ( ex:q ex:r ) )",
+            "( [ sh:alternativePath ( ex:p ex:q ) ] ex:r )",
+        ] {
+            let ttl = format!(
+                "{PREFIXES}
+                ex:S a sh:NodeShape ; sh:targetNode ex:x ;
+                    sh:property [ sh:path {path} ; sh:minCount 1 ] .
+                "
+            );
+            let (tree, schema) = synth_one(&ttl);
+            assert!(!tree.is_blocked(), "{path} blocked: {tree:?}");
+            assert_materialized_branches_fix(&ttl, &tree, &schema);
+        }
+    }
+
+    fn assert_materialized_branches_fix(
+        ttl: &str,
+        tree: &RepairTree,
+        schema: &shifty_algebra::Schema,
+    ) {
+        let RepairTree::Repeat { body, min, .. } = tree else {
+            panic!("expected a missing-count construction: {tree:?}");
+        };
+        assert_eq!(*min, 1);
+        let branches = match body.as_ref() {
+            RepairTree::Any { children, .. } => children.as_slice(),
+            other => std::slice::from_ref(other),
+        };
+        let loaded = load_turtle(ttl.as_bytes(), None).unwrap();
+        for branch in branches {
+            let mut plan = shifty_repair::Plan::default();
+            for hole in branch.holes() {
+                plan.binding.insert(
+                    hole,
+                    oxrdf::NamedNode::new(format!("http://ex/fresh{}", hole.0))
+                        .unwrap()
+                        .into(),
+                );
+            }
+            let instantiated = shifty_repair::instantiate(branch, &plan);
+            assert!(instantiated.open_holes.is_empty());
+            assert!(instantiated.open_choices.is_empty());
+            assert!(!instantiated.delta.add.is_empty());
+            let outcome =
+                crate::gate(&loaded.graph, &loaded.graph, schema, &instantiated.delta).unwrap();
+            assert!(outcome.is_progress(), "{ttl}\n{branch:?}\n{outcome:?}");
+            assert!(outcome.remaining.is_empty());
+        }
+    }
+
+    #[test]
+    fn reflexive_paths_can_add_another_distinct_value() {
+        for path in ["[ sh:zeroOrMorePath ex:p ]", "[ sh:zeroOrOnePath ex:p ]"] {
+            let ttl = format!(
+                "{PREFIXES} ex:S a sh:NodeShape ; sh:targetNode ex:x ;
+                    sh:property [ sh:path {path} ; sh:minCount 2 ] ."
+            );
+            let (tree, schema) = synth_one(&ttl);
+            assert_materialized_branches_fix(&ttl, &tree, &schema);
+        }
+    }
+
+    #[test]
+    fn path_alternatives_have_a_finite_construction_budget() {
+        let path = Path::Alt(
+            (0..100)
+                .map(|i| Path::Pred(oxrdf::NamedNode::new(format!("http://ex/p{i}")).unwrap()))
+                .collect(),
+        );
+        assert_eq!(path_words(&path).len(), MAX_PATH_WORDS);
+    }
+
+    #[test]
+    fn path_words_prefer_reflexive_star_and_invert_sequences() {
+        let p = |s: &str| oxrdf::NamedNode::new(format!("http://ex/{s}")).unwrap();
+        let class_path = Path::Seq(vec![
+            Path::Pred(p("type")),
+            Path::Star(Box::new(Path::Pred(p("sub")))),
+        ]);
+        assert_eq!(path_words(&class_path), vec![vec![Step::Fwd(p("type"))]]);
+        let inv = Path::Inverse(Box::new(Path::Seq(vec![
+            Path::Pred(p("a")),
+            Path::Pred(p("b")),
+        ])));
+        assert_eq!(
+            path_words(&inv),
+            vec![vec![Step::Bwd(p("b")), Step::Bwd(p("a"))]]
+        );
+        let alt = Path::Alt(vec![Path::Id, Path::Pred(p("a")), Path::Pred(p("b"))]);
+        assert_eq!(
+            path_words(&alt),
+            vec![vec![Step::Fwd(p("a"))], vec![Step::Fwd(p("b"))]]
+        );
+        assert!(path_words(&Path::Id).is_empty());
     }
 
     #[test]

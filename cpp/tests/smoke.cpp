@@ -90,6 +90,27 @@ int main() {
         assert(unsupported.validate_algebra(dataset, best_effort).conforms());
     }
 
+    // A qualifier normalized out of validation still has to execute when a
+    // shape map extracts values through it. Negation cannot hide its failure.
+    {
+        shifty::PreparedValidator lazy(R"(
+            @prefix sh: <http://www.w3.org/ns/shacl#> .
+            @prefix ex: <http://example.com/> .
+            ex:exists a sh:SPARQLFunction ; sh:ask "ASK { ?s ?p ?o }" .
+            ex:Bad a sh:NodeShape ; sh:not [ sh:sparql [
+                sh:select "SELECT $this WHERE { FILTER (<http://example.com/exists>()) }" ] ] .
+            ex:S a sh:NodeShape ; sh:targetNode ex:alice ;
+                sh:property [ sh:path ex:name ; sh:qualifiedValueShape ex:Bad ] .
+        )");
+        assert(lazy.validate_algebra(dataset).conforms());
+        bool rejected = false;
+        try { (void)lazy.shape_map(dataset); }
+        catch (const shifty::Error &error) {
+            rejected = error.status() == SHIFTY_STATUS_VALIDATION_ERROR;
+        }
+        assert(rejected);
+    }
+
     // Invalid lowering diagnostics are parse errors, not a partial schema that
     // validation may silently treat as conforming.
     bool invalid_shapes_rejected = false;

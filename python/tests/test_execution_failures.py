@@ -202,3 +202,24 @@ ex:RuleShape a sh:NodeShape ; sh:targetNode ex:x ; sh:rule [ a sh:TripleRule ;
     )
     with pytest.raises(shifty.ValidationFailure, match="query form does not match"):
         shifty.infer(DATA, shapes, on_unsupported=policy)
+
+
+@pytest.mark.parametrize("attribute", ["values", "observed"])
+def test_lazy_shape_map_qualifiers_preserve_execution_failures(attribute):
+    shapes = (
+        PREFIXES
+        + FUNCTION
+        + """
+ex:Bad a sh:NodeShape ; sh:not [ sh:sparql [
+    sh:select "SELECT $this WHERE { FILTER (<http://ex/exists>()) }" ] ] .
+ex:S a sh:NodeShape ; sh:targetNode ex:x ;
+    sh:property [ sh:path ex:p ; sh:qualifiedValueShape ex:Bad ] .
+"""
+    )
+    session = shifty.EvidenceSession(shapes, DATA, infer=False)
+    run = session.validate()
+    assert run.conforms  # No count bound, so validation normalizes the slot away.
+    (mapping,) = shifty.ShapeMap.from_run(run, session)
+    (binding,) = mapping.values()
+    with pytest.raises(shifty.ValidationFailure, match="graph-reading SPARQL function"):
+        getattr(binding, attribute)
