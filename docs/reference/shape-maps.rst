@@ -253,6 +253,9 @@ and hashing; include it when constructing a key to look up a binding.
    * - ``qualifier``
      - ``Cls(iri)``, ``Const(term)``, ``Datatype(iri)``, or ``ShapeRef(id)``,
        when the qualification is recoverable from the shape.
+       When several qualifiers are available, a representative is selected by
+       qualifier type name and full RDF identity, independently of graph order.
+       This representative does not describe every constraint on the binding.
    * - ``ordinal``
      - Distinguishes two authored obligations sharing a path and qualifier.
        Part of equality and hashing.

@@ -15,6 +15,8 @@
 
 ### Fixed
 
+- Shape-map qualifier representatives use stable type and RDF-identity ordering,
+  keeping keys consistent across processes when several class checks apply.
 - Shape-map explanations omit a combined count interval when bounds apply to
   different value sets, such as ordinary and qualified cardinalities.
 

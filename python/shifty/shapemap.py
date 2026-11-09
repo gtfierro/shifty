@@ -283,6 +283,17 @@ class ShapeRef:
 Qualifier = Union[Cls, Const, Datatype, ShapeRef]
 
 
+def _pick_qualifier(qualifiers: Sequence[Qualifier]) -> Optional[Qualifier]:
+    """Choose a stable representative when a slot has several qualifiers."""
+    if not qualifiers:
+        return None
+
+    def identity(q: Qualifier) -> tuple[str, str]:
+        return type(q).__name__, q.term.n3() if isinstance(q, Const) else q.iri
+
+    return min(qualifiers, key=identity)
+
+
 def _qualifier_local(q: Qualifier) -> str:
     if isinstance(q, (Cls, Datatype, ShapeRef)):
         return _local(q.iri)
@@ -418,7 +429,7 @@ def _qualifier_from_json(
 
     Handles the common encodings: `sh:class` (class-membership count over a
     `TestConst`), `sh:hasValue`/`TestConst`, `sh:datatype`/`TestType`, a `Not`
-    from the ∀-encoding, and a conjunction whose first labeled child wins.
+    from the ∀-encoding, and a conjunction with a deterministic representative.
     When `shape_name_of` resolves the qualifier's own (possibly `Not`-wrapped)
     id to a named shape, that name wins as a `ShapeRef` — a `sh:node
     <named-shape>` reference names itself, regardless of what it expands to.
@@ -452,10 +463,12 @@ def _qualifier_from_json(
             return inner
         return None
     if "And" in constraint or "Or" in constraint:
+        qualifiers = []
         for child in constraint.get("And", constraint.get("Or", [])):
             found = _qualifier_from_json(catalog, shape_name_of, child)
             if found is not None:
-                return found
+                qualifiers.append(found)
+        return _pick_qualifier(qualifiers)
     return None
 
 
@@ -499,7 +512,7 @@ def _derive_key_info(
         if len(paths) == 1:
             (path,) = paths
             quals = [info.qualifier for info in infos if info.qualifier is not None]
-            return _KeyInfo(path, quals[0] if quals else None, "count")
+            return _KeyInfo(path, _pick_qualifier(quals), "count")
         return _KeyInfo(None, None, "and" if is_and else "or")
     return _KeyInfo(None, None, _kind_tag(constraint))
 
