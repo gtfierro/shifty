@@ -78,6 +78,50 @@ def test_cardinality_shortfall_describes_bounds_and_missing_values():
     assert "count_low" in binding.explain(algebra=True)
 
 
+@pytest.mark.parametrize("with_session", [False, True])
+@pytest.mark.parametrize("sibling", [False, True])
+@pytest.mark.parametrize("minimum, ok", [(2, True), (3, False)])
+def test_mixed_count_domains_do_not_present_a_combined_interval(
+    with_session, sibling, minimum, ok
+):
+    mapping = make_mapping(
+        f"sh:minCount {minimum} ; "
+        "sh:qualifiedValueShape [ sh:datatype xsd:string ] ; sh:qualifiedMaxCount 1",
+        '"text", 7',
+        with_session=with_session,
+        sibling=sibling,
+    )
+    binding = next(
+        b for b in mapping.values() if b.key.path == shifty.Pred("http://ex/p")
+    )
+    assert binding.ok is ok
+    assert binding.min == minimum
+    assert binding.max == 1
+    assert binding.observed is None
+    text = binding.explain()
+    assert "constraints " + ("satisfied" if ok else "failed") in text
+    assert "declared constraints: min count, qualified max count" in text
+    assert "count requirements apply to different value sets" in text
+    assert "required count:" not in text
+    assert "observed count: unavailable" in text
+
+
+@pytest.mark.parametrize("with_session", [False, True])
+def test_qualified_counts_on_one_domain_keep_their_interval(with_session):
+    mapping = make_mapping(
+        "sh:qualifiedValueShape [ sh:datatype xsd:string ] ; "
+        "sh:qualifiedMinCount 2 ; sh:qualifiedMaxCount 3",
+        '"text", 7',
+        with_session=with_session,
+    )
+    (binding,) = mapping.values()
+    assert not binding.ok
+    text = binding.explain()
+    assert "required count: at least 2, at most 3" in text
+    assert "observed count: 1" in text
+    assert "count requirements apply to different value sets" not in text
+
+
 def test_passing_sibling_without_session_keeps_unknown_values_in_explanation():
     mapping = make_mapping("sh:minCount 1", '"one"', with_session=False, sibling=True)
     binding = mapping["p"]

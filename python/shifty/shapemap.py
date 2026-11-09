@@ -996,6 +996,8 @@ class Binding:
         no authored component metadata, that tree is also the default.
         Component names describe declarations; a failed compound binding
         does not imply that every declared constraint failed.
+        Bounds applying to different value sets are not combined into one
+        required-count interval.
         """
         if algebra or self.constraint_components is None:
             evidence = self.evidence
@@ -1012,13 +1014,16 @@ class Binding:
         elif not labels:
             lines.append("  no authored constraint components")
 
-        bounds = []
-        if self.min is not None:
-            bounds.append(f"at least {self.min}")
-        if self.max is not None:
-            bounds.append(f"at most {self.max}")
-        if bounds:
-            lines.append("  required count: " + ", ".join(bounds))
+        if self._ambiguous_counts:
+            lines.append("  count requirements apply to different value sets")
+        else:
+            bounds = []
+            if self.min is not None:
+                bounds.append(f"at least {self.min}")
+            if self.max is not None:
+                bounds.append(f"at most {self.max}")
+            if bounds:
+                lines.append("  required count: " + ", ".join(bounds))
         if self.path is not None:
             observed = self.observed
             count_text = str(observed) if observed is not None else "unavailable"

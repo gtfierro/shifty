@@ -13,6 +13,11 @@
   Pattern failures are described as pattern failures. Use
   `binding.explain(algebra=True)` for the underlying evidence tree.
 
+### Fixed
+
+- Shape-map explanations omit a combined count interval when bounds apply to
+  different value sets, such as ordinary and qualified cardinalities.
+
 ## 0.6.0-alpha.1
 
 First alpha for 0.6.0. The Rust and CLI version is `0.6.0-alpha.1`; the Python

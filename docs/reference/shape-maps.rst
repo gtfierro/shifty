@@ -189,7 +189,8 @@ Duplicate-key ordinals are assigned in this order, consistently for every focus.
    * - ``missing``
      - How many more values are required.
    * - ``min`` / ``max``
-     - Declared cardinality bounds.
+     - Declared cardinality bounds. When a binding combines count domains,
+       these may apply to different value sets and do not form one interval.
    * - ``observed``
      - Exact count in the authored cardinality domain: all path values for an
        ordinary count, qualifying values for a qualified count, or all checked
@@ -213,6 +214,8 @@ Duplicate-key ordinals are assigned in this order, consistently for every focus.
        qualifying values, and rejected candidates. Unavailable observations
        remain explicitly unavailable. For compound bindings the listed
        declarations do not imply that every component failed.
+       Bounds applying to different value sets (for example, ordinary and
+       qualified counts) are not rendered as one required-count interval.
    * - ``explain(algebra=True)``
      - The underlying evidence tree, retaining tags such as ``count_high``.
        Also the default when authored component metadata is unavailable.
