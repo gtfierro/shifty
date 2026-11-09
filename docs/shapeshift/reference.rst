@@ -271,8 +271,10 @@ Every command that reads imports (all but ``fmt`` and ``repl``) takes
 Editors
 -------
 
-``crates/tree-sitter-shapeshift`` is a tree-sitter grammar for ``.shm``, with
-highlighting queries, for editors that use tree-sitter. These pages are
+``crates/experimental/tree-sitter-shapeshift`` is a tree-sitter grammar for
+``.shm``, with highlighting queries, for editors that use tree-sitter. Rust
+code reaches it as ``shifty_experimental::shapeshift::grammar``, with the
+``tree-sitter`` feature. These pages are
 highlighted by a Pygments lexer, ``docs/_ext/shapeshift_lexer.py``, which
 registers the ``shapeshift`` and ``shm`` languages for Sphinx and other
 Pygments users.

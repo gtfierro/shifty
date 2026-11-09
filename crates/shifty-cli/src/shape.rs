@@ -2,7 +2,8 @@
 //!
 //! Every subcommand goes through [`shapeshift::Session`], the same layer the
 //! REPL uses, so a file checked here behaves exactly like the same text typed
-//! at the prompt.
+//! at the prompt. Shapeshift is experimental: it comes from
+//! `shifty-experimental`, apart from shifty's stable crates.
 
 mod repl;
 
@@ -10,6 +11,7 @@ use clap::{Args, Subcommand, ValueEnum};
 use shapeshift::Session;
 use shapeshift::macros::Diagnostic;
 use shapeshift::macros::diagnostic::Level;
+use shifty_experimental::shapeshift;
 use std::error::Error;
 use std::path::{Path, PathBuf};
 

@@ -16,6 +16,7 @@ use rustyline::history::DefaultHistory;
 use rustyline::validate::{ValidationContext, ValidationResult, Validator};
 use rustyline::{Context, Editor, Helper};
 use shapeshift::{Applied, Session};
+use shifty_experimental::shapeshift;
 use std::borrow::Cow;
 use std::cell::RefCell;
 use std::error::Error;
@@ -71,7 +72,7 @@ impl ShapeHelper {
     fn new(color: bool) -> Self {
         let mut parser = tree_sitter::Parser::new();
         parser
-            .set_language(&tree_sitter_shapeshift::LANGUAGE.into())
+            .set_language(&shapeshift::grammar::LANGUAGE.into())
             .expect("the bundled grammar matches the tree-sitter runtime");
         ShapeHelper {
             parser: RefCell::new(parser),

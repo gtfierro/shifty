@@ -5,6 +5,6 @@
    :class: experimental-banner
 
    Shapeshift is experimental. The language, the ``shifty shape`` commands,
-   and the ``shifty.experimental.shapeshift`` Python module can change in any
-   release, without a deprecation period. Pin the Shifty version if you
-   depend on them.
+   the ``shifty.experimental.shapeshift`` Python module, and the
+   ``shifty-experimental`` Rust crate can change in any release, without a
+   deprecation period. Pin the Shifty version if you depend on them.

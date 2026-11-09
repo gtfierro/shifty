@@ -31,6 +31,13 @@ There are two ways to write Shapeshift:
   Use it when shapes are generated from data, or to share pieces between
   files with ordinary Python imports.
 
+From Rust, the ``shifty-experimental`` crate is the entry point:
+``shifty_experimental::shapeshift`` parses, formats, builds, and exports
+``.shm`` files, and runs the sessions behind ``shifty shape``. It is kept
+apart from Shifty's stable crates, and the crates it is built from
+(``shapeshift``, ``shapeshift-parse``, and the others under
+``crates/experimental/``) are its implementation, not an interface.
+
 .. list-table::
    :widths: 30 70
 

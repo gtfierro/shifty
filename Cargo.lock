@@ -993,9 +993,9 @@ dependencies = [
  "oxttl",
  "pyo3",
  "serde_json",
- "shapeshift",
  "shifty-algebra",
  "shifty-engine",
+ "shifty-experimental",
  "shifty-opt",
  "shifty-parse",
  "shifty-repair",
@@ -1390,15 +1390,14 @@ dependencies = [
  "oxttl",
  "rustyline",
  "serde_json",
- "shapeshift",
  "shifty-algebra",
  "shifty-engine",
+ "shifty-experimental",
  "shifty-opt",
  "shifty-parse",
  "shifty-repair",
  "spargebra",
  "tree-sitter",
- "tree-sitter-shapeshift",
  "ureq",
 ]
 
@@ -1438,6 +1437,14 @@ dependencies = [
  "spareval",
  "spargebra",
  "web-time",
+]
+
+[[package]]
+name = "shifty-experimental"
+version = "0.6.0-alpha.1"
+dependencies = [
+ "shapeshift",
+ "tree-sitter-shapeshift",
 ]
 
 [[package]]

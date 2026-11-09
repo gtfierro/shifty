@@ -1,8 +1,9 @@
 //! Shapeshift for Python: format, check, and export `.shm` text.
 //!
-//! The composition API lives in `shifty/shapeshift.py`; it renders text and
-//! hands it here, so formatting, name resolution, and the SHACL it raises
-//! are exactly the CLI's.
+//! The composition API lives in `shifty/experimental/shapeshift.py`; it
+//! renders text and hands it here, so formatting, name resolution, and the
+//! SHACL it raises are exactly the CLI's. Shapeshift is experimental: it comes
+//! from `shifty-experimental`, apart from shifty's stable crates.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -11,6 +12,7 @@ use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use shapeshift::Session;
 use shapeshift::macros::diagnostic::{Diagnostic, Level};
+use shifty_experimental::shapeshift;
 
 pyo3::create_exception!(
     _shifty,

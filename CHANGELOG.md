@@ -5,12 +5,17 @@
 ### Added
 
 - Shapeshift, a text language (`.shm`) for writing shapes that compiles to
-  the shape algebra and raises to readable SHACL Turtle. Crates:
-  `shapeshift-parse` (parser and formatter), `shapeshift-macro` (AST,
-  templates, compilation, admission), `shapeshift-import` (`.shm` and RDF
-  imports, vocabulary checks), `shapeshift-raise` (SHACL output),
-  `shapeshift` (sessions, images, reports in source terms), and
-  `tree-sitter-shapeshift` (editor grammar). Examples are in
+  the shape algebra and raises to readable SHACL Turtle. It is experimental,
+  and so is its Rust interface: the `shifty-experimental` crate, as
+  `shifty_experimental::shapeshift`, kept apart from the stable crates. The
+  crates under `crates/experimental/` implement it: `shapeshift-parse`
+  (parser and formatter), `shapeshift-macro` (AST, templates, compilation,
+  admission), `shapeshift-import` (`.shm` and RDF imports, vocabulary
+  checks), `shapeshift-raise` (SHACL output), `shapeshift` (sessions,
+  images, reports in source terms), and `tree-sitter-shapeshift` (editor
+  grammar, also `shapeshift::grammar` with the `tree-sitter` feature). Each
+  says it is experimental, and the release publishes them before
+  `shifty-cli`, which depends on them. Examples are in
   `examples/shapeshift/`.
 - `shifty shape` subcommands: `check`, `build`, `fmt`, `export [--core]`,
   `validate`, `imports`, `explain`, and `repl`. The REPL colors input and

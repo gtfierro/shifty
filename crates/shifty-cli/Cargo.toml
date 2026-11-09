@@ -27,7 +27,7 @@ spargebra.workspace = true
 ureq.workspace = true
 oxttl.workspace = true
 oxrdf.workspace = true
-shapeshift.workspace = true
-tree-sitter-shapeshift.workspace = true
+# experimental: Shapeshift, behind `shifty shape`
+shifty-experimental = { workspace = true, features = ["tree-sitter"] }
 tree-sitter = "0.25"
 rustyline = { version = "15", features = ["derive"] }
