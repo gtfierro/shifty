@@ -81,6 +81,58 @@ __all__ = [
 
 _RDF_TYPE = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type"
 _RDFS_SUBCLASS = "http://www.w3.org/2000/01/rdf-schema#subClassOf"
+_SHACL = "http://www.w3.org/ns/shacl#"
+
+_COMPONENT_KINDS = {
+    _SHACL + component + "ConstraintComponent": kind
+    for component, kind in {
+        "Class": "class",
+        "Datatype": "datatype",
+        "NodeKind": "node_kind",
+        "MinCount": "count",
+        "MaxCount": "count",
+        "MinExclusive": "min_exclusive",
+        "MinInclusive": "min_inclusive",
+        "MaxExclusive": "max_exclusive",
+        "MaxInclusive": "max_inclusive",
+        "MinLength": "min_length",
+        "MaxLength": "max_length",
+        "Pattern": "pattern",
+        "LanguageIn": "language_in",
+        "UniqueLang": "unique_lang",
+        "Equals": "equals",
+        "Disjoint": "disjoint",
+        "LessThan": "less_than",
+        "LessThanOrEquals": "less_than_or_equals",
+        "Not": "not",
+        "And": "and",
+        "Or": "or",
+        "Xone": "xone",
+        "Node": "node",
+        "Property": "property",
+        "QualifiedMinCount": "qualified_count",
+        "QualifiedMaxCount": "qualified_count",
+        "Closed": "closed",
+        "HasValue": "has_value",
+        "In": "in",
+        "SPARQL": "sparql",
+        "Expression": "expression",
+    }.items()
+}
+
+
+def _authored_kind(components: Optional[tuple[str, ...]], algebra_kind: str) -> str:
+    if components is None:
+        return algebra_kind
+    if not components:
+        return "unconstrained"
+    # Keep custom IRIs distinct until after grouping: two custom components
+    # constitute a compound binding, even though both have the family custom.
+    kinds = {_COMPONENT_KINDS.get(component, component) for component in components}
+    if len(kinds) > 1:
+        return "compound"
+    (kind,) = kinds
+    return kind if kind in _COMPONENT_KINDS.values() else "custom"
 
 
 def _local(iri: str) -> str:
@@ -240,7 +292,7 @@ class Key:
     path: Optional[Path]  # None for pathless constraints (nodeKind…)
     qualifier: Optional[Qualifier]
     ordinal: int = 1  # disambiguates identical keys in stable binding order
-    kind: str = "count"  # lowered algebra tag, not an authored SHACL component
+    kind: str = "count"  # authored SHACL family; compound for multiple families
 
     def __str__(self) -> str:
         return _key_str(self)
@@ -772,6 +824,7 @@ class Binding:
         ambiguous_counts: bool = False,
         constraint_components: Optional[tuple[str, ...]] = None,
         vacuous_property: bool = False,
+        algebra_kind: Optional[str] = None,
     ) -> None:
         self.key = key
         self.status = status
@@ -784,6 +837,7 @@ class Binding:
         self.position = position
         self.order = order
         self.constraint_components = constraint_components
+        self.algebra_kind = algebra_kind if algebra_kind is not None else key.kind
         self._vacuous_property = vacuous_property
         self._rejected_count_high = rejected_count_high
         self._evidence = evidence
@@ -1103,6 +1157,8 @@ class ShapeMap:
                         "bindings": {
                             str(key): {
                                 "status": b.status,
+                                "kind": key.kind,
+                                "algebra_kind": b.algebra_kind,
                                 "values": (
                                     [v.n3() for v in b.values]
                                     if b.values is not None
@@ -1345,11 +1401,13 @@ def _build_mapping(
             # Shared ownership only arises after the property's own wrapper
             # was elided, making this root its complete combined evidence.
             subtree = root
-        dedup_key = (info.path, info.qualifier, info.kind)
+        components = ordered.slots[owner].constraint_components
+        kind = _authored_kind(components, info.kind)
+        # Different authored families can share the same displayed path and
+        # qualifier. Give them distinct display ordinals as well as typed keys.
+        dedup_key = (info.path, info.qualifier, kind if info.path is None else None)
         ordinals[dedup_key] = ordinals.get(dedup_key, 0) + 1
-        key = Key(
-            info.path, info.qualifier, ordinal=ordinals[dedup_key], kind=info.kind
-        )
+        key = Key(info.path, info.qualifier, ordinal=ordinals[dedup_key], kind=kind)
 
         resolve = None
         if subtree is None and status == "pass":
@@ -1414,8 +1472,9 @@ def _build_mapping(
             position,
             ordered.slots[owner].order,
             len(_count_domains(source_catalog, source_id)) > 1,
-            ordered.slots[owner].constraint_components,
+            components,
             ordered.slots[owner].vacuous_property,
+            algebra_kind=info.kind,
         )
 
     return Mapping(

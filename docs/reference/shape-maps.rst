@@ -103,7 +103,7 @@ new run's evidence.
      - A JSON-compatible summary keyed by shape, focus, and rendered key, with
        terms in N-Triples spelling. Binding summaries include ``position``,
        ``order`` (a decimal string or null), and ``constraint_components``
-       (an array of IRI strings or null).
+       (an array of IRI strings or null), plus ``kind`` and ``algebra_kind``.
 
 ``Mapping``
 -----------
@@ -170,6 +170,9 @@ Duplicate-key ordinals are assigned in this order, consistently for every focus.
        and excludes components inside nested qualifier shapes. ``None`` means
        the binding has no single authored RDF source; ``()`` means its source
        declares no component (for example an unbounded qualified value shape).
+   * - ``algebra_kind``
+     - Lowered algebra tag, such as ``"count"``. Intended for compiler and
+       evidence inspection; ``key.kind`` describes the authored SHACL family.
    * - ``name`` / ``names``
      - The resolved slot name, and every value ``name_path`` reached.
    * - ``values``
@@ -212,9 +215,22 @@ Duplicate-key ordinals are assigned in this order, consistently for every focus.
 -------
 
 Immutable and hashable, so it works as a dictionary key or set member.
-``kind`` is a lowered algebra tag, such as ``"count"``, and is not a SHACL
-constraint classifier: universal pattern and datatype checks also lower to
-counts. Use ``binding.constraint_components`` to identify authored constraints.
+``kind`` describes the authored SHACL constraint family. For example, a
+``sh:pattern`` binding has ``kind="pattern"``, even though its implementation
+uses a count. ``binding.algebra_kind`` exposes that implementation tag.
+
+Ordinary minimum/maximum cardinalities share ``"count"``; qualified
+cardinalities share ``"qualified_count"``. Other core families use snake-case
+names such as ``"datatype"``, ``"class"``, ``"node_kind"``, ``"has_value"``,
+and ``"less_than_or_equals"``. Several families on one binding yield
+``"compound"``. A single custom component yields ``"custom"``; several
+distinct custom components also yield ``"compound"``. A source declaring no
+component yields ``"unconstrained"``. If authored metadata is unavailable,
+``kind`` falls back to the algebra tag.
+
+Use ``binding.constraint_components`` for the full component identities,
+including every family in a compound binding. ``kind`` is part of key equality
+and hashing; include it when constructing a key to look up a binding.
 
 .. list-table::
    :widths: 22 78
@@ -232,7 +248,7 @@ counts. Use ``binding.constraint_components`` to identify authored constraints.
      - Distinguishes two authored obligations sharing a path and qualifier.
        Part of equality and hashing.
    * - ``kind``
-     - Lowered algebra tag, also used to render pathless keys.
+     - Authored constraint family, also used to render pathless keys.
 
 ``str(key)`` renders as e.g. ``hasPoint→SupplyAirTemperatureSensor``. That form
 compacts IRIs to local names, so it is not globally unique and is intended for

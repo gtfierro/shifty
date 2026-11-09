@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Changed
+
+- Python shape-map `Key.kind` now describes authored SHACL families, such as
+  `pattern`, `datatype`, and `qualified_count`, with `compound` for several
+  families. `Binding.algebra_kind` retains the previous compiler tag. JSON
+  summaries include both. Typed-key construction must supply the authored kind;
+  duplicate display keys remain disambiguated across different families.
+
 ## 0.6.0-alpha.1
 
 First alpha for 0.6.0. The Rust and CLI version is `0.6.0-alpha.1`; the Python

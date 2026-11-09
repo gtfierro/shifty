@@ -96,3 +96,25 @@ Omitted options, ``undefined``, ``null``, and ``{}`` all enable inference and
 sorting. Pass ``infer: false`` or ``sortResults: false`` explicitly to disable
 either. Standalone ``infer`` now accepts an optional third options argument for
 ``onUnsupported``.
+
+Shape-map kinds describe authored constraints
+--------------------------------------------
+
+``Key.kind`` now identifies the authored SHACL family. A pattern binding has
+``kind="pattern"`` and a datatype binding has ``kind="datatype"``. Ordinary
+cardinalities remain ``"count"``; qualified cardinalities use
+``"qualified_count"``. A binding combining families has ``kind="compound"``;
+inspect ``binding.constraint_components`` for its full component IRIs.
+
+Code inspecting compiler tags should use ``binding.algebra_kind``. Code
+constructing typed keys must supply the new family, because ``kind`` is part
+of equality and hashing:
+
+.. code-block:: python
+
+   key = shifty.Key(shifty.Pred("http://example.org/label"), None, kind="pattern")
+   binding = mapping[key]
+
+Prefer the keys returned by ``mapping.items()`` when possible. String lookup
+continues to use the path display form; duplicate paths and qualifiers receive
+distinct ordinals even when their authored families differ.

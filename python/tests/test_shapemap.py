@@ -644,7 +644,11 @@ def test_shape_ref_qualifier_from_qualified_value_shape():
     smap = shifty.shape_map(SHAPE_REF_DATA, SHAPE_REF_SHAPES, infer=False)
     (m,) = smap["http://ex/ZoneShape"]
     ((key, binding),) = m.successful
-    assert key == Key(Pred("http://ex/hasPart"), ShapeRef("http://ex/HeatingCoilShape"))
+    assert key == Key(
+        Pred("http://ex/hasPart"),
+        ShapeRef("http://ex/HeatingCoilShape"),
+        kind="qualified_count",
+    )
     assert str(key) == "hasPart→HeatingCoilShape"
     assert binding.values == [Iri("http://ex/coil1")]
 

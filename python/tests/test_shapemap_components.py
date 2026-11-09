@@ -1,4 +1,4 @@
-"""Authored component identities remain distinct from lowered algebra kinds."""
+"""Authored component families remain distinct from lowered algebra kinds."""
 
 import json
 
@@ -36,7 +36,8 @@ def test_combined_property_components_survive_lowering_and_run_only_projection(
     )
     (mapping,) = smap
     binding = next(b for k, b in mapping.items() if str(k) != "q")
-    assert binding.key.kind == "count"
+    assert binding.key.kind == "compound"
+    assert binding.algebra_kind == "count"
     assert binding.constraint_components == tuple(
         SH + name + "ConstraintComponent"
         for name in [
@@ -52,9 +53,11 @@ def test_combined_property_components_survive_lowering_and_run_only_projection(
     assert slot["order"] == "1.25"
     assert slot["position"] == 1
     assert slot["constraint_components"] == list(binding.constraint_components)
+    assert slot["kind"] == "compound"
+    assert slot["algebra_kind"] == "count"
 
 
-def test_pattern_is_identifiable_without_changing_key_kind_or_bounds():
+def test_pattern_kind_describes_the_authored_constraint():
     shapes = (
         PREFIXES
         + """
@@ -65,7 +68,8 @@ def test_pattern_is_identifiable_without_changing_key_kind_or_bounds():
     (mapping,) = shifty.shape_map(DATA, shapes, infer=False)
     binding = mapping["p"]
     assert binding.constraint_components == (SH + "PatternConstraintComponent",)
-    assert binding.key.kind == "count"
+    assert binding.key.kind == "pattern"
+    assert binding.algebra_kind == "count"
     assert binding.min is binding.max is None
 
 
@@ -85,6 +89,7 @@ def test_qualified_slot_components_exclude_its_nested_qualifier_components():
         SH + "QualifiedMaxCountConstraintComponent",
         SH + "QualifiedMinCountConstraintComponent",
     )
+    assert binding.key.kind == "qualified_count"
 
 
 def test_pathless_authored_shape_retains_component_metadata():
@@ -97,6 +102,7 @@ def test_pathless_authored_shape_retains_component_metadata():
     (mapping,) = shifty.shape_map(DATA, shapes, infer=False)
     (binding,) = mapping.values()
     assert binding.constraint_components == (SH + "NodeKindConstraintComponent",)
+    assert binding.key.kind == "node_kind"
 
 
 def test_custom_component_metadata_respects_parameters_and_shape_kind():
@@ -117,6 +123,7 @@ def test_custom_component_metadata_respects_parameters_and_shape_kind():
         "http://ex/C",
         SH + "MinCountConstraintComponent",
     )
+    assert mapping.by_name("active").key.kind == "compound"
     assert mapping.by_name("inactive").constraint_components == (
         SH + "MaxCountConstraintComponent",
     )
@@ -138,6 +145,7 @@ def test_optional_property_values_are_unknown_without_session(sibling):
     binding = next(b for k, b in mapping.items() if str(k) != "q")
     assert binding.ok
     assert binding.constraint_components == ()
+    assert binding.key.kind == "unconstrained"
     assert binding.values is None
     assert binding.observed is None
     assert binding.key not in mapping.value_map()

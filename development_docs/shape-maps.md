@@ -22,9 +22,12 @@ qualifier, kind, and ordinal. Ordinals distinguish authored obligations with
 the same structural key; display strings compact IRIs but do not replace typed
 identity.
 
-`Key.kind` remains a lowered algebra tag. `Binding.constraint_components`
-instead retains the authored component IRIs, including activated custom
-components, as a sorted tuple from the binding's source shape. This metadata
+`Key.kind` describes authored SHACL families, with `compound` for several
+families, `custom` for one custom component, and `unconstrained` for a source
+with no components. Ordinary cardinalities share `count`, and qualified
+cardinalities share `qualified_count`. `Binding.algebra_kind` retains the
+lowered tag. `Binding.constraint_components` retains authored IRIs, including
+activated custom components, as a sorted tuple from the binding's source shape. This metadata
 is present on session-free projections too; nested qualifiers remain separate.
 `ShapeMap.to_dict()` includes components, position, and string-encoded decimal
 order alongside the value/status summary.

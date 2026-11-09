@@ -65,8 +65,12 @@ Use ``binding.constraint_components`` when branching on authored SHACL checks:
        if pattern_component in (binding.constraint_components or ()):
            print(key, binding.values, binding.rejected_values)
 
-A property may declare multiple components. ``key.kind`` describes the lowered
-algebra, where pattern and datatype checks are also represented as counts.
+A property may declare multiple components. ``key.kind`` describes the authored family:
+``"pattern"`` for a pattern check, ``"datatype"`` for a datatype check,
+``"count"`` for ordinary cardinalities, and ``"qualified_count"`` for qualified
+cardinalities. Several families yield ``"compound"``; inspect
+``binding.constraint_components`` for their full identities. The compiler tag
+is available separately as ``binding.algebra_kind``.
 
 Keys render as strings for logs and table headings:
 
