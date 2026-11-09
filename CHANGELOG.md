@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+## 0.6.0-alpha.2
+
+Second alpha for 0.6.0, focusing on ShapeMap constraint identities, explanations,
+and value qualification. The Rust and CLI version is `0.6.0-alpha.2`; the Python
+distribution version is `0.6.0a2`. Install it with
+`python -m pip install "pyshifty[rdflib]==0.6.0a2"`.
+
+`Key.kind` and `Binding.explain()` change behavior from alpha.1. See
+`docs/how-to/upgrading-0.6.rst` for the authored constraint families, typed-key
+construction, and access to the underlying algebra.
+
 ### Changed
 
 - Python shape-map `Key.kind` now describes authored SHACL families, such as
