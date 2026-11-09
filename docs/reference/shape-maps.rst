@@ -209,7 +209,13 @@ Duplicate-key ordinals are assigned in this order, consistently for every focus.
    * - ``evidence``
      - The evidence subtree this binding was derived from.
    * - ``explain()``
-     - Human-readable rendering.
+     - SHACL-oriented summary of the declared constraints, status, counts,
+       qualifying values, and rejected candidates. Unavailable observations
+       remain explicitly unavailable. For compound bindings the listed
+       declarations do not imply that every component failed.
+   * - ``explain(algebra=True)``
+     - The underlying evidence tree, retaining tags such as ``count_high``.
+       Also the default when authored component metadata is unavailable.
 
 ``Key``
 -------

@@ -98,7 +98,7 @@ either. Standalone ``infer`` now accepts an optional third options argument for
 ``onUnsupported``.
 
 Shape-map kinds describe authored constraints
---------------------------------------------
+---------------------------------------------
 
 ``Key.kind`` now identifies the authored SHACL family. A pattern binding has
 ``kind="pattern"`` and a datatype binding has ``kind="datatype"``. Ordinary
@@ -118,3 +118,9 @@ of equality and hashing:
 Prefer the keys returned by ``mapping.items()`` when possible. String lookup
 continues to use the path display form; duplicate paths and qualifiers receive
 distinct ordinals even when their authored families differ.
+
+``binding.explain()`` now summarizes the authored SHACL constraints, status,
+counts, and values. A pattern rejection is described as a pattern failure
+rather than a count overflow. Use ``binding.explain(algebra=True)`` for the
+previous evidence-tree rendering. Compound summaries list declarations;
+they do not assert that every declared component failed.

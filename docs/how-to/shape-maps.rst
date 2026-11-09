@@ -72,6 +72,21 @@ cardinalities. Several families yield ``"compound"``; inspect
 ``binding.constraint_components`` for their full identities. The compiler tag
 is available separately as ``binding.algebra_kind``.
 
+``binding.explain()`` describes those authored constraints and the binding's
+values. For example, a rejected pattern value produces a summary like:
+
+.. code-block:: text
+
+   alpha: pattern constraint failed
+     observed count: 1
+     qualifying values: none
+     rejected values: "a-value"
+
+For a binding with multiple components, the summary lists its declarations
+without claiming that every component failed. Counts and qualifying sets that
+cannot be recovered remain explicitly unavailable. To inspect the underlying
+evidence tree, use ``binding.explain(algebra=True)``.
+
 Keys render as strings for logs and table headings:
 
 .. code-block:: python

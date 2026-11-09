@@ -124,7 +124,8 @@ def test_partial_focus_keeps_passing_bindings_and_exposes_the_gap():
     assert binding.values == []
     assert binding.rejected_values == [Iri("http://ex/notaspace")]
     assert binding.evidence["type"] == "count_low"
-    assert "count_low" in binding.explain()
+    assert "qualified min count constraint failed" in binding.explain()
+    assert "count_low" in binding.explain(algebra=True)
 
     # Full drill-down: the mapping keeps the FocusEvaluation, whose failure
     # side is the ordinary evidence object.

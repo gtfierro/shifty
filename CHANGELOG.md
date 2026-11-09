@@ -9,6 +9,9 @@
   families. `Binding.algebra_kind` retains the previous compiler tag. JSON
   summaries include both. Typed-key construction must supply the authored kind;
   duplicate display keys remain disambiguated across different families.
+- `Binding.explain()` summarizes authored SHACL constraints and observed values.
+  Pattern failures are described as pattern failures. Use
+  `binding.explain(algebra=True)` for the underlying evidence tree.
 
 ## 0.6.0-alpha.1
 

@@ -32,6 +32,12 @@ is present on session-free projections too; nested qualifiers remain separate.
 `ShapeMap.to_dict()` includes components, position, and string-encoded decimal
 order alongside the value/status summary.
 
+`Binding.explain()` summarizes authored components and the binding's status,
+counts, qualifying values, and rejected values. Component labels describe
+declarations, not per-component verdicts. `explain(algebra=True)` retains the
+evidence-tree rendering, which is also the fallback without source metadata.
+Summary extraction shares the binding's lazy observation cache.
+
 `Mapping` implements the standard mapping protocol over `Key → Binding`.
 Successful and unsuccessful views both yield `(Key, Binding)` pairs.
 `value_map` projects bound values, optionally by authored name and with Python

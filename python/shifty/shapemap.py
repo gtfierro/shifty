@@ -48,6 +48,7 @@ from __future__ import annotations
 import collections.abc
 import dataclasses
 import json
+import re
 from decimal import Decimal, InvalidOperation
 from typing import TYPE_CHECKING, Any, Callable, Iterator, Optional, Sequence, Union
 
@@ -133,6 +134,13 @@ def _authored_kind(components: Optional[tuple[str, ...]], algebra_kind: str) -> 
         return "compound"
     (kind,) = kinds
     return kind if kind in _COMPONENT_KINDS.values() else "custom"
+
+
+def _component_label(component: str) -> str:
+    if component not in _COMPONENT_KINDS:
+        return f"<{component}>"
+    name = component.removeprefix(_SHACL).removesuffix("ConstraintComponent")
+    return re.sub(r"(?<=[a-z])(?=[A-Z])", " ", name).lower()
 
 
 def _local(iri: str) -> str:
@@ -981,12 +989,55 @@ class Binding:
                 out.setdefault(label, {})[bound.term] = reached
         return out
 
-    def explain(self) -> str:
-        """This key's evidence subtree as indented text."""
-        evidence = self.evidence
-        if evidence is None:
-            return f"{self.key}: {self.status} (evidence not materialized)"
-        return "\n".join(_explain(evidence))
+    def explain(self, *, algebra: bool = False) -> str:
+        """Describe the authored constraints, counts, and qualifying values.
+
+        ``algebra=True`` renders the underlying evidence tree instead. With
+        no authored component metadata, that tree is also the default.
+        Component names describe declarations; a failed compound binding
+        does not imply that every declared constraint failed.
+        """
+        if algebra or self.constraint_components is None:
+            evidence = self.evidence
+            if evidence is None:
+                return f"{self.key}: {self.status} (evidence not materialized)"
+            return "\n".join(_explain(evidence))
+
+        labels = [_component_label(c) for c in self.constraint_components]
+        label = f"{labels[0]} constraint" if len(labels) == 1 else "constraints"
+        verdict = "satisfied" if self.ok else "failed"
+        lines = [f"{self.key}: {label} {verdict}"]
+        if len(labels) > 1:
+            lines.append("  declared constraints: " + ", ".join(labels))
+        elif not labels:
+            lines.append("  no authored constraint components")
+
+        bounds = []
+        if self.min is not None:
+            bounds.append(f"at least {self.min}")
+        if self.max is not None:
+            bounds.append(f"at most {self.max}")
+        if bounds:
+            lines.append("  required count: " + ", ".join(bounds))
+        if self.path is not None:
+            observed = self.observed
+            count_text = str(observed) if observed is not None else "unavailable"
+            lines.append(f"  observed count: {count_text}")
+            values = self.values
+            values_text = (
+                (", ".join(value.n3() for value in values) or "none")
+                if values is not None
+                else "unavailable"
+            )
+            lines.append(f"  qualifying values: {values_text}")
+        if self.missing:
+            lines.append(f"  missing values: {self.missing}")
+        rejected = self.rejected_values
+        if rejected:
+            lines.append(
+                "  rejected values: " + ", ".join(value.n3() for value in rejected)
+            )
+        return "\n".join(lines)
 
     def __repr__(self) -> str:
         if self.ok:
