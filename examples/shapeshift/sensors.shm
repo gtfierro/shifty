@@ -1,5 +1,5 @@
 -- Reusable sensor shapes, imported by hvac.shm as `sensors`.
-base   <https://example.org/shapes/sensors>
+base <https://example.org/shapes/sensors>
 prefix brick: <https://brickschema.org/schema/Brick#>
 prefix unit: <http://qudt.org/vocab/unit/>
 
