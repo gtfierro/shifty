@@ -32,39 +32,36 @@ const braced = ($, item) =>
     '}',
   );
 
-/** Qualifier alternatives other than a bare test. */
-const qualifiers = ($) => [
-  seq('each', $.test),
-  seq(
-    choice('exactly', seq('at', 'least'), seq('at', 'most')),
-    $._int,
-    'is',
-    choice($.test, $._literal),
-  ),
-  seq('same', 'as', $._node),
-  seq('different', 'from', $._node),
-  seq('less', 'than', $._node),
-  seq('at', 'most', choice($.prefixed_name, $.iri)),
-  seq('unique', 'language'),
-];
-
-/** Test alternatives other than an inline `{ ... }` shape or a bare term. */
-const tests = ($) => [
-  seq('a', field('class', $._node)),
-  seq('is', 'a', field('class', $._node)),
-  seq('matches', $.call),
-  seq('is', $._literal),
-  seq('is', $._item),
+/**
+ * Tests of a value. Every test starts with the word that says what kind of
+ * test it is: `a` for a class, `one of` for values, `matches` for a shape.
+ */
+const valueTests = ($) => [
+  // `a brick:AHU`, or one of several classes: `a brick:AHU or brick:RTU`
+  seq('a', field('class', $._node), repeat(seq('or', field('class', $._node)))),
   seq('one', 'of', repeat1($._value)),
   $.datatype,
   seq('datatype', $._node),
   'iri',
   'literal',
   'blank',
-  seq('length', $.integer, optional(seq('to', $.integer))),
-  seq('length', 'at', choice('least', 'most'), $.integer),
-  seq('from', $._number, optional(seq('to', $._number))),
-  seq('up', 'to', $._number),
+  prec.right(seq(
+    'length',
+    choice(
+      $.integer,
+      seq('from', $.integer, optional(seq('to', $.integer))),
+      seq('up', 'to', $.integer),
+    ),
+  )),
+  // `from` and `up to` include the bound, `above` and `below` do not.
+  // `above 0 below ex:q` reads `below` as the range's upper end. The ends
+  // are numbers, dates, dateTimes, or times.
+  prec.right(seq(
+    choice(seq('from', $._bound), seq('above', $._bound)),
+    optional(choice(seq('to', $._bound), seq('below', $._bound))),
+  )),
+  seq('up', 'to', $._bound),
+  seq('below', $._bound),
   seq('pattern', $.string, optional(seq('flags', $.string))),
   seq('language', repeat1($.string)),
 ];
@@ -77,7 +74,6 @@ module.exports = grammar({
   word: ($) => $.identifier,
 
   conflicts: ($) => [
-    [$.count, $._first_qualifier],
     [$.boolean],
   ],
 
@@ -155,11 +151,12 @@ module.exports = grammar({
 
     _line: ($) =>
       choice(
-        $.annotation, $.field, $.include, $.boolean, $.closed, $.is_line, $.group,
+        $.annotation, $.field, $.boolean, $.closed, $.is_line, $.group,
       ),
 
-    /** `is brick:AHU`: a test on the focus node itself. */
-    is_line: ($) => seq('is', choice($.test, $._literal)),
+    /** `is a brick:AHU`: a test on the focus node itself. A shape is
+     * composed by writing it alone on a line, which parses as a field. */
+    is_line: ($) => seq('is', alias($._value_test, $.test)),
 
     /** `brick:hasPoint [count] { row* }`: named fields along one path. */
     group: ($) =>
@@ -169,49 +166,25 @@ module.exports = grammar({
         braced($, choice($.annotation, $.row)),
       ),
 
-    /** `label: ITEM [count] [doc "..."] [{ ... }]` */
+    /** `label: ITEM [count] [{ ... }]`, its `doc` on the line before. */
     row: ($) =>
       seq(
         optional(field('name', $.label)),
         field('item', $.call),
-        repeat(choice($.count, $.annotation, $.block)),
+        repeat(choice($.count, $.block)),
       ),
-
-    /** Deprecated: `Sensor` alone on a line composes it (and parses as a field's path). */
-    include: ($) => seq('include', $.call),
 
     closed: (_) => seq('only', 'these', 'properties'),
 
+    // `Sensor` alone on a line composes it, and parses as a field's path.
+    // `PATH COUNT? {` is a group: no qualifier starts with `{`.
     field: ($) =>
-      choice(
-        seq(
-          optional(field('name', $.label)),
-          field('path', $._path),
-          // `PATH COUNT? {` is a group, so the qualifier right after the path
-          // or count is never a bare inline shape (written `each { ... }`).
-          // After `COUNT,` it may be.
-          choice(
-            seq(
-              $.count,
-              optional(choice(
-                seq(',', $.qualifier, repeat(seq(optional(','), $.qualifier))),
-                seq(
-                  alias($._first_qualifier, $.qualifier),
-                  repeat(seq(optional(','), $.qualifier)),
-                ),
-              )),
-            ),
-            optional(seq(
-              alias($._first_qualifier, $.qualifier),
-              repeat(seq(optional(','), $.qualifier)),
-            )),
-          ),
-        ),
-        seq(field('name', $.label), $.field_block),
+      seq(
+        optional(field('name', $.label)),
+        field('path', $._path),
+        optional($.count),
+        repeat(seq(optional(','), $.qualifier)),
       ),
-
-    field_block: ($) =>
-      braced($, choice($.annotation, $.count, $.qualifier, field('path', $._path))),
 
     count: ($) =>
       choice(
@@ -223,22 +196,33 @@ module.exports = grammar({
         seq('between', $._int, 'and', $._int),
       ),
 
-    // A bare term (`brick:AHU`, `Sensor`) is a test after `each` and `is`,
-    // not directly after a path, where `ex:p ex:q` is more likely a typo for
-    // `ex:p/ex:q`.
-    qualifier: ($) => choice(...qualifiers($), alias($._bare_test, $.test)),
+    // A test of the values always follows `each`: after a path, `ex:p ex:q`
+    // is more likely a typo for `ex:p/ex:q`.
+    qualifier: ($) =>
+      choice(
+        seq('each', $.test),
+        seq(
+          choice('exactly', seq('at', 'least'), seq('at', 'most')),
+          $._int,
+          choice(
+            seq('is', alias($._is_test, $.test)),
+            alias($._matches, $.test),
+          ),
+        ),
+        seq('same', 'as', $._node),
+        seq('different', 'from', $._node),
+        seq('below', $._node),
+        seq('up', 'to', $._node),
+        seq('unique', 'language'),
+      ),
 
-    _first_qualifier: ($) => choice(...qualifiers($), alias($._plain_test, $.test)),
+    test: ($) => choice(...valueTests($), $._matches, $.block),
 
-    test: ($) => choice(...tests($), $.block, $._item),
+    _value_test: ($) => choice(...valueTests($)),
 
-    _bare_test: ($) => choice(...tests($), $.block),
+    _is_test: ($) => choice(...valueTests($), $.block),
 
-    _plain_test: ($) => choice(...tests($)),
-
-    /** A class or a shape. */
-    _item: ($) => $.call,
-
+    _matches: ($) => seq('matches', $.call),
 
     datatype: (_) =>
       choice(
@@ -251,10 +235,10 @@ module.exports = grammar({
         seq(
           field('frame', alias(choice(
             seq('any', 'of'),
-            seq('all', 'of'),
             seq('none', 'of'),
             seq('exactly', 'one', 'of'),
             seq('at', 'least', $.integer, 'of'),
+            seq('at', 'most', $.integer, 'of'),
           ), $.frame)),
           // the formatter puts long frames' blocks on aligned lines
           $.block,
@@ -278,7 +262,7 @@ module.exports = grammar({
     // `T(x)` here is a shape or a path template, told apart once names are
     // resolved; it parses as a path.
     _arg: ($) =>
-      choice($._path, $.string, $._number, $.boolean_literal, $.block),
+      choice($._path, $.string, $._number, $._temporal, $.boolean_literal, $.block),
 
     _call_args: ($) => seq(field('name', $.identifier), $.arguments),
 
@@ -296,7 +280,11 @@ module.exports = grammar({
 
     _value: ($) => choice($._node, $._literal),
 
-    _literal: ($) => choice($.string, $._number, $.boolean_literal),
+    _literal: ($) => choice($.string, $._number, $._temporal, $.boolean_literal),
+
+    _bound: ($) => choice($._number, $._temporal),
+
+    _temporal: ($) => choice($.date, $.date_time, $.time),
 
     _int: ($) => choice($.integer, $.identifier),
 
@@ -318,6 +306,15 @@ module.exports = grammar({
       ),
 
     integer: (_) => /\d+/,
+
+    // XSD lexical forms, written bare: `2024-01-31`, `2024-01-31T08:00:00Z`,
+    // `08:00:00.5+02:00`. Longer than an integer, so they win where both fit.
+    date: (_) => token(/\d{4}-\d{2}-\d{2}(Z|[+-]\d{2}:\d{2})?/),
+
+    date_time: (_) =>
+      token(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})?/),
+
+    time: (_) => token(/\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})?/),
 
     decimal: (_) => /-?(\d+\.\d+|\d+(\.\d+)?[eE][+-]?\d+|\.\d+)|-\d+/,
 

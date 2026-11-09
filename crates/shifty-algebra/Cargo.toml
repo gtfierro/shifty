@@ -11,6 +11,7 @@ readme.workspace = true
 
 [dependencies]
 oxrdf.workspace = true
+oxsdatatypes.workspace = true
 serde.workspace = true
 regex.workspace = true
 

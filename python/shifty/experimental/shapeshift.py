@@ -1,11 +1,14 @@
 """Write Shapeshift (``.shm``) modules in Python.
 
+**Experimental.** This module, and the Shapeshift language it writes, can
+change at any time, without a deprecation period.
+
 Shapeshift is shifty's language for validation rules. This module builds
 the same rules from Python values, and writes them as ``.shm`` text,
 formatted as ``shifty shape fmt`` would, or raises them to SHACL::
 
-    from shifty import shapeshift as ss
-    from shifty.shapeshift import Class, Shape
+    from shifty.experimental import shapeshift as ss
+    from shifty.experimental.shapeshift import Class, Shape
 
     BRICK = ss.Namespace("brick", "https://brickschema.org/schema/Brick#")
 
@@ -18,7 +21,7 @@ formatted as ``shifty shape fmt`` would, or raises them to SHACL::
         return m.points.at_least(n, cls)
 
     m.vav = Shape(
-        BRICK.VAV,                                  # is brick:VAV
+        BRICK.VAV,                                  # is a brick:VAV
         m.points.required(flow=BRICK.Air_Flow_Sensor),
         temp=with_point(BRICK.Zone_Air_Temperature_Sensor),
         for_every=BRICK.VAV,
@@ -40,9 +43,10 @@ Definitions
 Shapes
     ``Shape(*lines, **labelled)`` is a conjunction of lines; keyword
     arguments are named lines (``fan: ...``). A class term alone is
-    ``is C``, and a shape or template call alone composes it. ``a & b`` is
+    ``is a C``, and a shape or template call alone composes it. ``a & b`` is
     the same as ``Shape(a, b)``, ``a | b`` is ``any of``, and ``~a`` is
-    ``none of``. A shape no module names is written inline.
+    ``none of``; of classes, ``A | B`` is ``is a A or B``. A shape no module
+    names is written inline.
 
 Paths
     A term is a property where a path goes, and combines with ``/``
@@ -53,8 +57,11 @@ Paths
     ``points.required(sat=BRICK.SAT, flow=BRICK.Air_Flow_Sensor)``.
 
 Tests
-    Where a test goes, a term is a class, a shape is a shape, and a Python
-    value is that value.
+    Where a test goes, a term is a class (``a C``, and ``A | B`` is
+    ``a A or B``), a shape is a shape (``matches S``), and a Python value,
+    including a ``datetime.date``, ``datetime.datetime``, or
+    ``datetime.time``, is that value (``one of v``). ``value_range`` takes
+    numbers, dates, or times.
 
 Modules
     A module imports the modules whose definitions it uses, and declares the
@@ -65,6 +72,7 @@ Modules
 from __future__ import annotations
 
 import copy
+import datetime
 import difflib
 import inspect
 import os
@@ -85,7 +93,7 @@ from typing import (
     Union,
 )
 
-from . import _shifty
+from .. import _shifty
 
 __all__ = [
     "SELF",
@@ -99,9 +107,9 @@ __all__ = [
     "Shape",
     "ShapeshiftError",
     "Term",
-    "all_of",
     "any_of",
     "at_least_of",
+    "at_most_of",
     "datatype",
     "every",
     "exactly_one_of",
@@ -147,6 +155,15 @@ _BUILTIN_DATATYPES = frozenset(
         "langString",
     ]
 )
+_BUILTIN_IRIS = {
+    (
+        "http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+        if w == "langString"
+        else "http://www.w3.org/2001/XMLSchema#"
+    )
+    + w: w
+    for w in _BUILTIN_DATATYPES
+}
 _SEVERITIES = ("info", "warning", "violation")
 
 
@@ -247,20 +264,36 @@ def _block(ctx: _Ctx, lines: Sequence[Line]) -> str:
     return "{\n" + "\n".join(body) + "\n}"
 
 
+def _class_union(x: Any) -> Optional[List[Any]]:
+    """The classes of `A | B | ...` when every one is a term or a class
+    parameter: written ``a A or B``."""
+    if isinstance(x, _Alt) and all(
+        isinstance(a, Term) or (isinstance(a, Param) and a.kind == "class")
+        for a in x.alts
+    ):
+        return list(x.alts)
+    return None
+
+
 def _class_logic(x: Any) -> Optional[Line]:
     """`A | B` or `~A` of classes, as the line it is where a line or test goes.
 
-    Where a path goes these are path operators; where a test goes, a class
-    alternative is ``any of`` and an inverted class is ``none of``.
+    Where a path goes these are path operators. Where a line or a test goes,
+    a union of classes is ``is a A or B``, other alternatives are ``any of``,
+    and an inverted class is ``none of``.
     """
 
     def leaf(y: Any) -> bool:
         return isinstance(y, (Term, Param)) or _class_logic(y) is not None
 
+    if _class_union(x) is not None:
+        return _Is(x)
     if isinstance(x, _Alt) and all(leaf(a) for a in x.alts):
         return _Frame("any of", [_lines(a) for a in x.alts])
     if isinstance(x, _Inv):
         inner = x.inner
+        if _class_union(inner) is not None:
+            return _Frame("none of", [[_Is(inner)]])
         if isinstance(inner, _Alt) and all(leaf(a) for a in inner.alts):
             return _Frame("none of", [_lines(a) for a in inner.alts])
         if leaf(inner):
@@ -318,13 +351,41 @@ def _value(ctx: _Ctx, v: Any) -> str:
         return repr(v)
     if isinstance(v, str):
         return _string(v)
+    if isinstance(v, (datetime.date, datetime.time)):
+        return _temporal(v)
     raise TypeError(
-        f"{v!r} is not a value: use a term, a string, a number, or `lit(...)`"
+        f"{v!r} is not a value: use a term, a string, a number, a date or time, "
+        "or `lit(...)`"
+    )
+
+
+def _temporal(v: Any) -> str:
+    """A `datetime.date`, `datetime.datetime`, or `datetime.time` as the
+    language writes it: ``2024-01-31``, ``2024-01-31T08:00:00Z``, ``08:00:00``."""
+    text = v.isoformat()
+    if isinstance(v, (datetime.datetime, datetime.time)) and v.utcoffset() == (
+        datetime.timedelta(0)
+    ):
+        text = text.removesuffix("+00:00") + "Z"
+    return text
+
+
+def _bound(x: Any) -> str:
+    """A range's end: a number, or a date or time."""
+    if isinstance(x, (int, float)) and not isinstance(x, bool):
+        return repr(x)
+    if isinstance(x, (datetime.date, datetime.time)):
+        return _temporal(x)
+    raise TypeError(
+        f"{x!r} cannot end a range: use a number, or a `datetime.date`, "
+        "`datetime.datetime`, or `datetime.time`"
     )
 
 
 def _is_literal(x: Any) -> bool:
-    return isinstance(x, (str, int, float, bool, _Literal))
+    return isinstance(
+        x, (str, int, float, bool, _Literal, datetime.date, datetime.time)
+    )
 
 
 def _shape_ref(x: Any) -> bool:
@@ -334,22 +395,31 @@ def _shape_ref(x: Any) -> bool:
     return isinstance(x, (_Ref, Template, Call))
 
 
+def _matches(x: Any) -> bool:
+    """Whether `x` is tested with ``matches``: a shape by name, or a
+    parameter that is not a class."""
+    return _shape_ref(x) or (isinstance(x, Param) and x.kind != "class")
+
+
 def _test(ctx: _Ctx, x: Any) -> str:
-    """`x` where a test goes."""
+    """`x` where a test goes, with the word that says what kind of test it is."""
     if isinstance(x, Term):
-        return x._render(ctx)
+        return "a " + x._render(ctx)
+    union = _class_union(x)
+    if union is not None:
+        return "a " + " or ".join(_value(ctx, c) for c in union)
+    if isinstance(x, Param):
+        return ("a " if x.kind == "class" else "matches ") + x.name
     if _shape_ref(x):
-        return _call_text(ctx, x)
+        return "matches " + _call_text(ctx, x)
     if isinstance(x, Shape):
         return _block(ctx, x._inline())
-    if isinstance(x, Param):
-        return x.name
     if isinstance(x, _Test):
         return x._render(ctx)
     if isinstance(x, (list, tuple, Line)):
         return _block(ctx, _lines(x))
     if _is_literal(x):
-        return "is " + _value(ctx, x)
+        return "one of " + _value(ctx, x)
     logic = _class_logic(x)
     if logic is not None:
         return _block(ctx, [logic])
@@ -358,13 +428,10 @@ def _test(ctx: _Ctx, x: Any) -> str:
     )
 
 
-def _counted_test(ctx: _Ctx, x: Any) -> str:
-    """The test after `at least n is`, where a value goes directly."""
-    if _is_literal(x):
-        return _value(ctx, x)
-    if isinstance(x, _OneOf):
-        return x._render(ctx)
-    return _test(ctx, x)
+def _qualified_text(ctx: _Ctx, word: str, n: Any, x: Any) -> str:
+    """``at least n is T``, or ``at least n matches S`` for a shape."""
+    verb = "" if _matches(x) else "is "
+    return f"{word} {_int(n)} {verb}{_test(ctx, x)}"
 
 
 def _int(n: Any) -> str:
@@ -549,9 +616,13 @@ class _PathOps:
         """``p different from q``."""
         return Field(self).different_from(other)
 
-    def less_than(self, other: Any) -> Field:
-        """``p less than q``."""
-        return Field(self).less_than(other)
+    def below(self, other: Any) -> Field:
+        """``p below q``: each value is less than each value of `q`."""
+        return Field(self).below(other)
+
+    def up_to(self, other: Any) -> Field:
+        """``p up to q``: each value is at most each value of `q`."""
+        return Field(self).up_to(other)
 
     def unique_language(self) -> Field:
         """``p unique language``."""
@@ -693,7 +764,7 @@ class Term(_PathOps):
 
 Class = Term
 """Annotate a template parameter with ``Class`` to make it a class: alone on a
-line, it is then ``is cls`` rather than a composed shape."""
+line it is then ``is a cls``, and in a test ``a cls``, rather than a shape."""
 
 
 def iri(value: str) -> Term:
@@ -761,6 +832,9 @@ def datatype(dt: Union[str, Term]) -> Any:
                 "pass a term for any other"
             )
         return _Word(lambda ctx: dt)
+    word = _BUILTIN_IRIS.get(dt.iri)
+    if word is not None:
+        return _Word(lambda ctx: word)
     return _Word(lambda ctx: "datatype " + dt._render(ctx))
 
 
@@ -782,23 +856,44 @@ def length(
             raise TypeError("`length` takes an exact length or bounds, not both")
         return _Word(lambda ctx: f"length {_int(n)}")
     if min is not None and max is not None:
-        return _Word(lambda ctx: f"length {_int(min)} to {_int(max)}")
+        if min == max:
+            return _Word(lambda ctx: f"length {_int(min)}")
+        return _Word(lambda ctx: f"length from {_int(min)} to {_int(max)}")
     if min is not None:
-        return _Word(lambda ctx: f"length at least {_int(min)}")
+        return _Word(lambda ctx: f"length from {_int(min)}")
     if max is not None:
-        return _Word(lambda ctx: f"length at most {_int(max)}")
+        return _Word(lambda ctx: f"length up to {_int(max)}")
     raise TypeError("`length` takes an exact length, a minimum, a maximum, or both")
 
 
-def value_range(lo: Any = None, hi: Any = None) -> Any:
-    """A numeric range, inclusive: ``value_range(0, 100)``, ``value_range(hi=1.5)``."""
-    if lo is not None and hi is not None:
-        return _Word(lambda ctx: f"from {lo!r} to {hi!r}")
-    if lo is not None:
-        return _Word(lambda ctx: f"from {lo!r}")
+def value_range(
+    lo: Any = None, hi: Any = None, *, above: Any = None, below: Any = None
+) -> Any:
+    """A range of numbers, dates, or times. `lo` and `hi` are included,
+    `above` and `below` are not: ``value_range(0, 100)`` is ``from 0 to 100``,
+    ``value_range(above=0)`` is ``above 0``, and
+    ``value_range(date(2024, 1, 1), below=date(2025, 1, 1))`` is
+    ``from 2024-01-01 below 2025-01-01``. The ends are `int` or `float`, or
+    `datetime.date`, `datetime.datetime`, or `datetime.time`."""
+    if lo is not None and above is not None:
+        raise TypeError("`value_range` takes `lo` or `above`, not both")
+    if hi is not None and below is not None:
+        raise TypeError("`value_range` takes `hi` or `below`, not both")
+    low = (
+        f"from {_bound(lo)}"
+        if lo is not None
+        else (f"above {_bound(above)}" if above is not None else None)
+    )
     if hi is not None:
-        return _Word(lambda ctx: f"up to {hi!r}")
-    raise TypeError("`value_range` takes a lower bound, an upper bound, or both")
+        high = f"to {_bound(hi)}" if low else f"up to {_bound(hi)}"
+    elif below is not None:
+        high = f"below {_bound(below)}"
+    else:
+        high = None
+    if low is None and high is None:
+        raise TypeError("`value_range` takes a lower bound, an upper bound, or both")
+    text = " ".join(part for part in (low, high) if part)
+    return _Word(lambda ctx: text)
 
 
 def pattern(regex: str, flags: str = "") -> Any:
@@ -873,11 +968,24 @@ class _Count:
         self.kind, self.a, self.b = kind, a, b
 
     def _render(self) -> str:
-        if self.kind in ("required", "optional"):
-            return self.kind
-        if self.kind == "between":
-            return f"between {_int(self.a)} and {_int(self.b)}"
-        return f"{self.kind} {_int(self.a)}"
+        """The count as the language writes it: one spelling for each."""
+        kind, a, b = self.kind, self.a, self.b
+        if kind in ("required", "optional"):
+            return kind
+        if kind == "between" and isinstance(a, int) and isinstance(b, int):
+            if (a, b) == (0, 1):
+                return "optional"
+            if a == b:
+                kind, b = "exactly", None
+            elif a == 0:
+                kind, a = "at most", b
+        if kind == "at least" and a == 1 and not isinstance(a, bool):
+            return "required"
+        if kind == "at most" and a == 1 and not isinstance(a, bool):
+            return "optional"
+        if kind == "between":
+            return f"between {_int(a)} and {_int(b)}"
+        return f"{kind} {_int(a)}"
 
 
 def _as_count(c: Any) -> Optional[_Count]:
@@ -930,7 +1038,7 @@ class Field(Line):
                     "the field already has a count; give a test for a qualified count"
                 )
             return self._replace(count=_Count(word, n))
-        return self._add(lambda ctx: f"{word} {_int(n)} is {_counted_test(ctx, test)}")
+        return self._add(lambda ctx: _qualified_text(ctx, word, n, test))
 
     def exactly(self, n: Any, test: Any = None) -> Field:
         return self._qualified("exactly", n, test)
@@ -947,8 +1055,11 @@ class Field(Line):
     def different_from(self, other: Any) -> Field:
         return self._add(lambda ctx: "different from " + _value(ctx, other))
 
-    def less_than(self, other: Any) -> Field:
-        return self._add(lambda ctx: "less than " + _value(ctx, other))
+    def below(self, other: Any) -> Field:
+        return self._add(lambda ctx: "below " + _value(ctx, other))
+
+    def up_to(self, other: Any) -> Field:
+        return self._add(lambda ctx: "up to " + _value(ctx, other))
 
     def unique_language(self) -> Field:
         return self._add(lambda ctx: "unique language")
@@ -970,14 +1081,21 @@ class _Row:
         count: Optional[_Count] = None,
         doc: Optional[str] = None,
         label: Optional[str] = None,
+        comment: Optional[str] = None,
     ) -> None:
         if isinstance(item, _Row):
             count = count or item.count
             doc = doc or item.doc
+            comment = comment or item.comment
             item = item.item
         self.item, self.count, self.doc, self.label = item, count, doc, label
+        if comment is not None and "\n" in comment:
+            raise ValueError(
+                "a row's comment follows it on its line, so it is one line"
+            )
+        self.comment = comment
 
-    def _render(self, ctx: _Ctx) -> str:
+    def _render(self, ctx: _Ctx) -> List[str]:
         item, body = _row_item(self.item)
         if isinstance(item, Term):
             text = item._render(ctx)
@@ -989,11 +1107,12 @@ class _Row:
             text = f"{self.label}: {text}"
         if self.count is not None:
             text += " " + self.count._render()
-        if self.doc is not None:
-            text += " doc " + _string(self.doc)
         if body:
             text += " " + _block(ctx, body)
-        return text
+        if self.comment is not None:
+            text += "  -- " + self.comment
+        head = [] if self.doc is None else ["doc " + _string(self.doc)]
+        return head + [text]
 
 
 def _row_item(x: Any) -> Tuple[Any, List[Line]]:
@@ -1014,13 +1133,20 @@ def _row_item(x: Any) -> Tuple[Any, List[Line]]:
     )
 
 
-def row(item: Any, count: Any = None, *, doc: Optional[str] = None) -> Any:
-    """A row of a group with its own count or doc.
+def row(
+    item: Any,
+    count: Any = None,
+    *,
+    doc: Optional[str] = None,
+    comment: Optional[str] = None,
+) -> Any:
+    """A row of a group with its own count, doc, or trailing comment.
 
     ``points.has(rat=row(BRICK.RAT, "optional", doc="if present"))``. The
-    count is ``"required"``, ``"optional"``, ``n``, or ``(min, max)``.
+    count is ``"required"``, ``"optional"``, ``n``, or ``(min, max)``. The
+    comment follows the row on its line: ``rat: brick:RAT  -- comment``.
     """
-    return _Row(item, _as_count(count), doc)
+    return _Row(item, _as_count(count), doc, comment=comment)
 
 
 def _rows(rows: Sequence[Any], named: Dict[str, Any]) -> List[_Row]:
@@ -1041,7 +1167,7 @@ def _counted(
     if single_is and len(rows) == 1 and not named and not isinstance(rows[0], _Row):
         test = rows[0]
         return Field(path)._add(
-            lambda ctx: f"{count.kind} {_int(count.a)} is {_counted_test(ctx, test)}"
+            lambda ctx: _qualified_text(ctx, count.kind, count.a, test)
         )
     return Group(path, count, _rows(rows, named))
 
@@ -1058,7 +1184,8 @@ class Group(Line):
         head = self.path._path(ctx)
         if self.count is not None:
             head += " " + self.count._render()
-        return head + " {\n" + "\n".join(r._render(ctx) for r in self.rows) + "\n}"
+        rows = [text for r in self.rows for text in r._render(ctx)]
+        return head + " {\n" + "\n".join(rows) + "\n}"
 
 
 class _Is(Line):
@@ -1066,12 +1193,15 @@ class _Is(Line):
         self.test = test
 
     def _text(self, ctx: _Ctx) -> str:
-        return "is " + _counted_test(ctx, self.test)
+        if _matches(self.test):
+            # a shape on a line is composed: written alone, by name
+            return _test(ctx, self.test).removeprefix("matches ")
+        return "is " + _test(ctx, self.test)
 
 
 def is_(test: Any) -> Line:
-    """``is T``, a test of the focus node: for a value, or a class parameter
-    not annotated ``Class``. A class term alone on a line already means this."""
+    """``is T``, a test of the focus node: ``is_(one_of(...))``, ``is_(iri)``.
+    A class term alone on a line is already ``is a C``."""
     return _Is(test)
 
 
@@ -1137,11 +1267,6 @@ def any_of(*branches: Any, **labelled: Any) -> Line:
     return _frame("any of", branches, labelled)
 
 
-def all_of(*branches: Any, **labelled: Any) -> Line:
-    """Every branch holds."""
-    return _frame("all of", branches, labelled)
-
-
 def exactly_one_of(*branches: Any, **labelled: Any) -> Line:
     """Exactly one branch holds."""
     return _frame("exactly one of", branches, labelled)
@@ -1153,8 +1278,17 @@ def none_of(*branches: Any, **labelled: Any) -> Line:
 
 
 def at_least_of(n: int, *branches: Any, **labelled: Any) -> Line:
-    """At least `n` branches hold."""
+    """At least `n` branches hold, for `n` of 2 or more (one is `any_of`)."""
+    if isinstance(n, int) and n < 2:
+        raise ValueError(f"at least {n} of: use `any_of` for at least one")
     return _frame(f"at least {_int(n)} of", branches, labelled)
+
+
+def at_most_of(n: int, *branches: Any, **labelled: Any) -> Line:
+    """At most `n` branches hold, for `n` of 1 or more (none is `none_of`)."""
+    if isinstance(n, int) and n < 1:
+        raise ValueError("at most 0 of: use `none_of`")
+    return _frame(f"at most {_int(n)} of", branches, labelled)
 
 
 class _When(Line):
@@ -1522,12 +1656,26 @@ class _PathCall(_PathOps):
 class _Ref(_Logic, _Def):
     """A name a module does not define yet; it must by the time the module is written."""
 
-    def __init__(self, module: Module, name: str) -> None:
+    def __init__(self, module: Module, name: str, also: Optional[str] = None) -> None:
         self.module, self.name = module, name
+        # read as `m.x_y`, the name may turn out to be `x_y` as written
+        self._also = also
+
+    def _target(self) -> Optional[_Def]:
+        assert self.module is not None and self.name is not None
+        for n in (self._also, self.name):
+            if n is not None and n in self.module._names:
+                return self.module._names[n]
+        return None
+
+    def _where(self) -> Tuple[Module, str]:
+        d = self._target()
+        assert self.module is not None and self.name is not None
+        return self.module, d.name if d is not None and d.name else self.name
 
     def _resolve(self, *kinds: type) -> _Def:
         assert self.module is not None and self.name is not None
-        d = self.module._names.get(self.name)
+        d = self._target()
         if d is None:
             near = difflib.get_close_matches(self.name, list(self.module._names), n=1)
             hint = f"; did you mean {near[0]!r}?" if near else ""
@@ -1624,7 +1772,13 @@ class Module:
     def __getattr__(self, attr: str) -> Any:
         if attr.startswith("_"):
             raise AttributeError(attr)
-        return self[_kebab(attr)]
+        # the name as written, if the module defines it (`SAT_AVG`,
+        # `cooling_damper`); otherwise with `-` for `_`, as assignment makes
+        name = _kebab(attr)
+        for n in (attr, name):
+            if n in self._names:
+                return self._names[n]
+        return _Ref(self, name, also=attr if attr != name else None)
 
     def __setitem__(self, name: str, value: Any) -> None:
         self._define(name, value)

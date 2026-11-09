@@ -5,7 +5,7 @@
 //! targets, between the blocks of a boolean frame). Comments are tokens too,
 //! so the parser can hand them to the formatter.
 
-use shapeshift_macro::ast::Span;
+use shapeshift_macro::ast::{Span, TemporalKind};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Tok {
@@ -20,6 +20,12 @@ pub enum Tok {
     Int(u64),
     /// Any other number (signed, decimal, exponent), lexical form.
     Num(String),
+    /// `2024-01-31`, `2024-01-31T08:00:00Z`, `08:00:00`: an XSD date,
+    /// dateTime, or time, lexical form.
+    Temporal {
+        kind: TemporalKind,
+        lexical: String,
+    },
     /// `prefix:local` (either part may be empty).
     PName {
         prefix: String,
@@ -53,6 +59,7 @@ impl Tok {
             Tok::Str { value, .. } => format!("\"{value}\""),
             Tok::Int(n) => n.to_string(),
             Tok::Num(n) => n.clone(),
+            Tok::Temporal { lexical, .. } => lexical.clone(),
             Tok::PName { prefix, local } => format!("`{prefix}:{local}`"),
             Tok::Name(n) => format!("`{n}`"),
             Tok::LBrace => "`{`".into(),
@@ -96,6 +103,64 @@ fn is_name_char(c: char) -> bool {
 
 fn is_local_char(c: char) -> bool {
     c.is_alphanumeric() || c == '_' || c == '-' || c == '.' || c == '%'
+}
+
+/// The length and kind of an XSD date (`2024-01-31`), dateTime
+/// (`2024-01-31T08:00:00`), or time (`08:00:00`) at the start of `c`, each
+/// with optional fractional seconds and a timezone (`Z`, `+02:00`). Whether
+/// the fields are in range (month 13) is checked when the value is built.
+fn temporal(c: &[char]) -> Option<(usize, TemporalKind)> {
+    let digits =
+        |at: usize, n: usize| (at..at + n).all(|k| c.get(k).is_some_and(char::is_ascii_digit));
+    let is = |at: usize, ch: char| c.get(at) == Some(&ch);
+    let date = |at: usize| {
+        digits(at, 4)
+            && is(at + 4, '-')
+            && digits(at + 5, 2)
+            && is(at + 7, '-')
+            && digits(at + 8, 2)
+    };
+    // `hh:mm:ss[.s+]`, returning where it ends
+    let time = |at: usize| -> Option<usize> {
+        if !(digits(at, 2)
+            && is(at + 2, ':')
+            && digits(at + 3, 2)
+            && is(at + 5, ':')
+            && digits(at + 6, 2))
+        {
+            return None;
+        }
+        let mut end = at + 8;
+        if is(end, '.') && digits(end + 1, 1) {
+            end += 1;
+            while digits(end, 1) {
+                end += 1;
+            }
+        }
+        Some(end)
+    };
+    let (mut end, kind) = if date(0) {
+        match time(11).filter(|_| is(10, 'T')) {
+            Some(end) => (end, TemporalKind::DateTime),
+            None => (10, TemporalKind::Date),
+        }
+    } else {
+        (time(0)?, TemporalKind::Time)
+    };
+    if is(end, 'Z') {
+        end += 1;
+    } else if (is(end, '+') || is(end, '-'))
+        && digits(end + 1, 2)
+        && is(end + 3, ':')
+        && digits(end + 4, 2)
+    {
+        end += 6;
+    }
+    // `2024-01-31x` or `08:00:00:00` is not a date or time
+    match c.get(end) {
+        Some(&n) if is_name_char(n) || n == ':' || n == '.' => None,
+        _ => Some((end, kind)),
+    }
 }
 
 pub fn lex(src: &str) -> (Vec<Token>, Vec<LexError>) {
@@ -261,6 +326,17 @@ pub fn lex(src: &str) -> (Vec<Token>, Vec<LexError>) {
                     span,
                 });
             }
+            c if c.is_ascii_digit() && temporal(&chars[i..]).is_some() => {
+                let (len, kind) = temporal(&chars[i..]).unwrap();
+                let mut lexical = String::new();
+                for _ in 0..len {
+                    lexical.push(bump!());
+                }
+                out.push(Token {
+                    tok: Tok::Temporal { kind, lexical },
+                    span,
+                });
+            }
             c if c.is_ascii_digit()
                 || ((c == '-' || c == '.')
                     && chars
@@ -396,11 +472,40 @@ mod tests {
     }
 
     #[test]
+    fn dates_and_times() {
+        let t = |kind, lexical: &str| Tok::Temporal {
+            kind,
+            lexical: lexical.into(),
+        };
+        assert_eq!(
+            toks("2024-01-31 2024-01-31T08:00:00.5Z 08:00:00+02:00 2024-01-31Z"),
+            vec![
+                t(TemporalKind::Date, "2024-01-31"),
+                t(TemporalKind::DateTime, "2024-01-31T08:00:00.5Z"),
+                t(TemporalKind::Time, "08:00:00+02:00"),
+                t(TemporalKind::Date, "2024-01-31Z"),
+                Tok::Eof
+            ]
+        );
+        // not a date: numbers as before
+        assert_eq!(
+            toks("2024 -1 2024-1"),
+            vec![
+                Tok::Int(2024),
+                Tok::Num("-1".into()),
+                Tok::Int(2024),
+                Tok::Num("-1".into()),
+                Tok::Eof
+            ]
+        );
+    }
+
+    #[test]
     fn dotted_names_comments_and_numbers() {
         assert_eq!(
-            toks("include VAV.fedBy -- note\n-1.5 3"),
+            toks("only VAV.fedBy -- note\n-1.5 3"),
             vec![
-                Tok::Name("include".into()),
+                Tok::Name("only".into()),
                 Tok::Name("VAV.fedBy".into()),
                 Tok::Comment("note".into()),
                 Tok::Newline,

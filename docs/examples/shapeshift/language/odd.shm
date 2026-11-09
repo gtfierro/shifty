@@ -1,0 +1,7 @@
+-- A recursive shape Shifty refuses, for the language guide.
+base <urn:example/odd/>
+prefix ex: <http://example.org/>
+
+shape odd {
+  none of { ex:next required, each matches odd }
+}

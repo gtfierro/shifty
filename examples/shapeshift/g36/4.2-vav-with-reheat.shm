@@ -1,5 +1,6 @@
 -- ASHRAE Guideline 36-2021, 4.2: VAV terminal unit with reheat.
--- Translated from BuildingMOTIF's libraries/ashrae/guideline36/4.2-vav-with-reheat.ttl.
+-- Translated from BuildingMOTIF's
+-- libraries/ashrae/guideline36/4.2-vav-with-reheat.ttl.
 base <urn:ashrae/g36/4.2/vav-with-reheat/>
 import "./brick.shm"
 import "./4.1-vav-cooling-only.shm" as vav41
@@ -7,20 +8,18 @@ prefix brick: <https://brickschema.org/schema/Brick#>
 
 doc "4.2 VAV terminal unit with reheat"
 shape vav-with-reheat {
-  is brick:RVAV
+  is a brick:RVAV
   vav41.vav-cooling-only
   heating-signal
 }
 
 doc "A heating command on the box, or a position command on its heating coil."
 shape heating-signal {
-  any of { heating-signal1 } { heating-signal2 }
-}
-
-shape heating-signal1 { points required { htg: brick:Heating_Command } }
-
-shape heating-signal2 {
-  parts required {
-    rhc: brick:Heating_Coil { points required { cmd: brick:Position_Command } }
+  any of {
+    points required { htg: brick:Heating_Command }
+  } {
+    parts required {
+      rhc: brick:Heating_Coil { points required { cmd: brick:Position_Command } }
+    }
   }
 }

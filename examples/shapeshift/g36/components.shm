@@ -1,29 +1,13 @@
--- ASHRAE Guideline 36-2021: components shared by the system specifications.
--- Translated from BuildingMOTIF's libraries/ashrae/guideline36/components.ttl;
--- the templates at the end factor out what 4.3, 4.6, and 4.8 each repeat.
+-- ASHRAE Guideline 36-2021: the equipment the system specifications share,
+-- from BuildingMOTIF's libraries/ashrae/guideline36/components.ttl, as
+-- templates over the equipment's class.
 base <urn:ashrae/g36/components/>
 import "./brick.shm"
 prefix brick: <https://brickschema.org/schema/Brick#>
 
-doc "Cooling Damper"
-shape cooling_damper { positioned-damper(brick:Damper) }
-
-doc "Heating Damper"
-shape heating_damper { positioned-damper(brick:Damper) }
-
-doc "Cooling Signal"
-shape clg-signal { points { clg: brick:Cooling_Command } }
-
-doc "Heating Signal"
-shape htg-signal { points { htg: brick:Heating_Command } }
-
-doc "Variable Speed Fan VFD"
-shape variable-speed-fan-vfd { is brick:Fan }
-
--- Templates ------------------------------------------------------------------
 doc "A fan of class `cls` on a VFD: speed command, start/stop, and status."
 shape vfd-fan(cls) {
-  is cls
+  is a cls
   points {
     speed:      brick:Frequency_Command
     start_stop: brick:Start_Stop_Command
@@ -33,18 +17,18 @@ shape vfd-fan(cls) {
 
 doc "A damper of class `cls` with a position command."
 shape positioned-damper(cls) {
-  is cls
+  is a cls
   points { dmppos: brick:Damper_Position_Command }
 }
 
 doc "A coil of class `cls` with a valve position command."
 shape valved-coil(cls) {
-  is cls
+  is a cls
   points { cmd: brick:Valve_Position_Command }
 }
 
 doc "A point of class `cls` that states its unit."
 shape with-unit(cls) {
-  is cls
+  is a cls
   brick:hasUnit exactly 1
 }

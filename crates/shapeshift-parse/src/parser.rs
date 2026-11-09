@@ -15,12 +15,13 @@ use shifty_algebra::SourceLocation;
 /// Words with a fixed meaning; they cannot be used as names.
 pub const KEYWORDS: &[&str] = &[
     "a",
-    "all",
+    "above",
     "and",
     "any",
     "as",
     "at",
     "base",
+    "below",
     "between",
     "blank",
     "datatype",
@@ -34,13 +35,11 @@ pub const KEYWORDS: &[&str] = &[
     "for",
     "from",
     "import",
-    "include",
     "iri",
     "is",
     "language",
     "least",
     "length",
-    "less",
     "literal",
     "matches",
     "matching",
@@ -63,7 +62,6 @@ pub const KEYWORDS: &[&str] = &[
     "severity",
     "shape",
     "sparql",
-    "than",
     "then",
     "these",
     "to",
@@ -179,6 +177,14 @@ impl Parser {
         self.diags
             .push(Diagnostic::error(msg, loc).with_hint(hint.into()));
         Err(Fail)
+    }
+
+    /// Report a spelling the language no longer has, and the one it has
+    /// instead. Parsing goes on: the line means what it meant.
+    fn removed(&mut self, span: Span, msg: impl Into<String>, hint: impl Into<String>) {
+        let loc = self.loc(span);
+        self.diags
+            .push(Diagnostic::error(msg, loc).with_hint(hint.into()));
     }
 
     fn expect_kw(&mut self, kw: &str, context: &str) -> R<()> {
@@ -651,7 +657,7 @@ impl Parser {
                         other => {
                             let d = other.describe();
                             let _ = self.fail::<()>(format!(
-                                "unexpected {d}; each line holds one field, include, or block"
+                                "unexpected {d}; each line holds one field, shape, or block"
                             ));
                             self.recover_line();
                         }
@@ -674,20 +680,35 @@ impl Parser {
         let span = self.span();
         let mut annotations = annotations;
         let kind = match self.peek().clone() {
-            Tok::Name(k) if k == "include" => {
+            Tok::Name(k)
+                if k == "include"
+                    && matches!(
+                        self.peek_at(1),
+                        Tok::Name(_) | Tok::PName { .. } | Tok::Iri(_)
+                    ) =>
+            {
                 let at = self.span();
                 self.bump();
                 let c = self.call()?;
                 let text = shapeshift_macro::display::call(&c);
-                let loc = self.loc(at);
-                self.diags.push(
-                    Diagnostic::warning(
-                        format!("`include` is deprecated: write `{text}` alone on the line"),
-                        loc,
-                    )
-                    .with_hint("`shifty shape fmt` rewrites it"),
+                self.removed(
+                    at,
+                    "`include` is not part of the language",
+                    format!("a shape alone on a line composes it: write `{text}`"),
                 );
                 LineKind::Include(c)
+            }
+            Tok::Name(k) if k == "all" && is_kw(self.peek_at(1), "of") => {
+                let at = self.span();
+                self.bump();
+                self.bump();
+                let _ = self.boolean(Frame::AnyOf)?;
+                self.removed(
+                    at,
+                    "`all of` is not part of the language",
+                    "the lines of a block all hold already: write them as lines, or as one block inside another frame",
+                );
+                return Err(Fail);
             }
             Tok::Name(k) if k == "only" => {
                 self.bump();
@@ -695,12 +716,11 @@ impl Parser {
                 self.expect_kw("properties", "in `only these properties`")?;
                 LineKind::Closed
             }
-            Tok::Name(k) if k == "any" || k == "all" || k == "none" => {
+            Tok::Name(k) if k == "any" || k == "none" => {
                 self.bump();
                 self.expect_kw("of", &format!("after `{k}`"))?;
                 let frame = match k.as_str() {
                     "any" => Frame::AnyOf,
-                    "all" => Frame::AllOf,
                     _ => Frame::NoneOf,
                 };
                 LineKind::Boolean(self.boolean(frame)?)
@@ -715,11 +735,39 @@ impl Parser {
                 LineKind::Boolean(self.boolean(Frame::ExactlyOneOf)?)
             }
             Tok::Name(k) if k == "at" => {
+                let at = self.span();
                 self.bump();
-                self.expect_kw("least", "in `at least n of`")?;
+                let least = if self.eat_kw("least") {
+                    true
+                } else if self.eat_kw("most") {
+                    false
+                } else {
+                    let found = self.peek().describe();
+                    return self.fail(format!(
+                        "expected `least` or `most` in `at least n of` or `at most n of`, found {found}"
+                    ));
+                };
+                let word = if least { "least" } else { "most" };
                 let n = self.int_lit()?;
-                self.expect_kw("of", &format!("in `at least {n} of`"))?;
-                LineKind::Boolean(self.boolean(Frame::AtLeast(n))?)
+                self.expect_kw("of", &format!("in `at {word} {n} of`"))?;
+                let b = self.boolean(if least {
+                    Frame::AtLeast(n)
+                } else {
+                    Frame::AtMost(n)
+                })?;
+                match (least, n) {
+                    (true, 0) => {
+                        self.removed(at, "`at least 0 of` always holds", "remove the line")
+                    }
+                    (true, 1) => {
+                        self.removed(at, "`at least 1 of` is written `any of`", "write `any of`")
+                    }
+                    (false, 0) => {
+                        self.removed(at, "`at most 0 of` is written `none of`", "write `none of`")
+                    }
+                    _ => {}
+                }
+                LineKind::Boolean(b)
             }
             Tok::Name(k) if k == "when" => {
                 self.bump();
@@ -744,7 +792,26 @@ impl Parser {
             }
             Tok::Name(k) if k == "is" => {
                 self.bump();
-                LineKind::Is(self.test_or_value()?)
+                let at = self.span();
+                let explicit = self.at_kw("matches");
+                let t = self.test()?;
+                match &t {
+                    Test::Matches(c) if explicit => {
+                        let text = shapeshift_macro::display::call(c);
+                        self.removed(
+                            at,
+                            "`is matches` is not part of the language",
+                            format!("a shape alone on a line composes it: write `{text}`"),
+                        );
+                    }
+                    Test::Shape(_) => self.removed(
+                        at,
+                        "`is { ... }` is not part of the language",
+                        "write the block's lines in place",
+                    ),
+                    _ => {}
+                }
+                LineKind::Is(t)
             }
             Tok::PName { prefix, local }
                 if local.is_empty()
@@ -757,7 +824,16 @@ impl Parser {
                 // keyword (`value:`, `length:`): the colon sets it apart.
                 self.bump();
                 if matches!(self.peek(), Tok::LBrace) {
-                    LineKind::Field(self.field_block(prefix, &mut annotations)?)
+                    let f = self.field_block(prefix, &mut annotations)?;
+                    let text = shapeshift_macro::display::field_text(&f);
+                    self.removed(
+                        span,
+                        "a field is written on one line",
+                        format!(
+                            "write `{text}`, with its `doc`, `message`, and `severity` on lines before it"
+                        ),
+                    );
+                    LineKind::Field(f)
                 } else {
                     self.path_line(Some(prefix))?
                 }
@@ -973,9 +1049,16 @@ impl Parser {
                 count = Some(c);
                 continue;
             }
-            if matches!(self.peek(), Tok::Name(k) if matches!(k.as_str(), "doc" | "severity" | "message"))
+            if let Tok::Name(k) = self.peek().clone()
+                && matches!(k.as_str(), "doc" | "severity" | "message")
             {
+                let at = self.span();
                 self.annotation(&mut annotations)?;
+                self.removed(
+                    at,
+                    format!("`{k}` goes on the line before the row it describes"),
+                    format!("move `{k} ...` to its own line above the row"),
+                );
                 continue;
             }
             if body.is_none() && matches!(self.peek(), Tok::LBrace) {
@@ -985,7 +1068,7 @@ impl Parser {
             let found = self.peek().describe();
             return self.fail_hint(
                 format!("unexpected {found} in a group row"),
-                "after the class or shape a row may have a count (`optional`, `at least 2`), `doc \"...\"`, and a `{ ... }` block",
+                "after the class or shape a row may have a count (`optional`, `at least 2`) and a `{ ... }` block",
             );
         }
         let trailing_comment = self.trailing_comment();
@@ -1028,6 +1111,18 @@ impl Parser {
             self.diags.push(Diagnostic::warning(
                 format!(
                     "`at least {n} of` has only {} blocks, so it can never hold",
+                    blocks.len()
+                ),
+                loc,
+            ));
+        }
+        if let Frame::AtMost(n) = frame
+            && n as usize >= blocks.len()
+        {
+            let loc = self.loc(blocks[0].span);
+            self.diags.push(Diagnostic::warning(
+                format!(
+                    "`at most {n} of` has only {} blocks, so it always holds",
                     blocks.len()
                 ),
                 loc,
@@ -1102,7 +1197,6 @@ impl Parser {
             path,
             count,
             qualifiers,
-            block: false,
         })
     }
 
@@ -1166,7 +1260,6 @@ impl Parser {
             path,
             count,
             qualifiers,
-            block: true,
         })
     }
 
@@ -1200,9 +1293,41 @@ impl Parser {
         }
     }
 
-    /// A count, if the next tokens are one (and not a qualified count).
+    /// A count, if the next tokens are one (and not a qualified count). A
+    /// count with a word of its own (`at least 1` for `required`) is
+    /// reported.
     fn try_count(&mut self) -> R<Option<Count>> {
+        let at = self.span();
+        let c = self.try_count_raw()?;
+        let lit = |i: &IntArg| match i {
+            IntArg::Lit(n) => Some(*n),
+            IntArg::Param(_) => None,
+        };
+        let better = match &c {
+            Some(Count::AtLeast(n)) if lit(n) == Some(1) => Some("required".to_string()),
+            Some(Count::AtMost(n)) if lit(n) == Some(1) => Some("optional".to_string()),
+            Some(Count::Between(a, b)) => match (lit(a), lit(b)) {
+                (Some(0), Some(1)) => Some("optional".to_string()),
+                (Some(a), Some(b)) if a == b => Some(format!("exactly {a}")),
+                (Some(0), Some(b)) => Some(format!("at most {b}")),
+                _ => None,
+            },
+            _ => None,
+        };
+        if let (Some(c), Some(word)) = (&c, better) {
+            let text = shapeshift_macro::display::count(c);
+            self.removed(
+                at,
+                format!("`{text}` is written `{word}`"),
+                format!("write `{word}`"),
+            );
+        }
+        Ok(c)
+    }
+
+    fn try_count_raw(&mut self) -> R<Option<Count>> {
         let t0 = self.peek().clone();
+        let qualified = |t: &Tok| is_kw(t, "is") || is_kw(t, "matches");
         let int_like = |t: &Tok| {
             matches!(t, Tok::Int(_)) || matches!(t, Tok::Name(n) if !KEYWORDS.contains(&n.as_str()))
         };
@@ -1214,14 +1339,14 @@ impl Parser {
             self.bump();
             return Ok(Some(Count::Optional));
         }
-        if is_kw(&t0, "exactly") && int_like(self.peek_at(1)) && !is_kw(self.peek_at(2), "is") {
+        if is_kw(&t0, "exactly") && int_like(self.peek_at(1)) && !qualified(self.peek_at(2)) {
             self.bump();
             return Ok(Some(Count::Exactly(self.int_arg()?)));
         }
         if is_kw(&t0, "at")
             && (is_kw(self.peek_at(1), "least") || is_kw(self.peek_at(1), "most"))
             && int_like(self.peek_at(2))
-            && !is_kw(self.peek_at(3), "is")
+            && !qualified(self.peek_at(3))
         {
             self.bump();
             let least = is_kw(self.peek(), "least");
@@ -1245,6 +1370,7 @@ impl Parser {
 
     fn qualifier(&mut self) -> R<Qualifier> {
         let t0 = self.peek().clone();
+        let at = self.span();
         if is_kw(&t0, "each") {
             self.bump();
             return Ok(Qualifier::Each(self.test()?));
@@ -1258,9 +1384,15 @@ impl Parser {
                 if self.eat_kw("least") {
                     QualifiedBound::AtLeast
                 } else if self.eat_kw("most") {
-                    // `at most q` (a property): sh:lessThanOrEquals
                     if matches!(self.peek(), Tok::PName { .. } | Tok::Iri(_)) {
-                        return Ok(Qualifier::AtMostProperty(self.node()?));
+                        let n = self.node()?;
+                        let q = display_node(&n);
+                        self.removed(
+                            at,
+                            format!("`at most {q}` is written `up to {q}`"),
+                            format!("write `up to {q}`"),
+                        );
+                        return Ok(Qualifier::UpTo(n));
                     }
                     QualifiedBound::AtMost
                 } else {
@@ -1271,23 +1403,45 @@ impl Parser {
                 }
             };
             let n = self.int_arg()?;
-            if !self.eat_kw("is") {
+            let test_at = self.span();
+            let test = if self.eat_kw("matches") {
+                Test::Matches(self.call()?)
+            } else if self.eat_kw("is") {
+                let explicit = self.at_kw("matches");
+                let t = self.test()?;
+                if let Test::Matches(c) = &t
+                    && explicit
+                {
+                    let b = match bound {
+                        QualifiedBound::AtLeast => "at least",
+                        QualifiedBound::AtMost => "at most",
+                        QualifiedBound::Exactly => "exactly",
+                    };
+                    let text = format!(
+                        "{b} {} matches {}",
+                        shapeshift_macro::display::int_arg(&n),
+                        shapeshift_macro::display::call(c)
+                    );
+                    self.removed(
+                        test_at,
+                        "`is matches` is not part of the language",
+                        format!("write `{text}`"),
+                    );
+                }
+                t
+            } else {
                 let found = self.peek().describe();
                 return self.fail_hint(
-                    format!("expected `is` in a qualified count, found {found}"),
-                    "a qualified count reads `at least 1 is a brick:Sensor`; a plain count goes right after the property",
+                    format!("expected `is` or `matches` in a qualified count, found {found}"),
+                    "a qualified count reads `at least 1 is a brick:Sensor` or `at least 1 matches sensor`; a plain count goes right after the property",
                 );
-            }
-            let test = self.test_or_value()?;
-            if let Test::Item(item) = &test
+            };
+            if matches!(test, Test::Class(_) | Test::Matches(_))
                 && matches!(self.peek(), Tok::LBrace)
             {
-                let t = match item {
-                    Item::Class(n) => display_node(n),
-                    Item::Shape(c) => shapeshift_macro::display::call(c),
-                };
+                let t = shapeshift_macro::display::test(&test);
                 return self.fail_hint(
-                    format!("a `{{ ... }}` after `is {t}` is a test of every value, not of these"),
+                    format!("a `{{ ... }}` after `{t}` is a test of every value, not of these"),
                     format!("for values that are `{t}` and satisfy the lines, write `is {{ is {t}; ... }}`"),
                 );
             }
@@ -1303,17 +1457,97 @@ impl Parser {
             self.expect_kw("from", "in `different from`")?;
             return Ok(Qualifier::DifferentFrom(self.node()?));
         }
-        if is_kw(&t0, "less") {
+        if matches!(&t0, Tok::Name(n) if n == "less") && is_kw(self.peek_at(1), "than") {
             self.bump();
-            self.expect_kw("than", "in `less than`")?;
-            return Ok(Qualifier::LessThan(self.node()?));
+            self.bump();
+            let n = self.node()?;
+            let q = display_node(&n);
+            self.removed(
+                at,
+                format!("`less than {q}` is written `below {q}`"),
+                format!("write `below {q}`"),
+            );
+            return Ok(Qualifier::Below(n));
+        }
+        // `below q`, `up to q`: compare with another property's values
+        let compare = if is_kw(&t0, "below") {
+            Some(("below", 1))
+        } else if is_kw(&t0, "up") && is_kw(self.peek_at(1), "to") {
+            Some(("up to", 2))
+        } else if is_kw(&t0, "above") {
+            Some(("above", 1))
+        } else if is_kw(&t0, "from") {
+            Some(("from", 1))
+        } else {
+            None
+        };
+        let operand = |t: &Tok| match t {
+            Tok::PName { .. } | Tok::Iri(_) => true,
+            Tok::Name(n) => !KEYWORDS.contains(&n.as_str()),
+            _ => false,
+        };
+        if let Some((word, len)) = compare
+            && operand(self.peek_at(len))
+        {
+            for _ in 0..len {
+                self.bump();
+            }
+            let n = self.node()?;
+            return match word {
+                "below" => Ok(Qualifier::Below(n)),
+                "up to" => Ok(Qualifier::UpTo(n)),
+                _ => {
+                    let q = display_node(&n);
+                    let flip = if word == "above" { "below" } else { "up to" };
+                    self.fail_hint(
+                        format!("a property is compared with `below` or `up to`, not `{word}`"),
+                        format!(
+                            "SHACL compares the other way round: write the comparison on `{q}`, as `{flip}` this property"
+                        ),
+                    )
+                }
+            };
         }
         if is_kw(&t0, "unique") {
             self.bump();
             self.expect_kw("language", "in `unique language`")?;
             return Ok(Qualifier::UniqueLanguage);
         }
+        if is_kw(&t0, "is") {
+            // `ex:p is "x"`: each value is the literal
+            self.bump();
+            if self.at_literal() {
+                let v = self.value()?;
+                let text = shapeshift_macro::display::value(&v);
+                self.removed(
+                    at,
+                    "a property's values are tested with `each`",
+                    format!("write `each one of {text}`"),
+                );
+                return Ok(Qualifier::Each(Test::OneOf(vec![v])));
+            }
+            self.removed(
+                at,
+                "a property's values are tested with `each`",
+                "write `each` and the test: `each a brick:AHU`, `each one of ex:on`",
+            );
+            return Ok(Qualifier::Each(self.test()?));
+        }
         if self.at_test_start() {
+            let word = match &t0 {
+                Tok::LBrace => "{ ... }".to_string(),
+                Tok::Name(n) if n == "up" => "up to ...".to_string(),
+                Tok::Name(n) => format!("{n} ..."),
+                _ => "...".to_string(),
+            };
+            self.removed(
+                at,
+                format!(
+                    "a test of the values goes after `each`, found {}",
+                    t0.describe()
+                ),
+                format!("write `each {word}`"),
+            );
             return Ok(Qualifier::Each(self.test()?));
         }
         let found = t0.describe();
@@ -1326,10 +1560,15 @@ impl Parser {
                 Tok::Name(n) => n.clone(),
                 _ => unreachable!(),
             };
+            let each = if matches!(t0, Tok::Name(_)) {
+                format!("each matches {term}")
+            } else {
+                format!("each a {term}")
+            };
             return self.fail_hint(
                 format!("unexpected {found} in a field line"),
                 format!(
-                    "for values that are `{term}`, write `each {term}`; to follow another property, write a path like `ex:p/{term}`"
+                    "for values that are `{term}`, write `{each}`; to follow another property, write a path like `ex:p/{term}`"
                 ),
             );
         }
@@ -1339,6 +1578,7 @@ impl Parser {
         )
     }
 
+    /// Whether the next token starts a test (a word only tests begin with).
     fn at_test_start(&self) -> bool {
         match self.peek() {
             Tok::LBrace => true,
@@ -1346,7 +1586,6 @@ impl Parser {
                 matches!(
                     k.as_str(),
                     "a" | "matches"
-                        | "is"
                         | "one"
                         | "datatype"
                         | "iri"
@@ -1354,7 +1593,9 @@ impl Parser {
                         | "blank"
                         | "length"
                         | "from"
+                        | "above"
                         | "up"
+                        | "below"
                         | "pattern"
                         | "language"
                 ) || DATATYPE_KEYWORDS.iter().any(|(w, _)| w == k)
@@ -1364,62 +1605,105 @@ impl Parser {
     }
 
     fn at_literal(&self) -> bool {
-        matches!(self.peek(), Tok::Str { .. } | Tok::Int(_) | Tok::Num(_))
-            || matches!(self.peek(), Tok::Name(n) if n == "true" || n == "false")
+        matches!(
+            self.peek(),
+            Tok::Str { .. } | Tok::Int(_) | Tok::Num(_) | Tok::Temporal { .. }
+        ) || matches!(self.peek(), Tok::Name(n) if n == "true" || n == "false")
     }
 
-    /// After `is`: a test, a bare class or shape, or a literal value.
-    fn test_or_value(&mut self) -> R<Test> {
-        if self.at_literal() {
-            Ok(Test::Is(self.value()?))
-        } else {
-            self.test()
-        }
-    }
-
+    /// A test: what `each`, `is`, and a qualified count apply to a value.
+    /// Every test starts with the word that says what kind it is.
     fn test(&mut self) -> R<Test> {
+        let at = self.span();
         if matches!(self.peek(), Tok::LBrace) {
             return Ok(Test::Shape(self.block()?));
         }
-        // a bare class or shape
+        if self.at_literal() {
+            let v = self.value()?;
+            let text = shapeshift_macro::display::value(&v);
+            self.removed(
+                at,
+                format!("`{text}` alone is not a test"),
+                format!("for this value, write `one of {text}`"),
+            );
+            return Ok(Test::OneOf(vec![v]));
+        }
         match self.peek().clone() {
             Tok::PName { .. } | Tok::Iri(_) => {
-                return Ok(Test::Item(Item::Class(self.node()?)));
+                let n = self.node()?;
+                let text = display_node(&n);
+                self.removed(
+                    at,
+                    format!("`{text}` alone is not a test"),
+                    format!(
+                        "write `a {text}` for instances of the class, or `one of {text}` for the node itself"
+                    ),
+                );
+                return Ok(Test::Class(vec![n]));
             }
             Tok::Name(n)
                 if !KEYWORDS.contains(&n.as_str())
                     && !DATATYPE_KEYWORDS.iter().any(|(w, _)| *w == n) =>
             {
-                return Ok(Test::Item(Item::Shape(self.call()?)));
+                let c = self.call()?;
+                let text = shapeshift_macro::display::call(&c);
+                self.removed(
+                    at,
+                    format!("`{text}` alone is not a test"),
+                    format!(
+                        "write `matches {text}` for a shape, or `a {text}` for a class parameter"
+                    ),
+                );
+                return Ok(Test::Matches(c));
             }
             _ => {}
         }
         let t0 = self.peek().clone();
         let Tok::Name(k) = &t0 else {
             let found = t0.describe();
-            return self.fail_hint(
-                format!("expected a test, found {found}"),
-                "tests are a class (`brick:AHU`), a shape (`Sensor`), `one of ...`, a datatype like `string`, `iri`, `length`, `from ... to ...`, `pattern`, or `language`",
-            );
+            return self.fail_hint(format!("expected a test, found {found}"), TESTS_HINT);
         };
         let k = k.clone();
+        if !self.at_test_start() && k != "is" {
+            let hint = if matches!(
+                k.as_str(),
+                "at" | "exactly" | "between" | "required" | "optional"
+            ) {
+                "a count goes right after the property (`ex:p at least 2`); for a range of values, write `from 5`, `above 0`, `up to 10`, or `below 1`"
+            } else {
+                TESTS_HINT
+            };
+            return self.fail_hint(format!("expected a test, found `{k}`"), hint);
+        }
         self.bump();
         Ok(match k.as_str() {
-            "a" => Test::Class(self.node()?),
+            "a" => {
+                let mut classes = vec![self.node()?];
+                while self.eat_kw("or") {
+                    classes.push(self.node()?);
+                }
+                Test::Class(classes)
+            }
             "matches" => Test::Matches(self.call()?),
             "is" => {
-                if self.eat_kw("a") {
-                    Test::Class(self.node()?)
-                } else {
-                    self.test_or_value()?
-                }
+                self.removed(
+                    at,
+                    "`is` here is not part of the language",
+                    "write the test directly: `each a brick:AHU`, `each matches sensor`, `each one of ex:on ex:off`",
+                );
+                return self.test();
             }
             "one" => {
                 self.expect_kw("of", "in `one of`")?;
                 let mut vs = vec![self.value()?];
                 while matches!(
                     self.peek(),
-                    Tok::Iri(_) | Tok::PName { .. } | Tok::Str { .. } | Tok::Int(_) | Tok::Num(_)
+                    Tok::Iri(_)
+                        | Tok::PName { .. }
+                        | Tok::Str { .. }
+                        | Tok::Int(_)
+                        | Tok::Num(_)
+                        | Tok::Temporal { .. }
                 ) || matches!(self.peek(), Tok::Name(n) if n == "true" || n == "false" || !KEYWORDS.contains(&n.as_str()))
                 {
                     vs.push(self.value()?);
@@ -1430,52 +1714,45 @@ impl Parser {
             "iri" => Test::Kind(NodeKind::Iri),
             "literal" => Test::Kind(NodeKind::Literal),
             "blank" => Test::Kind(NodeKind::Blank),
-            "length" => {
-                if self.eat_kw("at") {
-                    if self.eat_kw("least") {
-                        Test::Length {
-                            min: Some(self.int_lit()?),
-                            max: None,
-                        }
-                    } else {
-                        self.expect_kw("most", "in `length at most n`")?;
-                        Test::Length {
-                            min: None,
-                            max: Some(self.int_lit()?),
-                        }
-                    }
-                } else {
-                    let a = self.int_lit()?;
-                    if self.eat_kw("to") {
-                        Test::Length {
-                            min: Some(a),
-                            max: Some(self.int_lit()?),
-                        }
-                    } else {
-                        Test::Length {
-                            min: Some(a),
-                            max: Some(a),
-                        }
-                    }
-                }
-            }
-            "from" => {
-                let from = self.number()?;
-                let to = if self.eat_kw("to") {
-                    Some(self.number()?)
+            "length" => self.length(at)?,
+            "from" | "above" => {
+                let lo = RangeEnd {
+                    value: self.bound()?,
+                    inclusive: k == "from",
+                };
+                let hi = if self.eat_kw("to") {
+                    Some(RangeEnd {
+                        value: self.bound()?,
+                        inclusive: true,
+                    })
+                } else if self.eat_kw("below") {
+                    Some(RangeEnd {
+                        value: self.bound()?,
+                        inclusive: false,
+                    })
+                } else if self.at_kw("up") {
+                    return self.fail_hint(
+                        format!("`{k} ... up to` is written `{k} ... to`"),
+                        format!(
+                            "write `{k} {} to ...`",
+                            shapeshift_macro::display::value(&lo.value)
+                        ),
+                    );
                 } else {
                     None
                 };
-                Test::Range {
-                    from: Some(from),
-                    to,
-                }
+                Test::Range { lo: Some(lo), hi }
             }
-            "up" => {
-                self.expect_kw("to", "in `up to n`")?;
+            "up" | "below" => {
+                if k == "up" {
+                    self.expect_kw("to", "in `up to n`")?;
+                }
                 Test::Range {
-                    from: None,
-                    to: Some(self.number()?),
+                    lo: None,
+                    hi: Some(RangeEnd {
+                        value: self.bound()?,
+                        inclusive: k == "up",
+                    }),
                 }
             }
             "pattern" => {
@@ -1498,23 +1775,85 @@ impl Parser {
             w if DATATYPE_KEYWORDS.iter().any(|(d, _)| *d == w) => {
                 Test::Datatype(DatatypeRef::Builtin(w.to_string()))
             }
-            _ => unreachable!("guarded by at_test_start or the caller"),
+            _ => unreachable!("checked by at_test_start"),
         })
     }
 
-    fn number(&mut self) -> R<Number> {
+    /// After `length`: `n`, `from a`, `up to b`, or `from a to b`.
+    fn length(&mut self, at: Span) -> R<Test> {
+        if self.eat_kw("from") {
+            let min = Some(self.int_lit()?);
+            let max = if self.eat_kw("to") {
+                Some(self.int_lit()?)
+            } else {
+                None
+            };
+            return Ok(Test::Length { min, max });
+        }
+        if self.eat_kw("up") {
+            self.expect_kw("to", "in `length up to n`")?;
+            return Ok(Test::Length {
+                min: None,
+                max: Some(self.int_lit()?),
+            });
+        }
+        if self.eat_kw("at") {
+            let least = self.eat_kw("least");
+            if !least {
+                self.expect_kw("most", "in `length up to n`")?;
+            }
+            let n = self.int_lit()?;
+            let word = if least { "from" } else { "up to" };
+            self.removed(
+                at,
+                format!(
+                    "`length at {}` is written `length {word}`",
+                    if least { "least" } else { "most" }
+                ),
+                format!("write `length {word} {n}`"),
+            );
+            return Ok(if least {
+                Test::Length {
+                    min: Some(n),
+                    max: None,
+                }
+            } else {
+                Test::Length {
+                    min: None,
+                    max: Some(n),
+                }
+            });
+        }
+        let a = self.int_lit()?;
+        if self.eat_kw("to") {
+            let b = self.int_lit()?;
+            self.removed(
+                at,
+                format!("`length {a} to {b}` is written `length from {a} to {b}`"),
+                format!("write `length from {a} to {b}`"),
+            );
+            return Ok(Test::Length {
+                min: Some(a),
+                max: Some(b),
+            });
+        }
+        Ok(Test::Length {
+            min: Some(a),
+            max: Some(a),
+        })
+    }
+
+    /// A range's end: a number, a date, a dateTime, or a time.
+    fn bound(&mut self) -> R<Value> {
         match self.peek().clone() {
-            Tok::Int(n) => {
-                self.bump();
-                Ok(Number {
-                    lexical: n.to_string(),
-                })
-            }
-            Tok::Num(s) => {
-                self.bump();
-                Ok(Number { lexical: s })
-            }
-            other => self.fail(format!("expected a number, found {}", other.describe())),
+            Tok::Int(_) | Tok::Num(_) | Tok::Temporal { .. } => self.value(),
+            other => self.fail_hint(
+                format!(
+                    "expected a number, a date, or a time, found {}",
+                    other.describe()
+                ),
+                "a range's ends are numbers (`from 0 to 1.5`), dates (`from 2024-01-01`), dateTimes (`below 2024-01-01T00:00:00Z`), or times (`from 08:00:00 to 18:00:00`)",
+            ),
         }
     }
 
@@ -1556,6 +1895,10 @@ impl Parser {
             Tok::Num(s) => {
                 self.bump();
                 Ok(Value::Number(Number { lexical: s }))
+            }
+            Tok::Temporal { kind, lexical } => {
+                self.bump();
+                Ok(Value::Temporal(Temporal { kind, lexical }))
             }
             Tok::Name(n) if n == "true" || n == "false" => {
                 self.bump();
@@ -1643,7 +1986,7 @@ impl Parser {
                 self.bump();
                 Ok(Arg::Int(n))
             }
-            Tok::Str { .. } | Tok::Num(_) => Ok(Arg::Literal(self.value()?)),
+            Tok::Str { .. } | Tok::Num(_) | Tok::Temporal { .. } => Ok(Arg::Literal(self.value()?)),
             Tok::Name(n) if n == "true" || n == "false" => Ok(Arg::Literal(self.value()?)),
             Tok::LBrace => Ok(Arg::Shape(self.block()?)),
             _ => {
@@ -1729,3 +2072,5 @@ impl Parser {
 fn display_node(n: &NodeRef) -> String {
     shapeshift_macro::display::node(n)
 }
+
+const TESTS_HINT: &str = "a test is `a <class>`, `matches <shape>`, `one of ...`, a datatype like `string`, `iri`, `length ...`, a range like `from 0 to 100`, `pattern`, `language`, or a `{ ... }` block";

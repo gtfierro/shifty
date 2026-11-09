@@ -13,6 +13,7 @@ readme.workspace = true
 shifty-algebra.workspace = true
 shifty-opt.workspace = true
 oxrdf.workspace = true
+oxsdatatypes.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 spargebra.workspace = true

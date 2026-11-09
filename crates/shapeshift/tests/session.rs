@@ -27,7 +27,7 @@ fn a_definition_that_does_not_build_leaves_the_session_unchanged() {
     let bad = s.apply("shape Broken { ex:name at least }");
     assert!(!bad.accepted);
     // builds syntactically but references nothing
-    let bad = s.apply("shape Broken { include Missing }");
+    let bad = s.apply("shape Broken { Missing }");
     assert!(!bad.accepted);
     assert!(
         bad.diagnostics
@@ -62,7 +62,7 @@ fn removing_a_shape_that_others_use_is_refused() {
     let mut s = Session::new("t");
     s.apply(PREFIXES);
     assert!(s.apply("shape Base { ex:name required }").accepted);
-    assert!(s.apply("shape User { include Base }").accepted);
+    assert!(s.apply("shape User { Base }").accepted);
     assert!(!s.remove("Base").accepted);
     assert!(s.remove("User").accepted);
     assert!(s.remove("Base").accepted);

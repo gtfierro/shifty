@@ -10,69 +10,80 @@ base <urn:ashrae/g36/afdd/>
 import "./brick.shm"
 prefix brick: <https://brickschema.org/schema/Brick#>
 
--- Temperatures --------------------------------------------------------------
+-- Temperatures ----------------------------------------------------------------
 doc "rolling average of supply air temperature"
-shape SAT_AVG { is brick:Supply_Air_Temperature_Sensor }
+shape SAT_AVG { is a brick:Supply_Air_Temperature_Sensor }
 
 doc "rolling average of mixed air temperature"
-shape MAT_AVG { is brick:Mixed_Air_Temperature_Sensor }
+shape MAT_AVG { is a brick:Mixed_Air_Temperature_Sensor }
 
 doc "rolling average of return air temperature"
-shape RAT_AVG { is brick:Return_Air_Temperature_Sensor }
+shape RAT_AVG { is a brick:Return_Air_Temperature_Sensor }
 
 doc "rolling average of outdoor air temperature"
-shape OAT_AVG { is brick:Outside_Air_Temperature_Sensor }
+shape OAT_AVG { is a brick:Outside_Air_Temperature_Sensor }
 
 doc "mixed air temperature"
-shape MAT { is brick:Mixed_Air_Temperature_Sensor }
+shape MAT { is a brick:Mixed_Air_Temperature_Sensor }
 
 doc "return air temperature"
-shape RAT { is brick:Return_Air_Temperature_Sensor }
+shape RAT { is a brick:Return_Air_Temperature_Sensor }
 
 doc "outdoor air temperature"
-shape OAT { is brick:Outside_Air_Temperature_Sensor }
+shape OAT { is a brick:Outside_Air_Temperature_Sensor }
 
 doc "rolling average of cooling-coil entering temperature (Depending on the AHU configuration, this could be the MAT or a separate sensor for this specific purpose.)"
-shape CCET_AVG { is brick:Mixed_Air_Temperature_Sensor }
+shape CCET_AVG { is a brick:Mixed_Air_Temperature_Sensor }
 
 doc "rolling average of cooling-coil leaving temperature (Depending on the AHU configuration, this could be the SAT or a separate sensor for this specific purpose.)"
-shape CCLT_AVG { is brick:Supply_Air_Temperature_Sensor }
+shape CCLT_AVG { is a brick:Supply_Air_Temperature_Sensor }
 
 doc "rolling average of heating-coil entering temperature (Depending on the AHU configuration, this could be the MAT or a separate sensor for this specific purpose.)"
-shape HCET_AVG { is brick:Mixed_Air_Temperature_Sensor }
+shape HCET_AVG { is a brick:Mixed_Air_Temperature_Sensor }
 
 doc "rolling average of heating-coil leaving temperature (Depending on the AHU configuration, this could be the SAT or a separate sensor for this specific purpose.)"
-shape HCLT_AVG { is brick:Supply_Air_Temperature_Sensor }
+shape HCLT_AVG { is a brick:Supply_Air_Temperature_Sensor }
 
--- Setpoints -----------------------------------------------------------------
+-- Setpoints -------------------------------------------------------------------
 doc "supply air temperature setpoint"
-shape SATSP { is brick:Supply_Air_Temperature_Setpoint }
+shape SATSP { is a brick:Supply_Air_Temperature_Setpoint }
 
 doc "supply air temperature setpoint for cooling coil control"
-shape SATsp-C { is brick:Supply_Air_Temperature_Cooling_Setpoint }
+shape SATsp-C { is a brick:Supply_Air_Temperature_Cooling_Setpoint }
 
 doc "duct static pressure setpoint"
-shape DSPSP { is brick:Duct_Air_Static_Pressure_Setpoint }
+shape DSPSP { is a brick:Duct_Air_Static_Pressure_Setpoint }
 
 doc "minimum OA setpoint"
-shape MinOAsp { is brick:Outside_Air_Flow_Setpoint }
+shape MinOAsp { is a brick:Outside_Air_Flow_Setpoint }
 
--- Pressure, fans, and modes --------------------------------------------------
+-- Pressure, fans, and modes ---------------------------------------------------
 doc "duct static pressure"
-shape DSP { is brick:Static_Pressure_Sensor }
+shape DSP { is a brick:Static_Pressure_Sensor }
 
 doc "rolling average of duct static pressure"
-shape DSP_AVG { is brick:Static_Pressure_Sensor }
+shape DSP_AVG { is a brick:Static_Pressure_Sensor }
 
 doc "VFD speed"
-shape VFDSPD { is brick:Frequency_Sensor }
+shape VFDSPD { is a brick:Frequency_Sensor }
 
 doc "number of changes in OS during the previous 60 minutes (moving window)"
-shape Delta_OS { is brick:Operating_Mode_Status }
+shape Delta_OS { is a brick:Operating_Mode_Status }
 
--- Coil valves ----------------------------------------------------------------
+-- Coil valves -----------------------------------------------------------------
 doc "heating-coil valve position command; 0% <= HC <= 100%"
-shape HC { is brick:Valve_Position_Command }
+shape HC { is a brick:Valve_Position_Command }
 
 doc "cooling-coil valve position command; 0% <= CC <= 100%"
-shape CC { is brick:Valve_Position_Command }
+shape CC { is a brick:Valve_Position_Command }
+
+-- Coils ------------------------------------------------------------------
+doc "A hot-water coil, with its valve command."
+shape hot-water-coil {
+  parts required { hw_coil: brick:Hot_Water_Coil { points { HC } } }
+}
+
+doc "A chilled-water coil, with its valve command."
+shape chilled-water-coil {
+  parts required { chw_coil: brick:Chilled_Water_Coil { points { CC } } }
+}

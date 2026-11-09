@@ -183,7 +183,7 @@ fn color_for(node: tree_sitter::Node) -> Option<&'static str> {
             return Some(match parent {
                 "datatype" => "36",
                 "shape_decl" | "base_decl" | "prefix_decl" | "import_decl" | "target"
-                | "boolean" | "frame" | "include" | "closed" | "path_decl" | "is_line" => "1;35",
+                | "boolean" | "frame" | "closed" | "path_decl" | "is_line" => "1;35",
                 "annotation" => "33",
                 _ => "34",
             });
@@ -197,7 +197,8 @@ fn color_for(node: tree_sitter::Node) -> Option<&'static str> {
     match kind {
         "comment" => Some("2;3"),
         "string" | "iri" => Some("32"),
-        "integer" | "decimal" | "boolean_literal" | "severity_level" => Some("36"),
+        "integer" | "decimal" | "date" | "date_time" | "time" | "boolean_literal"
+        | "severity_level" => Some("36"),
         "label" => Some("33"),
         "prefixed_name" => Some("36"),
         "self" => Some("35"),

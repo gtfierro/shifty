@@ -9,10 +9,16 @@ prefix brick: <https://brickschema.org/schema/Brick#>
 
 doc "4.4 Dual-duct terminal unit with inlet sensors"
 shape terminal-unit {
-  is brick:Terminal_Unit
+  is a brick:Terminal_Unit
   parts {
-    hot_deck:  hot-deck
-    cold_deck: cold-deck
+    hot_deck:  brick:Hot_Deck {
+      components.positioned-damper(brick:Damper)
+      points { sa_flow: brick:Supply_Air_Flow_Sensor }
+    }
+    cold_deck: brick:Cold_Deck {
+      components.positioned-damper(brick:Damper)
+      points { sa_flow: brick:Supply_Air_Flow_Sensor }
+    }
   }
   points optional {
     override:    brick:Override_Command
@@ -21,16 +27,4 @@ shape terminal-unit {
   vav41.zone-temperature
   vav41.zone-co2-level
   vav41.occupancy-sensor
-}
-
-shape hot-deck {
-  is brick:Hot_Deck
-  components.heating_damper
-  points { sa_flow: brick:Supply_Air_Flow_Sensor }
-}
-
-shape cold-deck {
-  is brick:Cold_Deck
-  components.cooling_damper
-  points { sa_flow: brick:Supply_Air_Flow_Sensor }
 }

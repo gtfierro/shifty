@@ -105,12 +105,14 @@ or look up these interfaces in the [reference](https://shifty.gtf.fyi/reference/
 
 ## Write shapes in Python
 
-`shifty.shapeshift` builds [Shapeshift](https://shifty.gtf.fyi/) modules,
-shifty's text language for shapes, and writes them as `.shm` or SHACL:
+`shifty.experimental.shapeshift` builds [Shapeshift](https://shifty.gtf.fyi/shapeshift/index.html)
+modules, shifty's text language for shapes, and writes them as `.shm` or
+SHACL. Shapeshift is experimental: the language and the module can change in
+any release:
 
 ```python
-from shifty import shapeshift as ss
-from shifty.shapeshift import Class, Path, Shape
+from shifty.experimental import shapeshift as ss
+from shifty.experimental.shapeshift import Class, Path, Shape
 
 BRICK = ss.Namespace("brick", "https://brickschema.org/schema/Brick#")
 m = ss.Module("vav", base="urn:example/vav/")
@@ -122,7 +124,7 @@ def with_point(cls: Class, n: int = 1):
     return m.points.at_least(n, on_box=cls)
 
 m.vav = Shape(
-    BRICK.VAV,                                           # is brick:VAV
+    BRICK.VAV,                                           # is a brick:VAV
     m.points.required(flow=BRICK.Discharge_Air_Flow_Sensor),
     m.damper | m.damper_command,                         # any of; defined below
     temp=with_point(BRICK.Zone_Air_Temperature_Sensor),  # a named line
@@ -139,10 +141,11 @@ m.write_shacl("shapes/")   # or write it to shapes/vav.ttl
 Assigning to a module defines a name (`m.damper` is `shape damper`), and
 reading a name not yet defined refers to it, so a module can read top-down.
 `&`, `|`, and `~` combine shapes as conjunction, `any of`, and `none of`;
-`BRICK.Room & lines` is a room whose lines hold. Keyword arguments name
-lines. In the repository, `examples/shapeshift/g36/` writes Guideline 36
-sections 4.1 (`vav_cooling_only.py`), 4.2 (`vav_with_reheat.py`), 4.3
-(`fan_powered.py`), and 4.8 (`sz_vav_ahu.py`) this way.
+`BRICK.AHU | BRICK.RTU` is either class, and `BRICK.Room & lines` is a room
+whose lines hold. Keyword arguments name
+lines. In the repository, the Guideline 36 sequences and fault conditions
+in `examples/shapeshift/g36/` are written this way, and `generate.py` writes
+their `.shm` files.
 
 ## Develop from a checkout
 

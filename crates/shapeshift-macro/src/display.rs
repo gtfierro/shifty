@@ -215,29 +215,13 @@ fn line(out: &mut String, l: &Line, depth: usize) {
     for c in &l.comments {
         writeln!(out, "{indent}{}", comment(c)).unwrap();
     }
-    let block_field = matches!(&l.kind, LineKind::Field(f) if f.block && f.name.is_some());
-    if !block_field {
-        annotations(out, &l.annotations, &indent);
-    }
+    annotations(out, &l.annotations, &indent);
     let trailing = l
         .trailing_comment
         .as_ref()
         .map(|c| format!("  {}", comment(c)))
         .unwrap_or_default();
     match &l.kind {
-        LineKind::Field(f) if block_field => {
-            writeln!(out, "{indent}{}: {{{trailing}", f.name.as_deref().unwrap()).unwrap();
-            let inner = "  ".repeat(depth + 1);
-            writeln!(out, "{inner}{}", path(&f.path)).unwrap();
-            if let Some(c) = &f.count {
-                writeln!(out, "{inner}{}", count(c)).unwrap();
-            }
-            for q in &f.qualifiers {
-                writeln!(out, "{inner}{}", qualifier(q)).unwrap();
-            }
-            annotations(out, &l.annotations, &inner);
-            writeln!(out, "{indent}}}").unwrap();
-        }
         LineKind::Field(Field {
             path: PathExpr::Call(c),
             name,
@@ -324,9 +308,6 @@ fn field_line(out: &mut String, f: &Field, depth: usize, trailing: &str) {
 /// A field in one-line form, unless an inline shape in it holds comments
 /// that one line would lose.
 fn field_inline(f: &Field) -> Option<String> {
-    if f.block {
-        return None;
-    }
     for q in &f.qualifiers {
         if let Qualifier::Each(Test::Shape(b))
         | Qualifier::Qualified {
@@ -340,10 +321,10 @@ fn field_inline(f: &Field) -> Option<String> {
     Some(field_text(f))
 }
 
+/// `is T`; a shape on a line is written alone, as its name.
 fn is_line(t: &Test) -> String {
     match t {
-        Test::Is(v @ Value::Node(_)) => format!("is one of {}", value(v)),
-        Test::Is(v) => format!("is {}", value(v)),
+        Test::Matches(c) | Test::Item(Item::Shape(c)) => call(c),
         other => format!("is {}", test(other)),
     }
 }
@@ -430,6 +411,7 @@ fn group(out: &mut String, u: &Group, depth: usize, trailing: &str) {
         for c in &r.comments {
             writeln!(out, "{inner}{}", comment(c)).unwrap();
         }
+        annotations(out, &r.annotations, &inner);
         let mut text = String::new();
         if let Some(l) = &r.label {
             write!(text, "{:<width$} ", format!("{l}:")).unwrap();
@@ -452,7 +434,7 @@ fn group(out: &mut String, u: &Group, depth: usize, trailing: &str) {
     writeln!(out, "{indent}}}").unwrap();
 }
 
-/// A row without its body: `label: ITEM COUNT annotations`.
+/// A row without its body: `label: ITEM COUNT`.
 fn row_head(r: &Row) -> String {
     match &r.label {
         Some(l) => format!("{l}: {}", row_tail(r)),
@@ -464,16 +446,6 @@ fn row_tail(r: &Row) -> String {
     let mut text = row_item(&r.item);
     if let Some(c) = &r.count {
         write!(text, " {}", count(c)).unwrap();
-    }
-    let a = &r.annotations;
-    if let Some(s) = &a.severity {
-        write!(text, " severity {}", s.word()).unwrap();
-    }
-    if let Some(d) = &a.doc {
-        write!(text, " doc {}", string_lit(d)).unwrap();
-    }
-    for m in &a.messages {
-        write!(text, " message {}", string_lit(m)).unwrap();
     }
     text
 }
@@ -507,11 +479,11 @@ pub fn line_text(l: &Line) -> String {
             let blocks: Vec<String> = b.blocks.iter().map(block_one_line).collect();
             match b.frame {
                 Frame::When => format!("when {} then {}", blocks[0], blocks[1]),
-                Frame::AllOf => format!("all of {}", blocks.join(" ")),
                 Frame::AnyOf => format!("any of {}", blocks.join(" ")),
                 Frame::ExactlyOneOf => format!("exactly one of {}", blocks.join(" ")),
                 Frame::NoneOf => format!("none of {}", blocks.join(" ")),
                 Frame::AtLeast(n) => format!("at least {n} of {}", blocks.join(" ")),
+                Frame::AtMost(n) => format!("at most {n} of {}", blocks.join(" ")),
             }
         }
         LineKind::Group(u) => {
@@ -582,7 +554,7 @@ fn group_inline(u: &Group) -> Option<String> {
     }
     let mut rows = Vec::new();
     for r in &u.rows {
-        if !r.comments.is_empty() || r.trailing_comment.is_some() {
+        if !r.comments.is_empty() || r.trailing_comment.is_some() || !r.annotations.is_empty() {
             return None;
         }
         let mut t = row_head(r);
@@ -649,11 +621,11 @@ fn boolean(out: &mut String, b: &Boolean, depth: usize, trailing: &str) {
         }
         frame => {
             let phrase = match frame {
-                Frame::AllOf => "all of".to_string(),
                 Frame::AnyOf => "any of".to_string(),
                 Frame::ExactlyOneOf => "exactly one of".to_string(),
                 Frame::NoneOf => "none of".to_string(),
                 Frame::AtLeast(n) => format!("at least {n} of"),
+                Frame::AtMost(n) => format!("at most {n} of"),
                 Frame::When => unreachable!(),
             };
             let pad = indent.len() + phrase.len() + 1;
@@ -752,29 +724,27 @@ pub fn qualifier(q: &Qualifier) -> String {
                 QualifiedBound::AtMost => "at most",
                 QualifiedBound::Exactly => "exactly",
             };
-            let t = match t {
-                Test::Is(v @ Value::Node(_)) => format!("one of {}", value(v)),
-                Test::Is(v) => value(v),
-                other => test(other),
-            };
-            format!("{b} {} is {t}", int_arg(n))
+            match t {
+                Test::Matches(c) | Test::Item(Item::Shape(c)) => {
+                    format!("{b} {} matches {}", int_arg(n), call(c))
+                }
+                other => format!("{b} {} is {}", int_arg(n), test(other)),
+            }
         }
         Qualifier::SameAs(n) => format!("same as {}", node(n)),
         Qualifier::DifferentFrom(n) => format!("different from {}", node(n)),
-        Qualifier::LessThan(n) => format!("less than {}", node(n)),
-        Qualifier::AtMostProperty(n) => format!("at most {}", node(n)),
+        Qualifier::Below(n) => format!("below {}", node(n)),
+        Qualifier::UpTo(n) => format!("up to {}", node(n)),
         Qualifier::UniqueLanguage => "unique language".into(),
     }
 }
 
 pub fn test(t: &Test) -> String {
     match t {
-        Test::Class(n) => format!("a {}", node(n)),
+        Test::Class(ns) => format!("a {}", ns.iter().map(node).collect::<Vec<_>>().join(" or ")),
         Test::Matches(c) => format!("matches {}", call(c)),
-        // a bare node is a class; node equality is `one of`
-        Test::Is(v @ Value::Node(_)) => format!("one of {}", value(v)),
-        Test::Is(v) => format!("is {}", value(v)),
-        Test::Item(i) => row_item(i),
+        Test::Item(Item::Class(n)) => format!("a {}", node(n)),
+        Test::Item(Item::Shape(c)) => format!("matches {}", call(c)),
         Test::OneOf(vs) => format!(
             "one of {}",
             vs.iter().map(value).collect::<Vec<_>>().join(" ")
@@ -786,17 +756,32 @@ pub fn test(t: &Test) -> String {
         Test::Kind(NodeKind::Blank) => "blank".into(),
         Test::Length { min, max } => match (min, max) {
             (Some(a), Some(b)) if a == b => format!("length {a}"),
-            (Some(a), Some(b)) => format!("length {a} to {b}"),
-            (Some(a), None) => format!("length at least {a}"),
-            (None, Some(b)) => format!("length at most {b}"),
-            (None, None) => "length at least 0".into(),
+            (Some(a), Some(b)) => format!("length from {a} to {b}"),
+            (Some(a), None) => format!("length from {a}"),
+            (None, Some(b)) => format!("length up to {b}"),
+            (None, None) => "length from 0".into(),
         },
-        Test::Range { from, to } => match (from, to) {
-            (Some(a), Some(b)) => format!("from {} to {}", a.lexical, b.lexical),
-            (Some(a), None) => format!("from {}", a.lexical),
-            (None, Some(b)) => format!("up to {}", b.lexical),
-            (None, None) => "from 0 to 0".into(),
-        },
+        Test::Range { lo, hi } => {
+            let lo = lo.as_ref().map(|e| {
+                let w = if e.inclusive { "from" } else { "above" };
+                format!("{w} {}", value(&e.value))
+            });
+            let hi = |join: bool| {
+                hi.as_ref().map(|e| {
+                    let w = match (e.inclusive, join) {
+                        (true, true) => "to",
+                        (true, false) => "up to",
+                        (false, _) => "below",
+                    };
+                    format!("{w} {}", value(&e.value))
+                })
+            };
+            match (lo, hi(true)) {
+                (Some(l), Some(h)) => format!("{l} {h}"),
+                (Some(l), None) => l,
+                (None, _) => hi(false).unwrap_or_else(|| "from 0".into()),
+            }
+        }
         Test::Pattern { regex, flags } => {
             if flags.is_empty() {
                 format!("pattern {}", string_lit(regex))
@@ -832,6 +817,7 @@ pub fn value(v: &Value) -> String {
         },
         Value::Number(n) => n.lexical.clone(),
         Value::Boolean(b) => b.to_string(),
+        Value::Temporal(t) => t.lexical.clone(),
     }
 }
 

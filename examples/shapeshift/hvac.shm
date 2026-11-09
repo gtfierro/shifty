@@ -7,22 +7,15 @@ prefix ex: <https://example.org/building#>
 
 shape HasPointOf(cls) { brick:hasPoint at least 1 is a cls }
 
-doc "A VAV must report supply-air temperature and be fed by exactly one AHU."
+doc "A VAV must report supply-air temperature and be fed by exactly one AHU or RTU."
 shape VAV for every brick:VAV {
   HasPointOf(brick:Supply_Air_Temperature_Sensor)
   brick:hasPoint each matches sensors.Sensor
-  fedBy: {
-    brick:isFedBy
-    exactly 1
-    each a brick:AHU
-    doc "Dual-duct VAVs are modelled as two VAVs."
-    message "A VAV must be fed by exactly one AHU."
-  }
-  unit: {
-    brick:hasUnit
-    optional
-    each one of brick:Degree_Celsius brick:Degree_Fahrenheit
-  }
+  doc "Dual-duct VAVs are modelled as two VAVs."
+  message "A VAV must be fed by exactly one AHU or RTU."
+  fedBy: brick:isFedBy exactly 1, each a brick:AHU or brick:RTU
+  unit: brick:hasUnit optional, each one of brick:Degree_Celsius brick:Degree_Fahrenheit
+  commissioned: ex:commissioned optional, each date, each from 2000-01-01
   when { brick:hasPoint at least 1 is a brick:Economizer_Status }
   then { brick:hasPoint at least 1 is a brick:Outside_Air_Damper }
 }
@@ -34,8 +27,7 @@ shape ReheatVAV for every brick:RVAV {
 
 shape Space for every brick:Space {
   brick:hasPart each matches Space
-  rdf:type required
-  only these properties
+  only these properties  -- besides rdf:type
 }
 
 shape Zone for every brick:HVAC_Zone {

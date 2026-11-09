@@ -5,18 +5,21 @@
 (iri) @string.special.url
 (integer) @number
 (decimal) @number
+(date) @number
+(date_time) @number
+(time) @number
 (boolean_literal) @constant.builtin
 
 [
   "base" "prefix" "import" "as"
   "shape" "for" "every" "node" "value" "of" "with" "matching" "sparql"
-  "include" "only" "these" "properties"
+  "only" "these" "properties"
   "when" "then" "one" "path"
 ] @keyword
 
 [
   "required" "optional" "exactly" "at" "least" "most" "between" "and"
-  "each" "is" "a" "matches" "same" "different" "from" "less" "than"
+  "each" "is" "a" "matches" "same" "different" "from" "above" "below"
   "unique" "language" "length" "to" "up" "pattern" "flags" "datatype"
   "iri" "literal" "blank" "or"
 ] @keyword.operator

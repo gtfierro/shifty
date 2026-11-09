@@ -1,25 +1,23 @@
 -- ASHRAE Guideline 36-2021, 5.16.14: AFDD for multiple-zone VAV air handling units.
 -- Translated from BuildingMOTIF's
 -- libraries/ashrae/guideline36/5.16.14-multiple-zone-vav-ahu-afdd.ttl.
--- The points are defined once in afdd.shm.
 base <urn:ashrae/g36/5.16.14/multiple-zone-vav-ahu-afdd/>
 import "./brick.shm"
 import "./afdd.shm"
-import "./components.shm" as components
 prefix brick: <https://brickschema.org/schema/Brick#>
 
 doc "FC#1: Duct static pressure is too low with fan at full speed"
 shape fc-1 {
-  is brick:Air_Handling_Unit
+  is a brick:Air_Handling_Unit
   points required { DSP_AVG; DSPSP }
   parts required {
-    vfd: components.variable-speed-fan-vfd { points required { VFDSPD } }  -- TODO only applies to supply fan
+    vfd: brick:Fan { points required { VFDSPD } }  -- TODO only applies to supply fan
   }
 }
 
 doc "FC#2: MAT too low; should be between OAT and RAT"
 shape fc-2 {
-  is brick:Air_Handling_Unit
+  is a brick:Air_Handling_Unit
   points required { MAT_AVG; RAT_AVG; OAT_AVG }
 }
 
@@ -28,93 +26,90 @@ shape fc-3 { fc-2 }
 
 doc "FC#4: Too many changes in Operating State"
 shape fc-4 {
-  is brick:Air_Handling_Unit
+  is a brick:Air_Handling_Unit
   points required { Delta_OS }
 }
 
 doc "FC#5: SAT too low; should be higher than MAT"
 shape fc-5 {
-  is brick:Air_Handling_Unit
+  is a brick:Air_Handling_Unit
   points required { SAT_AVG; MAT_AVG }
 }
 
 doc "FC#6: OA fraction is too low or too high; should equal %OA_MIN"
 shape fc-6 {
-  is brick:Air_Handling_Unit
-  points required { RAT_AVG; OAT_AVG }
+  is a brick:Air_Handling_Unit
+  -- %OAmin: active minimum OA setpoint (MinOAsp) divided by actual total airflow
+  points required {
+    RAT_AVG
+    OAT_AVG
+    MinOAsp
+    doc "actual total airflow"
+    brick:Outside_Air_Flow_Sensor  -- NOTE unclear whether this is total OA or total supply air
+  }
+  -- %OA: (MAT - RAT)/(OAT - RAT), or measured by an airflow station
   any of {
-    percent-oa-fraction
+    points required { MAT; RAT; OAT }
   } {
     points required {
-      brick:Outside_Air_Flow_Sensor doc "actual outdoor air fraction per airflow measurement station if available."
+      doc "actual outdoor air fraction per airflow measurement station if available."
+      brick:Outside_Air_Flow_Sensor
     }
-  }
-  percent-oa-minimum
-}
-
-doc "%OA: actual outdoor air fraction as a percentage = (MAT - RAT)/(OAT - RAT)"
-shape percent-oa-fraction { points required { MAT; RAT; OAT } }
-
-doc "%OAmin: active minimum OA setpoint (MinOAsp) divided by actual total airflow (from sum of VAV box flows or by airflow measurement station) as a percentage"
-shape percent-oa-minimum {
-  points required {
-    MinOAsp
-    brick:Outside_Air_Flow_Sensor doc "actual total airflow"  -- NOTE unclear whether this is total OA or total supply air
   }
 }
 
 doc "FC#7: SAT too low in full heating"
 shape fc-7 {
-  is brick:Air_Handling_Unit
+  is a brick:Air_Handling_Unit
   points required { SAT_AVG; SATSP }
-  parts required { hw_coil: brick:Hot_Water_Coil { points { HC } } }
+  hot-water-coil
 }
 
 doc "FC#8: SAT and MAT should be approximately equal"
 shape fc-8 {
-  is brick:Air_Handling_Unit
+  is a brick:Air_Handling_Unit
   points required { SAT_AVG; MAT_AVG }
 }
 
 doc "FC#9: OAT is too high for free cooling without additional mechanical cooling"
 shape fc-9 {
-  is brick:Air_Handling_Unit
+  is a brick:Air_Handling_Unit
   points required { OAT_AVG; SATSP }
 }
 
 doc "FC#10: OAT and MAT should be approximately equal"
 shape fc-10 {
-  is brick:Air_Handling_Unit
+  is a brick:Air_Handling_Unit
   points required { MAT_AVG; OAT_AVG }
 }
 
 doc "FC#11: OAT is too low for mechanical cooling"
 shape fc-11 {
-  is brick:Air_Handling_Unit
+  is a brick:Air_Handling_Unit
   points required { OAT_AVG; SATSP }
 }
 
 doc "FC#12: SAT too high; should be less than MAT"
 shape fc-12 {
-  is brick:Air_Handling_Unit
+  is a brick:Air_Handling_Unit
   points required { SAT_AVG; MAT_AVG }
 }
 
 doc "FC#13: SAT too high in full cooling"
 shape fc-13 {
-  is brick:Air_Handling_Unit
+  is a brick:Air_Handling_Unit
   points required { SAT_AVG; SATSP }
-  parts required { chw_coil: brick:Chilled_Water_Coil { points { CC } } }
+  chilled-water-coil
 }
 
 doc "FC#14: Temperature drop across inactive cooling coil"
 shape fc-14 {
-  is brick:Air_Handling_Unit
+  is a brick:Air_Handling_Unit
   points required { CCET_AVG; CCLT_AVG }
 }
 
 doc "FC#15: Temperature rise across inactive heating coil"
 shape fc-15 {
-  is brick:Air_Handling_Unit
+  is a brick:Air_Handling_Unit
   points required { HCLT_AVG; HCET_AVG }
 }

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime
 import importlib
 from pathlib import Path
 
@@ -9,8 +10,8 @@ import pytest
 import rdflib
 
 import shifty
-from shifty import shapeshift as ss
-from shifty.shapeshift import Class, Shape, any_of
+from shifty.experimental import shapeshift as ss
+from shifty.experimental.shapeshift import Class, Shape, any_of
 
 ROOT = Path(__file__).resolve().parents[2]
 G36 = ROOT / "examples" / "shapeshift" / "g36"
@@ -37,44 +38,121 @@ def g36(monkeypatch):
     """The Python modules in `examples/shapeshift/g36`, imported."""
     monkeypatch.syspath_prepend(str(G36))
     names = (
+        "bacnet",
         "brick",
         "components",
-        "vav_cooling_only",
-        "vav_with_reheat",
-        "fan_powered",
-        "sz_vav_ahu",
+        "terminal_units",
+        "air_handlers",
+        "afdd",
+        "generate",
     )
     return {name: importlib.import_module(name) for name in names}
 
 
-@pytest.mark.parametrize(
-    "script, module, shm",
-    [
-        ("brick", "brick", "brick.shm"),
-        ("components", "components", "components.shm"),
-        ("vav_cooling_only", "vav", "4.1-vav-cooling-only.shm"),
-        ("vav_with_reheat", "reheat", "4.2-vav-with-reheat.shm"),
-        ("fan_powered", "fan_powered", "4.3-fan-powered.shm"),
-        ("sz_vav_ahu", "ahu", "4.8-sz-vav-ahu.shm"),
-    ],
-)
-def test_regenerates_the_g36_files_exactly(g36, script, module, shm):
-    generated = getattr(g36[script], module).source()
-    assert generated == (G36 / shm).read_text()
+def test_the_g36_files_are_generated(g36, tmp_path):
+    written = ss.write(tmp_path, *g36["generate"].MODULES)
+    # every file in the folder is generated, and none is out of date
+    assert sorted(p.name for p in written) == sorted(p.name for p in G36.glob("*.shm"))
+    stale = [p.name for p in written if p.read_text() != (G36 / p.name).read_text()]
+    assert not stale, f"run examples/shapeshift/g36/generate.py to update {stale}"
 
 
 def test_g36_modules_write_check_and_export(g36, tmp_path):
-    ahu = g36["sz_vav_ahu"].ahu
+    ahu = g36["air_handlers"].sz_ahu
     written = ss.write(tmp_path, ahu)
-    assert [p.name for p in written] == [
-        "4.8-sz-vav-ahu.shm",
+    # the module first, then what it imports
+    assert written[0].name == "4.8-sz-vav-ahu.shm"
+    assert {p.name for p in written[1:]} == {
         "brick.shm",
+        "bacnet.shm",
         "components.shm",
         "4.1-vav-cooling-only.shm",
-    ]
+    }
     assert ahu.check() == []
     g = rdflib.Graph().parse(data=ahu.export(), format="turtle")
     assert (rdflib.URIRef("urn:ashrae/g36/4.8/sz-vav-ahu/sz-vav-ahu"), None, None) in g
+
+
+BRICK_NS = rdflib.Namespace("https://brickschema.org/schema/Brick#")
+REF_NS = rdflib.Namespace("https://brickschema.org/schema/Brick/ref#")
+BACNET_NS = rdflib.Namespace("http://data.ashrae.org/bacnet/")
+UNIT_NS = rdflib.Namespace("http://qudt.org/vocab/unit/")
+
+
+def described(model: str) -> rdflib.Graph:
+    """`model`, with a unit and a BACnet object for each of its points."""
+    g = rdflib.Graph().parse(data=model, format="turtle")
+    for i, point in enumerate(sorted(set(g.objects(None, BRICK_NS.hasPoint)))):
+        ref = rdflib.BNode()
+        g.add((point, BRICK_NS.hasUnit, UNIT_NS.UNITLESS))
+        g.add((point, REF_NS.hasExternalReference, ref))
+        g.add(
+            (ref, BACNET_NS["object-identifier"], rdflib.Literal(f"analog-value,{i}"))
+        )
+        g.add((ref, BACNET_NS["device-identifier"], rdflib.Literal("device,1")))
+    return g
+
+
+POINT_MODEL = """
+@prefix bacnet: <http://data.ashrae.org/bacnet/> .
+@prefix brick: <https://brickschema.org/schema/Brick#> .
+@prefix ex: <urn:ex/> .
+@prefix ref: <https://brickschema.org/schema/Brick/ref#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+
+ex:ahu brick:hasPoint ex:sat .
+ex:sat a brick:Supply_Air_Temperature_Sensor ;
+    brick:hasUnit unit:DEG_C ;
+    ref:hasExternalReference [ REFERENCE ] .
+ex:device a bacnet:BACnetDevice ; bacnet:device-instance 123 .
+"""
+
+
+@pytest.mark.parametrize(
+    "reference, conforms",
+    [
+        (
+            'bacnet:object-identifier "analog-input,3" ; bacnet:device-identifier "device,123"',
+            True,
+        ),
+        (
+            'bacnet:object-identifier "multi-state-value,7" ; bacnet:objectOf ex:device',
+            True,
+        ),
+        ('ref:BACnetURI "bacnet://123/analog-input,3/present-value"', True),
+        ('ref:BACnetURI "bacnet://123/binary-output,1"', True),
+        # the object, but not the device that hosts it
+        ('bacnet:object-identifier "analog-input,3"', False),
+        # a device is not an object that holds a point's value
+        (
+            'bacnet:object-identifier "device,3" ; bacnet:device-identifier "device,123"',
+            False,
+        ),
+        ('ref:BACnetURI "http://123/analog-input,3"', False),
+        # an external reference, but not to BACnet
+        ('ref:hasTimeseriesId "a5e3" ; ref:storedAt "postgres://db"', False),
+    ],
+)
+def test_every_point_names_its_bacnet_object(g36, reference, conforms):
+    data = rdflib.Graph().parse(
+        data=POINT_MODEL.replace("REFERENCE", reference), format="turtle"
+    )
+    ok, _report, text = g36["brick"].brick.validate(data)
+    assert ok == conforms, text
+
+
+def test_every_point_states_one_unit(g36):
+    brick = g36["brick"].brick
+    model = POINT_MODEL.replace(
+        "REFERENCE", 'ref:BACnetURI "bacnet://1/analog-input,1"'
+    )
+
+    def conforms(text: str) -> bool:
+        return brick.validate(rdflib.Graph().parse(data=text, format="turtle"))[0]
+
+    assert conforms(model)
+    assert not conforms(model.replace("brick:hasUnit unit:DEG_C ;", ""))
+    assert not conforms(model.replace("unit:DEG_C", "unit:DEG_C, unit:DEG_F"))
 
 
 VAV_MODEL = """
@@ -93,17 +171,14 @@ ex:temp a brick:Zone_Air_Temperature_Sensor .
 
 
 def test_exported_shapes_validate(g36):
-    vav, BRICK = g36["vav_cooling_only"].vav, g36["brick"].BRICK
-    good = rdflib.Graph().parse(data=VAV_MODEL, format="turtle")
+    vav, BRICK = g36["terminal_units"].vav, g36["brick"].BRICK
+    good = described(VAV_MODEL)
     # the G36 shapes have no targets: say which nodes to check
     targets = {vav.vav_cooling_only: BRICK.VAV}
     assert vav.validate(good, targets=targets)[0]
     # without the damper position command, the box fails
-    bad = rdflib.Graph().parse(
-        data=VAV_MODEL.replace(
-            "brick:hasPoint ex:dmp, ex:flow", "brick:hasPoint ex:flow"
-        ),
-        format="turtle",
+    bad = described(
+        VAV_MODEL.replace("brick:hasPoint ex:dmp, ex:flow", "brick:hasPoint ex:flow")
     )
     conforms, _report, text = vav.validate(bad, targets=targets)
     assert not conforms and "urn:ex/vav" in text
@@ -116,27 +191,22 @@ def test_exported_shapes_validate(g36):
 
 
 def test_reheat_boxes_need_a_heating_signal(g36):
-    reheat, BRICK = g36["vav_with_reheat"].reheat, g36["brick"].BRICK
+    reheat, BRICK = g36["terminal_units"].reheat, g36["brick"].BRICK
     targets = {reheat.vav_with_reheat: BRICK.RVAV}
     # without the Brick ontology, say outright that the box is also a VAV
     box = VAV_MODEL.replace("ex:vav a brick:VAV", "ex:vav a brick:RVAV, brick:VAV")
     # 4.1 alone is not enough: the box needs a heating signal
-    without = rdflib.Graph().parse(data=box, format="turtle")
-    assert not reheat.validate(without, targets=targets)[0]
+    assert not reheat.validate(described(box), targets=targets)[0]
     # a heating command on the box is one
     command = box + "ex:vav brick:hasPoint ex:htg .\nex:htg a brick:Heating_Command .\n"
-    assert reheat.validate(
-        rdflib.Graph().parse(data=command, format="turtle"), targets=targets
-    )[0]
+    assert reheat.validate(described(command), targets=targets)[0]
     # a position command on its heating coil is the other
     coil = box + (
         "ex:vav brick:hasPart ex:coil .\n"
         "ex:coil a brick:Heating_Coil ; brick:hasPoint ex:pos .\n"
         "ex:pos a brick:Position_Command .\n"
     )
-    assert reheat.validate(
-        rdflib.Graph().parse(data=coil, format="turtle"), targets=targets
-    )[0]
+    assert reheat.validate(described(coil), targets=targets)[0]
 
 
 FAN_POWERED_MODEL = """
@@ -162,17 +232,20 @@ ex:temp a brick:Zone_Air_Temperature_Sensor .
 
 
 def test_fan_powered_units_need_their_fan_and_damper(g36):
-    unit, BRICK = g36["fan_powered"].fan_powered, g36["brick"].BRICK
+    unit, BRICK = g36["terminal_units"].fan_powered, g36["brick"].BRICK
     targets = {unit.terminal_unit: BRICK.Terminal_Unit}
-    good = rdflib.Graph().parse(data=FAN_POWERED_MODEL, format="turtle")
-    conforms, _report, text = unit.validate(good, targets=targets)
+    conforms, _report, text = unit.validate(
+        described(FAN_POWERED_MODEL), targets=targets
+    )
     assert conforms, text
     # the fan must report its status
-    bad = rdflib.Graph().parse(
-        data=FAN_POWERED_MODEL.replace(", ex:status .", " ."), format="turtle"
-    )
+    bad = described(FAN_POWERED_MODEL.replace(", ex:status .", " ."))
     conforms, _report, text = unit.validate(bad, targets=targets)
     assert not conforms and "urn:ex/fpu" in text
+    # and each point must state its unit and its BACnet object
+    bare = rdflib.Graph().parse(data=FAN_POWERED_MODEL, format="turtle")
+    conforms, _report, text = unit.validate(bare, targets=targets)
+    assert not conforms and "urn:ex/speed" in text
 
 
 def test_validating_without_targets_is_an_error():
@@ -215,7 +288,7 @@ def test_assignment_defines_names():
         "path points = ex:hasPoint\n"
         "path fed = ex:feeds+\n\n"
         "shape zone-temperature { points required { ex:Temp } }\n\n"
-        "shape with_underscore {\n  is ex:C\n  points required\n}\n"
+        "shape with_underscore {\n  is a ex:C\n  points required\n}\n"
     )
     assert "zone-temperature" in m and m.zone_temperature is m["zone-temperature"]
     assert "zone_temperature" in dir(m)
@@ -280,7 +353,7 @@ def test_forward_references_resolve_when_written():
     m = ss.Module("t")
     m.S = Shape(m.later, EX.p.each(m.later))
     m.later = EX.p.required()
-    assert body(m).startswith("shape S {\n  later\n  ex:p each later\n}")
+    assert body(m).startswith("shape S {\n  later\n  ex:p each matches later\n}")
     bad = ss.Module("u")
     bad.S = Shape(bad.zone_temprature)
     bad.zone_temperature = Shape()
@@ -316,7 +389,7 @@ def test_a_named_shape_is_reused_by_name_elsewhere():
     m = ss.Module("t")
     m.S = Shape(EX.C)
     m.T = m.S  # already named: T composes S
-    assert body(m) == "shape S { is ex:C }\nshape T { S }\n"
+    assert body(m) == "shape S { is a ex:C }\nshape T { S }\n"
 
 
 def test_operators_combine_shapes():
@@ -329,11 +402,11 @@ def test_operators_combine_shapes():
         "shape S {\n"
         "  any of { A } { B } { ex:c required }\n"
         "  none of { A }\n"
-        "  is ex:C\n"
+        "  is a ex:C\n"
         "  B\n"
         "}\n\n"
         "shape U {\n"
-        "  any of { A; B } { is ex:C; is ex:D }\n"
+        "  any of { A; B } { is a ex:C; is a ex:D }\n"
         "}\n"
     )
 
@@ -367,9 +440,9 @@ def test_unnamed_shapes_are_written_in_place():
     inner = EX.Sensor & EX.unit.required()
     assert one(EX.p.each(inner), EX.q.at_least(2, inner), inner) == (
         "shape S {\n"
-        "  ex:p each { is ex:Sensor; ex:unit required }\n"
-        "  ex:q at least 2 is { is ex:Sensor; ex:unit required }\n"
-        "  is ex:Sensor\n"
+        "  ex:p each { is a ex:Sensor; ex:unit required }\n"
+        "  ex:q at least 2 is { is a ex:Sensor; ex:unit required }\n"
+        "  is a ex:Sensor\n"
         "  ex:unit required\n"
         "}\n"
     )
@@ -381,10 +454,11 @@ def test_or_and_not_of_classes_depend_on_where_they_go():
     m = ss.Module("t")
     m.fed = ss.Path(EX.feeds | EX.serves)  # where a path goes: `or`
     m.S = Shape(
-        EX.A | EX.B,  # where a line goes: any of
+        EX.A | EX.B,  # where a line goes: one of the classes
         ~EX.C,  # none of
         ~(EX.D | EX.E),
         EX.p.each(EX.A | EX.B),  # where a test goes, too
+        EX.s.at_least(2, EX.A | EX.B | EX.C),
         EX.q.at_least(1, ~EX.C),
         (EX.A | EX.B) | EX.r.required(),  # one frame, not two
         m.fed.required(),
@@ -392,19 +466,19 @@ def test_or_and_not_of_classes_depend_on_where_they_go():
     assert body(m) == (
         "path fed = ex:feeds or ex:serves\n\n"
         "shape S {\n"
-        "  any of { is ex:A } { is ex:B }\n"
-        "  none of { is ex:C }\n"
-        "  none of { is ex:D } { is ex:E }\n"
-        "  ex:p each {\n"
-        "    any of { is ex:A } { is ex:B }\n"
-        "  }\n"
+        "  is a ex:A or ex:B\n"
+        "  none of { is a ex:C }\n"
+        "  none of { is a ex:D or ex:E }\n"
+        "  ex:p each a ex:A or ex:B\n"
+        "  ex:s at least 2 is a ex:A or ex:B or ex:C\n"
         "  ex:q at least 1 is {\n"
-        "    none of { is ex:C }\n"
+        "    none of { is a ex:C }\n"
         "  }\n"
-        "  any of { is ex:A } { is ex:B } { ex:r required }\n"
+        "  any of { is a ex:A or ex:B } { ex:r required }\n"
         "  fed required\n"
         "}\n"
     )
+    assert m.check() == []
     # in a template, class parameters combine the same way
     t = ss.Module("u")
 
@@ -412,7 +486,15 @@ def test_or_and_not_of_classes_depend_on_where_they_go():
     def either(x: Class, y: Class):
         return EX.p.each(x | y)
 
-    assert "  ex:p each {\n    any of { is x } { is y }\n  }" in t.source()
+    assert "shape either(x, y) { ex:p each a x or y }" in t.source()
+    # a parameter that is not a class is not part of a union of classes
+    u = ss.Module("v")
+
+    @u.template
+    def mixed(x, y: Class):
+        return EX.p.each(x | y)
+
+    assert "any of" in u.source()
     # assigned, it could be either; a path expression with steps is a path
     with pytest.raises(TypeError, match="could be a path or a shape"):
         m.x = EX.A | EX.B
@@ -452,11 +534,11 @@ def test_fields_and_counts():
         "  ex:b optional\n"
         "  ex:c exactly 2\n"
         "  ex:d between 1 and 3\n"
-        "  ex:e at least 1 is ex:C\n"
-        "  ex:f each ex:C, each string\n"
+        "  ex:e at least 1 is a ex:C\n"
+        "  ex:f each a ex:C, each string\n"
         '  ex:g required, each one of ex:x "y" 3\n'
         "  ex:h same as ex:k, unique language\n"
-        '  ex:i at most 2 is "on"\n'
+        '  ex:i at most 2 is one of "on"\n'
         "}\n"
     )
 
@@ -470,13 +552,110 @@ def test_tests():
         ss.is_(ss.one_of(EX.x)),
     ) == (
         "shape S {\n"
-        "  ex:a each length 3, each length at least 1, each length at most 8\n"
+        "  ex:a each length 3, each length from 1, each length up to 8\n"
         "  ex:b each from 0 to 100, each up to 1.5\n"
         '  ex:c each pattern "^[A-Z]" flags "i", each language "en" "de"\n'
         "  ex:d each iri, each datatype ex:T\n"
         "  is one of ex:x\n"
         "}\n"
     )
+
+
+def test_one_spelling_for_each_construct():
+    # counts are written the way the language writes them
+    assert one(
+        EX.a.at_least(1),
+        EX.b.at_most(1),
+        EX.c.between(0, 1),
+        EX.d.between(2, 2),
+        EX.e.between(0, 3),
+    ) == (
+        "shape S {\n"
+        "  ex:a required\n"
+        "  ex:b optional\n"
+        "  ex:c optional\n"
+        "  ex:d exactly 2\n"
+        "  ex:e at most 3\n"
+        "}\n"
+    )
+    # ranges, comparisons, and a builtin datatype by its word
+    assert one(
+        EX.a.each(ss.value_range(above=0), ss.value_range(0, below=1)),
+        EX.b.each(ss.value_range(above=0, hi=1), ss.value_range(below=1)),
+        EX.c.below(EX.d),
+        EX.e.up_to(EX.f),
+        EX.g.each(ss.datatype(ss.XSD.string)),
+    ) == (
+        "shape S {\n"
+        "  ex:a each above 0, each from 0 below 1\n"
+        "  ex:b each above 0 to 1, each below 1\n"
+        "  ex:c below ex:d\n"
+        "  ex:e up to ex:f\n"
+        "  ex:g each string\n"
+        "}\n"
+    )
+    with pytest.raises(TypeError, match="not both"):
+        ss.value_range(0, above=1)
+
+
+def test_counted_frames():
+    a, b, c = EX.a.required(), EX.b.required(), EX.c.required()
+    assert one(ss.at_most_of(1, a, b, c), ss.at_least_of(2, a, b, c)) == (
+        "shape S {\n"
+        "  at most 1 of { ex:a required } { ex:b required } { ex:c required }\n"
+        "  at least 2 of { ex:a required } { ex:b required } { ex:c required }\n"
+        "}\n"
+    )
+    with pytest.raises(ValueError, match="any_of"):
+        ss.at_least_of(1, a, b)
+    with pytest.raises(ValueError, match="none_of"):
+        ss.at_most_of(0, a, b)
+
+
+def test_dates_and_times():
+    utc = datetime.timezone.utc
+    assert one(
+        EX.a.each(
+            ss.datatype("date"),
+            ss.value_range(datetime.date(2020, 1, 1), below=datetime.date(2025, 1, 1)),
+        ),
+        EX.b.each(ss.value_range(above=datetime.datetime(2024, 1, 31, 8, tzinfo=utc))),
+        EX.c.each(ss.value_range(datetime.time(8), datetime.time(18, 30))),
+        EX.d.each(ss.one_of(datetime.date(2024, 12, 25))),
+    ) == (
+        "shape S {\n"
+        "  ex:a each date, each from 2020-01-01 below 2025-01-01\n"
+        "  ex:b each above 2024-01-31T08:00:00Z\n"
+        "  ex:c each from 08:00:00 to 18:30:00\n"
+        "  ex:d each one of 2024-12-25\n"
+        "}\n"
+    )
+    with pytest.raises(TypeError, match="cannot end a range"):
+        ss.value_range("2024-01-01")
+
+    m = ss.Module("t", base="urn:t/")
+    m.S = Shape(
+        # the datatype and a range of its values hold together
+        EX.made.each(ss.datatype("date"), ss.value_range(datetime.date(2020, 1, 1))),
+        for_every=EX.Thing,
+    )
+    assert m.check() == []
+
+    def conforms(made: str) -> bool:
+        data = rdflib.Graph().parse(
+            data=f"""
+            @prefix ex: <http://example.org/> .
+            @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+            ex:x a ex:Thing ; ex:made {made} .
+            """,
+            format="turtle",
+        )
+        return m.validate(data)[0]
+
+    assert conforms('"2022-06-01"^^xsd:date')
+    assert not conforms('"2019-12-31"^^xsd:date')
+    # a dateTime is not ordered with a date
+    assert not conforms('"2022-06-01T00:00:00"^^xsd:dateTime')
 
 
 def test_groups_and_rows():
@@ -489,17 +668,53 @@ def test_groups_and_rows():
         "  ex:p {\n"
         "    ex:A\n"
         "    b: ex:B\n"
-        '    c: ex:C optional doc "if any"\n'
+        '    doc "if any"\n'
+        "    c: ex:C optional\n"
         "  }\n"
         "  ex:p required {\n"
         "    d: ex:D { ex:q required }\n"
         "    e: ex:E at least 2\n"
         "  }\n"
-        "  ex:p at least 1 { f: ex:F }\n"
+        "  ex:p required { f: ex:F }\n"
         "}\n"
     )
     with pytest.raises(TypeError, match="cannot be a row"):
         one(EX.p.has(x=EX.q.required()))
+
+
+def test_rows_can_carry_a_trailing_comment():
+    assert one(
+        EX.p.required(
+            EX.A,
+            ss.row(EX.B, doc="the b", comment="NOTE unclear"),
+            c=ss.row(ss.row(EX.C, "optional"), comment="kept when wrapped"),
+        )
+    ) == (
+        "shape S {\n"
+        "  ex:p required {\n"
+        "    ex:A\n"
+        '    doc "the b"\n'
+        "    ex:B  -- NOTE unclear\n"
+        "    c: ex:C optional  -- kept when wrapped\n"
+        "  }\n"
+        "}\n"
+    )
+    with pytest.raises(ValueError, match="one line"):
+        ss.row(EX.A, comment="two\nlines")
+
+
+def test_attribute_reads_find_names_as_written():
+    points = ss.Module("points", base="urn:points/")
+    points["SAT_AVG"] = Shape(EX.A)
+    points.mixed_air = Shape(EX.B)
+    m = ss.Module("t", base="urn:t/")
+    # an exact name first, then its kebab form; a later one either way
+    m.S = Shape(
+        EX.p.required(points.SAT_AVG, points.mixed_air, m.later_one, m.Later_Two)
+    )
+    m.later_one = Shape(EX.C)
+    m["Later_Two"] = Shape(EX.D)
+    assert "ex:p required { SAT_AVG; mixed-air; later-one; Later_Two }" in str(m)
 
 
 def test_annotations_targets_and_closed_shapes():
@@ -524,7 +739,7 @@ def test_annotations_targets_and_closed_shapes():
         "  for every node with ex:hasPoint\n"
         "{\n"
         "  any of { ex:a required } { ex:b required; ex:c required }\n"
-        "  when { is ex:Pump }\n"
+        "  when { is a ex:Pump }\n"
         "  then { ex:flow required }\n"
         '  doc "a name"\n'
         "  severity warning\n"
@@ -551,12 +766,12 @@ def test_templates():
     assert body(m) == (
         'doc "Points of class `cls`."\n'
         "shape with-point(cls, prop = ex:hasPoint, part = ex:Default, n = 1) {\n"
-        "  is cls\n"  # annotated `Class`: a class
+        "  is a cls\n"  # annotated `Class`: a class
         "  part\n"  # not annotated: a shape, composed
-        "  prop at least n is cls\n"
-        "  ex:q each part\n"
+        "  prop at least n is a cls\n"
+        "  ex:q each matches part\n"
         "}\n\n"
-        "shape Fallback(cls, other = cls) { is other }\n\n"
+        "shape Fallback(cls, other = cls) { is a other }\n\n"
         "shape S {\n"
         "  with-point(ex:T)\n"
         "  fan: with-point(ex:F, n = 2)\n"
@@ -616,7 +831,7 @@ def test_cross_module_imports_and_aliases(tmp_path):
         'import "./lib.shm"\n\n'
         "shape S {\n"
         "  o.temp\n"
-        "  pts each sensor\n"
+        "  pts each matches sensor\n"
         "}\n"
     )
     assert [p.name for p in m.closure()] == ["main", "other", "lib"]

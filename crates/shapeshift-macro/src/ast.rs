@@ -116,7 +116,7 @@ pub struct Row {
     pub trailing_comment: Option<String>,
 }
 
-/// A bare term where a test is expected: a class or a shape.
+/// A group row's class or shape.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Item {
     /// A prefixed name or IRI: the value is an instance of this class.
@@ -283,6 +283,7 @@ pub struct Line {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum LineKind {
     Field(Field),
+    /// A shape or template call alone on a line: its lines hold here too.
     Include(Call),
     Boolean(Boolean),
     /// `only these properties`
@@ -302,9 +303,6 @@ pub struct Field {
     pub count: Option<Count>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub qualifiers: Vec<Qualifier>,
-    /// Written in block form (`name: { ... }`); formatter hint only.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub block: bool,
 }
 
 /// An integer that may be a template parameter.
@@ -345,10 +343,10 @@ pub enum Qualifier {
     SameAs(NodeRef),
     /// `different from q` — `sh:disjoint`.
     DifferentFrom(NodeRef),
-    /// `less than q` — `sh:lessThan`.
-    LessThan(NodeRef),
-    /// `at most q` — `sh:lessThanOrEquals`.
-    AtMostProperty(NodeRef),
+    /// `below q` — `sh:lessThan`.
+    Below(NodeRef),
+    /// `up to q` — `sh:lessThanOrEquals`.
+    UpTo(NodeRef),
     /// `unique language`.
     UniqueLanguage,
 }
@@ -370,27 +368,27 @@ pub enum DatatypeRef {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Test {
-    /// `a X` (or `is a X`) — class membership with subclass closure.
-    Class(NodeRef),
+    /// `a X`, `a X or Y` — membership in one of the classes, with subclass
+    /// closure. Never empty.
+    Class(Vec<NodeRef>),
     /// `matches S(...)` — conforms to a named shape.
     Matches(Call),
-    /// `is X` — exactly this node or literal.
-    Is(Value),
     /// `one of X Y Z`.
     OneOf(Vec<Value>),
     Datatype(DatatypeRef),
     Kind(NodeKind),
-    /// `length a to b` (or `length n`).
+    /// `length n`, `length from a`, `length up to b`, `length from a to b`.
     Length {
         min: Option<u64>,
         max: Option<u64>,
     },
-    /// `from a to b`, `from a`, or `up to b` — inclusive numeric range.
+    /// A numeric range: a lower end (`from a`, `above a`), an upper end
+    /// (`up to b`, `below b`), or both (`from a to b`, `above a below b`).
     Range {
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        from: Option<Number>,
+        lo: Option<RangeEnd>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        to: Option<Number>,
+        hi: Option<RangeEnd>,
     },
     /// `pattern "regex"` with optional `flags "i"`.
     Pattern {
@@ -402,8 +400,18 @@ pub enum Test {
     Language(Vec<String>),
     /// `{ line* }` — an inline, unnamed shape.
     Shape(Block),
-    /// A bare class or shape: `brick:AHU`, `Sensor`, `HasPoint(brick:X)`.
+    /// A group row's class or shape, as the group's rewrite carries it: a
+    /// class is `a C`, a shape `matches S`. Never written as a test.
     Item(Item),
+}
+
+/// One end of a range: a number, or a date or time.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RangeEnd {
+    /// A [`Value::Number`] or a [`Value::Temporal`].
+    pub value: Value,
+    /// `from a` / `up to b` include the end; `above a` / `below b` do not.
+    pub inclusive: bool,
 }
 
 /// A numeric literal as written; keeps the lexical form so `1.50` round-trips.
@@ -415,6 +423,35 @@ pub struct Number {
 impl Number {
     pub fn is_integer(&self) -> bool {
         !self.lexical.contains(['.', 'e', 'E'])
+    }
+}
+
+/// A date, a date and time, or a time, written bare as in XSD:
+/// `2024-01-31`, `2024-01-31T08:00:00Z`, `08:00:00`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Temporal {
+    pub kind: TemporalKind,
+    pub lexical: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum TemporalKind {
+    /// `xsd:date`
+    Date,
+    /// `xsd:dateTime`
+    DateTime,
+    /// `xsd:time`
+    Time,
+}
+
+impl TemporalKind {
+    /// The XSD datatype's local name.
+    pub fn xsd_name(self) -> &'static str {
+        match self {
+            TemporalKind::Date => "date",
+            TemporalKind::DateTime => "dateTime",
+            TemporalKind::Time => "time",
+        }
     }
 }
 
@@ -441,6 +478,8 @@ pub enum Value {
     },
     Number(Number),
     Boolean(bool),
+    /// `2024-01-31`, `2024-01-31T08:00:00Z`, `08:00:00`
+    Temporal(Temporal),
 }
 
 /// `NAME` or `NAME(args)`; `NAME` may be `alias.NAME` or `Shape.field`.
@@ -501,14 +540,15 @@ pub enum PathExpr {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Frame {
-    AllOf,
     AnyOf,
     ExactlyOneOf,
     NoneOf,
     /// `when {C} then {B}`: blocks are `[C, B]`.
     When,
-    /// `at least n of`.
+    /// `at least n of`, for `n` of 2 or more (`any of` is at least one).
     AtLeast(u64),
+    /// `at most n of`, for `n` of 1 or more (`none of` is at most none).
+    AtMost(u64),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

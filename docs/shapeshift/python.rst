@@ -1,14 +1,16 @@
-Write Shapeshift modules in Python
-==================================
+Shapeshift in Python
+====================
 
-``shifty.shapeshift`` builds Shapeshift (``.shm``) modules from Python values
+.. include:: experimental.inc
+
+``shifty.experimental.shapeshift`` builds Shapeshift (``.shm``) modules from Python values
 and writes them as ``.shm`` text or SHACL Turtle. Use it when shapes are
 generated from data, or to reuse Python functions as templates.
 
-.. literalinclude:: ../examples/shapeshift.py
+.. literalinclude:: ../examples/shapeshift/vav.py
    :language: python
 
-.. program-output:: python examples/shapeshift.py
+.. program-output:: python examples/shapeshift/vav.py
    :cwd: ..
 
 The text goes through the same formatter as ``shifty shape fmt``.
@@ -23,6 +25,8 @@ Assigning to a module defines a name. Reading one refers to it.
 - ``m["zone_temp"] = ...`` uses the name as written. Use it for names from
   data, and for names that clash with ``Module`` methods (``check``,
   ``source``, ``write``).
+- Reading ``m.SAT_AVG`` finds the name as written first, then its ``-`` form,
+  so names that are not kebab case read as attributes too.
 - Reading a name that is not defined yet returns a reference. It is resolved
   when the module is written, so shapes and template calls can come before
   their definitions. An unknown name fails at that point, with a suggestion.
@@ -53,22 +57,23 @@ read as a path; pass ``any_of(BRICK.A, BRICK.B)`` for either class.
    * - Python
      - ``.shm``
    * - ``BRICK.VAV`` alone on a line
-     - ``is brick:VAV``
+     - ``is a brick:VAV``
    * - a shape or template call alone on a line
      - composes it: ``damper``, ``with-point(...)``
    * - ``a & b``
      - both: the same as ``Shape(a, b)``
    * - ``a | b``, ``BRICK.A | BRICK.B``
-     - ``any of { a } { b }``, ``any of { is brick:A } { is brick:B }``
+     - ``any of { a } { b }``, ``is a brick:A or brick:B``
    * - ``~a``, ``~BRICK.A``
-     - ``none of { a }``, ``none of { is brick:A }``
-   * - ``any_of(a, b, k=c)``, ``all_of``, ``exactly_one_of``, ``none_of``,
-       ``at_least_of(n, ...)``
+     - ``none of { a }``, ``none of { is a brick:A }``
+   * - ``any_of(a, b, k=c)``, ``exactly_one_of``, ``none_of``,
+       ``at_least_of(n, ...)``, ``at_most_of(n, ...)``
      - frames; a keyword argument is a branch of one named line
    * - ``when(cond).then(body)``
      - ``when { cond } then { body }``
-   * - ``is_(x)``
-     - ``is x``, for a value or an unannotated parameter
+   * - ``is_(T)``
+     - ``is T``, a test of the node: ``is_(ss.iri)`` is ``is iri``, and
+       ``is_("x")`` is ``is one of "x"``
 
 A ``Shape`` that no module names is written inline, as ``{ ... }``. Only a
 named shape takes ``for_every=``, ``targets=``, ``doc=``, ``comment=``,
@@ -94,11 +99,11 @@ A path's methods make fields:
    * - ``p.exactly(n)``, ``p.at_least(n)``, ``p.at_most(n)``, ``p.between(a, b)``
      - the count
    * - ``p.at_least(n, T)``
-     - ``p at least n is T``
+     - ``p at least n is T``, or ``p at least n matches S`` for a shape
    * - ``p.each(T, U)``
      - ``p each T, each U``
-   * - ``p.same_as(q)``, ``p.different_from(q)``, ``p.less_than(q)``,
-       ``p.unique_language()``
+   * - ``p.same_as(q)``, ``p.different_from(q)``, ``p.below(q)``,
+       ``p.up_to(q)``, ``p.unique_language()``
      - comparisons
 
 A field's methods chain: ``p.required().each(T)``. Its line annotations
@@ -112,25 +117,35 @@ Given rows, a count method makes a group: named fields along one path.
    points.has(rat=ss.row(BRICK.Return_Air_Temperature_Sensor, "optional", doc="if any"))
    parts.required(room=BRICK.Room & points.required(BRICK.Open_Close_Status))
 
-``has`` uses the default count (exactly one per row). ``row(item, count, doc=)``
-gives a row its own count: ``"required"``, ``"optional"``, ``n``, or
-``(min, max)`` with ``None`` for an open end. ``C & lines`` as a row is
-``C { lines }``.
+``has`` uses the default count (exactly one per row). ``row(item, count, doc=,
+comment=)`` gives a row its own count: ``"required"``, ``"optional"``, ``n``,
+or ``(min, max)`` with ``None`` for an open end. The ``doc`` is written on the
+line before the row, and ``comment`` after it on its line (``-- comment``).
+``C & lines`` as a row is ``C { lines }``.
+
+Counts are written the way the language spells them: ``p.at_least(1)`` is
+``p required``, and ``p.between(0, 1)`` is ``p optional``.
 
 Tests
 -----
 
 Where a test goes (``each``, ``at_least(n, ...)``):
 
-- a term is a class;
-- a shape or call is a shape;
-- a Python ``str``, ``int``, ``float``, or ``bool`` is that value, and
-  ``lit(s, lang)`` is a tagged string.
+- a term is a class: ``a C``, and ``BRICK.A | BRICK.B`` is
+  ``a brick:A or brick:B``;
+- a shape or call is a shape: ``matches S``;
+- a Python ``str``, ``int``, ``float``, or ``bool`` is that value, as are
+  ``datetime.date``, ``datetime.datetime``, and ``datetime.time``
+  (``2024-01-31``, ``2024-01-31T08:00:00Z``, ``08:00:00``), and
+  ``lit(s, lang)`` is a tagged string: ``one of v``.
 
 The other tests are functions: ``one_of(...)``, ``datatype("string")`` or
 ``datatype(term)``, ``node_kind("iri")``, ``length(n)`` or
-``length(min=, max=)``, ``value_range(lo, hi)``, ``pattern(regex, flags)``, and
-``language(*tags)``.
+``length(min=, max=)``, ``value_range(lo, hi)`` with ``above=`` and ``below=``
+for bounds that are excluded, ``pattern(regex, flags)``, and
+``language(*tags)``. A range's ends are numbers, or dates and times:
+``value_range(date(2024, 1, 1), below=date(2025, 1, 1))`` is
+``from 2024-01-01 below 2025-01-01``.
 
 Templates
 ---------
@@ -209,8 +224,9 @@ either. To keep the targets, write them into a module:
 Larger examples
 ---------------
 
-``examples/shapeshift/g36/`` in the repository writes Guideline 36 sections 4.1
-(``vav_cooling_only.py``), 4.2 (``vav_with_reheat.py``), 4.3
-(``fan_powered.py``), and 4.8 (``sz_vav_ahu.py``), with the modules they
-import (``brick.py``, ``components.py``). Each regenerates its ``.shm`` file
-exactly.
+The ``.shm`` files in ``examples/shapeshift/g36/`` in the repository are
+generated from Python by ``generate.py``. ``terminal_units.py`` writes
+sections 4.1 to 4.5, ``air_handlers.py`` 4.6 and 4.8, and ``afdd.py`` the
+fault conditions of section 5, one shape for each. ``brick.py``, ``bacnet.py``, and ``components.py`` write
+the modules they import, including the rule that every point states its unit
+and its BACnet object. The modules import one another as Python modules.

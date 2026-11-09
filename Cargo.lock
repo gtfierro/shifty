@@ -1336,6 +1336,7 @@ name = "shapeshift-macro"
 version = "0.6.0-alpha.1"
 dependencies = [
  "oxrdf",
+ "oxsdatatypes",
  "regex",
  "serde",
  "serde_json",
@@ -1372,6 +1373,7 @@ name = "shifty-algebra"
 version = "0.6.0-alpha.1"
 dependencies = [
  "oxrdf",
+ "oxsdatatypes",
  "regex",
  "serde",
  "serde_json",

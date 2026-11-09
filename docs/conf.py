@@ -68,9 +68,13 @@ author = "Gabe Fierro"
 release = _read_version()
 version = release
 
+# Local extensions: `shapeshift_lexer` highlights `.. code-block:: shapeshift`.
+sys.path.insert(0, str(DOCS_DIR / "_ext"))
+
 extensions = [
     "sphinx.ext.intersphinx",
     "sphinxcontrib.programoutput",
+    "shapeshift_lexer",
     # changelog.rst renders the root CHANGELOG.md in place, so the release
     # history is searchable here rather than only on GitHub.
     "myst_parser",

@@ -1,20 +1,23 @@
-"""``brick.shm``: names for the Brick point and part lists every G36 module uses.
+"""``brick.shm``: the Brick point and part lists, and what every point states.
 
-uv run --project python python examples/shapeshift/g36/brick.py
+Every G36 module imports it.
 """
 
 from __future__ import annotations
 
-from shifty import shapeshift as ss
-from shifty.shapeshift import Path
+from bacnet import bacnet
+
+from shifty.experimental import shapeshift as ss
+from shifty.experimental.shapeshift import Path, Shape, objects_of
 
 BRICK = ss.Namespace("brick", "https://brickschema.org/schema/Brick#")
 
 brick = ss.Module(
     "brick",
-    base="urn:ashrae/g36/brick-lists",
+    base="urn:ashrae/g36/brick/",
     comment="""
-        Names for the Brick properties that point and part lists follow.
+        Names for the Brick properties that point and part lists follow, and the
+        rule every point meets.
 
         Import this file without an alias and write, in any shape,
 
@@ -38,7 +41,11 @@ brick.parts = Path(
     BRICK.hasPart, doc="Equipment the equipment is made of (brick:hasPart)."
 )
 
-points, parts = brick.points, brick.parts
+brick.point = Shape(
+    BRICK.hasUnit.exactly(1),
+    bacnet.bacnet_point,
+    targets=[objects_of(BRICK.hasPoint)],
+    doc="Every point states its unit and the BACnet object that holds its value.",
+)
 
-if __name__ == "__main__":
-    print(brick, end="")
+points, parts = brick.points, brick.parts

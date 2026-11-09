@@ -1,0 +1,16 @@
+-- Shapes for the VAV boxes of a building.
+base <urn:example/tutorial/>
+prefix brick: <https://brickschema.org/schema/Brick#>
+
+doc "A VAV box: fed by one AHU, with an airflow sensor and a damper."
+shape vav for every brick:VAV {
+  fed: brick:isFedBy exactly 1, each a brick:AHU
+  flow: brick:hasPoint at least 1 is a brick:Air_Flow_Sensor
+  damper: brick:hasPart at least 1 matches damper
+}
+
+doc "A damper that can be commanded to a position."
+shape damper {
+  is a brick:Damper
+  brick:hasPoint at least 1 is a brick:Damper_Position_Command
+}

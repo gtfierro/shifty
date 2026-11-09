@@ -1,7 +1,10 @@
-from shifty import shapeshift as ss
-from shifty.shapeshift import Class, Path, Shape
+from datetime import date
+
+from shifty.experimental import shapeshift as ss
+from shifty.experimental.shapeshift import Class, Path, Shape
 
 BRICK = ss.Namespace("brick", "https://brickschema.org/schema/Brick#")
+EX = ss.Namespace("ex", "https://example.org/building#")
 
 m = ss.Module("vav", base="urn:example/vav/")
 m.points = Path(BRICK.hasPoint)
@@ -18,6 +21,10 @@ m.vav = Shape(
     m.points.required(flow=BRICK.Air_Flow_Sensor),
     m.damper | m.damper_command,
     temp=with_point(BRICK.Zone_Air_Temperature_Sensor),
+    fed=BRICK.isFedBy.exactly(1).each(BRICK.AHU | BRICK.RTU),
+    commissioned=EX.commissioned.optional().each(
+        ss.datatype("date"), ss.value_range(date(2000, 1, 1))
+    ),
     for_every=BRICK.VAV,
     doc="A VAV box.",
 )

@@ -45,6 +45,8 @@ pub enum BooleanFrame {
     When,
     /// `at least n of {...} {...}`.
     AtLeast(u64),
+    /// `at most n of {...} {...}`.
+    AtMost(u64),
 }
 
 impl BooleanFrame {
@@ -57,6 +59,7 @@ impl BooleanFrame {
             Self::NoneOf => "none of".into(),
             Self::When => "when".into(),
             Self::AtLeast(n) => format!("at least {n} of"),
+            Self::AtMost(n) => format!("at most {n} of"),
         }
     }
 }

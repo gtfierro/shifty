@@ -794,6 +794,13 @@ impl<'p> Builder<'p> {
                 b.to_string(),
                 NamedNode::new_unchecked(format!("{XSD}boolean")),
             ))),
+            Value::Temporal(t) => match temporal_literal(t) {
+                Ok(l) => Some(Term::Literal(l)),
+                Err(e) => {
+                    self.error(ctx.module, span, e);
+                    None
+                }
+            },
         }
     }
 
@@ -1092,7 +1099,9 @@ impl<'p> Builder<'p> {
             }
         }
         if let Some(l) = closed.first() {
-            let mut q = BTreeSet::new();
+            // `rdf:type` is always allowed: a closed shape is about a node's
+            // properties, and listing its type to allow it is busywork.
+            let mut q = BTreeSet::from([NamedNode::new_unchecked(format!("{RDF}type"))]);
             let mut seen = HashSet::new();
             for p in &parts {
                 self.collect_preds(*p, &mut q, &mut seen);
@@ -1333,6 +1342,23 @@ impl<'p> Builder<'p> {
                 each.push(s);
             }
         }
+        let each_tests = || {
+            f.qualifiers.iter().filter_map(|q| match q {
+                Qualifier::Each(t) => Some(t),
+                _ => None,
+            })
+        };
+        if each_tests()
+            .any(|t| matches!(t, Test::Datatype(DatatypeRef::Builtin(w)) if w == "string"))
+            && each_tests().any(|t| matches!(t, Test::Language(_)))
+        {
+            let d = self.warning(
+                ctx.module,
+                span,
+                "no value can be both `string` and `language ...`: a string with a language tag is an `rdf:langString`, not an `xsd:string`",
+            );
+            d.hint = Some("drop `each string`, or write `each literal`".into());
+        }
         if !each.is_empty() {
             let inner = self.schema.arena.and(each);
             let neg = self.schema.arena.not(inner);
@@ -1341,7 +1367,7 @@ impl<'p> Builder<'p> {
         if let Some(c) = &f.count {
             let (min, max) = match c {
                 Count::Required => (Some(1), None),
-                Count::Optional => (None, None),
+                Count::Optional => (None, Some(1)),
                 Count::Exactly(n) => {
                     let n = self.int(ctx, span, n)?;
                     (Some(n), Some(n))
@@ -1380,13 +1406,13 @@ impl<'p> Builder<'p> {
                 }
                 Qualifier::SameAs(p)
                 | Qualifier::DifferentFrom(p)
-                | Qualifier::LessThan(p)
-                | Qualifier::AtMostProperty(p) => {
+                | Qualifier::Below(p)
+                | Qualifier::UpTo(p) => {
                     let other = self.named_node(ctx, span, p, Some(TermKind::Property))?;
                     let shape = match q {
                         Qualifier::SameAs(_) => Shape::Eq(path.clone(), other),
                         Qualifier::DifferentFrom(_) => Shape::Disj(path.clone(), other),
-                        Qualifier::LessThan(_) => Shape::Lt(path.clone(), other),
+                        Qualifier::Below(_) => Shape::Lt(path.clone(), other),
                         _ => Shape::Le(path.clone(), other),
                     };
                     parts.push(self.schema.arena.insert(shape));
@@ -1563,10 +1589,17 @@ impl<'p> Builder<'p> {
         let a = &mut self.schema.arena;
         let _ = a;
         Some(match t {
-            Test::Class(n) => {
-                let c = self.resolve_node(ctx, span, n, Some(TermKind::Class))?;
-                let tc = self.schema.arena.insert(Shape::TestConst(c));
-                self.schema.arena.count(class_path(), Some(1), None, tc)
+            Test::Class(ns) => {
+                let mut alts = Vec::new();
+                for n in ns {
+                    let c = self.resolve_node(ctx, span, n, Some(TermKind::Class))?;
+                    alts.push(self.class_test(c));
+                }
+                if alts.len() == 1 {
+                    alts[0]
+                } else {
+                    self.schema.arena.or(alts)
+                }
             }
             Test::Matches(call) => self.call(ctx, call, false)?,
             Test::Item(Item::Class(n)) => {
@@ -1575,10 +1608,6 @@ impl<'p> Builder<'p> {
             }
             Test::Item(Item::Shape(call)) => self.item(ctx, span, call)?,
             Test::Shape(b) => self.block(ctx, &b.lines, ctx.owner),
-            Test::Is(v) => {
-                let t = self.value_term(ctx, span, v)?;
-                self.schema.arena.insert(Shape::TestConst(t))
-            }
             Test::OneOf(vs) => {
                 let mut alts = Vec::new();
                 for v in vs {
@@ -1601,6 +1630,16 @@ impl<'p> Builder<'p> {
             }
             Test::Datatype(DatatypeRef::Node(n)) => {
                 let d = self.named_node(ctx, span, n, None)?;
+                if let Some((w, _)) = DATATYPE_KEYWORDS.iter().find(|(_, i)| *i == d.as_str()) {
+                    let text = display::node(n);
+                    let e = self.error(
+                        ctx.module,
+                        span,
+                        format!("`datatype {text}` is written `{w}`"),
+                    );
+                    e.hint = Some(format!("write `{w}`"));
+                    return None;
+                }
                 self.schema
                     .arena
                     .insert(Shape::TestType(ValueType::Datatype(d)))
@@ -1617,7 +1656,7 @@ impl<'p> Builder<'p> {
                     self.error(
                         ctx.module,
                         span,
-                        format!("`length {a} to {b}` can never hold: the minimum is larger than the maximum"),
+                        format!("`length from {a} to {b}` can never hold: the minimum is larger than the maximum"),
                     );
                     return None;
                 }
@@ -1626,28 +1665,62 @@ impl<'p> Builder<'p> {
                     max: *max,
                 }))
             }
-            Test::Range { from, to } => {
-                let lo = from.as_ref().map(|n| Bound {
-                    value: number_literal(n),
-                    inclusive: true,
-                });
-                let hi = to.as_ref().map(|n| Bound {
-                    value: number_literal(n),
-                    inclusive: true,
-                });
-                if let (Some(f), Some(t)) = (from, to)
-                    && let (Ok(a), Ok(b)) = (f.lexical.parse::<f64>(), t.lexical.parse::<f64>())
-                    && a > b
-                {
-                    self.error(
-                        ctx.module,
-                        span,
-                        format!(
-                            "`from {} to {}` can never hold: the lower end is above the upper end",
-                            f.lexical, t.lexical
-                        ),
-                    );
-                    return None;
+            Test::Range { lo: from, hi: to } => {
+                let mut end = |e: &RangeEnd| -> Option<Bound> {
+                    let value = match &e.value {
+                        Value::Number(n) => number_literal(n),
+                        Value::Temporal(t) => match temporal_literal(t) {
+                            Ok(l) => l,
+                            Err(msg) => {
+                                self.error(ctx.module, span, msg);
+                                return None;
+                            }
+                        },
+                        _ => unreachable!("the parser reads a range's ends as numbers or dates"),
+                    };
+                    Some(Bound {
+                        value,
+                        inclusive: e.inclusive,
+                    })
+                };
+                let lo = match from {
+                    Some(e) => Some(end(e)?),
+                    None => None,
+                };
+                let hi = match to {
+                    Some(e) => Some(end(e)?),
+                    None => None,
+                };
+                if let (Some(f), Some(t), Some(l), Some(h)) = (from, to, &lo, &hi) {
+                    let text = display::test(&Test::Range {
+                        lo: from.clone(),
+                        hi: to.clone(),
+                    });
+                    let (fk, tk) = (range_kind(&f.value), range_kind(&t.value));
+                    if fk != tk {
+                        self.error(
+                            ctx.module,
+                            span,
+                            format!(
+                                "`{text}` compares a {fk} with a {tk}: both ends of a range are the same kind of value"
+                            ),
+                        );
+                        return None;
+                    }
+                    let empty =
+                        match shifty_algebra::value_type::compare_literals(&l.value, &h.value) {
+                            Some(std::cmp::Ordering::Greater) => true,
+                            Some(std::cmp::Ordering::Equal) => !(f.inclusive && t.inclusive),
+                            _ => false,
+                        };
+                    if empty {
+                        self.error(
+                            ctx.module,
+                            span,
+                            format!("`{text}` can never hold: no {fk} is in it"),
+                        );
+                        return None;
+                    }
                 }
                 self.schema
                     .arena
@@ -2108,7 +2181,6 @@ impl<'p> Builder<'p> {
             .collect();
         let a = &mut self.schema.arena;
         let (frame, slot) = match b.frame {
-            Frame::AllOf => (shifty_algebra::BooleanFrame::AllOf, a.and(branches.clone())),
             Frame::AnyOf => (shifty_algebra::BooleanFrame::AnyOf, a.or(branches.clone())),
             Frame::ExactlyOneOf => (
                 shifty_algebra::BooleanFrame::ExactlyOneOf,
@@ -2129,6 +2201,10 @@ impl<'p> Builder<'p> {
                 shifty_algebra::BooleanFrame::AtLeast(n),
                 threshold(a, &branches, n as usize),
             ),
+            Frame::AtMost(n) => {
+                let over = threshold(a, &branches, n as usize + 1);
+                (shifty_algebra::BooleanFrame::AtMost(n), a.not(over))
+            }
         };
         if slot.0 >= mark && !branches.contains(&slot) && self.schema.names_of(slot).is_empty() {
             self.schema.add_origin(
@@ -2266,6 +2342,37 @@ fn threshold(a: &mut shifty_algebra::ShapeArena, branches: &[ShapeId], n: usize)
         s
     }
     t(a, branches, &mut memo, 0, n)
+}
+
+/// What a range's end is, for messages: `a number`, `a date`, ...
+fn range_kind(v: &Value) -> &'static str {
+    match v {
+        Value::Temporal(t) => match t.kind {
+            TemporalKind::Date => "date",
+            TemporalKind::DateTime => "dateTime",
+            TemporalKind::Time => "time",
+        },
+        _ => "number",
+    }
+}
+
+/// `2024-01-31` as an `xsd:date` literal, checking that its fields are in
+/// range (no month 13, no February 30).
+fn temporal_literal(t: &Temporal) -> Result<Literal, String> {
+    use std::str::FromStr;
+    let ok = match t.kind {
+        TemporalKind::Date => oxsdatatypes::Date::from_str(&t.lexical).is_ok(),
+        TemporalKind::DateTime => oxsdatatypes::DateTime::from_str(&t.lexical).is_ok(),
+        TemporalKind::Time => oxsdatatypes::Time::from_str(&t.lexical).is_ok(),
+    };
+    let name = t.kind.xsd_name();
+    if !ok {
+        return Err(format!("`{}` is not a valid xsd:{name}", t.lexical));
+    }
+    Ok(Literal::new_typed_literal(
+        t.lexical.clone(),
+        NamedNode::new_unchecked(format!("{XSD}{name}")),
+    ))
 }
 
 fn number_literal(n: &Number) -> Literal {
@@ -2449,7 +2556,11 @@ impl SortVisitor<'_, '_, '_> {
 
     fn test(&mut self, t: &Test, span: Span) {
         match t {
-            Test::Class(n) => self.node(n, span),
+            Test::Class(ns) => {
+                for n in ns {
+                    self.node(n, span);
+                }
+            }
             Test::Matches(c) => self.call(c),
             Test::Item(Item::Class(n)) => self.node(n, span),
             Test::Item(Item::Shape(c))
@@ -2460,7 +2571,6 @@ impl SortVisitor<'_, '_, '_> {
                 self.use_(&c.name, Sort::Test, c.span)
             }
             Test::Item(Item::Shape(c)) => self.call(c),
-            Test::Is(v) => self.value(v, span),
             Test::OneOf(vs) => {
                 for v in vs {
                     self.value(v, span);
@@ -2519,8 +2629,8 @@ impl SortVisitor<'_, '_, '_> {
                         }
                         Qualifier::SameAs(n)
                         | Qualifier::DifferentFrom(n)
-                        | Qualifier::LessThan(n)
-                        | Qualifier::AtMostProperty(n) => self.node(n, span),
+                        | Qualifier::Below(n)
+                        | Qualifier::UpTo(n) => self.node(n, span),
                         Qualifier::UniqueLanguage => {}
                     }
                 }

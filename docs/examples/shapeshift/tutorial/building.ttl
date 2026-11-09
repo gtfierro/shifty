@@ -1,0 +1,21 @@
+@prefix brick: <https://brickschema.org/schema/Brick#> .
+@prefix ex: <urn:example/building/> .
+
+ex:ahu-1 a brick:AHU .
+
+ex:vav-1 a brick:VAV ;
+    brick:isFedBy ex:ahu-1 ;
+    brick:hasPoint ex:vav-1-flow ;
+    brick:hasPart ex:vav-1-damper .
+ex:vav-1-flow a brick:Air_Flow_Sensor .
+ex:vav-1-damper a brick:Damper ;
+    brick:hasPoint ex:vav-1-damper-cmd .
+ex:vav-1-damper-cmd a brick:Damper_Position_Command .
+
+# vav-2's damper has no position command.
+ex:vav-2 a brick:VAV ;
+    brick:isFedBy ex:ahu-1 ;
+    brick:hasPoint ex:vav-2-flow ;
+    brick:hasPart ex:vav-2-damper .
+ex:vav-2-flow a brick:Air_Flow_Sensor .
+ex:vav-2-damper a brick:Damper .

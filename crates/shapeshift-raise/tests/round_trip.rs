@@ -265,19 +265,26 @@ prefix ex: <https://example.org/>
 shape Contractor { ex:agency required }
 
 shape Person for every ex:Person {
-  ex:name required, each string, each length 1 to 80, each pattern "^[A-Z]" flags "i"
+  ex:name required, each string, each length from 1 to 80, each pattern "^[A-Z]" flags "i"
   ex:age optional, each integer, each from 0 to 150
+  ex:height each above 0 below 3.5
+  ex:born optional, each date, each from 1900-01-01 below 2030-01-01
+  ex:shift each from 08:00:00 to 18:00:00
+  ex:role each a ex:Manager or ex:Engineer
+  ex:weight each decimal, each up to 500
   ex:email at most 3, each iri
   ex:nick each language "en" "fr"
   ex:label unique language
-  ex:start less than ex:end
+  ex:start below ex:end
+  ex:low up to ex:high
   ex:givenName different from ex:familyName
   ex:status each one of ex:Active ex:Retired "unknown" 3
   ex:knows/ex:name or ^ex:parent each literal
-  ex:tag at least 2 is "important"
-  ex:manager at most 1 is matches Contractor
-  none of { ex:deceased is true }
+  ex:tag at least 2 is one of "important"
+  ex:manager at most 1 matches Contractor
+  none of { ex:deceased each one of true }
   any of { ex:phone required } { ex:email required }
+  at most 1 of { ex:phone required } { ex:fax required } { ex:pager required }
 }
 "#;
     let parsed = shapeshift_parse::parse(src, "v.shm");
@@ -327,7 +334,8 @@ fn g36_round_trips_through_shacl() {
 }
 
 /// Every shape in BuildingMOTIF's Guideline 36 library means the same as its
-/// Shapeshift translation in `examples/shapeshift/g36`. Point
+/// Shapeshift translation in `examples/shapeshift/g36`, where the translation
+/// keeps it as a separate shape, and every numbered rule is kept. Point
 /// `BUILDINGMOTIF_G36` at `BuildingMOTIF/libraries/ashrae/guideline36` and
 /// run with `--ignored`.
 ///
@@ -385,6 +393,25 @@ fn g36_matches_buildingmotif() {
         }
         .shape(id, true)
     };
+    // The translation may inline the library's helper shapes, but every
+    // numbered rule (each section's shape and each fault condition) must be
+    // there to compare.
+    let sections = [
+        "4.1/vav-cooling-only/vav-cooling-only",
+        "4.2/vav-with-reheat/vav-with-reheat",
+        "4.3/fan-powered/terminal-unit",
+        "4.4/dual-duct-terminal-unit-with-inlet-sensors/terminal-unit",
+        "4.5/dual-duct-terminal-unit-with-discharge/terminal-unit",
+        "4.6/mz-vav-ahu/AHU",
+        "4.8/sz-vav-ahu/sz-vav-ahu",
+    ];
+    let is_rule = |name: &str| {
+        let local = name.trim_start_matches("urn:ashrae/g36/");
+        sections.contains(&local)
+            || local
+                .rsplit_once("/fc-")
+                .is_some_and(|(_, n)| n.parse::<u32>().is_ok())
+    };
     let mut compared = 0;
     let mut absent = Vec::new();
     let mut differ = Vec::new();
@@ -394,6 +421,7 @@ fn g36_matches_buildingmotif() {
         .collect();
     names.sort();
     names.dedup();
+    let rules = names.iter().filter(|n| is_rule(n)).count();
     for name in names {
         let a = lowered.slot_named(&name).unwrap();
         let Some((b, ours)) = builds
@@ -418,5 +446,14 @@ fn g36_matches_buildingmotif() {
         differ.len(),
         differ.join("\n")
     );
-    assert!(compared > 80, "only {compared} shapes compared");
+    let missing: Vec<&String> = absent.iter().filter(|n| is_rule(n)).collect();
+    assert!(
+        missing.is_empty(),
+        "rules missing from the translation: {missing:?}"
+    );
+    // 7 sections and 38 fault conditions
+    assert!(
+        rules >= 45,
+        "only {rules} rules read from BuildingMOTIF's library"
+    );
 }

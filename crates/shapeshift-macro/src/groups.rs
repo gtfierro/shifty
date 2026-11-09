@@ -243,8 +243,8 @@ impl Cx<'_> {
             Qualifier::Each(t) | Qualifier::Qualified { test: t, .. } => self.test(t, span),
             Qualifier::SameAs(n) => *n = self.property(n, span, "`same as`"),
             Qualifier::DifferentFrom(n) => *n = self.property(n, span, "`different from`"),
-            Qualifier::LessThan(n) => *n = self.property(n, span, "`less than`"),
-            Qualifier::AtMostProperty(n) => *n = self.property(n, span, "`at most`"),
+            Qualifier::Below(n) => *n = self.property(n, span, "`below`"),
+            Qualifier::UpTo(n) => *n = self.property(n, span, "`up to`"),
             Qualifier::UniqueLanguage => {}
         }
     }
@@ -522,7 +522,36 @@ impl Cx<'_> {
         // Comments and annotations written on the group line go to its first row.
         let mut lead_comments = line.comments.clone();
         let mut lead_annotations = line.annotations.clone();
+        let mut seen: HashMap<String, Span> = HashMap::new();
         for r in &g.rows {
+            if r.label.is_none() && r.body.is_none() {
+                let item = crate::display::row_item(&r.item);
+                if let Some(first) = seen.get(&item).copied() {
+                    let n = g
+                        .rows
+                        .iter()
+                        .filter(|x| {
+                            x.label.is_none()
+                                && x.body.is_none()
+                                && crate::display::row_item(&x.item) == item
+                        })
+                        .count();
+                    self.diags.push(
+                        Diagnostic::warning(
+                            format!(
+                                "`{item}` is listed twice, so both rows can hold of the same value"
+                            ),
+                            loc(self.p, self.m, r.span),
+                        )
+                        .with_note(format!("first listed on line {}", first.line))
+                        .with_hint(format!(
+                            "for {n} of them, write one row: `{item} exactly {n}`; to tell them apart, label the rows"
+                        )),
+                    );
+                } else {
+                    seen.insert(item, r.span);
+                }
+            }
             let test = self.row_test(r);
             let qualifiers = bounds(r.count.as_ref().unwrap_or(&default))
                 .into_iter()
@@ -547,7 +576,6 @@ impl Cx<'_> {
                     path: path.clone(),
                     count: None,
                     qualifiers,
-                    block: false,
                 }),
                 annotations,
                 span: r.span,

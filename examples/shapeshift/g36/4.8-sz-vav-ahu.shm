@@ -1,5 +1,6 @@
 -- ASHRAE Guideline 36-2021, 4.8: single-zone VAV air handling unit.
--- Translated from BuildingMOTIF's libraries/ashrae/guideline36/4.8-sz-vav-ahu.ttl.
+-- Translated from BuildingMOTIF's
+-- libraries/ashrae/guideline36/4.8-sz-vav-ahu.ttl.
 base <urn:ashrae/g36/4.8/sz-vav-ahu/>
 import "./brick.shm"
 import "./components.shm" as components
@@ -8,10 +9,10 @@ prefix brick: <https://brickschema.org/schema/Brick#>
 
 doc "4.8 Single-zone VAV air handling unit"
 shape sz-vav-ahu {
-  is brick:AHU
+  is a brick:AHU
   parts {
-    sa_fan:    sa-fan
-    oa_damper: brick:Outside_Damper { points { dmppos: brick:Damper_Position_Command } }
+    sa_fan:    components.vfd-fan(brick:Supply_Fan)
+    oa_damper: components.positioned-damper(brick:Outside_Damper)
   }
   points {
     sa_temp:   brick:Supply_Air_Temperature_Sensor
@@ -19,33 +20,10 @@ shape sz-vav-ahu {
     ma_temp:   brick:Mixed_Air_Temperature_Sensor
     ra_temp:   brick:Return_Air_Temperature_Sensor
     filter_pd: brick:Filter_Differential_Pressure_Sensor
+    clg:       brick:Cooling_Command
+    htg:       brick:Heating_Command
   }
-  components.clg-signal
-  components.htg-signal
   vav41.zone-temperature
   vav41.occupancy-sensor
   vav41.zone-co2-level
-}
-
-shape sa-fan { components.vfd-fan(brick:Supply_Fan) }
-
--- Points that must state their unit.
-shape sa-temp { components.with-unit(brick:Supply_Air_Temperature_Sensor) }
-shape oa-temp { components.with-unit(brick:Outside_Air_Temperature_Sensor) }
-shape ma-temp { components.with-unit(brick:Mixed_Air_Temperature_Sensor) }
-shape ra-temp { components.with-unit(brick:Return_Air_Temperature_Sensor) }
-shape filter-pd { components.with-unit(brick:Filter_Differential_Pressure_Sensor) }
-shape clg-signal { components.with-unit(brick:Cooling_Command) }
-shape htg-signal { components.with-unit(brick:Heating_Command) }
-
--- As in the original. Brick has no `Zone_Temperature_Sensor` (it has
--- `Zone_Air_Temperature_Sensor`), so `shifty shape check` with Brick
--- imported flags this line.
-shape zone-temperature { components.with-unit(brick:Zone_Temperature_Sensor) }
-shape occupancy-sensor { components.with-unit(brick:Occupancy_Sensor) }
-shape zone-co2-level { components.with-unit(brick:CO2_Level_Sensor) }
-
-shape oa-ra-damper {
-  is brick:Damper
-  points required { dmppos: brick:Damper_Position_Command }
 }

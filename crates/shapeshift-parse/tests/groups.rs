@@ -48,7 +48,8 @@ shape vav {
   is a brick:VAV
   points {
     sat: brick:Supply_Air_Temperature_Sensor
-    flow: brick:Air_Flow_Sensor optional doc "if metered"
+    doc "if metered"
+    flow: brick:Air_Flow_Sensor optional
     sensor
   }
   points between 1 and 3 { dmp: brick:Damper_Position_Command }
@@ -65,12 +66,12 @@ shape sensor { is a brick:Temperature_Sensor }
 
 shape vav {
   is a brick:VAV
-  sat: brick:hasPoint exactly 1 is brick:Supply_Air_Temperature_Sensor
+  sat: brick:hasPoint exactly 1 is a brick:Supply_Air_Temperature_Sensor
   doc "if metered"
-  flow: brick:hasPoint at most 1 is brick:Air_Flow_Sensor
-  sensor: brick:hasPoint exactly 1 is sensor
-  dmp: brick:hasPoint at least 1 is brick:Damper_Position_Command, at most 3 is brick:Damper_Position_Command
-  zone: brick:feeds+/brick:hasPart? at least 1 is brick:HVAC_Zone
+  flow: brick:hasPoint at most 1 is a brick:Air_Flow_Sensor
+  sensor: brick:hasPoint exactly 1 matches sensor
+  dmp: brick:hasPoint at least 1 is a brick:Damper_Position_Command, at most 3 is a brick:Damper_Position_Command
+  zone: brick:feeds+/brick:hasPart? at least 1 is a brick:HVAC_Zone
 }
 "#,
     );
