@@ -42,7 +42,9 @@ doc "FC#6: OA fraction is too low or too high; should equal %OA_MIN"
 shape fc-6 {
   is brick:Air_Handling_Unit
   points required { RAT_AVG; OAT_AVG }
-  any of { percent-oa-fraction } {
+  any of {
+    percent-oa-fraction
+  } {
     points required {
       brick:Outside_Air_Flow_Sensor doc "actual outdoor air fraction per airflow measurement station if available."
     }

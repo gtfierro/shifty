@@ -296,6 +296,51 @@ fn argument_errors_explain_themselves() {
     }
 }
 
+/// `src`, run through the formatter, is `want`; and `want` is a fixed point.
+fn formats_as(src: &str, want: &str) {
+    let got = format(src, "t.shm").unwrap();
+    assert_eq!(got, want, "\n--- formatted ---\n{got}");
+    assert_eq!(format(want, "t.shm").unwrap(), want, "not a fixed point");
+}
+
+#[test]
+fn long_lines_wrap() {
+    let pre = "prefix ex: <http://example.org/>\n\n\
+               shape T(cls, room = ex:Room) { ex:p each cls }\n\n";
+    // a call that does not fit takes one argument per line
+    formats_as(
+        &format!(
+            "{pre}shape S {{\n  sensor: T(ex:A_Rather_Long_Sensor_Class_Name, room = ex:A_Rather_Long_Room_Class_Name_Indeed)\n}}\n"
+        ),
+        &format!(
+            "{pre}shape S {{\n  sensor: T(\n    ex:A_Rather_Long_Sensor_Class_Name,\n    room = ex:A_Rather_Long_Room_Class_Name_Indeed,\n  )\n}}\n"
+        ),
+    );
+    // a field that does not fit opens the inline shape that ends it
+    formats_as(
+        &format!(
+            "{pre}shape S {{\n  fed: ex:feeds at least 1 is {{ is ex:HVAC_Zone; ex:hasPoint required; ex:hasPart required }}\n}}\n"
+        ),
+        &format!(
+            "{pre}shape S {{\n  fed: ex:feeds at least 1 is {{\n    is ex:HVAC_Zone\n    ex:hasPoint required\n    ex:hasPart required\n  }}\n}}\n"
+        ),
+    );
+    // and a comment inside an inline shape keeps it open
+    formats_as(
+        &format!("{pre}shape S {{\n  ex:p each {{\n    -- why\n    ex:q required\n  }}\n}}\n"),
+        &format!("{pre}shape S {{\n  ex:p each {{\n    -- why\n    ex:q required\n  }}\n}}\n"),
+    );
+    // when one branch needs lines of its own, every branch gets them
+    formats_as(
+        &format!(
+            "{pre}shape S {{\n  any of {{ ex:a required }} {{ ex:b required\n -- note\n ex:c required }}\n}}\n"
+        ),
+        &format!(
+            "{pre}shape S {{\n  any of {{\n    ex:a required\n  }} {{\n    ex:b required\n    -- note\n    ex:c required\n  }}\n}}\n"
+        ),
+    );
+}
+
 #[test]
 fn new_forms_survive_formatting() {
     let src = r#"prefix ex: <http://example.org/>

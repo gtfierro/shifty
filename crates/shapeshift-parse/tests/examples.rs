@@ -39,6 +39,22 @@ fn examples_parse_without_diagnostics() {
 }
 
 #[test]
+fn g36_examples_are_formatted() {
+    for path in shm_files() {
+        if !path.components().any(|c| c.as_os_str() == "g36") {
+            continue;
+        }
+        let src = std::fs::read_to_string(&path).unwrap();
+        let label = path.display().to_string();
+        let formatted = format(&src, &label).unwrap();
+        assert_eq!(
+            src, formatted,
+            "{label} is not formatted; run `shifty shape fmt` on it"
+        );
+    }
+}
+
+#[test]
 fn examples_round_trip_parse_format_parse() {
     for path in shm_files() {
         let src = std::fs::read_to_string(&path).unwrap();

@@ -34,13 +34,10 @@ shape sa-temp { components.with-unit(brick:Supply_Air_Temperature_Sensor) }
 shape oa-temp { components.with-unit(brick:Outside_Air_Temperature_Sensor) }
 shape ma-temp { components.with-unit(brick:Mixed_Air_Temperature_Sensor) }
 shape ra-temp { components.with-unit(brick:Return_Air_Temperature_Sensor) }
-
-shape filter-pd {
-  components.with-unit(brick:Filter_Differential_Pressure_Sensor)
-}
-
+shape filter-pd { components.with-unit(brick:Filter_Differential_Pressure_Sensor) }
 shape clg-signal { components.with-unit(brick:Cooling_Command) }
 shape htg-signal { components.with-unit(brick:Heating_Command) }
+
 -- As in the original. Brick has no `Zone_Temperature_Sensor` (it has
 -- `Zone_Air_Temperature_Sensor`), so `shifty shape check` with Brick
 -- imported flags this line.

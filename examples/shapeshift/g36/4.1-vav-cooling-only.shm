@@ -4,6 +4,9 @@ base <urn:ashrae/g36/4.1/vav-cooling-only/>
 import "./brick.shm"
 prefix brick: <https://brickschema.org/schema/Brick#>
 
+-- Zone sensors may sit on the box, or in a zone or room downstream of it.
+path downstream = brick:feeds+/brick:hasPart?
+
 doc "4.1 VAV terminal unit, cooling only"
 shape vav-cooling-only {
   is brick:VAV
@@ -28,20 +31,26 @@ shape damper-with-position {
 
 shape discharge-airflow { points required { flow: brick:Discharge_Air_Flow_Sensor } }
 
--- Zone sensors may sit on the box, or in a zone or room downstream of it.
-path downstream = brick:feeds+/brick:hasPart?
-
-doc "At least `n` points of class `cls` on the box, or a zone it feeds with one, or a `room` with a `room_cls`."
+-- At least `n` points of class `cls` on the box, or in a zone it feeds (or a
+-- `room` of that zone, with points of class `room_cls`).
+doc "Points of class `cls` on the box, or in a zone or room it feeds."
 shape on-box-or-downstream(cls, room = brick:Room, room_cls = cls, n = 1) {
-  any of { points at least n { on_box: cls } }
-         { downstream: downstream at least n is {
-             any of { is brick:HVAC_Zone; points required { cls } }
-                    { is room; points required { room_cls } } } }
+  any of {
+    points at least n { on_box: cls }
+  } {
+    in_zone: downstream at least n is {
+      any of { is brick:HVAC_Zone; points required { cls } }
+             { is room; points required { room_cls } }
+    }
+  }
 }
 
 doc "A zone temperature sensor, on the box or in a zone or room it feeds."
 shape zone-temperature {
-  ztemp: on-box-or-downstream(brick:Zone_Air_Temperature_Sensor, room_cls = brick:Temperature_Sensor)
+  ztemp: on-box-or-downstream(
+    brick:Zone_Air_Temperature_Sensor,
+    room_cls = brick:Temperature_Sensor,
+  )
 }
 
 -- G36 lists occupancy, CO2, and the window switch as optional. The library

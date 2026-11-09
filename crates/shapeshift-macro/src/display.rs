@@ -245,19 +245,18 @@ fn line(out: &mut String, l: &Line, depth: usize) {
             qualifiers,
             ..
         }) if qualifiers.is_empty() => {
-            write!(out, "{indent}").unwrap();
+            let mut head = indent.clone();
             if let Some(n) = name {
-                write!(out, "{n}: ").unwrap();
+                write!(head, "{n}: ").unwrap();
             }
-            call_text(out, c, depth);
+            out.push_str(&head);
+            call_text(out, c, depth, head.len());
             writeln!(out, "{trailing}").unwrap();
         }
-        LineKind::Field(f) => {
-            writeln!(out, "{indent}{}{trailing}", field_text(f)).unwrap();
-        }
+        LineKind::Field(f) => field_line(out, f, depth, &trailing),
         LineKind::Include(c) => {
             write!(out, "{indent}").unwrap();
-            call_text(out, c, depth);
+            call_text(out, c, depth, indent.len());
             writeln!(out, "{trailing}").unwrap();
         }
         LineKind::Closed => {
@@ -273,6 +272,74 @@ fn line(out: &mut String, l: &Line, depth: usize) {
     }
 }
 
+/// The widest a formatted line should be.
+const WIDTH: usize = 88;
+
+/// A field on one line if it fits; otherwise with the inline shape that
+/// ends it opened over the lines below:
+///
+/// ```text
+/// in_zone: downstream at least n is {
+///   any of { ... } { ... }
+/// }
+/// ```
+fn field_line(out: &mut String, f: &Field, depth: usize, trailing: &str) {
+    let indent = "  ".repeat(depth);
+    if let Some(t) = field_inline(f)
+        && indent.len() + t.len() + trailing.len() <= WIDTH
+    {
+        writeln!(out, "{indent}{t}{trailing}").unwrap();
+        return;
+    }
+    let last = f.qualifiers.last().and_then(|q| match q {
+        Qualifier::Each(Test::Shape(b))
+        | Qualifier::Qualified {
+            test: Test::Shape(b),
+            ..
+        } => Some(b),
+        _ => None,
+    });
+    let Some(b) = last else {
+        writeln!(out, "{indent}{}{trailing}", field_text(f)).unwrap();
+        return;
+    };
+    // the line up to the shape: render it empty and drop the `{ }`
+    let mut head = f.clone();
+    if let Some(Qualifier::Each(t) | Qualifier::Qualified { test: t, .. }) =
+        head.qualifiers.last_mut()
+    {
+        *t = Test::Shape(Block {
+            lines: Vec::new(),
+            span: b.span,
+            trailing_comments: Vec::new(),
+        });
+    }
+    let head = field_text(&head);
+    let head = head.strip_suffix("{ }").unwrap_or(&head);
+    write!(out, "{indent}{head}").unwrap();
+    open_block(out, b, depth);
+    writeln!(out, "{trailing}").unwrap();
+}
+
+/// A field in one-line form, unless an inline shape in it holds comments
+/// that one line would lose.
+fn field_inline(f: &Field) -> Option<String> {
+    if f.block {
+        return None;
+    }
+    for q in &f.qualifiers {
+        if let Qualifier::Each(Test::Shape(b))
+        | Qualifier::Qualified {
+            test: Test::Shape(b),
+            ..
+        } = q
+        {
+            inline_block_within(b, usize::MAX)?;
+        }
+    }
+    Some(field_text(f))
+}
+
 fn is_line(t: &Test) -> String {
     match t {
         Test::Is(v @ Value::Node(_)) => format!("is one of {}", value(v)),
@@ -281,41 +348,57 @@ fn is_line(t: &Test) -> String {
     }
 }
 
-/// A call, with an inline shape passed last opened over several lines
-/// when it does not fit on one.
-fn call_text(out: &mut String, c: &Call, depth: usize) {
-    let last = c
-        .named
-        .last()
-        .map(|n| (Some(n.name.as_str()), &n.value))
-        .or_else(|| c.args.last().map(|a| (None, a)));
-    let Some((name, Arg::Shape(b))) = last else {
-        out.push_str(&call(c));
+/// A call starting at column `col`: on one line if it fits; else with an
+/// inline shape passed last opened below it; else one argument per line.
+fn call_text(out: &mut String, c: &Call, depth: usize, col: usize) {
+    let args: Vec<(Option<&str>, &Arg)> = c
+        .args
+        .iter()
+        .map(|a| (None, a))
+        .chain(c.named.iter().map(|n| (Some(n.name.as_str()), &n.value)))
+        .collect();
+    let opens =
+        |a: &Arg| matches!(a, Arg::Shape(b) if inline_block_within(b, usize::MAX).is_none());
+    let one = call(c);
+    if !args.iter().any(|(_, a)| opens(a)) && col + one.len() <= WIDTH {
+        out.push_str(&one);
         return;
-    };
-    if inline_block(b).is_some() {
-        out.push_str(&call(c));
-        return;
     }
-    let mut head = c.clone();
-    if name.is_some() {
-        head.named.pop();
-    } else {
-        head.args.pop();
+    // `W(x, {` ... `})`
+    if let Some(((name, Arg::Shape(b)), rest)) = args.split_last()
+        && !rest.iter().any(|(_, a)| opens(a))
+    {
+        let mut head = format!("{}(", c.name);
+        for (n, a) in rest {
+            if let Some(n) = n {
+                write!(head, "{n} = ").unwrap();
+            }
+            write!(head, "{}, ", arg(a)).unwrap();
+        }
+        if let Some(n) = name {
+            write!(head, "{n} = ").unwrap();
+        }
+        if col + head.len() < WIDTH {
+            out.push_str(&head);
+            open_block(out, b, depth);
+            out.push(')');
+            return;
+        }
     }
-    let mut before = call(&head);
-    if head.args.is_empty() && head.named.is_empty() {
-        before.push('(');
-    } else {
-        before.pop();
-        before.push_str(", ");
+    let inner = "  ".repeat(depth + 1);
+    writeln!(out, "{}(", c.name).unwrap();
+    for (n, a) in args {
+        out.push_str(&inner);
+        if let Some(n) = n {
+            write!(out, "{n} = ").unwrap();
+        }
+        match a {
+            Arg::Shape(b) => block_text(out, b, depth + 1),
+            a => out.push_str(&arg(a)),
+        }
+        out.push_str(",\n");
     }
-    out.push_str(&before);
-    if let Some(n) = name {
-        write!(out, "{n} = ").unwrap();
-    }
-    block_text(out, b, depth);
-    out.push(')');
+    write!(out, "{})", "  ".repeat(depth)).unwrap();
 }
 
 /// `PATH COUNT?`, the head of a group.
@@ -478,7 +561,7 @@ fn inline_line(l: &Line) -> Option<String> {
         return None;
     }
     match &l.kind {
-        LineKind::Field(f) if !f.block => Some(field_text(f)),
+        LineKind::Field(f) => field_inline(f),
         LineKind::Include(c) => Some(call(c)),
         LineKind::Closed => Some("only these properties".into()),
         LineKind::Is(t) => Some(is_line(t)),
@@ -541,6 +624,11 @@ fn block_text(out: &mut String, b: &Block, depth: usize) {
         out.push_str(&t);
         return;
     }
+    open_block(out, b, depth);
+}
+
+/// `{`, the block's lines one level in, and `}`.
+fn open_block(out: &mut String, b: &Block, depth: usize) {
     out.push_str("{\n");
     lines(out, &b.lines, depth + 1);
     for c in &b.trailing_comments {
@@ -590,10 +678,12 @@ fn boolean(out: &mut String, b: &Boolean, depth: usize, trailing: &str) {
                 }
                 return;
             }
+            // one branch needs lines of its own, so all of them get them,
+            // and the alternatives read alike
             write!(out, "{indent}{phrase}").unwrap();
             for blk in &b.blocks {
                 out.push(' ');
-                block_text(out, blk, depth);
+                open_block(out, blk, depth);
             }
             writeln!(out, "{trailing}").unwrap();
         }

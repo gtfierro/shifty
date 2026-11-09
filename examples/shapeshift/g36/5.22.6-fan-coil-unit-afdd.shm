@@ -28,11 +28,17 @@ shape fc-3 {
 doc "FC#4: Temperature drop across inactive cooling coil"
 shape fc-4 {
   is brick:Air_Handling_Unit
-  points required { SAT_AVG; RAT doc "return air temperature (if present)" }
+  points required {
+    SAT_AVG
+    RAT doc "return air temperature (if present)"
+  }
 }
 
 doc "FC#5: Temperature rise across inactive heating coil"
 shape fc-5 {
   is brick:Air_Handling_Unit
-  points required { SAT_AVG; RAT doc "return air temperature (if present)" }
+  points required {
+    SAT_AVG
+    RAT doc "return air temperature (if present)"
+  }
 }

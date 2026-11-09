@@ -13,6 +13,16 @@
 
 const commaSep1 = (rule) => seq(rule, repeat(seq(',', rule)));
 
+/**
+ * `( item, item )`, where the items may sit one per line with a trailing
+ * comma, as the formatter writes long calls.
+ */
+const parenList = ($, item, required) => {
+  const nl = optional($._nls);
+  const items = seq(item, nl, repeat(seq(',', nl, item, nl)), optional(seq(',', nl)));
+  return seq('(', nl, required ? items : optional(items), ')');
+};
+
 /** `{ item (sep+ item)* }` with optional leading/trailing separators. */
 const braced = ($, item) =>
   seq(
@@ -76,6 +86,8 @@ module.exports = grammar({
 
     _nl: (_) => /\n/,
 
+    _nls: ($) => repeat1($._nl),
+
     comment: (_) => token(seq('--', /[^\n]*/)),
 
     _declaration: ($) =>
@@ -118,7 +130,7 @@ module.exports = grammar({
         field('body', $.body),
       ),
 
-    parameters: ($) => seq('(', commaSep1(field('param', $.parameter)), ')'),
+    parameters: ($) => parenList($, field('param', $.parameter), true),
 
     /** `name` or `name = default` */
     parameter: ($) =>
@@ -259,7 +271,7 @@ module.exports = grammar({
         optional($.arguments),
       ),
 
-    arguments: ($) => seq('(', optional(commaSep1(choice($._arg, $.named_argument))), ')'),
+    arguments: ($) => parenList($, choice($._arg, $.named_argument), false),
 
     named_argument: ($) => seq(field('name', $.identifier), '=', field('value', $._arg)),
 

@@ -46,6 +46,12 @@
   unknown-name, duplicate, and missing-argument errors show the signature.
 - `include` is deprecated: write the shape or call alone on the line. It
   still parses, with a warning, and `shifty shape fmt` rewrites it.
+- `shifty shape fmt` wraps at 88 columns. A call that does not fit takes one
+  argument per line, a field opens the inline shape that ends it, and when
+  one branch of `any of` (or another frame) needs lines of its own, every
+  branch gets them. Inline shapes holding comments stay open instead of
+  losing them. Argument and parameter lists may span lines, with a trailing
+  comma.
 - Shapeshift labels nest. A label names what its line makes, and the names
   made on that line nest under it: `fan: vfd(brick:Supply_Fan)` in shape `ahu`
   is `ahu.fan`, and the `speed:` row inside `vfd` is `ahu.fan.speed`. The same
