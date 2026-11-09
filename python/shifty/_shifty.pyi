@@ -693,3 +693,25 @@ def _infer(
     base: Optional[str] = ...,
 ) -> InferResult: ...
 def expand_evidence_json(compact: str, catalog: Optional[str] = ...) -> str: ...
+
+class ShapeshiftError(ValueError): ...
+
+_ShapeshiftDiagnostic = Tuple[
+    str, str, Optional[str], Optional[int], Optional[int], Optional[str], str
+]
+
+def _shapeshift_keywords() -> List[str]: ...
+def _shapeshift_format(source: str, label: str = ...) -> str: ...
+def _shapeshift_check(
+    source: str,
+    label: str = ...,
+    directory: Optional[str] = ...,
+    catalog: Optional[Dict[str, str]] = ...,
+) -> List[_ShapeshiftDiagnostic]: ...
+def _shapeshift_export(
+    source: str,
+    label: str = ...,
+    directory: Optional[str] = ...,
+    catalog: Optional[Dict[str, str]] = ...,
+    core: bool = ...,
+) -> Tuple[str, List[str]]: ...

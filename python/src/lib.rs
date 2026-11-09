@@ -11,6 +11,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, OnceLock};
 
 mod repair;
+mod shm;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -1764,5 +1765,6 @@ fn _shifty(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(_validate_w3c, m)?)?;
     m.add_function(wrap_pyfunction!(_infer, m)?)?;
     repair::register(m)?;
+    shm::register(m)?;
     Ok(())
 }

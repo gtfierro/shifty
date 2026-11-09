@@ -67,6 +67,20 @@
   (`BUILDINGMOTIF_G36=… cargo test -p shapeshift-raise --test round_trip
   g36_matches -- --ignored`) checks every shape the translation keeps as a
   separate shape (84) against the original.
+- Python `shifty.shapeshift` builds Shapeshift modules from Python values.
+  Assigning to a module defines a name (`m.zone_temperature = Shape(...)` is
+  `shape zone-temperature`), and reading a name before it is defined refers
+  to it. `Shape(*lines, **labelled)` takes keyword arguments as named lines;
+  `&`, `|`, and `~` combine shapes as conjunction, `any of`, and `none of`;
+  `BRICK.Room & lines` is a class with lines its instances satisfy. Paths
+  combine with `/`, `|`, `~`, `.plus`, `.star`, and `.maybe`, and their
+  methods make lines (`points.required(sat=BRICK.SAT)`). `@m.template`
+  turns a function into a template, with Python defaults as its defaults and
+  `Class`-annotated parameters as classes. Prefixes and imports are declared
+  from use. `Module.source()` returns the text as `shifty shape fmt` formats
+  it; `write`, `check`, and `export` (SHACL Turtle) go through the CLI's
+  pipeline. `examples/shapeshift/g36/4.1-vav-cooling-only.py` regenerates the G36
+  `brick.shm` and `4.1-vav-cooling-only.shm` exactly.
 - Shape algebra: `Schema` carries imports, source origins, and docstrings,
   and supports `merge`. `shifty_opt::refused_components` reports the odd
   cycle that makes a component inadmissible. A shape-based target is

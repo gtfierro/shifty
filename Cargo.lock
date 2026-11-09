@@ -993,6 +993,7 @@ dependencies = [
  "oxttl",
  "pyo3",
  "serde_json",
+ "shapeshift",
  "shifty-algebra",
  "shifty-engine",
  "shifty-opt",

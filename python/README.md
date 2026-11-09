@@ -103,6 +103,45 @@ bindings for a focus node that fails another constraint. Symbolic repair is
 experimental. Start with the [tutorials](https://shifty.gtf.fyi/tutorials/index.html)
 or look up these interfaces in the [reference](https://shifty.gtf.fyi/reference/index.html).
 
+## Write shapes in Python
+
+`shifty.shapeshift` builds [Shapeshift](https://shifty.gtf.fyi/) modules,
+shifty's text language for shapes, and writes them as `.shm` or SHACL:
+
+```python
+from shifty import shapeshift as ss
+from shifty.shapeshift import Class, Path, Shape
+
+BRICK = ss.Namespace("brick", "https://brickschema.org/schema/Brick#")
+m = ss.Module("vav", base="urn:example/vav/")
+m.points = Path(BRICK.hasPoint)
+
+@m.template
+def with_point(cls: Class, n: int = 1):
+    """At least `n` points of class `cls`."""
+    return m.points.at_least(n, on_box=cls)
+
+m.vav = Shape(
+    BRICK.VAV,                                           # is brick:VAV
+    m.points.required(flow=BRICK.Discharge_Air_Flow_Sensor),
+    m.damper | m.damper_command,                         # any of; defined below
+    temp=with_point(BRICK.Zone_Air_Temperature_Sensor),  # a named line
+    for_every=BRICK.VAV,
+)
+m.damper = BRICK.hasPart.at_least(1, BRICK.Damper)
+m.damper_command = m.points.required(BRICK.Damper_Position_Command)
+
+print(m)            # vav.shm, formatted as `shifty shape fmt` would
+ttl = m.export()    # SHACL Turtle for shifty.validate
+```
+
+Assigning to a module defines a name (`m.damper` is `shape damper`), and
+reading a name not yet defined refers to it, so a module can read top-down.
+`&`, `|`, and `~` combine shapes as conjunction, `any of`, and `none of`;
+`BRICK.Room & lines` is a room whose lines hold. Keyword arguments name
+lines. `examples/shapeshift/g36/4.1-vav-cooling-only.py` in the repository
+writes a Guideline 36 module this way.
+
 ## Develop from a checkout
 
 From `python/`, use the locked uv environment:
