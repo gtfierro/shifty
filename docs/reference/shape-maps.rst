@@ -199,7 +199,9 @@ Duplicate-key ordinals are assigned in this order, consistently for every focus.
        or the binding combines multiple distinct count domains (for example
        ``sh:minCount`` and ``sh:qualifiedMinCount``).
    * - ``expects_single``
-     - True exactly for a ``1..1`` obligation.
+     - True when a single count domain declares a ``1..1`` obligation.
+       False for mixed domains, whose lower and upper bounds may apply to
+       different value sets.
    * - ``severity``
      - Effective SHACL severity, lowercase.
    * - ``annotated_values``

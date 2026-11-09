@@ -194,6 +194,33 @@ def test_distinct_count_domains_do_not_report_a_single_count(with_session):
         assert binding.values == [Iri("http://ex/good")]
 
 
+@pytest.mark.parametrize("with_session", [False, True])
+@pytest.mark.parametrize(
+    "constraints, values, expects_single",
+    [
+        (
+            "sh:minCount 1 ; sh:qualifiedValueShape [ sh:datatype xsd:string ] ; "
+            "sh:qualifiedMaxCount 1",
+            "7, 8",
+            False,
+        ),
+        ("sh:minCount 1 ; sh:maxCount 1", '"text"', True),
+        (
+            "sh:qualifiedValueShape [ sh:datatype xsd:string ] ; "
+            "sh:qualifiedMinCount 1 ; sh:qualifiedMaxCount 1",
+            '"text", 7',
+            True,
+        ),
+    ],
+)
+def test_expects_single_requires_bounds_on_one_count_domain(
+    with_session, constraints, values, expects_single
+):
+    binding = make_binding(constraints, values, session=with_session)
+    assert binding.ok
+    assert binding.expects_single is expects_single
+
+
 def test_optional_qualified_value_shape_still_extracts_and_counts_matches():
     binding = make_binding(
         "sh:qualifiedValueShape [ sh:class ex:V ]",

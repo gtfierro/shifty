@@ -15,6 +15,8 @@
 
 ### Fixed
 
+- `Binding.expects_single` requires a single count domain and cannot combine
+  ordinary lower bounds with qualified upper bounds into a false `1..1` hint.
 - Shape-map qualifier representatives use stable type and RDF-identity ordering,
   keeping keys consistent across processes when several class checks apply.
 - Shape-map explanations omit a combined count interval when bounds apply to

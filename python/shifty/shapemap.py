@@ -979,7 +979,8 @@ class Binding:
 
     @property
     def expects_single(self) -> bool:
-        return self._min == 1 and self._max == 1
+        """Whether one count domain declares a 1..1 obligation."""
+        return not self._ambiguous_counts and self._min == 1 and self._max == 1
 
     @property
     def annotated_values(self) -> "list[BoundValue]":
