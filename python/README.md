@@ -141,8 +141,8 @@ reading a name not yet defined refers to it, so a module can read top-down.
 `&`, `|`, and `~` combine shapes as conjunction, `any of`, and `none of`;
 `BRICK.Room & lines` is a room whose lines hold. Keyword arguments name
 lines. In the repository, `examples/shapeshift/g36/` writes Guideline 36
-sections 4.1 (`vav_cooling_only.py`), 4.2 (`vav_with_reheat.py`), and 4.8
-(`sz_vav_ahu.py`) this way.
+sections 4.1 (`vav_cooling_only.py`), 4.2 (`vav_with_reheat.py`), 4.3
+(`fan_powered.py`), and 4.8 (`sz_vav_ahu.py`) this way.
 
 ## Develop from a checkout
 

@@ -36,7 +36,14 @@ def one(*lines, **named) -> str:
 def g36(monkeypatch):
     """The Python modules in `examples/shapeshift/g36`, imported."""
     monkeypatch.syspath_prepend(str(G36))
-    names = ("brick", "components", "vav_cooling_only", "vav_with_reheat", "sz_vav_ahu")
+    names = (
+        "brick",
+        "components",
+        "vav_cooling_only",
+        "vav_with_reheat",
+        "fan_powered",
+        "sz_vav_ahu",
+    )
     return {name: importlib.import_module(name) for name in names}
 
 
@@ -47,6 +54,7 @@ def g36(monkeypatch):
         ("components", "components", "components.shm"),
         ("vav_cooling_only", "vav", "4.1-vav-cooling-only.shm"),
         ("vav_with_reheat", "reheat", "4.2-vav-with-reheat.shm"),
+        ("fan_powered", "fan_powered", "4.3-fan-powered.shm"),
         ("sz_vav_ahu", "ahu", "4.8-sz-vav-ahu.shm"),
     ],
 )
@@ -129,6 +137,42 @@ def test_reheat_boxes_need_a_heating_signal(g36):
     assert reheat.validate(
         rdflib.Graph().parse(data=coil, format="turtle"), targets=targets
     )[0]
+
+
+FAN_POWERED_MODEL = """
+@prefix brick: <https://brickschema.org/schema/Brick#> .
+@prefix ex: <urn:ex/> .
+
+ex:fpu a brick:Terminal_Unit ;
+    brick:hasPart ex:fan, ex:dmp ;
+    brick:hasPoint ex:flow, ex:sat, ex:htg ;
+    brick:feeds ex:zone .
+ex:fan a brick:Fan ; brick:hasPoint ex:speed, ex:start, ex:status .
+ex:speed a brick:Frequency_Command .
+ex:start a brick:Start_Stop_Command .
+ex:status a brick:Fan_Status .
+ex:dmp a brick:Damper ; brick:hasPoint ex:pos .
+ex:pos a brick:Damper_Position_Command .
+ex:flow a brick:Supply_Air_Flow_Sensor .
+ex:sat a brick:Supply_Air_Temperature_Sensor .
+ex:htg a brick:Heating_Command .
+ex:zone a brick:HVAC_Zone ; brick:hasPoint ex:temp .
+ex:temp a brick:Zone_Air_Temperature_Sensor .
+"""
+
+
+def test_fan_powered_units_need_their_fan_and_damper(g36):
+    unit, BRICK = g36["fan_powered"].fan_powered, g36["brick"].BRICK
+    targets = {unit.terminal_unit: BRICK.Terminal_Unit}
+    good = rdflib.Graph().parse(data=FAN_POWERED_MODEL, format="turtle")
+    conforms, _report, text = unit.validate(good, targets=targets)
+    assert conforms, text
+    # the fan must report its status
+    bad = rdflib.Graph().parse(
+        data=FAN_POWERED_MODEL.replace(", ex:status .", " ."), format="turtle"
+    )
+    conforms, _report, text = unit.validate(bad, targets=targets)
+    assert not conforms and "urn:ex/fpu" in text
 
 
 def test_validating_without_targets_is_an_error():
