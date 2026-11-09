@@ -364,6 +364,11 @@ def _call_args(ctx: _Ctx, args: Tuple[Any, ...], kwargs: Dict[str, Any]) -> str:
 
 def _call_text(ctx: _Ctx, x: Any) -> str:
     if isinstance(x, Call):
+        if isinstance(x.target, _Ref):
+            # called before it was defined: check the arguments now
+            t = x.target._resolve(Template)
+            assert isinstance(t, Template)
+            t.sig.bind(x.args, x.kwargs)
         args = _call_args(ctx, x.args, x.kwargs)
         name = ctx.ref(x.target)
         return f"{name}({args})" if args else name
@@ -1398,7 +1403,10 @@ class Call(_Logic):
     """A template applied to arguments: a shape to compose, test, or pass on."""
 
     def __init__(
-        self, target: Template, args: Tuple[Any, ...], kwargs: Dict[str, Any]
+        self,
+        target: Union[Template, _Ref],
+        args: Tuple[Any, ...],
+        kwargs: Dict[str, Any],
     ) -> None:
         self.target = target
         self.args = args
@@ -1477,16 +1485,16 @@ class _Ref(_Logic, _Def):
                 f"module {self.module.name!r} defines no {self.name!r}{hint}"
             )
         if not isinstance(d, kinds):
+            what = " or a ".join(k.__name__.lower() for k in kinds)
             raise TypeError(
-                f"{self.name!r} in module {self.module.name!r} is not a shape"
+                f"{self.name!r} in module {self.module.name!r} is not a {what}"
             )
         return d
 
-    def __call__(self, *args: Any, **kwargs: Any) -> Any:
-        raise TypeError(
-            f"module {self.module.name if self.module else '?'!r} defines no template "
-            f"{self.name!r} yet: define a template before calling it"
-        )
+    def __call__(self, *args: Any, **kwargs: Any) -> Call:
+        """A call of a template defined further down; its arguments are
+        checked when the module is written."""
+        return Call(self, args, kwargs)
 
     def __getattr__(self, attr: str) -> Any:
         if attr.startswith("_"):

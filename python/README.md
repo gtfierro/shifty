@@ -140,8 +140,8 @@ Assigning to a module defines a name (`m.damper` is `shape damper`), and
 reading a name not yet defined refers to it, so a module can read top-down.
 `&`, `|`, and `~` combine shapes as conjunction, `any of`, and `none of`;
 `BRICK.Room & lines` is a room whose lines hold. Keyword arguments name
-lines. `examples/shapeshift/g36/4.1-vav-cooling-only.py` in the repository
-writes a Guideline 36 module this way.
+lines. In the repository, `examples/shapeshift/g36/` writes Guideline 36
+sections 4.1 (`vav_cooling_only.py`) and 4.8 (`sz_vav_ahu.py`) this way.
 
 ## Develop from a checkout
 

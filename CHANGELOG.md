@@ -80,8 +80,10 @@
   from use. `Module.source()` returns the text as `shifty shape fmt` formats
   it; `write`, `check`, `export` (SHACL Turtle), and `write_shacl` (to a
   `.ttl` file) go through the CLI's pipeline.
-  `examples/shapeshift/g36/4.1-vav-cooling-only.py` regenerates the G36
-  `brick.shm` and `4.1-vav-cooling-only.shm` exactly.
+  The Python files in `examples/shapeshift/g36/` (`brick.py`,
+  `components.py`, `vav_cooling_only.py` for 4.1, and `sz_vav_ahu.py` for
+  4.8) regenerate their `.shm` files exactly, importing one another as the
+  `.shm` modules do.
 - Shape algebra: `Schema` carries imports, source origins, and docstrings,
   and supports `merge`. `shifty_opt::refused_components` reports the odd
   cycle that makes a component inadmissible. A shape-based target is

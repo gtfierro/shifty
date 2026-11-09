@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import importlib.util
+import importlib
 from pathlib import Path
 
 import pytest
@@ -32,23 +32,40 @@ def one(*lines, **named) -> str:
     return body(m)
 
 
-def g36_example():
-    """`examples/shapeshift/g36/4.1-vav-cooling-only.py`, run as a module."""
-    spec = importlib.util.spec_from_file_location(
-        "vav_cooling_only", G36 / "4.1-vav-cooling-only.py"
-    )
-    assert spec is not None and spec.loader is not None
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod
+@pytest.fixture
+def g36(monkeypatch):
+    """The Python modules in `examples/shapeshift/g36`, imported."""
+    monkeypatch.syspath_prepend(str(G36))
+    names = ("brick", "components", "vav_cooling_only", "sz_vav_ahu")
+    return {name: importlib.import_module(name) for name in names}
 
 
-def test_regenerates_the_g36_files_exactly(tmp_path):
-    ex = g36_example()
-    assert ex.brick.source() == (G36 / "brick.shm").read_text()
-    assert ex.vav.source() == (G36 / "4.1-vav-cooling-only.shm").read_text()
-    written = ss.write(tmp_path, ex.vav)
-    assert [p.name for p in written] == ["4.1-vav-cooling-only.shm", "brick.shm"]
+@pytest.mark.parametrize(
+    "script, module, shm",
+    [
+        ("brick", "brick", "brick.shm"),
+        ("components", "components", "components.shm"),
+        ("vav_cooling_only", "vav", "4.1-vav-cooling-only.shm"),
+        ("sz_vav_ahu", "ahu", "4.8-sz-vav-ahu.shm"),
+    ],
+)
+def test_regenerates_the_g36_files_exactly(g36, script, module, shm):
+    generated = getattr(g36[script], module).source()
+    assert generated == (G36 / shm).read_text()
+
+
+def test_g36_modules_write_check_and_export(g36, tmp_path):
+    ahu = g36["sz_vav_ahu"].ahu
+    written = ss.write(tmp_path, ahu)
+    assert [p.name for p in written] == [
+        "4.8-sz-vav-ahu.shm",
+        "brick.shm",
+        "components.shm",
+        "4.1-vav-cooling-only.shm",
+    ]
+    assert ahu.check() == []
+    g = rdflib.Graph().parse(data=ahu.export(), format="turtle")
+    assert (rdflib.URIRef("urn:ashrae/g36/4.8/sz-vav-ahu/sz-vav-ahu"), None, None) in g
 
 
 VAV_MODEL = """
@@ -66,11 +83,11 @@ ex:temp a brick:Zone_Air_Temperature_Sensor .
 """
 
 
-def test_exported_shapes_validate():
-    ex = g36_example()
+def test_exported_shapes_validate(g36):
+    vav, BRICK = g36["vav_cooling_only"].vav, g36["brick"].BRICK
     # The G36 shapes have no targets; hold every VAV to the 4.1 shape.
     check = ss.Module("check", base="urn:example/check/")
-    check.every_vav = Shape(ex.vav.vav_cooling_only, for_every=ex.BRICK.VAV)
+    check.every_vav = Shape(vav.vav_cooling_only, for_every=BRICK.VAV)
     shapes = rdflib.Graph().parse(data=check.export(), format="turtle")
     good = rdflib.Graph().parse(data=VAV_MODEL, format="turtle")
     assert shifty.validate(good, shapes)[0]
@@ -153,8 +170,30 @@ def test_forward_references_resolve_when_written():
     bad.zone_temperature = Shape()
     with pytest.raises(ValueError, match="did you mean 'zone-temperature'"):
         bad.source()
-    with pytest.raises(TypeError, match="define a template before calling it"):
-        bad.not_yet(EX.C)
+
+
+def test_templates_can_be_called_before_they_are_defined():
+    def define_vfd(m):
+        @m.template
+        def vfd(cls: Class, n: int = 1):
+            return EX.hasPoint.at_least(n, cls)
+
+    m = ss.Module("v")
+    m.S = Shape(m.vfd(EX.Fan), m.vfd(EX.Pump, n=2))
+    define_vfd(m)
+    assert "shape S {\n  vfd(ex:Fan)\n  vfd(ex:Pump, n = 2)\n}" in m.source()
+    # the arguments are checked when the module is written
+    bad = ss.Module("v")
+    bad.S = Shape(bad.vfd(EX.Fan, bogus=1))
+    define_vfd(bad)
+    with pytest.raises(TypeError, match="vfd: got an unexpected keyword argument"):
+        bad.source()
+    # and the name must turn out to be a template
+    w = ss.Module("w")
+    w.S = Shape(w.T(EX.C))
+    w.T = Shape()
+    with pytest.raises(TypeError, match="is not a template"):
+        w.source()
 
 
 def test_a_named_shape_is_reused_by_name_elsewhere():
