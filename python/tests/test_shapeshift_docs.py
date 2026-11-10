@@ -14,7 +14,7 @@ import pytest
 from shifty import _shifty
 
 ROOT = Path(__file__).resolve().parents[2]
-DOCS = ROOT / "docs" / "shapeshift"
+DOCS = ROOT / "docs" / "experimental" / "shapeshift"
 
 # Prefixes a fragment may use without declaring them.
 PREFIXES = {
