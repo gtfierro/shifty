@@ -574,6 +574,31 @@ impl EvaluationSession {
         Ok((run, pairs))
     }
 
+    /// The pair of authored statement `source_statement` and the public
+    /// term `focus`, if that statement's target selects `focus` here. It is
+    /// the pair [`find_failures`](Self::find_failures) would report if it
+    /// failed, found without evaluating any other statement; pass it to
+    /// [`explain`](Self::explain) to decide it.
+    pub fn select_pair(
+        &self,
+        source_statement: usize,
+        focus: &Term,
+        options: &ConformanceOptions,
+    ) -> Result<Option<SelectedPair>, EvaluationError> {
+        let identity = self.identity();
+        let internal = identity.internal_term(focus);
+        let pair = self
+            .prepared()
+            .select_pair(source_statement, &internal, options)?;
+        Ok(pair.map(|mut pair| {
+            if !identity.labels.is_empty() {
+                pair.public_focus = Some(focus.clone());
+            }
+            pair.snapshot = Some(Arc::clone(&self.snapshot));
+            pair
+        }))
+    }
+
     pub fn explain(
         &self,
         pair: &SelectedPair,

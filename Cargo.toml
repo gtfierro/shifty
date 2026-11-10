@@ -16,6 +16,7 @@ members = [
     "crates/experimental/shapeshift-raise",
     "crates/experimental/shapeshift",
     "crates/experimental/tree-sitter-shapeshift",
+    "crates/experimental/shifty-vio",
     "cpp",
     "python",
 ]
@@ -47,6 +48,7 @@ shapeshift-parse = { path = "crates/experimental/shapeshift-parse", version = "0
 shapeshift-raise = { path = "crates/experimental/shapeshift-raise", version = "0.6.0-alpha.2" }
 shapeshift-import = { path = "crates/experimental/shapeshift-import", version = "0.6.0-alpha.2" }
 tree-sitter-shapeshift = { path = "crates/experimental/tree-sitter-shapeshift", version = "0.6.0-alpha.2" }
+shifty-vio = { path = "crates/experimental/shifty-vio", version = "0.6.0-alpha.2" }
 
 # external
 #

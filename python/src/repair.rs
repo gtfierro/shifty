@@ -3518,7 +3518,13 @@ impl Instantiated {
 #[pyclass(name = "RepairDelta", skip_from_py_object)]
 #[derive(Clone)]
 pub struct RepairDelta {
-    inner: shifty_repair::GraphDelta,
+    pub(crate) inner: shifty_repair::GraphDelta,
+}
+
+impl From<shifty_repair::GraphDelta> for RepairDelta {
+    fn from(inner: shifty_repair::GraphDelta) -> Self {
+        Self { inner }
+    }
 }
 
 #[pymethods]

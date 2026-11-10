@@ -52,6 +52,69 @@ fn split_blank_node_identity_is_public_across_session_results() {
         .unwrap();
     assert_eq!(pairs[0].focus(), &focus);
     assert!(!session.explain(&pairs[0]).unwrap().is_empty());
+    let selected = session
+        .select_pair(0, &focus, &ConformanceOptions::default())
+        .unwrap();
+    assert_eq!(selected.as_ref(), Some(&pairs[0]));
+}
+
+#[test]
+fn select_pair_finds_the_pair_find_failures_reports() {
+    let shapes = loaded(
+        r#"
+        @prefix sh: <http://www.w3.org/ns/shacl#> .
+        @prefix ex: <http://ex/> .
+        ex:S a sh:NodeShape ; sh:targetClass ex:T ;
+          sh:property [ sh:path ex:p ; sh:minCount 1 ] .
+        ex:R a sh:NodeShape ; sh:targetSubjectsOf ex:q ;
+          sh:property [ sh:path ex:q ; sh:maxCount 1 ] .
+        "#,
+    );
+    let data = loaded(
+        r#"
+        @prefix ex: <http://ex/> .
+        ex:good a ex:T ; ex:p 1 .
+        ex:bad a ex:T ; ex:q 1, 2 .
+        ex:other ex:p 1 .
+        "#,
+    );
+    let session = CompiledShapes::compile(shapes)
+        .unwrap()
+        .session(SessionData::Separate(data.graph), SessionOptions::default())
+        .unwrap();
+    let options = ConformanceOptions::default();
+    let (_, failures) = session.find_failures(&options).unwrap();
+    assert_eq!(failures.len(), 2);
+    for pair in &failures {
+        for &source in pair.source_statements() {
+            let selected = session.select_pair(source, pair.focus(), &options).unwrap();
+            assert_eq!(selected.as_ref(), Some(pair));
+        }
+    }
+    let ex = |name: &str| Term::NamedNode(NamedNode::new(format!("http://ex/{name}")).unwrap());
+    // Each statement selects its targets whether they pass or fail: ex:bad
+    // under both, the passing ex:good under the class target only, and
+    // ex:other under neither.
+    let selecting = |name: &str| {
+        (0..2)
+            .filter(|&s| {
+                session
+                    .select_pair(s, &ex(name), &options)
+                    .unwrap()
+                    .is_some()
+            })
+            .count()
+    };
+    assert_eq!(
+        (selecting("bad"), selecting("good"), selecting("other")),
+        (2, 1, 0)
+    );
+    assert!(
+        session
+            .select_pair(99, &ex("good"), &options)
+            .unwrap()
+            .is_none()
+    );
 }
 
 #[test]

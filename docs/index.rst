@@ -136,8 +136,8 @@ Documentation
    * - :doc:`Explanation <explanation/index>`
      - Design, semantics, and performance tradeoffs.
    * - :doc:`Experimental <experimental/index>`
-     - Shapeshift, a language for writing shapes. It can change in any
-       release.
+     - Shapeshift, a language for writing shapes, and violation generation
+       for repair benchmarks. These can change in any release.
    * - :doc:`Benchmarks <benchmarks>`
      - Validation performance across real building models, tracked per
        release.

@@ -18,8 +18,12 @@ settling.
    * - :doc:`Shape definition DSL <shapeshift/index>`
      - Write SHACL shapes as short lists of requirements, in ``.shm`` files
        or from Python.
+   * - :doc:`Violation generation <violation-generation/index>`
+     - Break a valid graph on purpose, to test repair tools against a known
+       answer.
 
 .. toctree::
    :hidden:
 
    shapeshift/index
+   violation-generation/index

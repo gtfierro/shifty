@@ -33,5 +33,6 @@ The API may change. Applications choose values and validate each candidate
 before applying it.
 
 More experimental features have their own guides under
-:doc:`../experimental/index`, including Shapeshift, a language for writing
-SHACL shapes.
+:doc:`../experimental/index`: Shapeshift, a language for writing SHACL
+shapes, and violation generation, which builds repair benchmarks with known
+answers.

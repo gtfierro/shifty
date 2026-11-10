@@ -4,6 +4,28 @@
 
 ### Added
 
+- Experimental violation generation for repair benchmarks, in Rust as
+  `shifty_experimental::vio` (implemented by the `shifty-vio` crate) and in
+  Python as `shifty.experimental.vio` and `python -m shifty.experimental.vio`.
+  A `Universe` holds every way to break a conforming reference graph, as
+  `Injection`s found by a VIO/SAT rewrite of satisfaction evidence over the
+  normalized algebra. `where`/`filter` and `weighted` derive views.
+  `draw(k, seed)` streams the expansion into a weighted reservoir and returns
+  a `Case` of up to `k` interacting violations, composed without conflicts
+  and checked by revalidation, with the broken graph, the injected delta, and
+  the inverse delta as the ground-truth repair. `draws` fills one reservoir
+  per case from a single pass, and listing a universe caches its expansion.
+  Draws are uniform unless predicates or operation kinds are weighted, and
+  they reproduce across processes. Like validation, it runs the shapes'
+  SHACL-AF rules on every check by default (`infer`, `--no-infer` to turn
+  off), edits only asserted triples, and never draws an injection the rules
+  would undo. `generate` draws a suite and writes it
+  to disk, and the CLI wraps it; both split the cases across worker
+  processes with `jobs`/`--jobs`. See `docs/experimental/violation-generation/`.
+- `EvaluationSession::select_pair` (and `PreparedEvidenceValidator::select_pair`)
+  returns the pair of one authored statement and one focus, if the statement's
+  target selects that focus, without evaluating any other statement. Pass it to
+  `explain` to decide that pair alone.
 - Shapeshift, a text language (`.shm`) for writing shapes that compiles to
   the shape algebra and raises to readable SHACL Turtle. It is experimental,
   and so is its Rust interface: the `shifty-experimental` crate, as

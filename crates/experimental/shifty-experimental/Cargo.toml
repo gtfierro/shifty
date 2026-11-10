@@ -4,7 +4,7 @@ version.workspace = true
 authors.workspace = true
 license.workspace = true
 edition.workspace = true
-description = "Experimental interfaces of shifty, which may change in any release without a deprecation period: Shapeshift, a text language for shapes"
+description = "Experimental interfaces of shifty, which may change in any release without a deprecation period: Shapeshift, a text language for shapes, and a generator of SHACL violations for repair benchmarks"
 repository.workspace = true
 documentation.workspace = true
 readme.workspace = true
@@ -16,4 +16,5 @@ tree-sitter = ["dep:tree-sitter-shapeshift"]
 
 [dependencies]
 shapeshift.workspace = true
+shifty-vio.workspace = true
 tree-sitter-shapeshift = { workspace = true, optional = true }

@@ -515,6 +515,61 @@ impl PreparedEvidenceValidator {
         (run, failures)
     }
 
+    /// The pair of authored statement `source_statement` and `focus`, if
+    /// that statement is selected by `options` and its target selects
+    /// `focus` in this snapshot.
+    ///
+    /// This is the pair [`find_failures`](Self::find_failures) would report
+    /// for `focus` if it failed, found without evaluating any other
+    /// statement. It runs the statement's target selection, and nothing
+    /// else; [`explain`](Self::explain) the pair to decide it.
+    pub fn select_pair(
+        &self,
+        source_statement: usize,
+        focus: &oxrdf::Term,
+        options: &ConformanceOptions,
+    ) -> Result<Option<SelectedPair>, EvaluationError> {
+        self.sparql
+            .checked(|| self.select_pair_unchecked(source_statement, focus, options))
+    }
+
+    fn select_pair_unchecked(
+        &self,
+        source_statement: usize,
+        focus: &oxrdf::Term,
+        options: &ConformanceOptions,
+    ) -> Option<SelectedPair> {
+        if source_statement >= self.raw_schema.statements.len()
+            || !self.source_statement_selected(source_statement, &options.entry_shape_names)
+        {
+            return None;
+        }
+        let statement = self
+            .raw_by_normalized
+            .iter()
+            .position(|sources| sources.contains(&source_statement))?;
+        let backend = self
+            .sparql
+            .frozen()
+            .expect("prepared evidence validator always owns a frozen dataset");
+        let mut evaluator = ShapeEvaluator::new(
+            backend,
+            &self.schema.arena,
+            &self.schema.prefixes,
+            &self.sparql,
+        );
+        let selector = &self.schema.statements[statement].selector;
+        let selected = self.with_focus(|data| {
+            focus_nodes_with_evaluator(data, selector, &mut evaluator).contains(focus)
+        });
+        let sources = self.raw_by_normalized[statement]
+            .iter()
+            .copied()
+            .filter(|&source| self.source_statement_selected(source, &options.entry_shape_names))
+            .collect();
+        selected.then(|| SelectedPair::new(statement, focus.clone(), sources))
+    }
+
     /// The conformance pass, reporting each decided pair to `observe`.
     ///
     /// Generic over the observer so [`validate_conformance`](Self::validate_conformance)

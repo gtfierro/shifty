@@ -1444,6 +1444,7 @@ name = "shifty-experimental"
 version = "0.6.0-alpha.2"
 dependencies = [
  "shapeshift",
+ "shifty-vio",
  "tree-sitter-shapeshift",
 ]
 
@@ -1478,6 +1479,19 @@ dependencies = [
  "serde",
  "serde_json",
  "shifty-algebra",
+]
+
+[[package]]
+name = "shifty-vio"
+version = "0.6.0-alpha.2"
+dependencies = [
+ "oxrdf",
+ "serde",
+ "serde_json",
+ "shifty-algebra",
+ "shifty-engine",
+ "shifty-parse",
+ "shifty-repair",
 ]
 
 [[package]]

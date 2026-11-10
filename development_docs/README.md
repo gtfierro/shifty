@@ -12,6 +12,7 @@ usage documentation lives in [docs/](../docs/index.rst).
 | [Repair](repair.md) | Experimental synthesis, templates, plans, enumeration, whole-schema gating |
 | [Sessions and storage](sessions-and-storage.md) | Ownership, graph roles, snapshots, term dictionaries, index policy |
 | [Shape maps](shape-maps.md) | Authored bindings, lazy evidence, typed keys, names and annotations |
+| [Violation generation](violation-generation.md) | VIO/SAT expansion over evidence, sampling, conflict-free composition, determinism |
 
 Keep these references aligned with their linked implementations. Plans, task
 logs, release handoffs, and archived copies do not belong here.
