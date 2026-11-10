@@ -18,7 +18,7 @@ Experimental
        a Python guide, and a reference.
    * - :doc:`Violation generation <violation-generation/index>`
      - Break a conforming graph with recorded edits to build test cases for
-       repair tools. A how-to and an explanation.
+       repair tools. A tutorial, a how-to, and an explanation.
 
 .. toctree::
    :hidden:

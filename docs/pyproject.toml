@@ -12,7 +12,7 @@ dependencies = [
     "sphinxcontrib-programoutput>=0.18",
     # changelog.rst includes the root CHANGELOG.md, which is Markdown.
     "myst-parser>=3.0",
-    "pyshifty",
+    "pyshifty[rdflib]",
 ]
 
 [dependency-groups]

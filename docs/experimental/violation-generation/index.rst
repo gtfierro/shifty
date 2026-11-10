@@ -20,6 +20,9 @@ It is available from Python as ``shifty.experimental.vio`` and
 .. list-table::
    :widths: 30 70
 
+   * - :doc:`tutorial`
+     - Break a small graph, validate it, and repair it with the edits that
+       broke it.
    * - :doc:`how-to`
      - Break a graph, choose what gets broken, write a suite to disk, and
        use it from Rust.
@@ -30,5 +33,6 @@ It is available from Python as ``shifty.experimental.vio`` and
 .. toctree::
    :hidden:
 
+   tutorial
    how-to
    explanation
