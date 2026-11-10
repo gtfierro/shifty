@@ -29,16 +29,25 @@ Models that rely on rules
 ~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Some models conform only after their SHACL-AF rules have run. ASHRAE 223P
-models are an example. Pass ``materialize=True``:
+models are an example. Nothing extra is needed: like ``shifty.validate``,
+``vio`` runs the shapes' rules on every validation by default.
 
-.. code-block:: python
+Edits touch only the asserted triples, and every check re-runs the rules.
+An injection that the rules would undo, by inferring back what it removed,
+fails its check and never reaches a case. The broken graph is the asserted
+model with the edits applied, which is what a repair tool would be given.
 
-   universe = vio.Universe("model.ttl", "223p.ttl", materialize=True)
+Two other modes exist, for benchmarks that are validated without rules:
 
-The rules run once, and the inferred graph becomes the graph that gets
-broken, so edits may touch inferred triples. ``infer=True`` instead re-runs
-the rules on every validation and edits only the asserted triples; values
-that only an inferred triple supports then cannot be cut.
+- ``infer=False`` (``--no-infer``) ignores the rules.
+- ``materialize=True`` (``--materialize``) runs the rules once and breaks
+  the inferred graph, validating it without rules from then on. Edits may
+  delete inferred triples, and on NIST-IBAL nearly all of those come back
+  when the rules run again, so the violation is not real for anyone who
+  runs them.
+
+Rules make drawing slower, since every check runs them: about four times
+slower on NIST-IBAL.
 
 Choose what gets broken
 -----------------------
@@ -123,8 +132,8 @@ Run in parallel
 The suite is the same for any ``N``, since cases do not depend on each
 other. Each worker builds its own universe, so memory grows with ``N``.
 
-For NIST-IBAL, a 223P model of 9,625 triples after rules, with a universe
-of about 77,000 injections:
+For NIST-IBAL, a 223P model of 6,016 asserted triples (9,625 after rules),
+with a universe of about 75,000 injections:
 
 .. list-table::
    :header-rows: 1
@@ -132,15 +141,15 @@ of about 77,000 injections:
    * - Step
      - Time
    * - One case at ``k = 10``
-     - 1.5 s
+     - 4 s
    * - Thirty cases at ``k`` = 2, 5, 10
-     - 12 s
+     - 41 s
    * - The same with ``jobs=8``
-     - 5 s
+     - 11 s
 
-A worker uses about 550 MB for this model, and about 800 MB if it lists the
-universe. Most of the time goes to validating each finished case, which
-grows with the graph. If the universe is too large, lower the
+A worker uses about 500 MB for this model, and about 760 MB if it lists the
+universe. Most of the time goes to checking candidates and validating each
+finished case, with the rules run each time, which grows with the graph. If the universe is too large, lower the
 :ref:`expansion limits <vio-limits>`.
 
 Score a repair tool

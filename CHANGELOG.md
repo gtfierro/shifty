@@ -16,10 +16,13 @@
   the inverse delta as the ground-truth repair. `draws` fills one reservoir
   per case from a single pass, and listing a universe caches its expansion.
   Draws are uniform unless predicates or operation kinds are weighted, and
-  they reproduce across processes. `generate` draws a suite and writes it to
-  disk, and the CLI wraps it; both split the cases across worker processes
-  with `jobs`/`--jobs`. See `docs/experimental/violation-generation/how-to.rst` and
-  `docs/experimental/violation-generation/explanation.rst`.
+  they reproduce across processes. Like validation, it runs the shapes'
+  SHACL-AF rules on every check by default (`infer`, `--no-infer` to turn
+  off), edits only asserted triples, and never draws an injection the rules
+  would undo; `materialize` instead breaks the inferred closure, for
+  benchmarks validated without rules. `generate` draws a suite and writes it
+  to disk, and the CLI wraps it; both split the cases across worker
+  processes with `jobs`/`--jobs`. See `docs/experimental/violation-generation/`.
 - `EvaluationSession::select_pair` (and `PreparedEvidenceValidator::select_pair`)
   returns the pair of one authored statement and one focus, if the statement's
   target selects that focus, without evaluating any other statement. Pass it to

@@ -211,9 +211,13 @@ parses arguments and calls `generate`.
 - Relational atoms (`Eq`, `Disj`, `Lt`, `Le`, `UniqueLang`), opaque SPARQL,
   and `sh:expression` are never broken. They sit under `Blocked` or have no
   generation rule.
-- `infer` re-runs rules on every revalidation, but edits target asserted
-  triples only. Values whose sole support is inferred cannot be cut.
-  `materialize` avoids this by treating the closure as asserted.
+- `infer` (the default) re-runs rules on every revalidation, and edits target
+  asserted triples only. Values whose sole support is inferred cannot be cut;
+  that would take tracing the rule back to its premises. `materialize` treats
+  the closure as asserted and validates without rules, but on NIST-IBAL 59
+  of 60 sampled injections that delete an inferred triple stop failing once
+  the rules run again, so it suits only benchmarks validated without rules.
+  `materialize` turns `infer` off.
 - Edits are not checked against shapes the target does not mention. Extra
   failures are reported as amplification, not prevented.
 - `Sparql` and `Expression` shapes are keyed by their debug form, which can

@@ -12,7 +12,7 @@ take IRIs accept them bare or as ``<iri>``.
 
 .. code-block:: python
 
-   vio.Universe(data_graph, shacl_graph, *, materialize=False, infer=False,
+   vio.Universe(data_graph, shacl_graph, *, materialize=False, infer=None,
                 include_external_foci=False, canonicalize_blank_nodes=True,
                 graph_mode="union", on_unsupported="error", base=None,
                 limits=None)
@@ -30,11 +30,16 @@ not find the injections yet.
    * - ``data_graph``, ``shacl_graph``
      - The reference graph and the shapes, in any form ``shifty.validate``
        accepts. Lists are merged.
-   * - ``materialize``
-     - Run SHACL-AF rules once and break the inferred graph.
    * - ``infer``
-     - Re-run SHACL-AF rules on every validation, and edit only asserted
-       triples.
+     - Run the shapes' SHACL-AF rules on every validation, as
+       ``shifty.validate`` does, and edit only asserted triples. An
+       injection the rules would undo is never drawn. ``None``, the default,
+       is ``True`` unless ``materialize`` is set.
+   * - ``materialize``
+     - Run SHACL-AF rules once, break the inferred graph, and validate it
+       without rules. Edits may delete inferred triples that the rules would
+       infer back, so use it only for benchmarks validated without rules.
+       Cannot be combined with ``infer=True``.
    * - ``include_external_foci``
      - Also break nodes with no outgoing triples, such as vocabulary terms
        the shapes describe.
@@ -204,7 +209,7 @@ large graph does not give an unbounded universe.
 
    vio.generate(data_graph, shacl_graph, out, *, budgets=(5,), cases=10,
                 seed=0, jobs=1, shape=None, predicate=None, focus=None,
-                predicates=None, kinds=None, materialize=False, infer=False)
+                predicates=None, kinds=None, materialize=False, infer=None)
 
 Draws ``cases`` cases for each ``k`` in ``budgets``, with seeds ``seed``,
 ``seed + 1``, and so on, writes them under ``out``, and returns the contents
@@ -266,8 +271,11 @@ Command line
      - A JSON file mapping predicate IRIs to weights.
    * - ``--kind-weights FILE``
      - A JSON file mapping operation kinds to weights.
-   * - ``--materialize``, ``--infer``
-     - As the ``Universe`` parameters.
+   * - ``--infer``, ``--no-infer``
+     - Run the rules on every validation, or not. On by default, unless
+       ``--materialize``.
+   * - ``--materialize``
+     - As the ``Universe`` parameter.
    * - ``-j``, ``--jobs``
      - Worker processes. Default 1.
 
@@ -307,5 +315,7 @@ Limitations
   string one character too short), or minted as fresh IRIs. They are not
   realistic names.
 - A property path is broken along its shortest route only.
+- A value that only an inferred triple supports cannot be cut. That would
+  take editing the rule's premises, which the search does not trace.
 - When two injections break the same property, the check confirms that the
   property fails, not that both injections are needed.

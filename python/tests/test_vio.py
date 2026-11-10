@@ -593,3 +593,81 @@ def test_filter_exceptions_propagate():
         view.draw(1)
     with pytest.raises(RuntimeError, match="boom"):
         len(view)
+
+
+# A rule infers the room's type from ex:roomNumber; the sensor's room must be
+# an ex:Room. The asserted graph conforms only once the rule has run.
+RULE_SHAPES = (
+    PREFIXES
+    + """
+ex:RoomRule a sh:NodeShape ;
+    sh:targetSubjectsOf ex:roomNumber ;
+    sh:rule [ a sh:TripleRule ; sh:subject sh:this ;
+              sh:predicate <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> ;
+              sh:object ex:Room ] .
+
+ex:SensorShape a sh:NodeShape ;
+    sh:targetClass ex:Sensor ;
+    sh:property [ sh:path ex:inRoom ; sh:class ex:Room ; sh:minCount 1 ] .
+"""
+)
+
+RULE_DATA = (
+    PREFIXES
+    + """
+ex:s1 a ex:Sensor ; ex:inRoom ex:r1 .
+ex:r1 ex:roomNumber "101" .
+"""
+)
+
+ROOM_TYPE = (
+    "<http://ex/r1>",
+    "<http://www.w3.org/1999/02/22-rdf-syntax-ns#type>",
+    "<http://ex/Room>",
+)
+
+
+def nt_triples(nt: str) -> set:
+    return {
+        tuple(line[:-1].strip().split(" ", 2))
+        for line in nt.splitlines()
+        if line.strip()
+    }
+
+
+def test_rules_run_on_every_validation_by_default():
+    universe = Universe(RULE_DATA, RULE_SHAPES)
+    assert not universe.baseline_failures
+    assert ROOM_TYPE not in nt_triples(universe.reference_ntriples)
+    # The inferred type cannot be removed: the rule would infer it back.
+    assert all(ROOM_TYPE not in e.deletes for e in universe)
+    # Cutting the edge to the room still breaks the sensor, rules and all.
+    assert len(universe) > 0
+    for case in universe.draws([(1, s) for s in range(4)]):
+        conforms, _, _ = shifty.validate(case.graph(), RULE_SHAPES)
+        assert not conforms
+
+
+def test_materialize_breaks_the_closure_without_rules():
+    universe = Universe(RULE_DATA, RULE_SHAPES, materialize=True)
+    assert ROOM_TYPE in nt_triples(universe.reference_ntriples)
+    assert any(ROOM_TYPE in e.deletes for e in universe)
+    assert Universe(RULE_DATA, RULE_SHAPES, infer=False).baseline_failures
+
+
+def test_infer_and_materialize_are_exclusive():
+    with pytest.raises(ValueError, match="cannot be combined"):
+        Universe(RULE_DATA, RULE_SHAPES, materialize=True, infer=True)
+
+
+def test_cli_infers_unless_told_not_to(tmp_path, capsys):
+    data, shapes = tmp_path / "d.ttl", tmp_path / "s.ttl"
+    data.write_text(RULE_DATA)
+    shapes.write_text(RULE_SHAPES)
+    args = ["--data", str(data), "--shapes", str(shapes), "-k", "1", "-n", "1"]
+    assert main([*args, "--out", str(tmp_path / "rules")]) == 0
+    suite = json.loads((tmp_path / "rules" / "suite.json").read_text())
+    assert suite["baseline_failures"] == 0
+    # Without the rule the only sensor already fails, so nothing is left to break.
+    assert main([*args, "--out", str(tmp_path / "plain"), "--no-infer"]) == 1
+    assert "no injections" in capsys.readouterr().err

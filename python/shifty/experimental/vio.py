@@ -310,14 +310,19 @@ class Universe(Sequence[Injection]):
     data_graph, shacl_graph:
         The reference graph and the shapes, in any form
         :func:`shifty.validate` accepts.
+    infer:
+        Run SHACL-AF rules on every validation, as :func:`shifty.validate`
+        does. Edits touch only the asserted reference triples, and an
+        injection that the rules would undo, by inferring back what it
+        removed, is never drawn. Values supported only by an inferred triple
+        cannot be cut. ``None``, the default, is ``True`` unless
+        ``materialize`` is set.
     materialize:
         Run SHACL-AF rules once and use the inferred closure as the reference
-        graph. Models that rely on rules, such as ASHRAE 223P models, need
-        this to conform, and edits may then touch inferred triples.
-    infer:
-        Re-run SHACL-AF rules on every validation instead. Edits target only
-        the asserted reference triples, so values supported only by an
-        inferred triple cannot be cut.
+        graph, validated without rules afterwards. Edits may then delete
+        inferred triples, which the rules would infer back, so use it only
+        for benchmarks whose graphs are validated without rules. It cannot
+        be combined with ``infer=True``.
     include_external_foci:
         Also break focus nodes that have no outgoing triple in the reference
         graph, such as vocabulary terms that the shapes graph describes.
@@ -341,7 +346,7 @@ class Universe(Sequence[Injection]):
         shacl_graph: Any,
         *,
         materialize: bool = False,
-        infer: bool = False,
+        infer: Optional[bool] = None,
         include_external_foci: bool = False,
         canonicalize_blank_nodes: bool = True,
         graph_mode: str = "union",
@@ -349,6 +354,7 @@ class Universe(Sequence[Injection]):
         base: Optional[str] = None,
         limits: Optional[ExpansionLimits] = None,
     ) -> None:
+        infer = _resolve_infer(infer, materialize)
         data = _to_rdf_input(_coalesce_graph_input(data_graph))
         shapes = _to_rdf_input(_coalesce_graph_input(shacl_graph))
         lim = limits or ExpansionLimits()
@@ -545,6 +551,19 @@ class Universe(Sequence[Injection]):
 # ── helpers ──
 
 
+def _resolve_infer(infer: Optional[bool], materialize: bool) -> bool:
+    """``infer`` defaults to on, except with ``materialize``, whose closure is
+    validated without rules."""
+    if infer is None:
+        return not materialize
+    if infer and materialize:
+        raise ValueError(
+            "infer=True and materialize=True cannot be combined: materialize"
+            " validates its closure without rules"
+        )
+    return infer
+
+
 def _injection(row: tuple) -> Injection:
     focus, statement, shape, key, ops = row
     return Injection(
@@ -626,12 +645,16 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         "add_forbidden) to weights",
     )
     parser.add_argument(
-        "--materialize",
-        action="store_true",
-        help="run SHACL-AF rules once and use the closure as the reference graph",
+        "--infer",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="run SHACL-AF rules on every validation (default, unless --materialize)",
     )
     parser.add_argument(
-        "--infer", action="store_true", help="re-run SHACL-AF rules on every validation"
+        "--materialize",
+        action="store_true",
+        help="run SHACL-AF rules once, break the closure, and validate it without "
+        "rules; only for benchmarks validated without rules",
     )
     parser.add_argument(
         "-j",
@@ -692,7 +715,7 @@ def generate(
     predicates: Optional[Mapping[str, float]] = None,
     kinds: Optional[Mapping[str, float]] = None,
     materialize: bool = False,
-    infer: bool = False,
+    infer: Optional[bool] = None,
 ) -> dict[str, Any]:
     """Draw a suite of test cases and write it under ``out``.
 
@@ -717,6 +740,7 @@ def generate(
     """
     if jobs < 1:
         raise ValueError(f"jobs must be at least 1, got {jobs}")
+    infer = _resolve_infer(infer, materialize)
     recipe = _Recipe(
         _portable(data_graph),
         _portable(shacl_graph),

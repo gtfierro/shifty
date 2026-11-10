@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Generate a violation test suite for an ASHRAE 223P model.
 
-223P models rely on SHACL-AF rules, so ``materialize=True`` runs them once
-and uses the inferred graph as the starting point. ``vio.generate`` draws
+223P models rely on SHACL-AF rules. ``vio`` runs them on every validation by
+default, edits only the model's asserted triples, and never draws an
+injection that the rules would undo. ``vio.generate`` draws
 ten cases for each budget k across four worker processes, and writes them
 with ``reference.nt`` and ``suite.json``.
 
@@ -31,8 +32,7 @@ def main() -> None:
         out,
         budgets=(2, 5, 10),
         cases=10,
-        materialize=True,
-        jobs=4,  # each worker holds its own universe, about 550 MB here
+        jobs=4,  # each worker holds its own universe, about 500 MB here
     )
     for row in suite["cases"]:
         print(

@@ -28,12 +28,16 @@ use std::sync::Arc;
 /// How [`Universe::new`] reads its inputs and bounds the expansion.
 #[derive(Debug, Clone, Copy)]
 pub struct Options {
-    /// Run SHACL-AF rules once and use the inferred closure as the reference
-    /// graph. Models that rely on rules, such as ASHRAE 223P models, need
-    /// this to conform, and edits may then touch inferred triples.
-    pub materialize: bool,
-    /// Re-run SHACL-AF rules on every validation instead.
+    /// Run SHACL-AF rules on every validation, as validation does by default.
+    /// Edits touch only the asserted reference triples, and an injection that
+    /// the rules would undo, by inferring back what it removed, fails its
+    /// check and is never drawn. On by default; ignored with `materialize`.
     pub infer: bool,
+    /// Run SHACL-AF rules once and use the inferred closure as the reference
+    /// graph, validated without rules afterwards. Edits may then delete
+    /// inferred triples, which the rules would infer back, so use it only
+    /// for benchmarks whose graphs are validated without rules.
+    pub materialize: bool,
     /// Also target focus nodes with no outgoing triple in the reference
     /// graph, such as vocabulary terms that the shapes graph describes.
     pub include_external_foci: bool,
@@ -50,8 +54,8 @@ pub struct Options {
 impl Default for Options {
     fn default() -> Self {
         Self {
+            infer: true,
             materialize: false,
-            infer: false,
             include_external_foci: false,
             canonicalize_blank_nodes: true,
             graph_mode: ValidationGraphMode::Union,
@@ -459,7 +463,7 @@ impl Core {
                 SessionData::Separate(reference),
                 SessionOptions {
                     graph_mode: options.graph_mode,
-                    inference: options.infer,
+                    inference: options.infer && !options.materialize,
                     engine: options.engine,
                 },
             )

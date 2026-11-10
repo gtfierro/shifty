@@ -111,8 +111,9 @@ search is approximate and compatible injections can still interfere.
 **Each injection is tested alone.** Before an injection joins a case, its
 edits are applied to the reference graph and its node is re-evaluated. It
 must fail the property the injection aimed at. An injection can miss: the
-search caps its alternatives, follows one route along a property path, and
-does not see values that a rule would infer back.
+search caps its alternatives, and follows one route along a property path.
+The check runs the shapes' SHACL-AF rules, so an injection whose removal a
+rule would infer back fails it here.
 
 **The finished case is validated.** One injection can undo another's
 effect, for example by adding a value that restores support the other
@@ -174,8 +175,8 @@ Differences from the papers
   weighted as well as predicates.
 - Filters exist alongside weights.
 - Composition starts after the walk ends.
-- With ``materialize``, the reference graph is the data plus everything
-  its SHACL-AF rules infer, so edits may touch inferred triples.
+- SHACL-AF rules run on every check, so a case never relies on an edit
+  that the rules would undo.
 
 The rewrite rules, limits, and implementation are in the `design notes
 <https://github.com/gtfierro/shifty/blob/main/development_docs/violation-generation.md>`_.

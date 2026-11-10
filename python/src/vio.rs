@@ -95,7 +95,7 @@ impl VioUniverse {
         shapes_path=None,
         shapes_format="auto",
         materialize=false,
-        infer=false,
+        infer=true,
         include_external_foci=false,
         canonicalize_blank_nodes=true,
         graph_mode="union",
