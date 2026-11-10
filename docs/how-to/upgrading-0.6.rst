@@ -1,9 +1,9 @@
 Upgrading to 0.6
 ================
 
-Try the latest alpha with ``python -m pip install "pyshifty[rdflib]==0.6.0a2"``.
-The corresponding Rust and CLI version is ``0.6.0-alpha.2`` and the release tag
-is ``v0.6.0-alpha.2``. The changes below apply when upgrading from 0.5.x.
+Try the latest alpha with ``python -m pip install "pyshifty[rdflib]==0.6.0a3"``.
+The corresponding Rust and CLI version is ``0.6.0-alpha.3`` and the release tag
+is ``v0.6.0-alpha.3``. The changes below apply when upgrading from 0.5.x.
 
 Unsupported features fail by default
 ------------------------------------
@@ -34,6 +34,7 @@ It does not suppress malformed shapes or failures to execute a query.
 Repair moved to ``shifty.experimental``
 ---------------------------------------
 
+Starting with alpha.3, the repair API lives in ``shifty.experimental``.
 Symbolic repair was always experimental. Its Python API now says so in the
 import:
 

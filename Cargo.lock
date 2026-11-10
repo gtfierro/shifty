@@ -987,7 +987,7 @@ dependencies = [
 
 [[package]]
 name = "pyshifty"
-version = "0.6.0-alpha.2"
+version = "0.6.0-alpha.3"
 dependencies = [
  "oxrdf",
  "oxttl",
@@ -1301,7 +1301,7 @@ dependencies = [
 
 [[package]]
 name = "shapeshift"
-version = "0.6.0-alpha.2"
+version = "0.6.0-alpha.3"
 dependencies = [
  "oxrdf",
  "serde",
@@ -1318,7 +1318,7 @@ dependencies = [
 
 [[package]]
 name = "shapeshift-import"
-version = "0.6.0-alpha.2"
+version = "0.6.0-alpha.3"
 dependencies = [
  "oxrdf",
  "serde",
@@ -1333,7 +1333,7 @@ dependencies = [
 
 [[package]]
 name = "shapeshift-macro"
-version = "0.6.0-alpha.2"
+version = "0.6.0-alpha.3"
 dependencies = [
  "oxrdf",
  "oxsdatatypes",
@@ -1347,7 +1347,7 @@ dependencies = [
 
 [[package]]
 name = "shapeshift-parse"
-version = "0.6.0-alpha.2"
+version = "0.6.0-alpha.3"
 dependencies = [
  "serde_json",
  "shapeshift-macro",
@@ -1356,7 +1356,7 @@ dependencies = [
 
 [[package]]
 name = "shapeshift-raise"
-version = "0.6.0-alpha.2"
+version = "0.6.0-alpha.3"
 dependencies = [
  "oxrdf",
  "shapeshift-import",
@@ -1370,7 +1370,7 @@ dependencies = [
 
 [[package]]
 name = "shifty-algebra"
-version = "0.6.0-alpha.2"
+version = "0.6.0-alpha.3"
 dependencies = [
  "oxrdf",
  "oxsdatatypes",
@@ -1381,7 +1381,7 @@ dependencies = [
 
 [[package]]
 name = "shifty-cli"
-version = "0.6.0-alpha.2"
+version = "0.6.0-alpha.3"
 dependencies = [
  "clap",
  "env_logger",
@@ -1403,7 +1403,7 @@ dependencies = [
 
 [[package]]
 name = "shifty-cpp"
-version = "0.6.0-alpha.2"
+version = "0.6.0-alpha.3"
 dependencies = [
  "oxrdf",
  "oxttl",
@@ -1419,7 +1419,7 @@ dependencies = [
 
 [[package]]
 name = "shifty-engine"
-version = "0.6.0-alpha.2"
+version = "0.6.0-alpha.3"
 dependencies = [
  "bigdecimal",
  "log",
@@ -1441,7 +1441,7 @@ dependencies = [
 
 [[package]]
 name = "shifty-experimental"
-version = "0.6.0-alpha.2"
+version = "0.6.0-alpha.3"
 dependencies = [
  "shapeshift",
  "shifty-vio",
@@ -1450,7 +1450,7 @@ dependencies = [
 
 [[package]]
 name = "shifty-opt"
-version = "0.6.0-alpha.2"
+version = "0.6.0-alpha.3"
 dependencies = [
  "petgraph",
  "serde",
@@ -1460,7 +1460,7 @@ dependencies = [
 
 [[package]]
 name = "shifty-parse"
-version = "0.6.0-alpha.2"
+version = "0.6.0-alpha.3"
 dependencies = [
  "oxrdf",
  "oxrdfio",
@@ -1473,7 +1473,7 @@ dependencies = [
 
 [[package]]
 name = "shifty-repair"
-version = "0.6.0-alpha.2"
+version = "0.6.0-alpha.3"
 dependencies = [
  "oxrdf",
  "serde",
@@ -1483,7 +1483,7 @@ dependencies = [
 
 [[package]]
 name = "shifty-vio"
-version = "0.6.0-alpha.2"
+version = "0.6.0-alpha.3"
 dependencies = [
  "oxrdf",
  "serde",
@@ -1496,7 +1496,7 @@ dependencies = [
 
 [[package]]
 name = "shifty-wasm"
-version = "0.6.0-alpha.2"
+version = "0.6.0-alpha.3"
 dependencies = [
  "console_error_panic_hook",
  "getrandom 0.3.4",
@@ -1704,7 +1704,7 @@ checksum = "d0af592be68c579aa78a16846bd19422978c3c52e438523d45ff5d1bff1f9d4a"
 
 [[package]]
 name = "tree-sitter-shapeshift"
-version = "0.6.0-alpha.2"
+version = "0.6.0-alpha.3"
 dependencies = [
  "cc",
  "shapeshift-parse",

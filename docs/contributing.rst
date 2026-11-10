@@ -68,9 +68,9 @@ Prepare a release
 -----------------
 
 Use the Cargo prerelease spelling for the workspace version, internal crate
-dependencies, changelog heading, and Git tag. For the second 0.6 alpha these are
-``0.6.0-alpha.2`` and ``v0.6.0-alpha.2``. Maturin writes the Python distribution
-version as ``0.6.0a2``; the Python runtime's ``shifty.version()`` continues to
+dependencies, changelog heading, and Git tag. For the third 0.6 alpha these are
+``0.6.0-alpha.3`` and ``v0.6.0-alpha.3``. Maturin writes the Python distribution
+version as ``0.6.0a3``; the Python runtime's ``shifty.version()`` continues to
 report the Rust version.
 
 Run the Rust, Python, SDK, documentation, and pinned conformance checks above,

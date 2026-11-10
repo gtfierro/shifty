@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+## 0.6.0-alpha.3
+
+Third alpha for 0.6.0. It adds two experimental features, Shapeshift (a text
+language for SHACL shapes) and violation generation (repair benchmarks with
+known answers), and moves the Python repair API to
+`shifty.experimental.repair`. The Rust and CLI version is `0.6.0-alpha.3`; the
+Python distribution version is `0.6.0a3`. Install it with
+`python -m pip install "pyshifty[rdflib]==0.6.0a3"`.
+
+The repair move breaks imports of `shifty.RepairSession` and the other
+repair-only names. See `docs/how-to/upgrading-0.6.rst`.
+
 ### Changed
 
 - **Breaking:** the Python repair API moved to `shifty.experimental.repair`:
