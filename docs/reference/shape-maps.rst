@@ -181,6 +181,12 @@ Duplicate-key ordinals are assigned in this order, consistently for every focus.
        recover it. An unbounded ``sh:qualifiedValueShape`` still yields its
        qualifying values, despite normalizing to a vacuous validation
        constraint.
+       Without a session, bindings combining distinct count domains report
+       ``None`` rather than projecting matches from an unrelated domain.
+       Source provenance distinguishes universal value checks from authored
+       counts even when their evidence has the same structure. A successful
+       universal whose trace contains only the zero counterexample count has
+       unavailable values, rather than a known empty set.
    * - ``partial_values``
      - The same qualifying values as ``values`` on an unsatisfied obligation,
        or ``None`` when that set is unknown. Empty on a successful obligation.
@@ -189,7 +195,8 @@ Duplicate-key ordinals are assigned in this order, consistently for every focus.
    * - ``missing``
      - How many more values are required.
    * - ``min`` / ``max``
-     - Declared cardinality bounds.
+     - Declared cardinality bounds. When a binding combines count domains,
+       these may apply to different value sets and do not form one interval.
    * - ``observed``
      - Exact count in the authored cardinality domain: all path values for an
        ordinary count, qualifying values for a qualified count, or all checked
@@ -198,7 +205,9 @@ Duplicate-key ordinals are assigned in this order, consistently for every focus.
        or the binding combines multiple distinct count domains (for example
        ``sh:minCount`` and ``sh:qualifiedMinCount``).
    * - ``expects_single``
-     - True exactly for a ``1..1`` obligation.
+     - True when a single count domain declares a ``1..1`` obligation.
+       False for mixed domains, whose lower and upper bounds may apply to
+       different value sets.
    * - ``severity``
      - Effective SHACL severity, lowercase.
    * - ``annotated_values``
@@ -213,6 +222,8 @@ Duplicate-key ordinals are assigned in this order, consistently for every focus.
        qualifying values, and rejected candidates. Unavailable observations
        remain explicitly unavailable. For compound bindings the listed
        declarations do not imply that every component failed.
+       Bounds applying to different value sets (for example, ordinary and
+       qualified counts) are not rendered as one required-count interval.
    * - ``explain(algebra=True)``
      - The underlying evidence tree, retaining tags such as ``count_high``.
        Also the default when authored component metadata is unavailable.
@@ -250,6 +261,9 @@ and hashing; include it when constructing a key to look up a binding.
    * - ``qualifier``
      - ``Cls(iri)``, ``Const(term)``, ``Datatype(iri)``, or ``ShapeRef(id)``,
        when the qualification is recoverable from the shape.
+       When several qualifiers are available, a representative is selected by
+       qualifier type name and full RDF identity, independently of graph order.
+       This representative does not describe every constraint on the binding.
    * - ``ordinal``
      - Distinguishes two authored obligations sharing a path and qualifier.
        Part of equality and hashing.

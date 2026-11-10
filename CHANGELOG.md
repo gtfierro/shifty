@@ -184,6 +184,26 @@
   cycle that makes a component inadmissible. A shape-based target is
   encoded in SHACL as `shapeshift:targetShape` / `shapeshift:targetFor`,
   and the parser lowers it back to a `HasPath(self, T)` selector.
+### Fixed
+
+- The shape algebra treated any range on a non-numeric datatype as
+  unsatisfiable, so a shape with `sh:datatype xsd:date` and a date
+  `sh:minInclusive` failed every value. A range is now unsatisfiable with a
+  datatype only when no value of the datatype compares with its bounds
+  (`xsd:string` with a number, `xsd:date` with a dateTime). Date, dateTime,
+  and time bounds are also ordered when ranges merge, so an empty date range
+  is found.
+
+## 0.6.0-alpha.2
+
+Second alpha for 0.6.0, focusing on ShapeMap constraint identities, explanations,
+and value qualification. The Rust and CLI version is `0.6.0-alpha.2`; the Python
+distribution version is `0.6.0a2`. Install it with
+`python -m pip install "pyshifty[rdflib]==0.6.0a2"`.
+
+`Key.kind` and `Binding.explain()` change behavior from alpha.1. See
+`docs/how-to/upgrading-0.6.rst` for the authored constraint families, typed-key
+construction, and access to the underlying algebra.
 
 ### Changed
 
@@ -198,13 +218,18 @@
 
 ### Fixed
 
-- The shape algebra treated any range on a non-numeric datatype as
-  unsatisfiable, so a shape with `sh:datatype xsd:date` and a date
-  `sh:minInclusive` failed every value. A range is now unsatisfiable with a
-  datatype only when no value of the datatype compares with its bounds
-  (`xsd:string` with a number, `xsd:date` with a dateTime). Date, dateTime,
-  and time bounds are also ordered when ranges merge, so an empty date range
-  is found.
+- Shape-map evidence readers distinguish authored counts from universal value
+  checks using source-to-normalized constraint provenance. Negated qualified
+  overflows keep qualifying values out of the rejection list, and zero-match
+  counterexample counts do not masquerade as empty successful bindings.
+- Session-free shape maps report unknown values for mixed count domains instead
+  of treating unqualified cardinality matches as qualifying values.
+- `Binding.expects_single` requires a single count domain and cannot combine
+  ordinary lower bounds with qualified upper bounds into a false `1..1` hint.
+- Shape-map qualifier representatives use stable type and RDF-identity ordering,
+  keeping keys consistent across processes when several class checks apply.
+- Shape-map explanations omit a combined count interval when bounds apply to
+  different value sets, such as ordinary and qualified cardinalities.
 
 ## 0.6.0-alpha.1
 

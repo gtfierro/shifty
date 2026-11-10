@@ -181,6 +181,87 @@ def test_qualified_counts_observe_qualifying_values(with_session, bound):
 
 
 @pytest.mark.parametrize("with_session", [False, True])
+@pytest.mark.parametrize(
+    "values, ok, observed", [('"text", 7', False, 1), ('"text"', True, 0)]
+)
+@pytest.mark.parametrize("universal", ["", "sh:datatype xsd:string ;"])
+def test_negated_qualified_zero_count_keeps_its_authored_domain(
+    with_session, values, ok, observed, universal
+):
+    binding = make_binding(
+        universal + "sh:qualifiedValueShape [ sh:not [ sh:datatype xsd:string ] ] ; "
+        "sh:qualifiedMaxCount 0",
+        values,
+        session=with_session,
+    )
+    assert binding.ok is ok
+    if with_session:
+        assert binding.observed == observed
+        assert binding.values == (
+            []
+            if universal or ok
+            else [Literal("7", "http://www.w3.org/2001/XMLSchema#integer")]
+        )
+        assert binding.rejected_values == (
+            []
+            if ok
+            else (
+                [
+                    Literal("7", "http://www.w3.org/2001/XMLSchema#integer"),
+                    Literal("text"),
+                ]
+                if universal
+                else [Literal("text")]
+            )
+        )
+    elif universal:
+        # A failed universal prunes its positive values. Its actual rejected
+        # candidate is still distinct from a qualified-count overflow.
+        assert binding.values == ([] if ok else None)
+        assert binding.observed == observed
+        assert binding.rejected_values == (
+            [] if ok else [Literal("7", "http://www.w3.org/2001/XMLSchema#integer")]
+        )
+    else:
+        assert binding.observed == observed
+        assert binding.values == (
+            [] if ok else [Literal("7", "http://www.w3.org/2001/XMLSchema#integer")]
+        )
+        assert binding.rejected_values == []
+
+
+@pytest.mark.parametrize("with_session", [False, True])
+def test_qualified_overflow_is_not_a_rejection_when_another_universal_passed(
+    with_session,
+):
+    binding = make_binding(
+        'sh:pattern "x" ; '
+        "sh:qualifiedValueShape [ sh:datatype xsd:string ] ; sh:qualifiedMaxCount 0",
+        '"x"',
+        session=with_session,
+    )
+    assert not binding.ok
+    assert binding.observed == 1
+    assert binding.values == binding.partial_values == [Literal("x")]
+    assert binding.rejected_values == []
+
+
+@pytest.mark.parametrize("with_session", [False, True])
+def test_successful_class_check_does_not_project_zero_counterexamples_as_no_values(
+    with_session,
+):
+    binding = make_binding(
+        "sh:class ex:V",
+        "ex:good",
+        session=with_session,
+        extra="ex:good a ex:V .",
+    )
+    assert binding.ok
+    assert binding.values == ([Iri("http://ex/good")] if with_session else None)
+    assert binding.observed == (1 if with_session else None)
+
+
+@pytest.mark.parametrize("with_session", [False, True])
 def test_distinct_count_domains_do_not_report_a_single_count(with_session):
     binding = make_binding(
         "sh:minCount 2 ; sh:qualifiedValueShape [ sh:class ex:V ] ; sh:qualifiedMinCount 1",
@@ -192,6 +273,57 @@ def test_distinct_count_domains_do_not_report_a_single_count(with_session):
     assert binding.observed is None
     if with_session:
         assert binding.values == [Iri("http://ex/good")]
+    else:
+        assert binding.values is None
+
+
+@pytest.mark.parametrize("with_session", [False, True])
+@pytest.mark.parametrize("minimum, ok", [(2, True), (3, False)])
+@pytest.mark.parametrize(
+    "values, accepted", [('"text", 7', [Literal("text")]), ("7, 8", [])]
+)
+def test_mixed_count_domains_do_not_project_unqualified_evidence_as_matches(
+    with_session, minimum, ok, values, accepted
+):
+    binding = make_binding(
+        f"sh:minCount {minimum} ; "
+        "sh:qualifiedValueShape [ sh:datatype xsd:string ] ; sh:qualifiedMaxCount 1",
+        values,
+        session=with_session,
+    )
+    assert binding.ok is ok
+    assert binding.values == (accepted if with_session else None)
+    assert binding.partial_values == (
+        [] if ok else (accepted if with_session else None)
+    )
+    assert binding.observed is None
+
+
+@pytest.mark.parametrize("with_session", [False, True])
+@pytest.mark.parametrize(
+    "constraints, values, expects_single",
+    [
+        (
+            "sh:minCount 1 ; sh:qualifiedValueShape [ sh:datatype xsd:string ] ; "
+            "sh:qualifiedMaxCount 1",
+            "7, 8",
+            False,
+        ),
+        ("sh:minCount 1 ; sh:maxCount 1", '"text"', True),
+        (
+            "sh:qualifiedValueShape [ sh:datatype xsd:string ] ; "
+            "sh:qualifiedMinCount 1 ; sh:qualifiedMaxCount 1",
+            '"text", 7',
+            True,
+        ),
+    ],
+)
+def test_expects_single_requires_bounds_on_one_count_domain(
+    with_session, constraints, values, expects_single
+):
+    binding = make_binding(constraints, values, session=with_session)
+    assert binding.ok
+    assert binding.expects_single is expects_single
 
 
 def test_optional_qualified_value_shape_still_extracts_and_counts_matches():
