@@ -3,9 +3,11 @@ Violation generation reference
 
 .. include:: experimental.inc
 
-The Python module is ``shifty.experimental.vio``. Triples and nodes are
-N-Triples terms, such as ``<http://ex/s1>`` and ``"degC"``. Arguments that
-take IRIs accept them bare or as ``<iri>``.
+Everything below is in ``shifty.experimental.vio``.
+
+- Nodes and triples are N-Triples terms, such as ``<http://ex/s1>`` and
+  ``"degC"``.
+- Arguments that take IRIs accept them bare or in angle brackets.
 
 ``Universe``
 ------------
@@ -18,8 +20,8 @@ take IRIs accept them bare or as ``<iri>``.
                 limits=None)
 
 Every way to break a conforming graph, as a sequence of ``Injection``
-objects. Construction compiles the shapes and validates the graph, but does
-not find the injections yet.
+objects. Creating one compiles the shapes and validates the graph. Injections
+are found later, when you draw or list.
 
 .. list-table::
    :widths: 30 70
@@ -31,17 +33,15 @@ not find the injections yet.
      - The reference graph and the shapes, in any form ``shifty.validate``
        accepts. Lists are merged.
    * - ``infer``
-     - Run the shapes' SHACL-AF rules on every validation, as
-       ``shifty.validate`` does, and edit only asserted triples. An
-       injection the rules would undo is never drawn. ``False`` ignores the
-       rules.
+     - Run the shapes' SHACL-AF rules on every check. Only asserted
+       triples are edited, and an edit the rules would undo is dropped.
+       ``False`` ignores the rules.
    * - ``include_external_foci``
      - Also break nodes with no outgoing triples, such as vocabulary terms
        the shapes describe.
    * - ``canonicalize_blank_nodes``
-     - Rename the graph's blank nodes canonically, so a graph with anonymous
-       blank nodes gives the same universe in every process. Off keeps the
-       input's names and gives that up.
+     - Rename blank nodes the same way every run, so draws reproduce. Turn
+       off to keep the input's names.
    * - ``graph_mode``, ``on_unsupported``, ``base``
      - As in ``shifty.validate``; see :doc:`/reference/python`.
    * - ``limits``
@@ -54,27 +54,28 @@ not find the injections yet.
    * - Member
      - Meaning
    * - ``len(u)``, ``u[i]``, ``u[a:b]``, ``for e in u``, ``e in u``
-     - Find every injection and cache them. Later draws read the cache.
+     - Find every injection and keep them in memory. Later draws reuse
+       them.
    * - ``where(fn=None, /, *, shape=None, predicate=None, focus=None)``
      - The injections that break ``shape``, edit ``predicate``, break
        ``focus``, and pass ``fn(injection)``. Each takes one IRI or several.
        Filters compose; weights carry over.
    * - ``weighted(predicates=None, kinds=None)``
-     - The same injections, drawn with these weights, keyed by predicate
-       IRI and by operation kind. Missing entries weigh 1. An injection's
-       weight is the geometric mean over the predicates it edits times the
-       geometric mean over its operation kinds.
+     - The same injections, drawn with these weights. Keys are predicate
+       IRIs and operation kinds; missing keys weigh 1. An injection weighs
+       the geometric mean of its predicates' weights times the geometric
+       mean of its kinds' weights.
    * - ``draw(k, *, seed=0)``
-     - A ``Case`` of up to ``k`` injections. The same ``(k, seed)`` gives
-       the same case from the same universe in every process.
+     - A ``Case`` of up to ``k`` injections. The same ``k`` and seed
+       always give the same case.
    * - ``draws(requests)``
      - One ``Case`` per ``(k, seed)`` in ``requests``, from one pass.
    * - ``baseline_failures``
      - The ``(focus, statement)`` pairs that already fail. They are never
        broken.
    * - ``reference_ntriples``
-     - The reference graph as sorted N-Triples, after blank-node renaming.
-       It is the asserted data: inferred triples are never part of it.
+     - The original graph as sorted N-Triples. It holds only asserted
+       triples.
    * - ``predicate_weights``, ``kind_weights``
      - The weights of this view.
 
@@ -206,12 +207,15 @@ large graph does not give an unbounded universe.
                 seed=0, jobs=1, shape=None, predicate=None, focus=None,
                 predicates=None, kinds=None, infer=True)
 
-Draws ``cases`` cases for each ``k`` in ``budgets``, with seeds ``seed``,
-``seed + 1``, and so on, writes them under ``out``, and returns the contents
-of ``suite.json``. ``shape``, ``predicate``, and ``focus`` filter as in
-``where``; ``predicates`` and ``kinds`` weight as in ``weighted``; ``infer`` is as
-in ``Universe``. ``jobs``
-worker processes split the cases; the suite is the same for any ``jobs``.
+Draws ``cases`` cases for each ``k`` in ``budgets``, writes them under
+``out``, and returns the contents of ``suite.json``.
+
+- Seeds run ``seed``, ``seed + 1``, and so on.
+- ``shape``, ``predicate``, and ``focus`` filter, as in ``where``.
+- ``predicates`` and ``kinds`` weight, as in ``weighted``.
+- ``infer`` is as in ``Universe``.
+- ``jobs`` splits the cases across worker processes. The suite is the same
+  for any value.
 
 .. _vio-output-files:
 
@@ -228,15 +232,21 @@ Output files
        repair.ru         the repair, as a SPARQL update
        case.json         the manifest
 
-``suite.json`` has ``baseline_failures`` (a count), ``operation_kinds``
-(how many operations of each kind the suite injected), and ``cases``, one
-row per case with ``path``, ``k``, ``seed``, ``injected``, and
-``failures``.
+``suite.json`` holds:
 
-``case.json`` has ``k``, ``seed``, ``delta``, ``repair``, ``injections``
-(each with ``focus``, ``statement``, ``shape``, ``predicates``,
-``operations``, and ``key``), and ``failures`` (each with ``focus``,
-``statement``, ``shape``, and the indices of its ``injections``).
+- ``baseline_failures``: how many pairs already failed.
+- ``operation_kinds``: how many operations of each kind the suite injected.
+- ``cases``: one row per case, with ``path``, ``k``, ``seed``,
+  ``injected``, and ``failures``.
+
+``case.json`` holds:
+
+- ``k`` and ``seed``.
+- ``delta`` and ``repair``.
+- ``injections``, each with ``focus``, ``statement``, ``shape``,
+  ``predicates``, ``operations``, and ``key``.
+- ``failures``, each with ``focus``, ``statement``, ``shape``, and the
+  indices of its ``injections``.
 
 Command line
 ------------
@@ -272,7 +282,7 @@ Command line
    * - ``-j``, ``--jobs``
      - Worker processes. Default 1.
 
-It exits with status 1 on an error, and warns when the reference graph
+It exits with status 1 on an error. It warns when the original graph
 already has failures.
 
 Rust
@@ -281,9 +291,11 @@ Rust
 ``shifty_experimental::vio`` exports ``Universe``, ``Options``,
 ``Weights``, ``ExpansionLimits``, ``Injection``, ``Operation``,
 ``OperationKind``, ``Polarity``, ``Case``, ``CaseFailure``, and
-``Triple``. The Python module wraps them, so the names match, except that
-``filter`` takes a closure in place of ``where``, and ``weighted`` takes a
-``Weights``.
+``Triple``. The Python module wraps them, and the names match, with two
+exceptions:
+
+- ``filter`` takes a closure, in place of ``where``.
+- ``weighted`` takes a ``Weights``.
 
 .. code-block:: rust
 

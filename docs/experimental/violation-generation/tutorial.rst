@@ -3,20 +3,16 @@ Break a graph and repair it
 
 .. include:: experimental.inc
 
-This tutorial breaks a small graph on purpose, watches the validator catch
-it, and repairs it with the edits that broke it. It takes a few minutes and
-needs only ``pip install "pyshifty[rdflib]"``.
-
-The idea is to start from a graph that already conforms. Break it with a few
-recorded edits, and the inverse of those edits is a repair known to be
-correct. That is what a repair tool is scored against.
+In this tutorial you break a small, valid graph on purpose, watch the
+validator catch it, and then fix it with the edits that broke it. You need
+``pip install "pyshifty[rdflib]"``.
 
 The graph and the shapes
 ------------------------
 
-The script holds both in strings. Every ``ex:Sensor`` must have one string
-label, a unit that is ``"degC"`` or ``"degF"``, and at least one room that
-really is an ``ex:Room``.
+Two sensors, each in a room. The shapes say every sensor needs one string
+label, a unit of ``"degC"`` or ``"degF"``, and a room that is an
+``ex:Room``.
 
 .. literalinclude:: ../../examples/violation-generation/break_a_graph.py
    :language: python
@@ -25,22 +21,25 @@ really is an ``ex:Room``.
 The script
 ----------
 
-Save it as ``break_a_graph.py``, together with the shapes and data above, and
-run it. The output follows; each numbered block of output is a step below.
+Save the shapes and data above together with this code as
+``break_a_graph.py``:
 
 .. literalinclude:: ../../examples/violation-generation/break_a_graph.py
    :language: python
    :lines: 15-21,45-
 
+Run it:
+
 .. program-output:: python break_a_graph.py
    :cwd: ../../examples/violation-generation
 
-1. Validate the original data
------------------------------
+The steps below walk through the output.
 
-``conforms: True``. This matters: ``vio`` needs a graph that conforms. A
-node that already fails a shape is left alone and never counted as an
-injected failure.
+1. Check that the graph conforms
+--------------------------------
+
+``vio`` only breaks graphs that conform. If a node already fails a shape,
+``vio`` leaves it alone.
 
 2. Draw a case
 --------------
@@ -49,47 +48,44 @@ injected failure.
 
    case = vio.Universe(DATA, SHAPES).draw(k, seed=seed)
 
-A ``Universe`` is every way ``vio`` found to break the graph, each one an
-``Injection``: a few edits that make one node fail one of its shapes.
-``draw(2, seed=0)`` picks up to two that work together, which is a ``Case``.
-Here it removed the type of ``ex:r1``, so ``ex:s1`` points at a room that is
-no longer a room, and gave ``ex:s2`` a unit that is not ``"degC"`` or
-``"degF"``.
+A ``Universe`` holds every way ``vio`` found to break the graph. Each way
+is an *injection*: a few edits that make one node fail one shape.
 
-The same ``(k, seed)`` gives the same case every time, in every process, so
-a benchmark built from it can be rebuilt. Pass another seed to see other
-cases.
+``draw(2, seed=0)`` picks up to two injections that can be applied
+together. Here, ``ex:r1`` loses its type, so ``ex:s1`` now points at
+something that is not a room. ``ex:s2`` gets a unit that is not allowed.
+
+The same seed gives the same case every time. Try another seed to see a
+different case.
 
 3. Read the edits
 -----------------
 
-``case.delta`` holds the edits that broke the graph: triples deleted
-(``-``) and added (``+``). ``case.graph()`` is the broken graph as an
-``rdflib.Graph``.
+``case.delta`` holds the edits: triples deleted (``-``) and added
+(``+``). ``case.graph()`` returns the broken graph.
 
 4. Validate the broken graph
 ----------------------------
 
-The validator now reports both injected violations, and ``case.failures``
-lists the focus nodes the case expects to fail. The two lists agree, which
-is the check that the case does what it says.
+The validator reports two violations, and ``case.failures`` expects the
+same two nodes to fail. The case does what it says.
 
-5. Apply the repair
--------------------
+5. Repair it
+------------
 
-``case.repair`` is the inverse of ``case.delta``. ``case.apply(case.repair)``
-applies it to the broken graph, and the result conforms again. To score a
-repair tool, apply its edits instead and compare:
+``case.repair`` undoes ``case.delta``. Apply it, and the graph conforms
+again.
+
+To score a repair tool, apply the tool's edits instead, and compare:
 
 .. code-block:: python
 
    candidate = case.apply(tool_delta)
    intended = case.apply(case.repair)  # the original graph
 
-Next
-----
+Next steps
+----------
 
-- :doc:`how-to` covers choosing what gets broken, writing a suite of cases
-  to disk, and running in parallel.
-- :doc:`explanation` describes how the edits are found and combined.
-- :doc:`reference` lists every class, option, and output file.
+- :doc:`how-to`: build a suite from your own model.
+- :doc:`explanation`: how injections are found and combined.
+- :doc:`reference`: every class and option.

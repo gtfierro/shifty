@@ -4,21 +4,23 @@ Experimental
 .. admonition:: Experimental: this can change at any time
    :class: experimental-banner
 
-   Everything in this section is experimental. Its languages, commands,
-   Python modules (under ``shifty.experimental``), and Rust interfaces (the
-   ``shifty-experimental`` crate) can change in any release, without a
-   deprecation period. Pin the Shifty version if you depend on them.
+   Everything here can change in any release, without a deprecation period:
+   the languages, the commands, the ``shifty.experimental`` Python modules,
+   and the ``shifty-experimental`` Rust crate. Pin the Shifty version if you
+   depend on them.
+
+These features are working and tested, but their interfaces are still
+settling.
 
 .. list-table::
    :widths: 30 70
 
    * - :doc:`Shape definition DSL <shapeshift/index>`
-     - Shapeshift: a language for writing SHACL shapes as a list of
-       requirements, from text or from Python. A tutorial, a language guide,
-       a Python guide, and a reference.
+     - Write SHACL shapes as short lists of requirements, in ``.shm`` files
+       or from Python.
    * - :doc:`Violation generation <violation-generation/index>`
-     - Break a conforming graph with recorded edits to build test cases for
-       repair tools. A tutorial, a how-to, an explanation, and a reference.
+     - Break a valid graph on purpose, to test repair tools against a known
+       answer.
 
 .. toctree::
    :hidden:

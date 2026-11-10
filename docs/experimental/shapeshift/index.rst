@@ -3,8 +3,12 @@ Shapeshift
 
 .. include:: experimental.inc
 
-Shapeshift is a language for writing SHACL shapes. A ``.shm`` file reads as a
-list of requirements, one per line, in the words of the domain:
+SHACL in Turtle is hard to read and harder to write. One requirement
+becomes a nest of blank nodes, and a failure report points at a blank node
+instead of the rule you meant.
+
+Shapeshift is a short language for the same shapes. A ``.shm`` file is a
+list of requirements, one per line:
 
 .. code-block:: shapeshift
 
@@ -17,44 +21,37 @@ list of requirements, one per line, in the words of the domain:
      flow: brick:hasPoint at least 1 is a brick:Air_Flow_Sensor
    }
 
-Shifty compiles the file to its shape algebra, so it validates exactly as the
-equivalent SHACL does, and raises it to readable SHACL Turtle for other
-tools. Validation reports a failure against the line you wrote, not against a
-blank-node property shape.
+It compiles to the same shape algebra as SHACL, so it validates exactly
+like the equivalent SHACL. Failures are reported against the line you
+wrote. ``shifty shape export`` writes readable SHACL Turtle for other
+tools.
 
-There are two ways to write Shapeshift:
+You can write Shapeshift two ways:
 
-- **As text**, in ``.shm`` files, with the ``shifty shape`` commands to check,
-  format, export, and validate them.
-- **From Python**, with ``shifty.experimental.shapeshift``, which builds the
-  same modules from Python values and writes them as ``.shm`` text or SHACL.
-  Use it when shapes are generated from data, or to share pieces between
-  files with ordinary Python imports.
+- **As text**, in ``.shm`` files, with the ``shifty shape`` commands.
+- **From Python**, with ``shifty.experimental.shapeshift``. Use this when
+  shapes come from data, or to share pieces between files with Python
+  imports.
 
-From Rust, the ``shifty-experimental`` crate is the entry point:
-``shifty_experimental::shapeshift`` parses, formats, builds, and exports
-``.shm`` files, and runs the sessions behind ``shifty shape``. It is kept
-apart from Shifty's stable crates, and the crates it is built from
-(``shapeshift``, ``shapeshift-parse``, and the others under
-``crates/experimental/``) are its implementation, not an interface.
+From Rust, use ``shifty_experimental::shapeshift`` in the
+``shifty-experimental`` crate. The other crates under
+``crates/experimental/`` are its implementation, not an interface.
 
 .. list-table::
    :widths: 30 70
 
    * - :doc:`tutorial`
-     - Write a shape, check it, validate a building against it, and read the
-       failure.
+     - Write a shape, validate a building against it, and read the failure.
    * - :doc:`language`
-     - The language: shapes, targets, fields, groups, frames, templates, and
-       imports.
+     - The whole language, from files down to single tests.
    * - :doc:`python`
      - Write Shapeshift modules from Python.
    * - :doc:`reference`
-     - What each construct means in SHACL, the reserved words, and the
-       ``shifty shape`` commands.
+     - The SHACL for each construct, reserved words, and commands.
 
-The Guideline 36 sequences in ``examples/shapeshift/g36/`` in the repository
-are a larger example, written in Python and generated as ``.shm`` files.
+For a larger example, see ``examples/shapeshift/g36/`` in the repository:
+the ASHRAE Guideline 36 sequences, written in Python and generated as
+``.shm`` files.
 
 .. toctree::
    :hidden:

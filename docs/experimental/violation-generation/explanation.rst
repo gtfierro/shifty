@@ -1,185 +1,163 @@
-Generating violations
-=====================
+How violation generation works
+==============================
 
 .. include:: experimental.inc
 
-This page explains how ``shifty.experimental.vio`` builds test cases for
-repair tools, and why it works the way it does. To use it, start with the
-:doc:`tutorial`; the :doc:`how-to` builds a full benchmark, and the
-:doc:`reference` lists every option.
+``vio`` breaks a conforming graph with recorded edits, so that undoing the
+edits is a repair known to be correct. The approach is from Lin et al.
+[LIN25]_. [LIN26]_ extends it to several violations per case, because real
+graphs rarely have one problem at a time.
 
-The problem
------------
-
-A repair tool takes a graph that fails validation and edits it until it
-passes. Passing is easy to check and says little. Deleting every failing
-node passes too. What matters is whether the tool recovered the graph the
-author meant, and a validator cannot know that.
-
-So the generator starts from the answer. It takes a graph that conforms,
-the *reference graph*, and breaks it with a recorded set of edits. The
-broken graph is the test input. The recorded edits, reversed, are a repair
-known to be correct.
-
-The approach is from Lin et al. [LIN25]_, extended to several violations
-per case in [LIN26]_. Real graphs rarely have one problem at a time, and
-violations interact: fixing one can expose or hide another. A useful
-benchmark has to contain such cases.
+Building a case takes four steps: find ways to break the graph, pick a few
+at random, combine them, and check the result.
 
 Finding ways to break a graph
 -----------------------------
 
-Take a shape that says every sensor has exactly one label, and a sensor
-that has one. Why does the sensor pass? Because the label triple exists,
-and because there is no second one. Each reason is a way to break it:
-remove the label, or add another.
+Take a shape that says a sensor has exactly one label, and a sensor with
+one label. It passes for two reasons: the label exists, and there is no
+second one. Each reason is a way to break it. Remove the label, or add
+another.
 
-That is the whole idea. When Shifty validates, it can produce *evidence*:
-a tree that records why each node satisfies each shape. The generator walks
-that tree and turns each reason into the edits that defeat it:
+Shifty can record why each node passes each shape. This record is called
+*evidence*. ``vio`` walks the evidence and turns each reason into the edits
+that defeat it:
 
-- A value that had to exist can be removed.
-- A value that had to pass a test can be swapped for one that fails it.
-- A count that had to stay under a limit can be pushed over it.
-- Under ``sh:not`` the direction flips: the inner shape had to fail, so the
-  edits make it hold.
+- A value that had to exist is removed.
+- A value that had to pass a test is swapped for one that fails.
+- A count that had to stay under a limit is pushed over it.
+- Under ``sh:not``, the edits make the inner shape hold instead.
 
-Shapes nest, so the walk recurses. To break "has a point that has a
-description", remove the point, or break the point's description.
+Shapes nest, so the walk recurses. To break "has a point with a
+description", remove the point, or break its description.
 
-Each complete set of edits is an *injection*: it makes one node fail one
-shape. All the injections together are the *universe*. The walk runs over
-Shifty's internal shape algebra, a handful of operators that every SHACL
-constraint lowers to, so there is one rule per operator, not one per SHACL
-component.
+One complete set of edits is an *injection*. It makes one node fail one
+shape. All the injections together are the *universe*.
 
-The search is bounded. A large graph has an enormous number of ways to
-swap one value for another, so each step tries a capped number of
-alternatives (the :ref:`expansion limits <vio-limits>`). The universe is
-therefore a large sample of the ways to break the graph, not all of them.
+The walk works on Shifty's shape algebra, which every SHACL constraint
+compiles to. A handful of operators covers all of SHACL, so ``vio`` needs
+one rule per operator rather than one per constraint type.
+
+There are often far too many ways to swap a value, so the walk tries only a
+few at each step (the :ref:`expansion limits <vio-limits>`). The universe
+is a large sample of the ways to break the graph, not every one.
 
 Picking injections
 ------------------
 
-A case needs a few injections out of tens of thousands, chosen at random
-but reproducibly. The generator gives each injection a score, computed from
-a hash of the injection and the seed, and keeps the lowest-scoring few
-hundred in a *reservoir*. This is the weighted sampling of [LIN26]_
-(Efraimidis and Spirakis): a weight divides the score, so a heavier
-injection is more likely to land in the reservoir.
+A case needs a few injections out of tens of thousands. They must be
+random, and the same seed must give the same pick.
 
-Scoring by hash has three useful consequences:
+``vio`` scores each injection by hashing it with the seed. It keeps the
+lowest scores in a small *reservoir*. A weight divides the score, so heavier
+injections are more likely to land there. This is the weighted sampling
+used in [LIN26]_.
 
-- The sample depends only on the injections and the seed, not on the order
-  they are found in. The same seed gives the same case on any machine.
-- Injections can be scored as the walk produces them. A draw never stores
-  the universe, only its reservoir.
-- Several cases can share one walk, each with its own reservoir. A suite
-  costs one pass, not one per case.
+Hashing has three benefits:
 
-By default all weights are 1 and every injection is equally likely.
-[LIN26]_ weights one class of predicates to test a hypothesis about it.
-That choice belongs to the experiment, so weights are supplied by the
-caller, per predicate or per operation kind. Filters are separate: a weight
-makes an injection unlikely, and only a filter makes it impossible.
+- The pick doesn't depend on the order injections are found in, so any
+  machine picks the same ones.
+- Injections are scored as they are found. A draw never stores the whole
+  universe.
+- Many cases can share one walk, each with its own reservoir. A suite costs
+  one walk.
+
+All weights default to 1. Choosing weights is part of designing an
+experiment, so they come from the caller. Filters are separate: a weight
+makes an injection unlikely, and only a filter rules it out.
 
 Combining injections
 --------------------
 
-The generator takes injections from the reservoir in score order and adds
-each one to the case unless it conflicts with one already chosen. Two
-injections conflict when they cannot both take effect:
+``vio`` takes injections from the reservoir in score order. It adds each to
+the case unless it conflicts with one already chosen. Two injections
+conflict when they can't both take effect:
 
-- One deletes a triple that the other adds.
+- One deletes a triple the other adds.
 - Both replace the same value, with different values.
-- One needs a node to fail a constraint that the other needs it to satisfy.
+- One needs a node to fail a constraint that the other needs it to pass.
 
-The last rule is the papers' ([LIN26]_ §6.3). The first two are added here.
-They matter because an edit that gets cancelled leaves the recorded repair
-wrong.
+The last rule is from [LIN26]_ (§6.3). ``vio`` adds the first two because
+an edit that gets cancelled out would leave the recorded repair wrong.
 
-Everything else is allowed. Two injections may share an edit, break the
-same property, or break the same node. Overlap is not a defect: tangled
-failures are what a multi-violation benchmark is for.
+Anything else is allowed. Two injections can share an edit, or break the
+same node. Tangled failures are what a multi-violation benchmark is for.
 
 Checking the result
 -------------------
 
-The papers stop at compatibility. Shifty adds two checks, because the
-search is approximate and compatible injections can still interfere.
+The papers stop once injections are compatible. ``vio`` adds two checks,
+because its search is approximate and compatible injections can still
+interfere.
 
-**Each injection is tested alone.** Before an injection joins a case, its
-edits are applied to the reference graph and its node is re-evaluated. It
-must fail the property the injection aimed at. An injection can miss: the
-search caps its alternatives, and follows one route along a property path.
-The check runs the shapes' SHACL-AF rules, so an injection whose removal a
-rule would infer back fails it here.
+**Each injection is tested alone.** Its edits are applied to the original
+graph, and its node is validated again. It has to fail the property it
+aimed at. Rules run during this check, so an injection that a rule would
+undo fails here.
 
-**The finished case is validated.** One injection can undo another's
-effect, for example by adding a value that restores support the other
-removed. So the combined edits are applied and the whole graph is
-validated. An injection whose property no longer fails is dropped, and the
-next one from the reservoir takes its place.
+**Each finished case is validated.** One injection can undo another, for
+example by adding back a value the other removed. So the combined edits are
+applied and the whole graph is validated. An injection that no longer
+causes a failure is dropped, and the next one in the reservoir takes its
+place.
 
-After the second check, every failure listed in a case was reported by the
-validator on the broken graph. Nothing in a case is a prediction.
+After these checks, every failure a case lists was reported by the
+validator. None of them are predictions.
 
-The check has a limit. When two injections break the same property, it
-confirms that the property fails, not that both injections are needed. One
-may be redundant. Detecting that would take one more validation per
-injection, and the generator does not do it.
+One gap remains. When two injections break the same property, the check
+confirms that the property fails. It doesn't confirm that both injections
+are needed.
 
 What the numbers mean
 ---------------------
 
-The budget ``k`` counts injections, and it is an upper bound. A small
-universe, or a tight filter, can yield fewer.
+``k`` is the most injections a case holds. A small universe or a tight
+filter can give fewer.
 
-Failures are counted separately and need not equal ``k``. One edit can
-break several shapes, so a case can have more failures than injections.
-Several injections can break one property, so it can have fewer. A failure
-that no injection aimed at is a side effect, and is listed with no
+The number of failures can differ from ``k``:
+
+- One edit can break several shapes, giving more failures.
+- Several injections can break the same property, giving fewer.
+
+A failure that no injection aimed at is a side effect. It is listed with no
 injections.
-
-A node that already failed in the reference graph is never broken, and
-never listed as a failure.
 
 Reproducing a case
 ------------------
 
-A benchmark must be regenerable, so a draw is a pure function of the data,
-the shapes, the limits, and ``(k, seed)``. Three things could break that,
-and each is handled:
+A benchmark has to be rebuildable. A draw depends only on the data, the
+shapes, the limits, ``k``, and the seed. Three things could break that, and
+each is handled:
 
-- Hash functions that are seeded per process. The generator uses fixed
-  ones.
-- Internal shape ids, which vary between processes. Ordering uses a digest
-  of each shape's structure.
-- Blank-node names, which a parser picks afresh on every parse. The
-  reference graph's blank nodes are renamed canonically.
+- **Hash functions** that change per process. ``vio`` uses fixed ones.
+- **Internal shape ids**, which change between runs. ``vio`` orders shapes
+  by a digest of their structure.
+- **Blank-node names**, which a parser picks afresh each time. ``vio``
+  renames them the same way every time.
 
-For the same reason, composition waits until the walk has finished.
-[LIN26]_ lets it start earlier. Waiting means a case depends on the whole
-universe, not on how far the walk had got.
+Combining waits until the walk is done, so a case depends on the whole
+universe and not on how far the walk got. [LIN26]_ lets combining start
+earlier.
 
 Differences from the papers
 ---------------------------
 
-- Injections come from Shifty's evidence over the shape algebra, not from
-  a rule per SHACL component.
+- Injections come from evidence over the shape algebra, not from one rule
+  per SHACL constraint type.
 - Each injection is tested alone, and each case is validated.
-- Edits that cancel are conflicts, in addition to the papers' rule.
-- A case holds up to ``k`` injections. [LIN26]_ says exactly ``K`` in §6.1
-  and "up to ``K``" in §6.3; Shifty follows §6.3.
-- Weights default to 1 and are given by the caller. Operation kinds can be
-  weighted as well as predicates.
+- Edits that cancel out count as conflicts.
+- A case holds *up to* ``k`` injections. [LIN26]_ says "exactly" in §6.1
+  and "up to" in §6.3. ``vio`` follows §6.3.
+- Weights default to 1 and are chosen by the caller, per predicate or per
+  operation kind.
 - Filters exist alongside weights.
-- Composition starts after the walk ends.
-- SHACL-AF rules run on every check, so a case never relies on an edit
-  that the rules would undo.
+- Combining starts after the walk ends.
+- Rules run on every check, so no case relies on an edit the rules would
+  undo.
 
-The rewrite rules, limits, and implementation are in the `design notes
-<https://github.com/gtfierro/shifty/blob/main/development_docs/violation-generation.md>`_.
+The `design notes
+<https://github.com/gtfierro/shifty/blob/main/development_docs/violation-generation.md>`_
+cover the rewrite rules and the implementation.
 
 .. [LIN25] T.-W. Lin, G. Fierro, H. Li, T. Hong, P. Nuzzo, and
    A. Sangiovanni-Vincentelli. *Systematic Evaluation of Knowledge Graph

@@ -3,68 +3,70 @@ Build a repair benchmark
 
 .. include:: experimental.inc
 
-This page shows how to turn a conforming model into a suite of repair test
-cases. It assumes the :doc:`tutorial`: what a ``Universe``, an injection, and
-a ``Case`` are. Every parameter is listed in the :doc:`reference`.
+This guide takes you from your own model to a suite of test cases, and
+then to a score for a repair tool. It assumes you have done the
+:doc:`tutorial`.
 
-Load the model and the shapes
------------------------------
+1. Start from a conforming model
+--------------------------------
 
 .. code-block:: python
 
    from shifty.experimental import vio
 
-   universe = vio.Universe("model.ttl", "shapes.ttl")  # data first, like validate()
+   universe = vio.Universe("model.ttl", "shapes.ttl")
 
-The data and the shapes take anything ``shifty.validate`` takes: paths,
-URLs, Turtle strings or bytes, ``rdflib.Graph`` objects, or lists of these,
-which are merged.
+The inputs can be paths, URLs, Turtle strings, ``rdflib.Graph`` objects, or
+lists of these.
 
-The data should conform. A node that already fails a shape is left alone
-and never reported as a failure; ``universe.baseline_failures`` lists those
-pairs, and the command line warns about them. If the list is long, fix the
-model or the shapes first, or most of the model is out of reach.
+The model should conform, because ``vio`` only breaks nodes that pass. Check
+what is already failing:
 
-Models that rely on rules
-~~~~~~~~~~~~~~~~~~~~~~~~~
+.. code-block:: python
 
-Some models conform only after their SHACL-AF rules have run. ASHRAE 223P
-models are an example. Nothing extra is needed: like ``shifty.validate``,
-``vio`` runs the shapes' rules on every validation by default.
+   len(universe.baseline_failures)
 
-Edits touch only the asserted triples, and every check re-runs the rules.
-An injection that the rules would undo, by inferring back what it removed,
-fails its check and never reaches a case. The broken graph is the asserted
-model with the edits applied, which is what a repair tool would be given.
+Those nodes are out of reach. If there are many, fix the model or the
+shapes first.
 
-``infer=False`` (``--no-infer``) ignores the rules, for benchmarks whose
-graphs are validated without them.
+Models that use rules
+~~~~~~~~~~~~~~~~~~~~~
 
-Rules make drawing slower, since every check runs them: about four times
-slower on NIST-IBAL.
+Some models conform only after their SHACL-AF rules run, ASHRAE 223P models
+among them. You don't need to do anything for these. ``vio`` runs the rules
+on every check, as ``shifty.validate`` does.
 
-Choose what gets broken
------------------------
+It also only edits the triples you wrote, never inferred ones. If an edit
+would be undone by a rule, ``vio`` drops it. The broken graph is your model
+with the edits applied.
 
-``where`` keeps only some injections, and ``weighted`` changes how likely
-each one is. Both return a new view and leave the universe unchanged, so
-they are cheap and they chain.
+To ignore the rules, pass ``infer=False`` (``--no-infer``).
+
+2. Choose what gets broken
+--------------------------
+
+A benchmark usually tests something specific: one kind of equipment, one
+property, one kind of mistake. Two tools narrow the universe to that:
+
+- ``where`` filters. Injections it drops can never be drawn.
+- ``weighted`` changes how often injections are drawn, without dropping
+  any.
 
 .. code-block:: python
 
    S223 = "http://data.ashrae.org/standard223#"
 
-   zones = universe.where(shape=S223 + "Zone")      # break only this shape
-   cnx = universe.where(predicate=S223 + "cnx")     # edit only this predicate
-   mine = universe.where(focus=my_nodes)            # break only these nodes
-   single = universe.where(lambda e: len(e.operations) == 1)
+   zones = universe.where(shape=S223 + "Zone")      # only break zones
+   cnx = universe.where(predicate=S223 + "cnx")     # only edit cnx
+   mine = universe.where(focus=my_nodes)            # only break these nodes
+   simple = universe.where(lambda e: len(e.operations) == 1)
 
-   zones.weighted(kinds={"add_value": 0.2}).draw(10, seed=3)
+   zones.weighted(kinds={"add_value": 0.2})         # fewer extra values
 
-Use a filter to rule injections out, and a weight to make them rarer or
-more common. A weight never excludes anything. Weights are relative, and
-anything without one counts as 1: a weight of 50 on one predicate makes its
-injections 50 times as likely as the rest.
+Both return a new view. They are cheap and they chain.
+
+Weights are relative, and anything unweighted counts as 1. A weight of 50
+on a predicate makes its injections 50 times as likely as the rest.
 
 To see what you are choosing from, list the universe:
 
@@ -72,97 +74,96 @@ To see what you are choosing from, list the universe:
 
    from collections import Counter
 
-   print(len(zones))
-   print(Counter(kind for e in zones for kind in e.kinds))
-   for e in zones[:5]:
-       print(e.focus, e.operations[0].detail)
+   len(zones)
+   Counter(kind for e in zones for kind in e.kinds)
 
-Listing stores every injection, which a draw alone does not, so on a large
-model it costs memory.
+On 223P models, most injections add an extra value, because most
+properties have a ``sh:maxCount``. Weight ``add_value`` down to get a mix.
 
-On 223P models, weight the operation kinds. Most properties there have both
-``sh:class`` and ``sh:maxCount``, so ``add_value`` makes up most of the
-universe, and an unweighted suite is mostly extra values.
+Listing keeps every injection in memory, so on a large model it costs
+memory. Drawing doesn't.
 
-Write a suite
--------------
+3. Write a suite
+----------------
 
 ``generate`` draws many cases and writes them to disk:
 
 .. code-block:: python
 
-   suite = vio.generate(
+   vio.generate(
        "model.ttl", "shapes.ttl", "suite/",
-       budgets=(2, 5, 10), cases=10, seed=0, jobs=4,
+       budgets=(2, 5, 10), cases=10, jobs=4,
    )
 
-This draws ten cases at each budget ``k``, with seeds 0 to 9, and writes
-the original graph as ``suite/reference.nt``, one directory per case under
-``suite/k05/case-003/`` and so on, and a summary as ``suite/suite.json``.
-The :ref:`file formats <vio-output-files>` are in the reference.
+This writes ten cases with up to 2 injections, ten with up to 5, and ten
+with up to 10:
 
-``generate`` takes the filters of ``where`` (``shape``, ``predicate``,
-``focus``) and the weights of ``weighted`` (``predicates``, ``kinds``) as
-keyword arguments. The command line does the same:
+.. code-block:: text
+
+   suite/
+     reference.nt          the original graph
+     suite.json            a summary of every case
+     k05/case-003/
+       graph.nt            the broken graph
+       repair.ru           the repair, as a SPARQL update
+       case.json           the edits, injections, and failures
+
+``generate`` takes the same filters and weights as ``where`` and
+``weighted``. The command line does the same:
 
 .. code-block:: bash
 
    python -m shifty.experimental.vio --data model.ttl --shapes shapes.ttl \
-       --out suite/ -k 2 -k 5 -k 10 -n 10 --seed 0 --jobs 4
+       --out suite/ -k 2 -k 5 -k 10 -n 10 --jobs 4
 
-To keep the cases in memory instead, draw them in one pass from a view you
-have built:
+To build a suite from a view, use ``draws``. It returns the cases instead
+of writing them:
 
 .. code-block:: python
 
-   cases = zones.draws([(k, s) for k in (2, 5, 10) for s in range(10)])
-   for case in cases:
-       case.save(f"suite/k{case.k:02}/case-{case.seed:03}")
+   cases = zones.draws([(k, seed) for k in (2, 5, 10) for seed in range(10)])
 
-Run in parallel
-~~~~~~~~~~~~~~~
+How long it takes
+~~~~~~~~~~~~~~~~~
 
-``jobs=N`` (``--jobs N``) splits the cases across ``N`` worker processes.
-The suite is the same for any ``N``, since cases do not depend on each
-other. Each worker builds its own universe, so memory grows with ``N``.
+``jobs`` splits the cases across worker processes. The suite comes out the
+same for any number of jobs.
 
-For NIST-IBAL, a 223P model of 6,016 asserted triples (9,625 after rules),
-with a universe of about 75,000 injections:
+On NIST-IBAL, a 223P model of about 6,000 triples:
 
 .. list-table::
    :header-rows: 1
 
-   * - Step
+   * - Work
      - Time
-   * - One case at ``k = 10``
+   * - One case, up to 10 injections
      - 4 s
-   * - Thirty cases at ``k`` = 2, 5, 10
+   * - 30 cases
      - 41 s
-   * - The same with ``jobs=8``
+   * - 30 cases, ``jobs=8``
      - 11 s
 
-A worker uses about 500 MB for this model, and about 760 MB if it lists the
-universe. Most of the time goes to checking candidates and validating each
-finished case, with the rules run each time, which grows with the graph. If the universe is too large, lower the
+Each worker uses about 500 MB. Most of the time goes to running the rules
+on each check. If the universe is too large to handle, lower the
 :ref:`expansion limits <vio-limits>`.
 
-Score a repair tool
--------------------
+4. Score a repair tool
+----------------------
 
-Give the tool the broken graph, ``graph.nt`` or ``case.graph()``. Apply the
-edits it proposes, as a ``shifty.RepairDelta``, and compare the result with
-the original:
+Give the tool ``graph.nt``. Apply the edits it proposes, and compare the
+result with the original:
 
 .. code-block:: python
 
-   candidate = case.apply(tool_delta)  # the broken graph with the tool's edits
-   intended = case.apply(case.repair)  # the original graph
+   candidate = case.apply(tool_delta)
+   intended = case.apply(case.repair)
 
-``case.failures`` says which nodes and shapes the tool should have fixed,
-and which injections caused each failure, so a score can count failures
-fixed as well as triples matched. A tool that writes SPARQL can be compared
-against ``repair.ru``, the same repair as a SPARQL update.
+Score two things separately:
 
-A repair other than the recorded one can also conform. Check the candidate
-with ``shifty.validate`` and treat conformance and agreement with the
-intended graph as separate scores.
+- **Conformance.** Validate ``candidate``. A repair other than the intended
+  one can still conform.
+- **Agreement.** Compare ``candidate`` with ``intended``.
+  ``case.failures`` lists each failure and the injections behind it, so
+  you can also count failures fixed.
+
+A tool that writes SPARQL can be compared against ``repair.ru``.

@@ -3,14 +3,13 @@ The Shapeshift language
 
 .. include:: experimental.inc
 
-A Shapeshift file (``.shm``) declares shapes. This page goes through the
-language from the file down to a single test. :doc:`reference` says what each
-construct is in SHACL.
+This page covers the whole language, from a file down to a single test.
+For the SHACL each construct exports to, see :doc:`reference`.
 
 Files
 -----
 
-A file starts with its header, then declares shapes and paths in any order:
+A file starts with a header, then declares shapes and paths in any order:
 
 .. code-block:: shapeshift
 
@@ -23,28 +22,25 @@ A file starts with its header, then declares shapes and paths in any order:
      brick:isFedBy exactly 1
    }
 
-- ``base <iri>`` is the IRI the file's shapes are named under: ``vav`` is
-  ``<urn:example/vav/vav>``. Without a base, the build warns and names the
-  shapes under a placeholder ``urn:shapeshift:`` IRI made from the file name.
-- ``prefix name: <iri>`` declares a prefix, as in Turtle. ``rdf``, ``rdfs``,
-  ``xsd``, ``owl``, and ``sh`` are declared already.
+- ``base <iri>`` names the file's shapes: ``vav`` is
+  ``<urn:example/vav/vav>``. Without a base, the build warns and uses a
+  placeholder ``urn:shapeshift:`` IRI made from the file name.
+- ``prefix name: <iri>`` works as in Turtle. ``rdf``, ``rdfs``, ``xsd``,
+  ``owl``, and ``sh`` are already declared.
 - ``import`` brings in another file or an RDF graph. See `Imports`_.
-- ``--`` starts a comment, which runs to the end of the line. The formatter
-  keeps comments; the compiler ignores them.
-- ``doc "..."`` documents the shape or line after it. Unlike a comment, a doc
-  is part of the shape: it is exported (as ``rdfs:comment`` or
-  ``sh:description``) and quoted in reports. A string in triple quotes
-  (``"""..."""``) may span lines.
+- ``--`` starts a comment, which runs to the end of the line.
+- ``doc "..."`` documents the next shape or line. Unlike a comment, a doc is
+  exported and quoted in reports. Triple quotes (``"""..."""``) allow
+  several lines.
 
-Inside braces, a line ends at a newline or a ``;``. Names are made of
-letters, digits, ``_``, and ``-``: ``zone-temperature``, ``SAT_AVG``.
+Inside braces, a line ends at a newline or a ``;``. Names use letters,
+digits, ``_``, and ``-``: ``zone-temperature``, ``SAT_AVG``.
 
 Shapes and targets
 ------------------
 
 ``shape name { lines }`` defines a shape. A node conforms when every line
-holds. ``for`` clauses, between the name and the braces, say which nodes the
-shape checks:
+holds. ``for`` clauses say which nodes the shape checks:
 
 .. code-block:: shapeshift
 
@@ -57,22 +53,26 @@ shape checks:
      brick:hasPoint required
    }
 
-``for every node matching s`` checks the nodes that conform to shape ``s``,
-and ``for sparql "SELECT ?this WHERE { ... }"`` the nodes a query returns.
+Two more targets:
 
-A shape with no ``for`` checks nothing on its own. It is a definition, for
-other shapes to use. This differs from SHACL, where a shape is often a target
-by accident; in Shapeshift what a shape checks is always on its first line.
+- ``for every node matching s`` checks the nodes that conform to shape
+  ``s``.
+- ``for sparql "SELECT ?this WHERE { ... }"`` checks the nodes a query
+  returns.
 
-``for every C`` and the ``a C`` test include instances of subclasses of
-``C``, as in SHACL, when the ``rdfs:subClassOf`` triples are in the graph
-being validated.
+A shape with no ``for`` checks nothing by itself. It is a definition for
+other shapes to use. In SHACL it is easy to target nodes by accident. In
+Shapeshift, what a shape checks is always on its first line.
+
+``for every C`` and the test ``a C`` include instances of subclasses of
+``C``, as in SHACL, as long as the ``rdfs:subClassOf`` triples are in the
+validated graph.
 
 Fields
 ------
 
-Most lines are fields: a path, then how many values it has, then tests on
-the values.
+Most lines are fields. A field gives a path, how many values it has, and
+tests on the values.
 
 .. code-block:: shapeshift
 
@@ -99,19 +99,21 @@ A count limits the number of values:
    * - ``between a and b``
      - from ``a`` to ``b``, inclusive
 
-A field with no count may have any number of values. Each count has one
-spelling: ``at least 1`` is written ``required``, ``at most 1`` and
-``between 0 and 1`` are written ``optional``, and the build says so.
+A field with no count can have any number of values.
+
+Each count has one spelling. Write ``required``, not ``at least 1``, and
+``optional``, not ``at most 1``. The build points out the other spellings.
 
 After the count come qualifiers, separated by commas:
 
-- ``each T``: every value passes the test ``T``. A node with no values passes,
-  so ``required, each a brick:Point`` is the usual "one or more, all points".
-- ``at least n is T``, ``at most n is T``, ``exactly n is T``: count only
-  the values that pass ``T``. The node may have other values too. For a
-  shape, the word is ``matches``: ``at least 1 matches damper``.
+- ``each T``: every value passes the test ``T``. A node with no values
+  passes too, so "one or more, all points" is
+  ``required, each a brick:Point``.
+- ``at least n is T`` (and ``at most``, ``exactly``): count only the values
+  that pass ``T``. Other values are allowed. For a shape, write
+  ``matches``: ``at least 1 matches damper``.
 
-The two are easy to confuse, so they are different words:
+The two are easy to mix up, so they use different words:
 
 .. code-block:: shapeshift
 
@@ -120,11 +122,10 @@ The two are easy to confuse, so they are different words:
    -- one point, at least, is an airflow sensor; the others can be anything
    brick:hasPoint at least 1 is a brick:Air_Flow_Sensor
 
-A value test always follows ``each`` or a qualified count: ``ex:p string`` is
-an error, and ``ex:p each string`` the field.
+A value test always follows ``each`` or a qualified count. ``ex:p string``
+is an error; write ``ex:p each string``.
 
-Fields also compare two properties of the node, or check its strings'
-languages:
+Fields can also compare two properties, or check languages:
 
 .. code-block:: shapeshift
 
@@ -137,8 +138,8 @@ languages:
 Tests
 -----
 
-A test is what ``each`` and ``at least n is`` apply to each value. Every
-test starts with the word that says what kind of test it is:
+A test is what ``each`` and ``at least n is`` check on each value. Every
+test starts with a word that says what kind of test it is:
 
 .. list-table::
    :header-rows: 1
@@ -173,25 +174,30 @@ test starts with the word that says what kind of test it is:
    * - ``language "en" "de"``
      - is a string in one of these languages
 
-``a`` and ``matches`` keep a class and a shape apart wherever they meet:
-``each brick:AHU`` is an error that asks for ``each a brick:AHU``, and
-``each damper`` one that asks for ``each matches damper``. Builtin datatypes
-are written by their word: ``datatype xsd:string`` is ``string``.
+``a`` and ``matches`` keep classes and shapes apart. ``each brick:AHU`` is
+an error that suggests ``each a brick:AHU``. ``each damper`` suggests
+``each matches damper``.
 
-``or`` after ``a`` lists classes, as it lists properties in a path: a value
-passes when it is an instance of any of them. For alternatives that are not
-all classes, use ``any of`` (see `Frames`_).
+Built-in datatypes are written as words: ``string``, not
+``datatype xsd:string``.
+
+``or`` after ``a`` lists classes. A value passes when it is an instance of
+any of them. For alternatives that aren't all classes, use ``any of`` (see
+`Frames`_).
 
 .. code-block:: shapeshift
 
    brick:isFedBy exactly 1, each a brick:AHU or brick:RTU
    brick:hasPoint at least 1 is a brick:Air_Flow_Sensor or brick:Air_Flow_Setpoint
 
-A range's ends are numbers, or dates and times. Dates and times are written
-bare, in their XSD form: ``2024-01-31`` is an ``xsd:date``,
-``2024-01-31T08:00:00Z`` an ``xsd:dateTime``, and ``08:00:00`` an
-``xsd:time``, each with an optional timezone (``Z``, ``+02:00``). They are
-values like any other, so ``one of`` takes them too:
+Ranges work on numbers, dates, and times. Dates and times are written bare,
+in XSD form, with an optional timezone (``Z``, ``+02:00``):
+
+- ``2024-01-31`` is an ``xsd:date``.
+- ``2024-01-31T08:00:00Z`` is an ``xsd:dateTime``.
+- ``08:00:00`` is an ``xsd:time``.
+
+``one of`` takes them too:
 
 .. code-block:: shapeshift
 
@@ -200,10 +206,9 @@ values like any other, so ``one of`` takes them too:
    ex:opens each from 06:00:00 to 10:00:00
    ex:holiday each one of 2024-12-25 2024-12-26
 
-Both ends of a range are the same kind of value, and a value is in the range
-only if it is that kind too: a date range holds for no number, and for no
-``xsd:dateTime``. A date that does not exist, like ``2024-02-30``, is an
-error.
+Both ends of a range must be the same kind, and only values of that kind
+fall in it. No number is in a date range, and no ``xsd:dateTime`` either.
+A date that doesn't exist, like ``2024-02-30``, is an error.
 
 Paths
 -----
@@ -229,8 +234,8 @@ A path is a property, or properties combined:
    * - ``self``
      - no step: the node itself
 
-``path`` names a path for the file to reuse. A path with parameters is a
-template, with defaults:
+Long paths repeat, so ``path`` names one for reuse. A path with parameters
+is a template:
 
 .. code-block:: shapeshift
 
@@ -247,13 +252,15 @@ template, with defaults:
 Names and composition
 ---------------------
 
-``name:`` before a line names it. The name changes nothing about what the
-line requires. It gives the line an identity: the line exports as a named
-property shape (``<urn:example/vav/vav.fed>``), reports and shape maps use
-it, and other shapes can reuse it.
+``name:`` before a line names it. The name doesn't change what the line
+requires. It gives the line an identity:
 
-A field is written on one line. Its ``doc``, ``message``, and ``severity``
-go on the lines before it:
+- It exports as a named property shape (``<urn:example/vav/vav.fed>``).
+- Reports and shape maps refer to it by name.
+- Other shapes can reuse it.
+
+A field fits on one line. Its ``doc``, ``message``, and ``severity`` go on
+the lines before it:
 
 .. code-block:: shapeshift
 
@@ -265,8 +272,9 @@ go on the lines before it:
      unit: brick:hasUnit optional, each iri
    }
 
-A shape's name alone on a line composes it: all of its lines hold here too,
-but not its targets. ``shape.name`` composes one named line:
+To reuse a shape, write its name alone on a line. Its lines then hold here
+too, but its targets don't come along. ``shape.name`` reuses one named
+line:
 
 .. code-block:: shapeshift
 
@@ -280,14 +288,15 @@ but not its targets. ``shape.name`` composes one named line:
      reheat: brick:hasPoint at least 1 is a brick:Reheat_Valve_Command
    }
 
-``is`` on a line tests the node itself: ``is a brick:Damper`` says the node
-is a damper, and ``is iri`` that it is an IRI. A shape is not written after
-``is``: alone on the line, it already applies to the node.
+``is`` on a line tests the node itself. ``is a brick:Damper`` says the node
+is a damper, and ``is iri`` says it is an IRI. A shape doesn't need ``is``:
+alone on a line, it already applies to the node.
 
 Groups
 ------
 
-A group lists named points (or parts, or any values) along one path. Each row
+Specifications list equipment as points: a supply-air sensor, a return-air
+sensor, and so on. A group writes such a list along one path. Each row
 names a value and says what it is:
 
 .. code-block:: shapeshift
@@ -306,24 +315,25 @@ names a value and says what it is:
      }
    }
 
-A row counts the values that are instances of its class (or that conform to
-its shape): a row is the one place a class or a shape is written without
-``a`` or ``matches``, since a row is always one or the other. By default it
-requires exactly one. A count after the path sets the default for every row,
-and a count on a row sets its own, with the same meaning as on a field. A row
-``C { lines }`` counts the values that are ``C`` and satisfy the lines. A
-row's ``doc`` goes on the line before it, and its name is optional. For two
-values of the same class, write one row with ``exactly 2``, not the row
-twice: the build warns about repeated rows, which require only one value.
+A row counts the values of its class, or that match its shape. Rows are
+always a class or a shape, so they skip ``a`` and ``matches``.
 
-Groups read like the point lists in a specification. Declaring
-``path points = brick:hasPoint`` lets the group read ``points { ... }``.
+- A row requires exactly one value by default.
+- A count after the path sets the default for every row. A count on a row
+  sets its own.
+- ``C { lines }`` counts values that are ``C`` and satisfy the lines.
+- A row's name is optional, and its ``doc`` goes on the line before it.
+
+For two values of one class, write one row with ``exactly 2``. Repeating
+the row requires only one value, and the build warns about it.
+
+With ``path points = brick:hasPoint``, a group reads ``points { ... }``.
 
 Frames
 ------
 
-Alternatives and prohibitions are blocks behind a phrase that says how they
-combine. Each block is a shape written in place:
+Some rules are choices ("a damper command or a damper part") or bans.
+Frames write these as blocks after a phrase that says how they combine:
 
 .. code-block:: shapeshift
 
@@ -336,20 +346,24 @@ combine. Each block is a shape written in place:
    when { brick:hasPoint at least 1 is a brick:Economizer_Status }
    then { brick:hasPoint at least 1 is a brick:Outside_Air_Damper }
 
-Every line of a block must hold, so there is no ``all of``. ``at least 1 of``
-is ``any of``, and ``at most 0 of`` is ``none of``.
-``when C then B`` is "if ``C`` holds, ``B`` must": the common rule "if it has
-X, it must have Y". There is no ``or`` between lines and no ``not``: a reader
-can tell what a block means from its first word.
+- Every line of a block must hold, so there is no ``all of``.
+- ``at least 1 of`` is written ``any of``, and ``at most 0 of`` is
+  ``none of``.
+- ``when C then B`` means "if ``C`` holds, ``B`` must": "if it has X, it
+  must have Y".
 
-To choose among values rather than lines, use a test:
+There is no ``or`` between lines and no ``not``. The first word of a frame
+tells you what it means.
+
+To choose among values instead of lines, use a test:
 ``each one of ex:on ex:off``.
 
 Templates
 ---------
 
-A shape with parameters is a template. A parameter may have a default, which
-may refer to an earlier parameter:
+Many rules differ only in a class or a number. A shape with parameters is a
+template for them. A parameter can have a default, which can use an earlier
+parameter:
 
 .. code-block:: shapeshift
 
@@ -371,11 +385,13 @@ may refer to an earlier parameter:
      has-points(brick:Sensor, 2, max = 6)
    }
 
-Arguments are positional, then named. A call is checked against the
-template: a missing argument, or a name where a number belongs, is an error
-that quotes the template's parameters. Calls with the same arguments share
-one exported shape, which records the call it expands. A labelled call
-(``temp: has-point(...)``) is exported under its label instead: ``vav.temp``.
+Arguments are positional, then named. Each call is checked against the
+template. A missing argument, or a name where a number belongs, is an error
+that shows the template's parameters.
+
+On export, calls with the same arguments share one shape, which records the
+call it came from. A labelled call (``temp: has-point(...)``) is exported
+under its label instead: ``vav.temp``.
 
 Annotations
 -----------
@@ -392,15 +408,16 @@ annotate:
      brick:hasPart required
    }
 
-``severity`` (``info``, ``warning``, or ``violation``) and ``message`` apply
-to the next line only: here, the temperature line is a warning, and a
+``severity`` (``info``, ``warning``, or ``violation``) and ``message``
+apply to the next line only. Here the temperature line is a warning, and a
 missing part is still a violation. Before a ``shape``, they apply to the
-whole shape. ``message`` is what a report tells the
-data's author; ``doc`` is what the line is for, for the next person reading
-the shapes.
+whole shape.
 
-``only these properties`` closes a shape: a node may have no properties the
-shape does not name, other than ``rdf:type``:
+``message`` speaks to whoever wrote the data. ``doc`` explains the line to
+whoever reads the shapes next.
+
+``only these properties`` closes a shape. A node can then have no
+properties the shape doesn't name, other than ``rdf:type``:
 
 .. code-block:: shapeshift
 
@@ -419,25 +436,26 @@ Imports
    import "./sensors.shm" as sensors
    import <https://brickschema.org/schema/1.4/Brick>
 
-A ``.shm`` path is relative to the importing file. With ``as sensors``, its
-names are written ``sensors.temp-sensor``; without an alias they are written
-bare. Shapes keep the IRIs of the file that defines them.
+A ``.shm`` path is relative to the importing file.
 
-An RDF import is an ontology, a SHACL shapes graph, or both. An ontology's
-classes and properties are checked: ``shifty shape check`` reports a class
-the ontology does not define, with the nearest one it does. A shapes graph's
-shapes can be referenced with ``matches``.
+- With ``as sensors``, its names are written ``sensors.temp-sensor``.
+- Without an alias, they are written bare.
+- Shapes keep the IRIs of the file that defines them.
 
-Imports are not fetched unless you allow it. ``--map IRI=PATH`` reads an IRI
-from a local file, and ``--fetch`` downloads the imports that are not mapped.
+An RDF import can be an ontology, a SHACL shapes graph, or both. Importing
+an ontology catches typos: ``shifty shape check`` reports a class the
+ontology doesn't define, and suggests the nearest one that it does.
+Imported shapes can be used with ``matches``.
+
+Imports are never fetched unless you allow it. ``--map IRI=PATH`` reads an
+IRI from a local file, and ``--fetch`` downloads the rest.
 
 Recursion
 ---------
 
-A shape may refer to itself, directly or through other shapes, as long as no
-loop passes through ``none of``, ``at most n of``, an ``at most n is`` (or
-``at most n matches``) qualifier, or a ``when`` condition an odd number of
-times. ``each matches`` is always safe:
+Buildings nest: a space has parts that are spaces. A shape can refer to
+itself, directly or through other shapes. ``each matches`` is always
+safe:
 
 .. code-block:: shapeshift
 
@@ -445,8 +463,10 @@ times. ``each matches`` is always safe:
      brick:hasPart each matches space
    }
 
-A loop that breaks the rule has no consistent meaning, and the build says
-which loop it is:
+A loop must not pass an odd number of times through ``none of``,
+``at most n of``, an ``at most n is`` or ``at most n matches`` qualifier, or
+a ``when`` condition. Such a loop has no consistent meaning, and the build
+names it:
 
 .. literalinclude:: ../../examples/shapeshift/language/odd.shm
    :language: shapeshift
@@ -455,6 +475,6 @@ which loop it is:
    :cwd: ../../examples/shapeshift/language
    :returncode: 1
 
-Recursive shapes export as legal SHACL, but the SHACL specification does not
-say what they mean. Shifty validates them with greatest-fixpoint semantics,
-and ``export`` warns that other engines may differ.
+Recursive shapes export as legal SHACL, but the SHACL specification
+doesn't say what they mean. Shifty uses greatest-fixpoint semantics, and
+``export`` warns that other engines may differ.

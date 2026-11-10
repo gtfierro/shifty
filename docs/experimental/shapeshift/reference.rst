@@ -3,9 +3,8 @@ Shapeshift reference
 
 .. include:: experimental.inc
 
-What each construct is in SHACL, the reserved words, and the commands. The
-SHACL is what ``shifty shape export`` writes; :doc:`language` explains the
-constructs.
+The SHACL that ``shifty shape export`` writes for each construct, the
+reserved words, and the commands. :doc:`language` explains the constructs.
 
 Constructs in SHACL
 -------------------
@@ -107,8 +106,8 @@ Tests
    * - ``language "en" "de"``
      - ``sh:languageIn ( "en" "de" )``
 
-On a line, ``is T`` puts the test on the node itself: ``is a C`` is
-``sh:class C`` on the shape, and ``is one of ex:x`` requires that exact node.
+On a line, ``is T`` tests the node itself. ``is a C`` puts ``sh:class C``
+on the shape, and ``is one of ex:x`` requires that exact node.
 
 Literals
 ~~~~~~~~
@@ -209,10 +208,12 @@ Annotations
    * - ``only these properties``
      - ``sh:closed true ; sh:ignoredProperties ( rdf:type )``
 
-An export marks what other SHACL engines need to know on the file's
-``owl:Ontology`` node: ``shapeshift:recursive true`` when a shape refers to
-itself, and ``shapeshift:shapeTargets`` or ``shapeshift:sparqlTargets`` when
-it uses those targets.
+An export flags what other SHACL engines need to know, on the file's
+``owl:Ontology`` node:
+
+- ``shapeshift:recursive true`` when a shape refers to itself.
+- ``shapeshift:shapeTargets`` or ``shapeshift:sparqlTargets`` when it uses
+  those targets.
 
 Reserved words
 --------------
@@ -227,8 +228,8 @@ These words are keywords and cannot name a shape, a path, or a parameter:
    path pattern prefix properties required same self severity shape sparql
    then these to true unique up value when with
 
-Datatype words, such as ``string`` and ``integer``, are not reserved, but
-where a test is expected they always mean the ``xsd`` datatype: a shape named
+Datatype words, such as ``string`` and ``integer``, aren't reserved. Where a
+test goes, though, they always mean the ``xsd`` datatype. A shape named
 ``string`` is reached only with ``matches string``.
 
 Commands
@@ -264,17 +265,17 @@ Commands
    * - ``repl``
      - An interactive session: define shapes, load data, validate, save.
 
-Every command that reads imports (all but ``fmt`` and ``repl``) takes
-``--map IRI=PATH``, which reads an RDF import from a local file, and
-``--fetch``, which downloads the imports that are not mapped.
+Every command that reads imports (all but ``fmt`` and ``repl``) takes:
+
+- ``--map IRI=PATH``, to read an RDF import from a local file.
+- ``--fetch``, to download imports that aren't mapped.
 
 Editors
 -------
 
-``crates/experimental/tree-sitter-shapeshift`` is a tree-sitter grammar for
-``.shm``, with highlighting queries, for editors that use tree-sitter. Rust
-code reaches it as ``shifty_experimental::shapeshift::grammar``, with the
-``tree-sitter`` feature. These pages are
-highlighted by a Pygments lexer, ``docs/_ext/shapeshift_lexer.py``, which
-registers the ``shapeshift`` and ``shm`` languages for Sphinx and other
-Pygments users.
+- **Tree-sitter.** ``crates/experimental/tree-sitter-shapeshift`` is a
+  grammar for ``.shm``, with highlighting queries. Rust code reaches it as
+  ``shifty_experimental::shapeshift::grammar``, with the ``tree-sitter``
+  feature.
+- **Pygments.** ``docs/_ext/shapeshift_lexer.py`` registers the
+  ``shapeshift`` and ``shm`` languages. It highlights these pages.
