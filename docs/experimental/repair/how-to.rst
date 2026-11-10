@@ -127,9 +127,7 @@ with its type and properties. Build the edit from Turtle or an
 
 .. code-block:: python
 
-   import shifty
-
-   delta = shifty.delta_from_graph(add=my_turtle_patch)
+   delta = repair.delta_from_graph(add=my_turtle_patch)
 
 It is checked and applied like any other edit. Deletes apply before adds, so
 a triple in both is added.

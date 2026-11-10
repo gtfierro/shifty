@@ -81,7 +81,7 @@ class RepairSession:
     """Inspect and drive symbolic repair of a data graph.
 
     A session binds a shapes graph and a data graph (running SHACL-AF inference
-    first, like :func:`validate`). It exposes the repair *primitives* so you can
+    first, like :func:`shifty.validate`). It exposes the repair *primitives* so you can
     build your own driver: enumerate the violation horizon by focus node, inspect
     each violation's repair tree (its holes and decision points), enumerate
     candidate bindings, fold your own choices into a concrete delta, gate it, and

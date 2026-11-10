@@ -101,8 +101,10 @@ graphs. `EvidenceSession` records passing and failing focus nodes and their
 derivations. `shape_map()` extracts typed property bindings, including partial
 bindings for a focus node that fails another constraint.
 [Symbolic repair](https://shifty.gtf.fyi/experimental/repair/index.html) is
-experimental, in `shifty.experimental.repair`. Start with the [tutorials](https://shifty.gtf.fyi/tutorials/index.html)
-or look up these interfaces in the [reference](https://shifty.gtf.fyi/reference/index.html).
+experimental, in `shifty.experimental.repair`.
+
+Start with the [tutorials](https://shifty.gtf.fyi/tutorials/index.html) or look
+up these interfaces in the [reference](https://shifty.gtf.fyi/reference/index.html).
 
 ## Write shapes in Python
 

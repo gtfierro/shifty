@@ -256,8 +256,8 @@ __all__ = [
     "delta_from_graph",
 ]
 
-# The repair API moved to shifty.experimental.repair in 0.6.0. A test keeps
-# this set equal to that module's __all__.
+# The repair API moved to shifty.experimental.repair in 0.6.0. A test checks
+# this set against that module's __all__, less the names shifty still exports.
 _MOVED_TO_EXPERIMENTAL_REPAIR = frozenset(
     {
         "RepairSession",

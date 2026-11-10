@@ -117,9 +117,9 @@ Common tasks
 
 .. note::
 
-   Symbolic repair and Shapeshift are **experimental**. Their APIs, and the
-   Shapeshift language, may change in any release; see
-   :doc:`experimental/index`.
+   Symbolic repair, Shapeshift, and violation generation are
+   **experimental**. Their APIs, and the Shapeshift language, may change in
+   any release; see :doc:`experimental/index`.
 
 Documentation
 -------------
