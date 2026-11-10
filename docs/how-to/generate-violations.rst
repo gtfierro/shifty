@@ -47,6 +47,8 @@ Three nouns
 
    case = universe.draw(5, seed=0)
    case.graph_ntriples   # G_test = G_ref ⊕ Δ, as N-Triples
+   case.graph()          # G_test, as an rdflib.Graph
+   case.apply(delta)     # G_test ⊕ delta, as an rdflib.Graph
    case.delta            # Δ, a shifty.RepairDelta
    case.repair           # Δ⁻¹, a shifty.RepairDelta
    case.failures         # every failing pair in G_test, with its injections

@@ -7,6 +7,7 @@ import sys
 from collections import Counter
 
 import pytest
+import rdflib
 
 import shifty
 from shifty.experimental.vio import ExpansionLimits, Universe, main
@@ -233,6 +234,47 @@ def test_cases_round_trip_through_the_ground_truth_repair(ahu):
         repaired = (graph - lines(case.repair.delete)) | lines(case.repair.add)
         assert repaired == reference
         assert not shifty.validate_algebra(case.graph_ntriples, AHU_SHAPES).conforms
+
+
+def test_case_graphs_apply_deltas(ahu):
+    from rdflib.compare import isomorphic
+
+    reference = rdflib.Graph().parse(data=ahu.reference_ntriples, format="nt")
+    case = ahu.draw(3, seed=0)
+    broken = case.graph()
+    assert set(broken) == set(
+        rdflib.Graph().parse(data=case.graph_ntriples, format="nt")
+    )
+    assert isomorphic(case.apply(case.repair), reference)
+    assert not shifty.validate(broken, AHU_SHAPES)[0]
+    assert shifty.validate(case.apply(case.repair), AHU_SHAPES)[0]
+    # An empty delta leaves the broken graph as it is.
+    assert set(case.apply(shifty.RepairDelta.from_ntriples())) == set(broken)
+
+
+def test_case_apply_resolves_blank_nodes_by_label():
+    from rdflib.compare import isomorphic
+
+    shapes = PREFIXES + (
+        "ex:S a sh:NodeShape ; sh:targetClass ex:A ; sh:property [ sh:path ex:p ;"
+        " sh:node [ a sh:NodeShape ; sh:property [ sh:path ex:q ; sh:minCount 1 ] ] ] ."
+    )
+    data = PREFIXES + "ex:a a ex:A ; ex:p [ ex:q 1 ] , [ ex:q 2 ] .\n"
+    universe = Universe(data, shapes)
+    reference = rdflib.Graph().parse(data=universe.reference_ntriples, format="nt")
+    cut = universe.where(lambda e: e.kinds == ("remove",) and ex("q") in e.predicates)
+    case = cut.draw(1)
+    (deleted,) = case.delta.delete
+    assert deleted[0].startswith("_:")
+    # The re-added triple lands on the node it came from, not a fresh one.
+    assert isomorphic(case.apply(case.repair), reference)
+    # A delete on a blank node removes that node's triple.
+    (kept,) = [
+        t for t in case.graph_ntriples.splitlines() if t.startswith("_:") and "/q>" in t
+    ]
+    removed = case.apply(shifty.RepairDelta.from_ntriples(delete=kept + "\n"))
+    assert len(removed) == len(case.graph()) - 1
+    assert not list(removed.triples((None, rdflib.URIRef("http://ex/q"), None)))
 
 
 def test_draws_vary_by_seed_and_k(ahu):

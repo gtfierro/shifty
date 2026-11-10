@@ -57,11 +57,14 @@ from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from functools import cached_property
 from types import MappingProxyType
-from typing import Any, Optional, Union, overload
+from typing import TYPE_CHECKING, Any, Optional, Union, overload
 
 from .. import RepairDelta, _coalesce_graph_input, _to_rdf_input
 from .._shifty import VioCase as _VioCase
 from .._shifty import VioUniverse as _VioUniverse
+
+if TYPE_CHECKING:
+    import rdflib
 
 __all__ = [
     "Case",
@@ -190,6 +193,24 @@ class Case:
     def graph_ntriples(self) -> str:
         """``G_test`` as sorted N-Triples."""
         return self._inner.graph_ntriples()
+
+    def graph(self) -> rdflib.Graph:
+        """``G_test`` as a fresh :class:`rdflib.Graph`."""
+        return _parse(self.graph_ntriples, {})
+
+    def apply(self, delta: RepairDelta) -> rdflib.Graph:
+        """``G_test ⊕ delta`` as a fresh :class:`rdflib.Graph`.
+
+        Deletes go first, then adds, so a triple on both sides ends up in the
+        result. A blank-node label in ``delta`` names the node of the same
+        label in :attr:`graph_ntriples`. ``case.apply(case.repair)`` is the
+        reference graph; pass a repair tool's delta to score it.
+        """
+        labels: dict[str, rdflib.BNode] = {}
+        graph = _parse(self.graph_ntriples, labels)
+        graph -= _parse("".join(f"{_line(t)}\n" for t in delta.delete), labels)
+        graph += _parse("".join(f"{_line(t)}\n" for t in delta.add), labels)
+        return graph
 
     @cached_property
     def repair_sparql(self) -> str:
@@ -558,6 +579,14 @@ def _node_term(node: str) -> str:
 
 def _line(t: Triple) -> str:
     return f"{t[0]} {t[1]} {t[2]} ."
+
+
+def _parse(ntriples: str, labels: dict[str, rdflib.BNode]) -> rdflib.Graph:
+    """Parse N-Triples. Blank-node labels resolve through ``labels``, so
+    graphs parsed with one dict share their blank nodes."""
+    import rdflib
+
+    return rdflib.Graph().parse(data=ntriples, format="nt", bnode_context=labels)
 
 
 def _delta(add: Iterable[Triple], delete: Iterable[Triple]) -> RepairDelta:
