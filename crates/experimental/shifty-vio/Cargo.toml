@@ -1,0 +1,19 @@
+[package]
+name = "shifty-vio"
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+edition.workspace = true
+description = "Experimental, may change in any release (use shifty-experimental): SHACL violation generation with ground-truth repairs, for knowledge-graph repair benchmarks"
+repository.workspace = true
+documentation.workspace = true
+readme.workspace = true
+
+[dependencies]
+shifty-algebra.workspace = true
+shifty-parse.workspace = true
+shifty-engine.workspace = true
+shifty-repair.workspace = true
+oxrdf.workspace = true
+serde.workspace = true
+serde_json.workspace = true

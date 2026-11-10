@@ -370,8 +370,10 @@ jobs:
           sleep 30
           cargo publish --locked -p shifty-engine
           sleep 30
-          # experimental: Shapeshift, behind shifty-experimental (in order of
-          # dependencies and dev-dependencies, which crates.io also resolves)
+          # experimental: Shapeshift and the violation generator, behind
+          # shifty-experimental (in order of dependencies and
+          # dev-dependencies, which crates.io also resolves)
+          cargo publish --locked -p shifty-vio
           cargo publish --locked -p shapeshift-macro
           sleep 30
           cargo publish --locked -p shapeshift-parse

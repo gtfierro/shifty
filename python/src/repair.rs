@@ -3509,6 +3509,12 @@ pub struct RepairDelta {
     inner: shifty_repair::GraphDelta,
 }
 
+impl From<shifty_repair::GraphDelta> for RepairDelta {
+    fn from(inner: shifty_repair::GraphDelta) -> Self {
+        Self { inner }
+    }
+}
+
 #[pymethods]
 impl RepairDelta {
     /// Build a delta directly from triples in N-Triples syntax — for a

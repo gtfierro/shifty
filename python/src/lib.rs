@@ -12,6 +12,7 @@ use std::sync::{Arc, OnceLock};
 
 mod repair;
 mod shm;
+mod vio;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -1766,5 +1767,6 @@ fn _shifty(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(_infer, m)?)?;
     repair::register(m)?;
     shm::register(m)?;
+    vio::register(m)?;
     Ok(())
 }

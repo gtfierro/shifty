@@ -1,6 +1,6 @@
 """Type declarations for the native :mod:`shifty._shifty` extension."""
 
-from typing import Any, ClassVar, Dict, List, Optional, Tuple, Union
+from typing import Any, Callable, ClassVar, Dict, List, Optional, Set, Tuple, Union
 
 __version__: str
 
@@ -715,3 +715,60 @@ def _shapeshift_export(
     catalog: Optional[Dict[str, str]] = ...,
     core: bool = ...,
 ) -> Tuple[str, List[str]]: ...
+
+# Violation generation (experimental), behind shifty.experimental.vio.
+
+_VioTriple = Tuple[str, str, str]
+_VioOperation = Tuple[str, str, str, List[_VioTriple], List[_VioTriple], str]
+_VioInjection = Tuple[str, int, Optional[str], str, List[_VioOperation]]
+
+class VioUniverse:
+    def __init__(
+        self,
+        data: Optional[bytes] = ...,
+        data_path: Optional[str] = ...,
+        data_format: str = ...,
+        shapes: Optional[bytes] = ...,
+        shapes_path: Optional[str] = ...,
+        shapes_format: str = ...,
+        materialize: bool = ...,
+        infer: bool = ...,
+        include_external_foci: bool = ...,
+        canonicalize_blank_nodes: bool = ...,
+        graph_mode: str = ...,
+        on_unsupported: str = ...,
+        base: Optional[str] = ...,
+        limits: Optional[Tuple[int, int, int, int, int, int, int]] = ...,
+    ) -> None: ...
+    def __len__(self) -> int: ...
+    def injections(self) -> List[_VioInjection]: ...
+    def filtered(
+        self,
+        shapes: Optional[Set[str]] = ...,
+        predicates: Optional[Set[str]] = ...,
+        foci: Optional[Set[str]] = ...,
+        keep: Optional[Callable[[_VioInjection], bool]] = ...,
+    ) -> VioUniverse: ...
+    def weighted(
+        self, predicates: Dict[str, float], kinds: Dict[str, float]
+    ) -> VioUniverse: ...
+    def draws(self, requests: List[Tuple[int, int]]) -> List[VioCase]: ...
+    def reference_ntriples(self) -> str: ...
+    def baseline_failures(self) -> List[Tuple[str, int]]: ...
+
+class VioCase:
+    @property
+    def k(self) -> int: ...
+    @property
+    def seed(self) -> int: ...
+    @property
+    def injections(self) -> List[_VioInjection]: ...
+    @property
+    def failures(self) -> List[Tuple[str, int, Optional[str], List[int]]]: ...
+    @property
+    def delta(self) -> RepairDelta: ...
+    @property
+    def repair(self) -> RepairDelta: ...
+    def graph_ntriples(self) -> str: ...
+    def repair_sparql(self) -> str: ...
+    def to_json(self) -> str: ...
