@@ -25,3 +25,13 @@ pub enum Selector {
     /// SPARQL-based target (gap-analysis **AF-T**).
     Sparql(SparqlTarget),
 }
+
+impl Selector {
+    /// This selector with its shape reference (if any) passed through `f`.
+    pub fn remap(&self, f: &impl Fn(ShapeId) -> ShapeId) -> Selector {
+        match self {
+            Selector::HasPath(path, shape) => Selector::HasPath(path.clone(), f(*shape)),
+            other => other.clone(),
+        }
+    }
+}

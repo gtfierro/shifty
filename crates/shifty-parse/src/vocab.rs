@@ -402,3 +402,16 @@ pub fn rdf_type() -> NamedNode {
 pub fn rdfs_subclassof() -> NamedNode {
     NamedNode::new_unchecked(format!("{RDFS}subClassOf"))
 }
+
+// Shapeshift annotations (https://shifty.gtf.fyi/ns/shapeshift#). A shape
+// carrying `targetShape T ; targetFor S` is the portable SHACL-SPARQL encoding
+// of the shape-based target `for every node matching T` on `S`; shifty
+// evaluates it natively as `HasPath(id, T)` instead.
+iri!(
+    SS_TARGET_SHAPE,
+    "https://shifty.gtf.fyi/ns/shapeshift#targetShape"
+);
+iri!(
+    SS_TARGET_FOR,
+    "https://shifty.gtf.fyi/ns/shapeshift#targetFor"
+);

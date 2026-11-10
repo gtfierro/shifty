@@ -30,4 +30,6 @@ pub use sparql_native::{
     QueryForm, ScanTerm, TripleScan, VarId, lower_query, lower_query_with_stats,
     render_native_plan,
 };
-pub use strata::{Stratification, Stratum, analyze};
+pub use strata::{
+    RefusedComponent, Stratification, Stratum, analyze, odd_cycle, refused_components,
+};

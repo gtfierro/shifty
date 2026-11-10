@@ -1,0 +1,34 @@
+-- ASHRAE Guideline 36-2021: the equipment the system specifications share,
+-- from BuildingMOTIF's libraries/ashrae/guideline36/components.ttl, as
+-- templates over the equipment's class.
+base <urn:ashrae/g36/components/>
+import "./brick.shm"
+prefix brick: <https://brickschema.org/schema/Brick#>
+
+doc "A fan of class `cls` on a VFD: speed command, start/stop, and status."
+shape vfd-fan(cls) {
+  is a cls
+  points {
+    speed:      brick:Frequency_Command
+    start_stop: brick:Start_Stop_Command
+    status:     brick:Fan_Status
+  }
+}
+
+doc "A damper of class `cls` with a position command."
+shape positioned-damper(cls) {
+  is a cls
+  points { dmppos: brick:Damper_Position_Command }
+}
+
+doc "A coil of class `cls` with a valve position command."
+shape valved-coil(cls) {
+  is a cls
+  points { cmd: brick:Valve_Position_Command }
+}
+
+doc "A point of class `cls` that states its unit."
+shape with-unit(cls) {
+  is a cls
+  brick:hasUnit exactly 1
+}

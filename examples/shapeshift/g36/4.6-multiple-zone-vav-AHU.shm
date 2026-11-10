@@ -1,0 +1,26 @@
+-- ASHRAE Guideline 36-2021, 4.6: multiple-zone VAV air handling unit.
+-- Translated from BuildingMOTIF's
+-- libraries/ashrae/guideline36/4.6-multiple-zone-vav-AHU.ttl.
+base <urn:ashrae/g36/4.6/mz-vav-ahu/>
+import "./brick.shm"
+import "./components.shm" as components
+prefix brick: <https://brickschema.org/schema/Brick#>
+
+doc "4.6 Multiple-zone VAV air handling unit"
+shape AHU {
+  is a brick:AHU
+  parts {
+    sa_fan:    components.vfd-fan(brick:Supply_Fan)
+    ra_damper: components.positioned-damper(brick:Return_Damper)
+    htg_coil:  components.valved-coil(brick:Heating_Coil)
+    clg_coil:  components.valved-coil(brick:Cooling_Coil)
+  }
+  -- 4.6 states the unit here too; brick.shm asks it of every point
+  points {
+    sa_temp:   components.with-unit(brick:Supply_Air_Temperature_Sensor)
+    oa_temp:   components.with-unit(brick:Outside_Air_Temperature_Sensor)
+    ma_temp:   components.with-unit(brick:Mixed_Air_Temperature_Sensor)
+    ra_temp:   components.with-unit(brick:Return_Air_Temperature_Sensor)
+    filter_pd: components.with-unit(brick:Filter_Differential_Pressure_Sensor)
+  }
+}

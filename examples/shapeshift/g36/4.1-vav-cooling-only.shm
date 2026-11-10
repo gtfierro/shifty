@@ -1,0 +1,63 @@
+-- ASHRAE Guideline 36-2021, 4.1: VAV terminal unit, cooling only.
+-- Translated from BuildingMOTIF's
+-- libraries/ashrae/guideline36/4.1-vav-cooling-only.ttl.
+base <urn:ashrae/g36/4.1/vav-cooling-only/>
+import "./brick.shm"
+prefix brick: <https://brickschema.org/schema/Brick#>
+
+doc "4.1 VAV terminal unit, cooling only"
+shape vav-cooling-only {
+  is a brick:VAV
+  -- a damper position command, on the box or on its damper
+  any of {
+    points required { dmppos: brick:Damper_Position_Command }
+  } {
+    parts required {
+      dmp: brick:Damper { points each a brick:Damper_Position_Command }
+    }
+  }
+  points required { flow: brick:Discharge_Air_Flow_Sensor }
+  zone-temperature
+  occupancy-sensor
+  zone-co2-level
+  -- optional: a window switch in a room of a zone the box feeds
+  brick:feeds+ at least 0 is {
+    is a brick:HVAC_Zone
+    parts required {
+      room: brick:Room { points required { brick:Open_Close_Status } }
+    }
+  }
+}
+
+-- At least `n` points of class `cls` on the box, or in a zone it feeds (or a
+-- `room` of that zone, with points of class `room_cls`).
+doc "Points of class `cls` on the box, or in a zone or room it feeds."
+shape on-box-or-downstream(cls, room = brick:Room, room_cls = cls, n = 1) {
+  any of {
+    points at least n { on_box: cls }
+  } {
+    in_zone: brick:feeds+/brick:hasPart? at least n is {
+      any of { is a brick:HVAC_Zone; points required { cls } }
+             { is a room; points required { room_cls } }
+    }
+  }
+}
+
+doc "A zone temperature sensor, on the box or in a zone or room it feeds."
+shape zone-temperature {
+  ztemp: on-box-or-downstream(
+    brick:Zone_Air_Temperature_Sensor,
+    room_cls = brick:Temperature_Sensor,
+  )
+}
+
+-- G36 lists occupancy, CO2, and the window switch as optional. The library
+-- states that as `at least 0`, which every node satisfies: these lines
+-- document the points and never fail.
+doc "Optional: an occupancy sensor, on the box or in a zone or room it feeds."
+shape occupancy-sensor { occ: on-box-or-downstream(brick:Occupancy_Sensor, n = 0) }
+
+doc "Optional: a CO2 sensor, on the box or in a zone or space it feeds."
+shape zone-co2-level {
+  co2: on-box-or-downstream(brick:CO2_Level_Sensor, room = brick:Space, n = 0)
+}

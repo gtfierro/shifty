@@ -162,3 +162,25 @@
   background: var(--color-background-secondary);
   font-style: italic;
 }
+
+/* ─────────────────────────────────────────────────────────
+   Experimental banner (the Shapeshift pages)
+   ───────────────────────────────────────────────────────── */
+.admonition.experimental-banner {
+  border-left: 0.35rem solid var(--color-admonition-title--danger);
+  background: var(--color-admonition-title-background--danger);
+  margin-top: 0;
+}
+
+.admonition.experimental-banner > .admonition-title {
+  background-color: var(--color-admonition-title-background--danger);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.admonition.experimental-banner > .admonition-title:before {
+  background-color: var(--color-admonition-title--danger);
+  -webkit-mask-image: var(--icon-warning);
+  mask-image: var(--icon-warning);
+}

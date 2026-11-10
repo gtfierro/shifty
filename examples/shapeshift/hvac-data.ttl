@@ -1,0 +1,39 @@
+@prefix brick: <https://brickschema.org/schema/Brick#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix ex: <https://example.org/building#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+# A tiny slice of the Brick class hierarchy, so `a brick:Point`-style
+# checks see subclass closure without importing all of Brick.
+brick:Supply_Air_Temperature_Sensor rdfs:subClassOf brick:Temperature_Sensor .
+brick:RVAV rdfs:subClassOf brick:VAV .
+
+ex:ahu-1 a brick:AHU .
+
+# Conforms.
+ex:vav-1 a brick:VAV ;
+    brick:isFedBy ex:ahu-1 ;
+    brick:hasPoint ex:sat-1 ;
+    ex:commissioned "2019-05-01"^^xsd:date .
+ex:sat-1 a brick:Supply_Air_Temperature_Sensor .
+
+# Fails: no supply-air temperature sensor, fed by two things, and
+# commissioned before 2000.
+ex:vav-7 a brick:VAV ;
+    ex:commissioned "1998-11-30"^^xsd:date ;
+    brick:isFedBy ex:ahu-1, ex:vav-1 ;
+    brick:hasPoint ex:p1, ex:p2 .
+ex:p1 a brick:Zone_Air_Temperature_Sensor .
+ex:p2 a brick:Supply_Air_Flow_Sensor .
+
+# A reheat VAV is also a VAV (subclass), so both shapes apply.
+ex:rvav-1 a brick:RVAV ;
+    brick:isFedBy ex:ahu-1 ;
+    brick:hasPoint ex:sat-2, ex:rv-1 .
+ex:sat-2 a brick:Supply_Air_Temperature_Sensor .
+ex:rv-1 a brick:Reheat_Valve_Command .
+
+ex:floor-1 a brick:Space ;
+    brick:hasPart ex:room-1 .
+ex:room-1 a brick:Space ;
+    rdfs:label "Room 1" .

@@ -333,6 +333,7 @@ mod tests {
             names: Default::default(),
             sources: Default::default(),
             prefixes: Default::default(),
+            ..Default::default()
         }
     }
 

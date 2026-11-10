@@ -1,0 +1,30 @@
+-- Names for the Brick properties that point and part lists follow, and the
+-- rule every point meets.
+--
+-- Import this file without an alias and write, in any shape,
+--
+--   points {
+--     speed:  brick:Frequency_Command
+--     status: brick:Fan_Status optional
+--   }
+--
+-- `points` is `brick:hasPoint`, so this is the same as writing
+-- `brick:hasPoint { ... }`. Each row counts the values along the path that
+-- are instances of the row's class: exactly one, unless the row (or the
+-- group, as in `points required { ... }`) says otherwise. `required` means
+-- at least one; `optional` means at most one.
+base <urn:ashrae/g36/brick/>
+import "./bacnet.shm"
+prefix brick: <https://brickschema.org/schema/Brick#>
+
+doc "Points the equipment reports (brick:hasPoint)."
+path points = brick:hasPoint
+
+doc "Equipment the equipment is made of (brick:hasPart)."
+path parts = brick:hasPart
+
+doc "Every point states its unit and the BACnet object that holds its value."
+shape point for every value of brick:hasPoint {
+  brick:hasUnit exactly 1
+  bacnet-point
+}

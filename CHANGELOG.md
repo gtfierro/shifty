@@ -2,6 +2,178 @@
 
 ## Unreleased
 
+### Added
+
+- Shapeshift, a text language (`.shm`) for writing shapes that compiles to
+  the shape algebra and raises to readable SHACL Turtle. It is experimental,
+  and so is its Rust interface: the `shifty-experimental` crate, as
+  `shifty_experimental::shapeshift`, kept apart from the stable crates. The
+  crates under `crates/experimental/` implement it: `shapeshift-parse`
+  (parser and formatter), `shapeshift-macro` (AST, templates, compilation,
+  admission), `shapeshift-import` (`.shm` and RDF imports, vocabulary
+  checks), `shapeshift-raise` (SHACL output), `shapeshift` (sessions,
+  images, reports in source terms), and `tree-sitter-shapeshift` (editor
+  grammar, also `shapeshift::grammar` with the `tree-sitter` feature). Each
+  says it is experimental, and the release publishes them before
+  `shifty-cli`, which depends on them. Examples are in
+  `examples/shapeshift/`.
+- `shifty shape` subcommands: `check`, `build`, `fmt`, `export [--core]`,
+  `validate`, `imports`, `explain`, and `repl`. The REPL colors input and
+  underlines syntax errors with the tree-sitter grammar, shows the first error
+  inline, and completes keywords, shape names, and commands. A definition is
+  applied only if the whole session still builds. `:save` writes `.shm`;
+  `:image save` / `:image load` keep shapes, data, import settings, and
+  history in one JSON file.
+- Shapeshift field groups and path aliases. In a shape body,
+  `brick:hasPoint { sat: brick:Supply_Air_Temperature_Sensor; flow: brick:Air_Flow_Sensor optional }`
+  expands to named fields along one path. The path can be any property path.
+  Each row counts the values that are instances of its class (or match its
+  shape): `exactly 1` unless the row or the group (`brick:hasPoint required { ... }`)
+  gives a count. A row's `doc` goes on the line before it, and a row can
+  have a `{ ... }` body.
+  `path points = brick:hasPoint` names a path for use anywhere a path is
+  written, including other modules that import it.
+- An `is a brick:AHU` line tests the focus node itself. `{ ... }` is an inline
+  shape anywhere a test is expected; directly after a field's path it is
+  written `each { ... }`, since `PATH {` starts a group.
+- Typing `|` in a path now suggests `or`, the alternative-path operator.
+- Shapeshift has one spelling for each construct, and each removed spelling
+  is an error that names its replacement:
+  - Every test starts with the word for its kind: `a brick:Point` (class),
+    `matches damper` (shape), `one of ex:on "auto"` (values). A bare class,
+    shape, or literal is no longer a test (`each brick:Point`, `is "x"`);
+    only a group row, which is always a class or a shape, and a template
+    parameter alone on a line take one bare. A qualified count over a shape
+    reads `at least 1 matches damper`.
+  - A value test always follows `each` (`ex:p each string`, not
+    `ex:p string`), and `is T` on a line tests the node (`is a brick:AHU`).
+    A shape or template call alone on a line composes it; `include` and
+    `is matches S` are gone.
+  - `optional` means at most one on a field as on a group row, and exports
+    `sh:maxCount 1`. `at least 1` is written `required`, `at most 1` and
+    `between 0 and 1` `optional`, `between a and a` `exactly a`, and
+    `between 0 and b` `at most b`.
+  - Ranges: `from` and `up to` include the bound, the new `above` and
+    `below` exclude it (`each above 0 below 1`). Lengths read `length 8`,
+    `length from 1 to 8`, `length from 2`, `length up to 8`. Comparisons with
+    another property read `ex:start below ex:end` (`sh:lessThan`) and
+    `ex:low up to ex:high` (`sh:lessThanOrEquals`), replacing `less than` and
+    `at most ex:high`.
+  - Frames: `all of` is gone (a block's lines all hold), and `at most n of`
+    is new. `at least 1 of` is written `any of`, `at most 0 of` `none of`.
+  - A field is written on one line; the `name: { ... }` block form is gone.
+    `doc`, `message`, and `severity` go on the line before what they
+    annotate, rows included.
+  - A builtin datatype is written by its word: `string`, not
+    `datatype xsd:string`.
+  - `only these properties` always allows `rdf:type`
+    (`sh:ignoredProperties ( rdf:type )`).
+  - The build warns about a field with both `each string` and
+    `each language`, which no value passes, and about a group row repeated
+    without labels, which requires one value rather than several.
+  - `above`, `below` are reserved; `all`, `include`, `less`, and `than` are
+    no longer reserved.
+
+  Directly after a path a bare term is an error with a hint (`ex:p ex:q` is
+  more likely `ex:p/ex:q`). A count after `each` (`ex:a each at least 5`) no
+  longer crashes the compiler: the error says the count goes right after the
+  property. Python writes the same spellings: `Path.below` and `Path.up_to`
+  replace `less_than`, `at_most_of` replaces `all_of`, and `value_range`
+  takes `above=` and `below=`.
+- Shapeshift class unions: `each a brick:AHU or brick:RTU` holds for an
+  instance of any of the classes, and exports as
+  `sh:or ( [ sh:class brick:AHU ] [ sh:class brick:RTU ] )`. It works
+  wherever a test goes (`at least 1 is a A or B`, `is a A or B` on a line),
+  and a class parameter can be one of the classes. In Python,
+  `BRICK.AHU | BRICK.RTU` of terms or class parameters now writes it,
+  instead of `any of { is a brick:AHU } { is a brick:RTU }`.
+- Shapeshift dates and times. `2024-01-31`, `2024-01-31T08:00:00Z`, and
+  `08:00:00` are `xsd:date`, `xsd:dateTime`, and `xsd:time` literals,
+  written bare with an optional timezone. They end ranges
+  (`each from 2000-01-01 below 2025-01-01`) and go in `one of`. A date
+  that does not exist, a range that mixes kinds (`from 0 to 2024-01-01`),
+  and an empty date range are errors. In Python, `value_range` and
+  `one_of` take `datetime.date`, `datetime.datetime`, and `datetime.time`.
+- Shapeshift template arguments. Parameters can have defaults, which may use
+  earlier parameters (`shape T(cls, room = brick:Room, zone = cls)`), and
+  arguments can be named (`T(brick:X, room = brick:Space)`). An inline shape
+  is an argument like any other (`W(brick:VAV, { brick:hasUnit required })`).
+  A parameter alone on a line takes a class or a shape. Arity,
+  unknown-name, duplicate, and missing-argument errors show the signature.
+- `shifty shape fmt` wraps at 88 columns. A call that does not fit takes one
+  argument per line, a field opens the inline shape that ends it, and when
+  one branch of `any of` (or another frame) needs lines of its own, every
+  branch gets them. Inline shapes holding comments stay open instead of
+  losing them. Argument and parameter lists may span lines, with a trailing
+  comma.
+- Shapeshift labels nest. A label names what its line makes, and the names
+  made on that line nest under it: `fan: vfd(brick:Supply_Fan)` in shape `ahu`
+  is `ahu.fan`, and the `speed:` row inside `vfd` is `ahu.fan.speed`. The same
+  holds for rows and fields that call templates, for inline shapes
+  (`sat: p each { unit: ... }` names `S.sat.unit`, formerly `S.unit`),
+  including inline shapes passed as arguments. Unlabelled template calls
+  still share one expansion per argument list.
+- Shapeshift path templates: `path downstream(p = brick:hasPart?) = brick:feeds+/p`,
+  used as `downstream(brick:hasPoint)` anywhere a path is written, including
+  a group head (`downstream(brick:hasPoint) { ... }`).
+- `examples/shapeshift/g36/`: ASHRAE Guideline 36 sequences and AFDD fault
+  conditions translated from BuildingMOTIF's Brick library, generated from
+  Python (`generate.py`). An ignored test (`BUILDINGMOTIF_G36=… cargo test
+  -p shapeshift-raise --test round_trip g36_matches -- --ignored`) checks
+  that every numbered rule, and every other shape the translation keeps as a
+  separate shape, means the same as the original. `bacnet.shm` adds a rule
+  the library lacks: every point (each value of `brick:hasPoint`) states
+  exactly one `brick:hasUnit` and has a `ref:hasExternalReference` to the
+  BACnet object holding its value, by object and device identifier or by
+  BACnet URI.
+- Python `shifty.experimental.shapeshift` builds Shapeshift modules from
+  Python values. It is experimental, like the language: it can change in any
+  release, without a deprecation period.
+  Assigning to a module defines a name (`m.zone_temperature = Shape(...)` is
+  `shape zone-temperature`), and reading a name before it is defined refers
+  to it. `Shape(*lines, **labelled)` takes keyword arguments as named lines;
+  `&`, `|`, and `~` combine shapes as conjunction, `any of`, and `none of`;
+  `BRICK.Room & lines` is a class with lines its instances satisfy. Paths
+  combine with `/`, `|`, `~`, `.plus`, `.star`, and `.maybe`, and their
+  methods make lines (`points.required(sat=BRICK.SAT)`). `@m.template`
+  turns a function into a template, with Python defaults as its defaults and
+  `Class`-annotated parameters as classes. Prefixes and imports are declared
+  from use. `Module.source()` returns the text as `shifty shape fmt` formats
+  it; `write`, `check`, `export` (SHACL Turtle), and `write_shacl` (to a
+  `.ttl` file) go through the CLI's pipeline.
+  The `.shm` files in `examples/shapeshift/g36/` are generated from its
+  Python modules, one per kind of equipment. Sections share what they
+  repeat through shapes: 5.18.13 includes the fault conditions it shares
+  with 5.16.14. `row(..., comment=)` gives a row a trailing comment, and
+  reading `m.SAT_AVG` finds a name as written before trying its `-` form.
+- In Python, `|` and `~` of terms are class logic where a line or test goes
+  (`points.each(BRICK.A | BRICK.B)` is either class) and path operators
+  where a path goes. `Module.validate(data, targets={shape: Class})` validates
+  against the module, giving untargeted shapes their nodes, and raises
+  `ValueError` instead of passing when no shape has a target.
+- Shapeshift documentation: a tutorial, a language guide, the Python guide
+  (moved from the how-to guides), and a reference of each construct's SHACL,
+  the reserved words, and the `shifty shape` commands. Each page opens with
+  a banner saying Shapeshift is experimental. A Pygments lexer
+  (`docs/_ext/shapeshift_lexer.py`) highlights `.shm` code in the docs.
+- A Shapeshift keyword can label a field or a group row (`value:`,
+  `length:`): the colon sets it apart. Names and template parameters, which
+  are written bare, still cannot be keywords.
+- Shape algebra: `Schema` carries imports, source origins, and docstrings,
+  and supports `merge`. `shifty_opt::refused_components` reports the odd
+  cycle that makes a component inadmissible. A shape-based target is
+  encoded in SHACL as `shapeshift:targetShape` / `shapeshift:targetFor`,
+  and the parser lowers it back to a `HasPath(self, T)` selector.
+### Fixed
+
+- The shape algebra treated any range on a non-numeric datatype as
+  unsatisfiable, so a shape with `sh:datatype xsd:date` and a date
+  `sh:minInclusive` failed every value. A range is now unsatisfiable with a
+  datatype only when no value of the datatype compares with its bounds
+  (`xsd:string` with a number, `xsd:date` with a dateTime). Date, dateTime,
+  and time bounds are also ordered when ranges merge, so an empty date range
+  is found.
+
 ## 0.6.0-alpha.2
 
 Second alpha for 0.6.0, focusing on ShapeMap constraint identities, explanations,

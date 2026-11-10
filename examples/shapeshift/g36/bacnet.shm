@@ -1,0 +1,35 @@
+-- The BACnet object that holds a point's value, as Brick's ref schema links it:
+--
+--   ex:sat ref:hasExternalReference [
+--       bacnet:object-identifier "analog-input,3" ;
+--       bacnet:device-identifier "device,123" ] .
+--
+-- or, in one string, `ref:BACnetURI "bacnet://123/analog-input,3/present-value"`.
+base <urn:ashrae/g36/bacnet/>
+prefix ref: <https://brickschema.org/schema/Brick/ref#>
+prefix bacnet: <http://data.ashrae.org/bacnet/>
+
+doc "A point whose external references include the BACnet object holding its value."
+shape bacnet-point { ref:hasExternalReference at least 1 matches bacnet-object }
+
+doc "A BACnet object: its identifier (`analog-input,3`) on a device, or a BACnet URI (`bacnet://<device>/<object>[/<property>[/<index>]]`, ASHRAE 135 Clause Q.8)."
+shape bacnet-object {
+  any of {
+    bacnet:object-identifier exactly 1, each pattern "^(analog|binary|multi-state)-(input|output|value),[0-9]{1,7}$"
+    on-device
+  } {
+    ref:BACnetURI exactly 1, each pattern "^bacnet://[0-9]{1,7}/(analog|binary|multi-state)-(input|output|value),[0-9]{1,7}(/[a-z0-9-]+(/[0-9]+)?)?$"
+  }
+}
+
+doc "The device hosting the object: a device identifier, or a link to the device."
+shape on-device {
+  any of {
+    bacnet:device-identifier exactly 1, each pattern "^device,[0-9]{1,7}$"
+  } {
+    bacnet:objectOf exactly 1 is {
+      is a bacnet:BACnetDevice
+      bacnet:device-instance exactly 1, each integer, each from 0 to 4194302
+    }
+  }
+}

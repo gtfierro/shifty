@@ -1,0 +1,47 @@
+-- ASHRAE Guideline 36-2021, 5.22.6: AFDD for fan coil units.
+-- Translated from BuildingMOTIF's
+-- libraries/ashrae/guideline36/5.22.6-fan-coil-unit-afdd.ttl.
+base <urn:ashrae/g36/5.22.6/fan-coil-unit-afdd/>
+import "./brick.shm"
+import "./afdd.shm"
+prefix brick: <https://brickschema.org/schema/Brick#>
+
+doc "FC#1: Too many changes in Operating State"
+shape fc-1 {
+  is a brick:Air_Handling_Unit
+  points required { Delta_OS }
+}
+
+doc "FC#2: SAT too low in full heating"
+shape fc-2 {
+  is a brick:Air_Handling_Unit
+  points required { SAT_AVG; SATSP }
+  hot-water-coil
+}
+
+doc "FC#3: SAT too high in full cooling"
+shape fc-3 {
+  is a brick:Air_Handling_Unit
+  points required { SAT_AVG; SATSP }
+  chilled-water-coil
+}
+
+doc "FC#4: Temperature drop across inactive cooling coil"
+shape fc-4 {
+  is a brick:Air_Handling_Unit
+  points required {
+    SAT_AVG
+    doc "return air temperature (if present)"
+    RAT
+  }
+}
+
+doc "FC#5: Temperature rise across inactive heating coil"
+shape fc-5 {
+  is a brick:Air_Handling_Unit
+  points required {
+    SAT_AVG
+    doc "return air temperature (if present)"
+    RAT
+  }
+}

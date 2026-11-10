@@ -68,6 +68,23 @@ pub fn lower(g: &Loaded) -> Lowered {
     }
     l.lower_custom_components(&shapes);
     for s in &shapes {
+        // A Shapeshift shape-target wrapper: evaluate the shape-based target
+        // directly rather than through its universal SPARQL target, which is
+        // only there for engines without shifty's `HasPath` selector.
+        if let (Some(t), Some(f)) = (
+            l.g.object(s, vocab::SS_TARGET_SHAPE)
+                .and_then(|t| term_to_node(&t)),
+            l.g.object(s, vocab::SS_TARGET_FOR)
+                .and_then(|t| term_to_node(&t)),
+        ) {
+            let target = l.lower_shape(&t);
+            let shape = l.lower_shape(&f);
+            l.statements.push(Statement {
+                selector: Selector::HasPath(Path::Id, target),
+                shape,
+            });
+            continue;
+        }
         // selectors are shared by the shape's statements and its rules
         let selectors = l.target_selectors(s);
         if let Some(shape) = l.cache.get(s).copied() {
@@ -100,6 +117,7 @@ pub fn lower(g: &Loaded) -> Lowered {
         // The document's own vocabulary, carried along so reports can compact
         // IRIs the way the author wrote them.
         prefixes: Prefixes::new(g.prefixes.iter().cloned()),
+        ..Default::default()
     };
     for (node, id) in &l.cache {
         if let NamedOrBlankNode::NamedNode(n) = node {

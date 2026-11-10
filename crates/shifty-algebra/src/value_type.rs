@@ -119,16 +119,32 @@ impl ValueType {
         {
             return None;
         }
-        // Cross-facet unsat: a known non-numeric datatype with numeric range
-        // bounds, or a language-tagged literal (LangIn) with numeric range bounds.
+        // Cross-facet unsat: a range whose bounds no value of the datatype
+        // compares with (`string` with a numeric bound, `date` with a
+        // `dateTime` bound), or a language-tagged literal (LangIn) with a
+        // numeric or temporal bound.
         if has_range {
-            if datatype
-                .as_ref()
-                .is_some_and(|d| is_definitely_non_numeric_xsd(d.as_str()))
+            let bounds = lo
+                .iter()
+                .chain(hi.iter())
+                .map(|b| &b.value)
+                .chain(rest.iter().flat_map(|f| match f {
+                    ValueType::NumericRange { lo, hi } => {
+                        lo.iter().chain(hi.iter()).map(|b| &b.value).collect()
+                    }
+                    _ => Vec::new(),
+                }))
+                .collect::<Vec<_>>();
+            if let Some(d) = &datatype
+                && bounds
+                    .iter()
+                    .any(|b| bound_excludes_datatype(b, d.as_str()))
             {
                 return None;
             }
-            if rest.iter().any(|f| matches!(f, ValueType::LangIn(_))) {
+            if rest.iter().any(|f| matches!(f, ValueType::LangIn(_)))
+                && bounds.iter().any(|b| ordered_family(b).is_some())
+            {
                 return None;
             }
         }
@@ -218,6 +234,73 @@ fn fold_bound(
     }
 }
 
+/// The ordered value space a literal belongs to, for the families whose
+/// values are compared across datatypes the same way: numbers, and each of
+/// `xsd:date`, `xsd:dateTime`, and `xsd:time`. `None` for anything else.
+fn ordered_family(l: &Literal) -> Option<&'static str> {
+    let local = l.datatype().as_str().strip_prefix(XSD_NS)?;
+    if is_numeric_xsd(local) {
+        return Some("numeric");
+    }
+    match local {
+        "date" => Some("date"),
+        "dateTime" | "dateTimeStamp" => Some("dateTime"),
+        "time" => Some("time"),
+        _ => None,
+    }
+}
+
+/// Is no value of datatype `dt` comparable with bound `b`? Only decided
+/// for the XSD datatypes whose values are known: an unknown or custom
+/// datatype is never excluded.
+fn bound_excludes_datatype(b: &Literal, dt: &str) -> bool {
+    let Some(family) = ordered_family(b) else {
+        return false;
+    };
+    let Some(local) = dt.strip_prefix(XSD_NS) else {
+        return false;
+    };
+    let dt_family = if is_numeric_xsd(local) {
+        Some("numeric")
+    } else {
+        match local {
+            "date" => Some("date"),
+            "dateTime" | "dateTimeStamp" => Some("dateTime"),
+            "time" => Some("time"),
+            _ => None,
+        }
+    };
+    match dt_family {
+        Some(f) => f != family,
+        // a known XSD datatype outside the ordered families
+        None => is_definitely_non_numeric_xsd(dt),
+    }
+}
+
+const XSD_NS: &str = "http://www.w3.org/2001/XMLSchema#";
+
+fn is_numeric_xsd(local: &str) -> bool {
+    matches!(
+        local,
+        "integer"
+            | "decimal"
+            | "double"
+            | "float"
+            | "long"
+            | "int"
+            | "short"
+            | "byte"
+            | "nonNegativeInteger"
+            | "nonPositiveInteger"
+            | "positiveInteger"
+            | "negativeInteger"
+            | "unsignedLong"
+            | "unsignedInt"
+            | "unsignedShort"
+            | "unsignedByte"
+    )
+}
+
 /// Is `iri` a XSD datatype that is definitely not numeric?
 ///
 /// Conservative: unknown datatypes return `false` so we never mis-declare
@@ -270,13 +353,31 @@ fn range_is_empty(lo: &Option<Bound>, hi: &Option<Bound>) -> bool {
     }
 }
 
-/// Numeric comparison of two literals; `None` when not comparable in this slice
-/// (non-numeric datatypes or unparseable lexical forms). Covers xsd numeric
-/// only — dateTime/duration ordering is deferred (see `docs/BACKLOG.md`).
-fn compare_literals(a: &Literal, b: &Literal) -> Option<Ordering> {
-    let x: f64 = a.value().parse().ok()?;
-    let y: f64 = b.value().parse().ok()?;
-    x.partial_cmp(&y)
+/// Order two range bounds; `None` when they are not comparable (different
+/// families, unparseable lexical forms, or a timezone on one side only).
+/// Dates, dateTimes, and times compare within their own datatype; anything
+/// else is compared numerically. Durations are not ordered here.
+pub fn compare_literals(a: &Literal, b: &Literal) -> Option<Ordering> {
+    use oxsdatatypes::{Date, DateTime, Time};
+    use std::str::FromStr;
+    match (ordered_family(a), ordered_family(b)) {
+        (Some("date"), Some("date")) => Date::from_str(a.value())
+            .ok()?
+            .partial_cmp(&Date::from_str(b.value()).ok()?),
+        (Some("dateTime"), Some("dateTime")) => DateTime::from_str(a.value())
+            .ok()?
+            .partial_cmp(&DateTime::from_str(b.value()).ok()?),
+        (Some("time"), Some("time")) => Time::from_str(a.value())
+            .ok()?
+            .partial_cmp(&Time::from_str(b.value()).ok()?),
+        (Some(x), Some(y)) if x != y => None,
+        (Some("date" | "dateTime" | "time"), _) | (_, Some("date" | "dateTime" | "time")) => None,
+        _ => {
+            let x: f64 = a.value().parse().ok()?;
+            let y: f64 = b.value().parse().ok()?;
+            x.partial_cmp(&y)
+        }
+    }
 }
 
 #[cfg(test)]
@@ -490,5 +591,80 @@ mod tests {
     #[test]
     fn any_normalizes_to_any() {
         assert_eq!(ValueType::Any.normalize(), Some(ValueType::Any));
+    }
+
+    fn typed(lexical: &str, dt: &str) -> Literal {
+        Literal::new_typed_literal(
+            lexical,
+            NamedNode::new(format!("http://www.w3.org/2001/XMLSchema#{dt}")).unwrap(),
+        )
+    }
+
+    fn datatype(dt: &str) -> ValueType {
+        ValueType::Datatype(
+            NamedNode::new(format!("http://www.w3.org/2001/XMLSchema#{dt}")).unwrap(),
+        )
+    }
+
+    fn from(value: Literal) -> ValueType {
+        ValueType::NumericRange {
+            lo: Some(Bound {
+                value,
+                inclusive: true,
+            }),
+            hi: None,
+        }
+    }
+
+    #[test]
+    fn a_datatype_with_a_range_of_its_own_values_is_satisfiable() {
+        let vt = ValueType::and(vec![datatype("date"), from(typed("2024-01-01", "date"))]);
+        assert!(vt.normalize().is_some());
+        let vt = ValueType::and(vec![datatype("time"), from(typed("08:00:00", "time"))]);
+        assert!(vt.normalize().is_some());
+        let vt = ValueType::and(vec![datatype("integer"), from(int(0))]);
+        assert!(vt.normalize().is_some());
+    }
+
+    #[test]
+    fn a_datatype_with_a_range_of_other_values_is_unsat() {
+        for (dt, bound) in [
+            ("string", int(0)),
+            ("date", int(0)),
+            ("date", typed("2024-01-01T00:00:00", "dateTime")),
+            ("integer", typed("2024-01-01", "date")),
+            ("string", typed("2024-01-01", "date")),
+        ] {
+            let vt = ValueType::and(vec![datatype(dt), from(bound.clone())]);
+            assert_eq!(vt.normalize(), None, "{dt} with {bound}");
+        }
+    }
+
+    #[test]
+    fn dates_and_times_are_ordered() {
+        let d = |s: &str| typed(s, "date");
+        assert_eq!(
+            compare_literals(&d("2024-01-31"), &d("2024-02-01")),
+            Some(Ordering::Less)
+        );
+        let t = |s: &str| typed(s, "time");
+        assert_eq!(
+            compare_literals(&t("18:00:00"), &t("08:00:00")),
+            Some(Ordering::Greater)
+        );
+        // different families do not compare
+        assert_eq!(compare_literals(&d("2024-01-31"), &int(2024)), None);
+        // an empty date range is unsat
+        let vt = ValueType::NumericRange {
+            lo: Some(Bound {
+                value: d("2025-01-01"),
+                inclusive: true,
+            }),
+            hi: Some(Bound {
+                value: d("2024-01-01"),
+                inclusive: true,
+            }),
+        };
+        assert_eq!(vt.normalize(), None);
     }
 }

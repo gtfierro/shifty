@@ -112,11 +112,14 @@ Common tasks
      - Query which focus nodes and values matched selected shapes.
    * - :doc:`Compute symbolic repairs <how-to/repair>`
      - Explore candidate graph edits with the experimental repair API.
+   * - :doc:`Write shapes in Shapeshift <experimental/shapeshift/tutorial>`
+     - Write SHACL shapes in a short language of their own, or from Python.
 
 .. note::
 
-   Symbolic repair is **experimental**. Its API may change; see
-   :doc:`how-to/repair` for its current scope.
+   Symbolic repair and Shapeshift are **experimental**. Their APIs, and the
+   Shapeshift language, may change in any release; see :doc:`how-to/repair`
+   and :doc:`experimental/shapeshift/index`.
 
 Documentation
 -------------
@@ -132,6 +135,9 @@ Documentation
      - Interfaces, options, fields, and feature-support boundaries.
    * - :doc:`Explanation <explanation/index>`
      - Design, semantics, and performance tradeoffs.
+   * - :doc:`Experimental <experimental/index>`
+     - Shapeshift, a language for writing shapes. It can change in any
+       release.
    * - :doc:`Benchmarks <benchmarks>`
      - Validation performance across real building models, tracked per
        release.
@@ -149,6 +155,7 @@ conventions and preview workflow. Documentation issues can be filed on
    how-to/index
    reference/index
    explanation/index
+   experimental/index
    playground
    benchmarks
    changelog

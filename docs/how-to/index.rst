@@ -31,3 +31,7 @@ Experimental
 The :doc:`repair` guide covers candidate edits for supported constraint kinds.
 The API may change. Applications choose values and validate each candidate
 before applying it.
+
+More experimental features have their own guides under
+:doc:`../experimental/index`, including Shapeshift, a language for writing
+SHACL shapes.

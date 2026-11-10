@@ -1,0 +1,19 @@
+[package]
+name = "shifty-experimental"
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+edition.workspace = true
+description = "Experimental interfaces of shifty, which may change in any release without a deprecation period: Shapeshift, a text language for shapes"
+repository.workspace = true
+documentation.workspace = true
+readme.workspace = true
+
+[features]
+# The tree-sitter grammar for `.shm` (`shapeshift::grammar`), for editors and
+# REPLs. It compiles a C parser, so it is off unless asked for.
+tree-sitter = ["dep:tree-sitter-shapeshift"]
+
+[dependencies]
+shapeshift.workspace = true
+tree-sitter-shapeshift = { workspace = true, optional = true }

@@ -1,0 +1,29 @@
+-- ASHRAE Guideline 36-2021, 4.8: single-zone VAV air handling unit.
+-- Translated from BuildingMOTIF's
+-- libraries/ashrae/guideline36/4.8-sz-vav-ahu.ttl.
+base <urn:ashrae/g36/4.8/sz-vav-ahu/>
+import "./brick.shm"
+import "./components.shm" as components
+import "./4.1-vav-cooling-only.shm" as vav41
+prefix brick: <https://brickschema.org/schema/Brick#>
+
+doc "4.8 Single-zone VAV air handling unit"
+shape sz-vav-ahu {
+  is a brick:AHU
+  parts {
+    sa_fan:    components.vfd-fan(brick:Supply_Fan)
+    oa_damper: components.positioned-damper(brick:Outside_Damper)
+  }
+  points {
+    sa_temp:   brick:Supply_Air_Temperature_Sensor
+    oa_temp:   brick:Outside_Air_Temperature_Sensor
+    ma_temp:   brick:Mixed_Air_Temperature_Sensor
+    ra_temp:   brick:Return_Air_Temperature_Sensor
+    filter_pd: brick:Filter_Differential_Pressure_Sensor
+    clg:       brick:Cooling_Command
+    htg:       brick:Heating_Command
+  }
+  vav41.zone-temperature
+  vav41.occupancy-sensor
+  vav41.zone-co2-level
+}

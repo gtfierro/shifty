@@ -1,0 +1,20 @@
+{
+  "grammars": [
+    {
+      "name": "shapeshift",
+      "camelcase": "Shapeshift",
+      "scope": "source.shapeshift",
+      "path": ".",
+      "file-types": ["shm"],
+      "highlights": "queries/highlights.scm"
+    }
+  ],
+  "metadata": {
+    "version": "0.6.0",
+    "license": "BSD-3-Clause",
+    "description": "Shapeshift grammar for tree-sitter",
+    "links": {
+      "repository": "https://github.com/gtfierro/shifty"
+    }
+  }
+}

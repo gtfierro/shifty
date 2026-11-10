@@ -1,0 +1,25 @@
+-- ASHRAE Guideline 36-2021, 4.5: dual-duct terminal unit with a discharge sensor.
+-- Translated from BuildingMOTIF's
+-- libraries/ashrae/guideline36/4.5-dual-duct-terminal-unit-with-discharge.ttl.
+base <urn:ashrae/g36/4.5/dual-duct-terminal-unit-with-discharge/>
+import "./brick.shm"
+import "./components.shm" as components
+import "./4.1-vav-cooling-only.shm" as vav41
+prefix brick: <https://brickschema.org/schema/Brick#>
+
+doc "4.5 Dual-duct terminal unit with a discharge airflow sensor"
+shape terminal-unit {
+  is a brick:Terminal_Unit
+  parts {
+    hot_deck:  brick:Hot_Deck { components.positioned-damper(brick:Damper) }
+    cold_deck: brick:Cold_Deck { components.positioned-damper(brick:Damper) }
+  }
+  points { sa_flow: brick:Supply_Air_Flow_Sensor }
+  points optional {
+    override:    brick:Override_Command
+    temp_adjust: brick:Temperature_Adjust_Sensor
+  }
+  vav41.zone-temperature
+  vav41.zone-co2-level
+  vav41.occupancy-sensor
+}
