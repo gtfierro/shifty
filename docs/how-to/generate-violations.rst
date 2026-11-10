@@ -1,259 +1,241 @@
-Generate repair benchmarks
+Generate repair test cases
 ==========================
 
 .. warning::
 
-   **Experimental.** ``shifty.experimental.vio`` is new and its API and
-   output format may change in any release. It generates test cases. It does
-   not repair graphs.
+   **Experimental.** ``shifty.experimental.vio`` may change its API and
+   output format in any release. It generates test cases. It does not repair
+   graphs.
 
-``shifty.experimental.vio`` injects SHACL violations with known ground-truth repairs
-into a reference graph that conforms to its shapes. Each case contains a
-broken graph, the edits that were injected, and the inverse edits that
-restore the reference graph. A case can hold several interacting violations.
-Repair systems can then be scored on whether they recover the intended graph,
-not just on whether their output validates.
+A validator can tell you that a repaired graph conforms. It cannot tell you
+that the repair was the right one: deleting the offending node also
+conforms. To score a repair tool you need to know the intended answer.
 
-The method follows Lin et al., `Systematic Evaluation of Knowledge Graph
-Repair with Large Language Models <https://arxiv.org/abs/2507.22419>`_, and
-its multi-violation extension in `Selective Retrieval Routing for
-Multi-Violation Knowledge Graph Repair <https://arxiv.org/abs/2611.07342>`_.
-Shifty's satisfaction evidence supplies the expansion.
-:doc:`../explanation/violation-generation` explains the framework and what
-Shifty adds to it. The
-`design notes <https://github.com/gtfierro/shifty/blob/main/development_docs/violation-generation.md>`_
-cover the rewrite rules.
+``shifty.experimental.vio`` gets one by working backwards. It takes a graph
+that conforms, breaks it with a few chosen edits, and records them. Undoing
+those edits is a repair that is known to be correct.
 
-Three nouns
------------
+:doc:`../explanation/violation-generation` explains how the edits are found
+and combined. This page shows how to use the module.
 
-``Universe``
-   Every way to break the reference graph, as an immutable sequence of
-   injections. It is built from a data graph and a shapes graph. Building
-   it does not run the expansion: draws stream it, and listing the universe
-   stores it.
-``Injection``
-   One member: atomic edits that together make one ``(focus, statement)``
-   pair fail. Its ``key``, the sorted net delta, identifies it.
-``Case``
-   One draw from a universe: up to ``k`` compatible injections, the broken
-   graph, the injected delta ``Δ``, and the repair ``Δ⁻¹``.
+Break a graph
+-------------
 
 .. code-block:: python
 
    from shifty.experimental import vio
 
-   universe = vio.Universe(reference, shapes)  # data first, like validate()
+   universe = vio.Universe("model.ttl", "shapes.ttl")  # data first, like validate()
+   case = universe.draw(3, seed=0)
 
-   case = universe.draw(5, seed=0)
-   case.graph_ntriples   # G_test = G_ref ⊕ Δ, as N-Triples
-   case.graph()          # G_test, as an rdflib.Graph
-   case.apply(delta)     # G_test ⊕ delta, as an rdflib.Graph
-   case.delta            # Δ, a shifty.RepairDelta
-   case.repair           # Δ⁻¹, a shifty.RepairDelta
-   case.failures         # every failing pair in G_test, with its injections
-   case.save("suite/case-000")
+A ``Universe`` is every way ``vio`` found to break the graph. Each way is an
+``Injection``: a few edits that make one node fail one of its shapes.
+``draw(k, seed)`` picks up to ``k`` injections that work together and
+returns a ``Case``:
 
-   # A suite: one pass over the expansion fills a reservoir per case.
-   suite = universe.draws([(k, s) for k in (2, 5, 10) for s in range(10)])
+.. code-block:: python
 
-   print(len(universe), "injections")  # expands once and caches the universe
+   case.injections      # what was injected
+   case.graph()         # the broken graph, as an rdflib.Graph
+   case.graph_ntriples  # the same, as N-Triples
+   case.delta           # the edits that broke it, a shifty.RepairDelta
+   case.repair          # the edits that undo them
+   case.failures        # the failing (node, shape) pairs, each with its injections
+   case.save("case-000")  # graph.nt, repair.ru, case.json
 
-The same ``(k, seed)`` draws the same case from the same universe, in every
-process, whether the universe was streamed or cached. ``case.delta`` and
-``case.repair`` are the deltas a
-:class:`shifty.RepairSession` gates, so a repair system's output can be
-compared with the ground truth directly.
+To score a repair tool, apply its edits to the broken graph and compare the
+result with the original:
 
-Injections
-----------
+.. code-block:: python
 
-Each injection's ``operations`` are atomic edits:
+   candidate = case.apply(tool_delta)   # the broken graph with a delta applied
+   intended = case.apply(case.repair)   # the original graph
+
+The same ``(k, seed)`` always returns the same case, in every process.
+
+The data and shapes can be paths, URLs, Turtle strings or bytes,
+``rdflib.Graph`` objects, or lists of these, which are merged. The data must
+conform. A node that already fails a shape is left alone and never reported
+as a failure.
+
+What an injection does
+----------------------
+
+An injection has ``operations``, each one edit of one kind:
 
 ``remove``
-   Cut an edge that supports a value, such as the only ``ex:hasPoint`` that
-   satisfies a ``sh:qualifiedMinCount``.
+   Delete a triple that a constraint needs, such as a sensor's only label
+   under ``sh:minCount 1``.
 ``substitute``
-   Replace a value with one that fails, or satisfies, its qualifier, such as
-   ``"RAT_01"`` → ``"RA"`` under ``sh:minLength 3``. Proposed terms are
-   checked by the engine before use.
+   Swap a value for one that fails, such as ``"degC"`` for ``"degC_x"``
+   under ``sh:in``.
 ``add_value``
-   Add a value along a path, such as a second ``qudt:hasQuantityKind`` under
-   ``sh:maxCount 1``. New values follow the other universals on the same path
-   when they can, so a cardinality violation stays one.
+   Add a value, such as a second label under ``sh:maxCount 1``.
 ``add_forbidden``
-   Add a predicate that a ``sh:closed`` shape disallows.
+   Add a predicate that a ``sh:closed`` shape does not allow.
 
-Under ``sh:not``, the generator makes the negated shape *hold*. For example,
-``sh:not [ sh:path ex:deprecated ; sh:hasValue true ]`` is broken by adding
-``ex:deprecated true``. Such an operation has ``polarity == "satisfy"``.
+Under ``sh:not`` the direction flips: the injection makes the negated shape
+hold. ``sh:not [ sh:path ex:deprecated ; sh:hasValue true ]`` is broken by
+adding ``ex:deprecated true``.
 
-An injection also carries its ``focus``, its ``shape``, the ``predicates``
-it edits, its ``deletes`` and ``adds``, and its edits as a ``delta``.
+An injection also has the ``focus`` node it breaks, the ``shape``, the
+``predicates`` it edits, and its ``deletes`` and ``adds``. Its ``key`` is
+those edits as sorted text, and identifies it across runs.
 
-How a draw composes a case
---------------------------
+A universe behaves like a list, so you can browse it:
 
-``draw(k, seed)`` streams the expansion into a weighted reservoir of
-``max(8k, 64)`` injections, then scans it in key order. It admits an
-injection only if the injection's own edits make its target fail, and its
-edits can be applied with those of the injections already chosen. Two
-injections cannot be applied together when one deletes a triple the other
-adds, when both replace one value differently, or when they need one node to
-both fail and satisfy one constraint. Shared edits are fine, and so are
-several injections on one property of one focus node. This is the paper's
-composition rule. Beyond the paper, the draw then revalidates the combined
-edits and replaces any injection whose targeted property no longer fails. Every
-entry of ``case.failures`` is one the engine reports for ``G_test``. Because
-one edit can fail several statements, there can be more failures than
-injections, and several injections can share one failure. A failure with no
-injections is a side effect.
+.. code-block:: python
 
-Views: filters and weights
---------------------------
+   len(universe)
+   for injection in universe[:5]:
+       print(injection.focus, injection.operations[0].detail)
 
-A universe never changes. ``where`` and ``weighted`` return views that share
-its engine session and caches, so they are cheap, and they compose:
+A draw alone does not build this list. It samples the injections as they
+are found and keeps only its sample. Listing the universe stores all of it.
+
+Choose what gets broken
+-----------------------
+
+``where`` narrows a universe, and ``weighted`` tilts the odds. Both return a
+new view and leave the universe unchanged, so they are cheap and they chain.
 
 .. code-block:: python
 
    S223 = "http://data.ashrae.org/standard223#"
-   zones = universe.where(shape=S223 + "Zone")
-   cnx = universe.where(predicate=S223 + "cnx")
-   mine = universe.where(lambda e: len(e.operations) == 1, focus=my_nodes)
+
+   zones = universe.where(shape=S223 + "Zone")       # break only this shape
+   cnx = universe.where(predicate=S223 + "cnx")      # edit only this predicate
+   mine = universe.where(focus=my_nodes)             # break only these nodes
+   single = universe.where(lambda e: len(e.operations) == 1)
 
    zones.weighted(kinds={"add_value": 0.2}).draw(10, seed=3)
 
-``where`` is a hard filter. ``shape`` keeps the injections that break that
-shape, ``predicate`` keeps those that edit it, and ``focus`` keeps those
-aimed at that node. Each takes one IRI or several. A callable filters on
-anything else. Filters run as the expansion streams, so a callable is called
-once per injection on each pass.
+A filter excludes: a draw from ``zones`` can only pick injections that break
+a zone. A weight never excludes. It makes an injection more or less likely
+to be picked, relative to the others.
 
-``weighted`` changes how a draw samples the view. The reservoir keeps the
-injections with the smallest keys ``-ln h(v) / w(v)``, where ``h`` is a
-stable hash of the injection and the seed. With no weights ``w`` is 1, so a
-draw is uniform and every predicate is treated alike. ``predicates`` adds
-the geometric mean of the weights of the predicates an injection edits.
-``kinds`` adds the geometric mean of the weights of its operation kinds.
-When both are set, ``w`` is their product. A predicate or kind without an
-entry weighs 1, so only the ratios matter. Weights favour injections but
-never exclude them. ``weighted`` replaces the view's weights, and ``where``
-keeps them.
+Without weights, every injection is equally likely. ``predicates`` weights
+injections by the predicates they edit, and ``kinds`` by their operation
+kinds. Anything without a weight counts as 1, so only ratios matter: a
+weight of 50 on one predicate makes its injections 50 times as likely as
+the rest.
 
-On 223P models ``add_value`` dominates, because nearly every property carries
-both ``sh:class`` and ``sh:maxCount``.
+Weighting kinds is useful on ASHRAE 223P models. Most properties there have
+both ``sh:class`` and ``sh:maxCount``, so ``add_value`` makes up most of
+the universe.
 
 Generate a suite
 ----------------
 
-``vio.generate`` draws a suite of cases and writes it to disk:
+``generate`` draws many cases and writes them to disk:
 
 .. code-block:: python
 
    suite = vio.generate(
-       "reference.ttl", "shapes.ttl", "suite/",
-       budgets=(2, 5, 10), cases=10, seed=0,
+       "model.ttl", "shapes.ttl", "suite/",
+       budgets=(2, 5, 10), cases=10, seed=0, jobs=4,
    )
 
-This draws ten cases for each ``k`` in ``budgets``, with seeds ``0`` to
-``9``, and writes:
+This draws ten cases at each budget, with seeds 0 to 9:
 
 .. code-block:: text
 
    suite/
-     reference.nt          the reference graph, normalized to N-Triples
-     suite.json            operation mix of the injections, case list
+     reference.nt        the original graph
+     suite.json          the list of cases and the mix of operation kinds
      k05/case-003/
-       graph.nt            G_test = G_ref ⊕ Δ
-       repair.ru           Δ⁻¹ as a SPARQL 1.1 Update
-       case.json           Δ, Δ⁻¹, each injection, and every failing
-                           (focus, statement) pair in G_test
+       graph.nt          the broken graph
+       repair.ru         the repair, as a SPARQL update
+       case.json         the edits, the injections, and the failures
 
-It returns the contents of ``suite.json`` as a dict.
+It returns the contents of ``suite.json``. It takes the same inputs as
+``Universe``, the filters of ``where`` (``shape``, ``predicate``,
+``focus``), and the weights of ``weighted`` (``predicates``, ``kinds``).
 
-The data and shapes take anything ``Universe`` takes: paths, URLs, Turtle
-strings or bytes, ``rdflib.Graph`` objects, or lists of these, which are
-merged. ``materialize`` and ``infer`` are as for ``Universe``. ``shape``,
-``predicate``, and ``focus`` filter as in ``where``, and ``predicates`` and
-``kinds`` weight as in ``weighted``:
+``jobs=N`` runs ``N`` worker processes. Cases do not depend on each other,
+so the suite is the same for any ``N``. Each worker builds its own
+universe, so memory grows with ``N``.
 
-.. code-block:: python
-
-   import rdflib
-
-   model = rdflib.Graph().parse("model.ttl")
-   suite = vio.generate(
-       model, "223p.ttl", "suite/", materialize=True,
-       predicate=S223 + "hasMedium", kinds={"remove": 2},
-   )
-
-``jobs=N`` splits the cases across ``N`` worker processes. Each worker
-builds its own universe and draws every ``N``-th case. A case does not
-depend on the others, so the suite is the same for any ``N``. Each worker
-holds a full universe in memory, about 550 MB for NIST-IBAL. Graph objects
-are serialized to Turtle once and sent to the workers in that form, so
-any rdflib store works, including one that cannot be pickled.
-
-The command line runs ``generate``:
+The command line does the same:
 
 .. code-block:: bash
 
-   python -m shifty.experimental.vio --data reference.ttl --shapes shapes.ttl \
+   python -m shifty.experimental.vio --data model.ttl --shapes shapes.ttl \
        --out suite/ -k 2 -k 5 -k 10 -n 10 --seed 0 --jobs 4
 
-``-k`` repeats, one per budget, and ``-n`` is ``cases``. Pass
-``--materialize`` when the model relies on SHACL-AF rules, as ASHRAE 223P
-models do: the rules then run once, and the closure becomes the reference
-graph. ``--shape`` and ``--predicate`` filter like ``where``, and both
-repeat. ``--weights`` and ``--kind-weights`` take JSON files of predicate and
-operation-kind weights.
+``--shape`` and ``--predicate`` filter, and both repeat. ``--weights`` and
+``--kind-weights`` take JSON files that map predicates or kinds to weights.
 
-Three examples in ``python/examples/`` run each step on their own:
+To draw a suite without writing it, use ``universe.draws([(k, seed), ...])``.
+It returns the cases that the matching ``draw`` calls would, from one pass
+over the universe.
 
-- ``vio_validate.py`` breaks a small graph, validates it, and repairs it.
-- ``vio_suite.py`` narrows and weights the universe, then draws a suite.
-- ``vio_223p.py`` generates a suite for a 223P model with ``vio.generate``.
+Models that rely on rules
+-------------------------
 
-Bound the expansion
--------------------
+Some models conform only after SHACL-AF rules have run. ASHRAE 223P models
+are an example. Pass ``materialize=True`` (``--materialize``): the rules run
+once, and the inferred graph becomes the graph that gets broken. Edits may
+then touch inferred triples.
 
-``ExpansionLimits`` caps each choice point: values per count, candidate terms
-per value, joint choices, nesting depth, and injections per target. The
-defaults produce about 77,000 injections for NIST-IBAL (9,625 triples after
-materialization). One pass over them takes about 1 second. A draw at
-``k = 10`` takes about 1.5 seconds, including that pass, and ``draws`` of ten
-cases at ``k = 5`` about 4 seconds. Thirty cases at ``k`` = 2, 5, and 10 take
-about 12 seconds from the CLI, and about 5 seconds with ``--jobs 8``.
+What it costs
+-------------
 
-Composition dominates. Checking a candidate re-selects and evaluates its
-target pair only. Checking a composed case finds the failing pairs with a
-conformance pass over the whole graph, about 0.15 seconds for NIST-IBAL,
-and builds evidence only for the new failures.
+For NIST-IBAL, a 223P model of 9,625 triples after rules, the universe has
+about 77,000 injections:
 
-A streamed draw holds only its reservoirs. Listing the universe stores every
-injection: for NIST-IBAL, peak memory rises from about 550 MB to about
-800 MB.
+.. list-table::
+   :header-rows: 1
+
+   * - Step
+     - Time
+   * - One pass over the universe
+     - 1 s
+   * - One case at ``k = 10``, including the pass
+     - 1.5 s
+   * - Thirty cases at ``k`` = 2, 5, 10
+     - 12 s
+   * - The same with ``jobs=8``
+     - 5 s
+
+Most of the time goes to checking. Each candidate injection is tested on
+its own node, which is cheap. Each finished case is validated in full,
+which takes about 0.15 s here and grows with the graph.
+
+A worker uses about 550 MB for this model. Listing the universe stores
+every injection and raises that to about 800 MB.
+
+``ExpansionLimits`` bounds the search, so a large graph does not produce an
+unbounded universe. It caps how many alternatives, values, and replacement
+terms are tried at each step, and how many injections one node and shape
+can yield.
 
 Reproducibility
 ---------------
 
-For a fixed data graph, shapes graph, and limits, the universe is identical
-across runs and processes, and so is every draw. Injections are identified
-by their net edit set, not by engine-internal ids, which can differ between
-processes.
+The same data, shapes, limits, and ``(k, seed)`` give the same case on
+every run and every machine. Two details make this hold:
 
-Parsers label anonymous blank nodes afresh on every parse. The universe
-therefore relabels the reference graph's blank nodes canonically, and the
-emitted files use those labels. Pass ``canonicalize_blank_nodes=False`` to keep
-the input's labels, at the cost of reproducibility for graphs with anonymous
-blank nodes.
+- An injection is identified by its edits, not by internal ids.
+- Parsers name anonymous blank nodes differently on every parse, so the
+  universe renames them in a canonical way. The output files use those
+  names. ``canonicalize_blank_nodes=False`` keeps the input's names, and
+  gives up reproducibility for graphs with anonymous blank nodes.
+
+Examples
+--------
+
+In ``python/examples/``:
+
+- ``vio_validate.py`` breaks a small graph, validates it, and repairs it.
+- ``vio_suite.py`` narrows and weights a universe, then draws a suite.
+- ``vio_223p.py`` generates a suite for a 223P model.
 
 Use it from Rust
 ----------------
 
-The generator is implemented in Rust as ``shifty_experimental::vio``, with
-the same three nouns. The Python module wraps it.
+The generator is written in Rust, as ``shifty_experimental::vio``. The
+Python module wraps it, and the names match.
 
 .. code-block:: rust
 
@@ -267,19 +249,16 @@ the same three nouns. The Python module wraps it.
    for case in zones.draws(&requests)? {
        let graph = case.graph_ntriples();
        let repair = case.repair(); // a shifty_repair::GraphDelta
-       // ...
    }
 
 Limitations
 -----------
 
-- Relational constraints (``sh:equals``, ``sh:disjoint``, ``sh:lessThan``),
-  SPARQL constraints, and ``sh:xone`` are not broken yet.
-- New values come from the reference graph, from facet-derived literals, or
-  from fresh IRIs named after the focus node's namespace. The generator does
-  not invent realistic entity names.
-- Paths are materialized along their shortest predicate word. Alternatives
-  take the first branch, and stars take zero steps.
-- Focus nodes without outgoing triples in the reference graph, such as
-  vocabulary terms described by the shapes graph, are skipped. Pass
-  ``include_external_foci=True`` to include them.
+- ``sh:equals``, ``sh:disjoint``, ``sh:lessThan``, SPARQL constraints, and
+  ``sh:xone`` are not broken yet.
+- New values are taken from the graph, derived from the constraint (a
+  string one character too short), or minted as fresh IRIs. They are not
+  realistic names.
+- A property path is broken along its shortest route only.
+- Nodes with no outgoing triples, such as vocabulary terms that the shapes
+  describe, are skipped. ``include_external_foci=True`` includes them.

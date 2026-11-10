@@ -6,171 +6,180 @@ Generating violations
    Violation generation is experimental. Its API and output format may
    change.
 
-``shifty.experimental.vio`` builds repair benchmarks: graphs with known
-violations and known repairs. It implements the violation-injection
-framework of Lin et al. [LIN25]_, extended to multiple violations per case as
-in [LIN26]_. This page defines the terms, states the framework in the papers'
-terms, and then lists what Shifty does beyond it and why. For usage, see
+This page explains how ``shifty.experimental.vio`` builds test cases for
+repair tools, and why it works the way it does. For usage, see
 :doc:`../how-to/generate-violations`.
 
-Terms
------
+The problem
+-----------
 
-Reference graph ``G_ref``
-   A data graph that conforms to the shapes.
-Pair
-   A focus node together with a statement that selects it, where a
-   statement is a shape with its targets. A pair passes or fails.
-Property
-   One top-level conjunct of a statement's shape, usually one property
-   shape. Validation reports each failing property as its own result.
-Delta ``Δ``
-   A set of triple additions and deletions. ``G_test = G_ref ⊕ Δ`` is the
-   graph after applying it, and its inverse ``Δ⁻¹`` restores ``G_ref``.
-Injection
-   A set of edits that makes one passing pair fail, by breaking one of its
-   properties. The papers call it a *normalized violation expression*. Its
-   net delta identifies it.
-Case
-   A ``G_test`` built from several injections, together with ``Δ⁻¹`` as the
-   ground-truth repair.
-Failure
-   A pair that fails in ``G_test``, together with the injections that break
-   it.
+A repair tool takes a graph that fails validation and edits it until it
+passes. Passing is easy to check and says little. Deleting every failing
+node passes too. What matters is whether the tool recovered the graph the
+author meant, and a validator cannot know that.
 
-The framework
--------------
+So the generator starts from the answer. It takes a graph that conforms,
+the *reference graph*, and breaks it with a recorded set of edits. The
+broken graph is the test input. The recorded edits, reversed, are a repair
+known to be correct.
 
-The papers build a case in three steps.
+The approach is from Lin et al. [LIN25]_, extended to several violations
+per case in [LIN26]_. Real graphs rarely have one problem at a time, and
+violations interact: fixing one can expose or hide another. A useful
+benchmark has to contain such cases.
 
-1. **Expansion.** ``VIO(x, φ)`` rewrites the task "make focus node ``x``
-   violate shape ``φ``" into alternatives, down to edit operations. The
-   leaves of this expansion graph are injections. The universe ``U`` is the
-   set of distinct leaves ([LIN25]_; [LIN26]_ §6.1).
-2. **Sampling.** Each injection ``v`` gets a weight ``w(v)``, the geometric
-   mean of the weights of the predicates it edits. A reservoir keeps the
-   ``M`` injections with the smallest keys ``−ln h(v) / w(v)``, where ``h``
-   is a stable hash into ``(0, 1]`` (Efraimidis–Spirakis weighted sampling;
-   [LIN26]_ §6.2).
-3. **Composition.** Injections are taken from the reservoir in key order.
-   Each one states requirements: which nodes must violate or satisfy which
-   constraints. An injection is admitted if its requirements are compatible
-   with those of the injections already chosen. Two requirements conflict
-   when they demand incompatible violations on one node. Selection stops at
-   the budget ``K`` or when the reservoir runs out ([LIN26]_ §6.3).
+Finding ways to break a graph
+-----------------------------
 
-``K`` counts injections, not failures. One injection may cause several
-validation results ([LIN26]_ §6.1).
+Take a shape that says every sensor has exactly one label, and a sensor
+that has one. Why does the sensor pass? Because the label triple exists,
+and because there is no second one. Each reason is a way to break it:
+remove the label, or add another.
 
-In Shifty, ``U`` is a ``Universe``, an injection is an ``Injection``, and a
-case is a ``Case``. ``Universe.draw(k, seed)`` runs sampling and composition
-with ``K = k``.
+That is the whole idea. When Shifty validates, it can produce *evidence*:
+a tree that records why each node satisfies each shape. The generator walks
+that tree and turns each reason into the edits that defeat it:
 
-What Shifty adds, and why
--------------------------
+- A value that had to exist can be removed.
+- A value that had to pass a test can be swapped for one that fails it.
+- A count that had to stay under a limit can be pushed over it.
+- Under ``sh:not`` the direction flips: the inner shape had to fail, so the
+  edits make it hold.
 
-**Each injection must break its target alone.** Before admitting an
-injection, ``draw`` applies its delta alone to ``G_ref`` and evaluates the
-injection's pair. The pair must still be selected, and it must fail on the
-property it targets. *Why:* the
-expansion is approximate, so a leaf can fail to violate anything. It caps
-every choice point, follows each path along one shortest sequence of
-predicates, and does not see support that rules re-infer.
+Shapes nest, so the walk recurses. To break "has a point that has a
+description", remove the point, or break the point's description.
 
-**The composed case is revalidated.** After composition, ``draw`` applies
-the union of the chosen deltas and revalidates. An injection whose targeted
-property no longer fails is replaced with the next one from the reservoir.
-*Why:* compatible requirements do not guarantee a joint effect, since one
-injection can restore support that another removed. After this step, every
-failure in a case comes from an engine run on ``G_test``.
+Each complete set of edits is an *injection*: it makes one node fail one
+shape. All the injections together are the *universe*. The walk runs over
+Shifty's internal shape algebra, a handful of operators that every SHACL
+constraint lowers to, so there is one rule per operator, not one per SHACL
+component.
 
-**Revalidation checks properties, not injections.** When several injections
-break one property, the check confirms that the property fails. It does not
-confirm that each injection matters, and one may be redundant. A
-leave-one-out check would find redundant injections. It would cost about
-``k`` extra validations per draw, so Shifty does not run one.
+The search is bounded. A large graph has an enormous number of ways to
+swap one value for another, so each step tries a capped number of
+alternatives. The universe is therefore a large sample of the ways to break
+the graph, not all of them.
 
-**Edits must not contradict.** The papers' requirement rule is kept. In
-addition, ``draw`` rejects an injection that deletes a triple a chosen one
-adds, adds a triple a chosen one deletes, or replaces a value that a chosen
-one replaces differently. *Why:* requirements do not describe edits, so
-they cannot catch edits that cancel, and a cancelled edit makes ``Δ⁻¹``
-wrong. Injections may share an edit.
+Picking injections
+------------------
 
-**Nothing limits overlap between failures.** As in the papers, several
-injections may break one property, and an injection may cause failures at
-pairs it does not target. A failure that no injection targets is reported
-with no injections.
+A case needs a few injections out of tens of thousands, chosen at random
+but reproducibly. The generator gives each injection a score, computed from
+a hash of the injection and the seed, and keeps the lowest-scoring few
+hundred in a *reservoir*. This is the weighted sampling of [LIN26]_
+(Efraimidis and Spirakis): a weight divides the score, so a heavier
+injection is more likely to land in the reservoir.
 
-**A case holds up to** ``k`` **injections.** [LIN26]_ §6.1 states
-``|S| = K``, while §6.3 says "up to ``K``". Shifty follows §6.3, so a small
-universe can yield fewer than ``k`` injections. A case can have more
-failures than ``k``, because one edit can fail several pairs. It can also
-have fewer, because several injections can share one failure.
+Scoring by hash has three useful consequences:
 
-**Weights are 1 unless given at call time.** By default every injection has
-``w(v) = 1``, so each is equally likely to enter the reservoir.
-``universe.weighted(predicates={iri: weight})`` returns a view whose draws
-use the papers' ``w(v)``: the geometric mean of the given weights over the
-predicates the injection edits. A predicate without an entry weighs 1, so
-only ratios matter. *Why:* [LIN26]_ up-weights a class of predicates to test
-a hypothesis about that class. That weighting belongs to the experiment, not
-to the generator.
+- The sample depends only on the injections and the seed, not on the order
+  they are found in. The same seed gives the same case on any machine.
+- Injections can be scored as the walk produces them. A draw never stores
+  the universe, only its reservoir.
+- Several cases can share one walk, each with its own reservoir. A suite
+  costs one pass, not one per case.
 
-**Operation kinds can be weighted too.** ``weighted(kinds={kind: weight})``
-multiplies ``w(v)`` by the geometric mean of the given weights over the
-kinds of the injection's operations: ``remove``, ``substitute``,
-``add_value``, or ``add_forbidden``. *Why:* on ASHRAE 223P models,
-``add_value`` makes up most of the universe, because nearly every property
-has both ``sh:class`` and ``sh:maxCount``.
+By default all weights are 1 and every injection is equally likely.
+[LIN26]_ weights one class of predicates to test a hypothesis about it.
+That choice belongs to the experiment, so weights are supplied by the
+caller, per predicate or per operation kind. Filters are separate: a weight
+makes an injection unlikely, and only a filter makes it impossible.
 
-**Filters are separate from weights.** ``universe.where(shape=...,
-predicate=..., focus=...)`` returns a view of the matching injections, and
-it also accepts a callable. Draws from the view sample only those
-injections. *Why:* a weight makes an injection less likely, but never
-impossible.
+Combining injections
+--------------------
 
-**The expansion streams into the reservoir.** As in [LIN26]_, ``draw``
-offers each leaf to the reservoir as the expansion produces it, after the
-filter. Only the reservoir is stored. ``draws([(k, seed), ...])`` fills one
-reservoir per case from a single pass. *Why:* memory stays bounded by the
-reservoirs, not the universe, and a suite costs one pass rather than one
-per case.
+The generator takes injections from the reservoir in score order and adds
+each one to the case unless it conflicts with one already chosen. Two
+injections conflict when they cannot both take effect:
 
-**Composition waits for the pass to finish.** [LIN26]_ lets composition
-start before the traversal finishes. Shifty completes the pass first, bounded
-by ``ExpansionLimits``. *Why:* a case then depends on the whole universe and
-not on how far the traversal got, so it reproduces.
+- One deletes a triple that the other adds.
+- Both replace the same value, with different values.
+- One needs a node to fail a constraint that the other needs it to satisfy.
 
-**Listing caches the expansion.** ``len``, iteration, and indexing expand the
-universe once and keep it, and later draws read the cache. A streamed draw
-and a cached draw return the same case, because the reservoir keeps the
-smallest keys whatever order injections arrive in. Views from ``where`` and
-``weighted`` share the cache and the verification results.
+The last rule is the papers' ([LIN26]_ §6.3). The first two are added here.
+They matter because an edit that gets cancelled leaves the recorded repair
+wrong.
 
-**Draws reproduce across processes.** The same inputs and ``(k, seed)`` give
-the same case on every run. *Why:* a benchmark must be regenerable. The
-hashes are fixed functions, not Python's or Rust's randomly seeded ones.
-Sibling evidence is ordered by a digest of shape structure, because the
-engine's internal shape ids vary between processes. Anonymous blank nodes
-are relabeled canonically, because parsers label them afresh on every parse.
+Everything else is allowed. Two injections may share an edit, break the
+same property, or break the same node. Overlap is not a defect: tangled
+failures are what a multi-violation benchmark is for.
 
-Other differences
------------------
+Checking the result
+-------------------
 
-- The expansion is a fold over Shifty's satisfaction evidence on the
-  normalized shape algebra (``∧ ∨ ¬``, counts, universals, tests, closed
-  shapes), not a rule per SHACL component.
-- Under ``¬``, ``VIO`` switches to its dual, ``SAT(x, φ)``, which makes a
-  failing shape hold.
-- The engine checks each proposed replacement value against its qualifier
-  before use.
-- Pairs that already fail in ``G_ref`` are never broken and never counted as
-  failures.
-- With ``materialize``, the SHACL-AF closure of the data is ``G_ref``, so
-  edits may touch inferred triples.
+The papers stop at compatibility. Shifty adds two checks, because the
+search is approximate and compatible injections can still interfere.
 
-The rewrite rules, caps, and determinism measures are in the `design notes
+**Each injection is tested alone.** Before an injection joins a case, its
+edits are applied to the reference graph and its node is re-evaluated. It
+must fail the property the injection aimed at. An injection can miss: the
+search caps its alternatives, follows one route along a property path, and
+does not see values that a rule would infer back.
+
+**The finished case is validated.** One injection can undo another's
+effect, for example by adding a value that restores support the other
+removed. So the combined edits are applied and the whole graph is
+validated. An injection whose property no longer fails is dropped, and the
+next one from the reservoir takes its place.
+
+After the second check, every failure listed in a case was reported by the
+validator on the broken graph. Nothing in a case is a prediction.
+
+The check has a limit. When two injections break the same property, it
+confirms that the property fails, not that both injections are needed. One
+may be redundant. Detecting that would take one more validation per
+injection, and the generator does not do it.
+
+What the numbers mean
+---------------------
+
+The budget ``k`` counts injections, and it is an upper bound. A small
+universe, or a tight filter, can yield fewer.
+
+Failures are counted separately and need not equal ``k``. One edit can
+break several shapes, so a case can have more failures than injections.
+Several injections can break one property, so it can have fewer. A failure
+that no injection aimed at is a side effect, and is listed with no
+injections.
+
+A node that already failed in the reference graph is never broken, and
+never listed as a failure.
+
+Reproducing a case
+------------------
+
+A benchmark must be regenerable, so a draw is a pure function of the data,
+the shapes, the limits, and ``(k, seed)``. Three things could break that,
+and each is handled:
+
+- Hash functions that are seeded per process. The generator uses fixed
+  ones.
+- Internal shape ids, which vary between processes. Ordering uses a digest
+  of each shape's structure.
+- Blank-node names, which a parser picks afresh on every parse. The
+  reference graph's blank nodes are renamed canonically.
+
+For the same reason, composition waits until the walk has finished.
+[LIN26]_ lets it start earlier. Waiting means a case depends on the whole
+universe, not on how far the walk had got.
+
+Differences from the papers
+---------------------------
+
+- Injections come from Shifty's evidence over the shape algebra, not from
+  a rule per SHACL component.
+- Each injection is tested alone, and each case is validated.
+- Edits that cancel are conflicts, in addition to the papers' rule.
+- A case holds up to ``k`` injections. [LIN26]_ says exactly ``K`` in §6.1
+  and "up to ``K``" in §6.3; Shifty follows §6.3.
+- Weights default to 1 and are given by the caller. Operation kinds can be
+  weighted as well as predicates.
+- Filters exist alongside weights.
+- Composition starts after the walk ends.
+- With ``materialize``, the reference graph is the data plus everything
+  its SHACL-AF rules infer, so edits may touch inferred triples.
+
+The rewrite rules, limits, and implementation are in the `design notes
 <https://github.com/gtfierro/shifty/blob/main/development_docs/violation-generation.md>`_.
 
 .. [LIN25] T.-W. Lin, G. Fierro, H. Li, T. Hong, P. Nuzzo, and
