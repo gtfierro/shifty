@@ -102,6 +102,6 @@ publishes ``shifty-algebra`` (the IR), ``shifty-parse``, ``shifty-opt`` (the
 normalizer and planner), and ``shifty-repair``.
 
 ``shifty-experimental`` holds interfaces that may change in any release,
-without a deprecation period: today :doc:`Shapeshift <shapeshift/index>`, as
+without a deprecation period: today :doc:`Shapeshift <experimental/shapeshift/index>`, as
 ``shifty_experimental::shapeshift``. Pin its exact version if you depend on
 it.

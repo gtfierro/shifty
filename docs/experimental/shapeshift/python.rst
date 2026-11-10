@@ -7,11 +7,11 @@ Shapeshift in Python
 and writes them as ``.shm`` text or SHACL Turtle. Use it when shapes are
 generated from data, or to reuse Python functions as templates.
 
-.. literalinclude:: ../examples/shapeshift/vav.py
+.. literalinclude:: ../../examples/shapeshift/vav.py
    :language: python
 
 .. program-output:: python examples/shapeshift/vav.py
-   :cwd: ..
+   :cwd: ../..
 
 The text goes through the same formatter as ``shifty shape fmt``.
 

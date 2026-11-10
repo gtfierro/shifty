@@ -8,7 +8,7 @@ Generating violations
 
 This page explains how ``shifty.experimental.vio`` builds test cases for
 repair tools, and why it works the way it does. For usage, see
-:doc:`../how-to/generate-violations`.
+:doc:`how-to`.
 
 The problem
 -----------

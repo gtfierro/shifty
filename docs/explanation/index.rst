@@ -22,9 +22,6 @@ evidence, and experimental repair candidates.
      - Choose an evidence entry point and avoid unnecessary work.
    * - :doc:`repair-design`
      - **Experimental.** Fill repair templates and validate candidate edits.
-   * - :doc:`violation-generation`
-     - **Experimental.** The multi-violation benchmark framework, and what
-       Shifty adds to it.
 
 .. toctree::
    :maxdepth: 1
@@ -37,4 +34,3 @@ evidence, and experimental repair candidates.
    evidence-design
    performance
    repair-design
-   violation-generation

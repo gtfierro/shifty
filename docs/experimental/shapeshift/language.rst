@@ -448,11 +448,11 @@ times. ``each matches`` is always safe:
 A loop that breaks the rule has no consistent meaning, and the build says
 which loop it is:
 
-.. literalinclude:: ../examples/shapeshift/language/odd.shm
+.. literalinclude:: ../../examples/shapeshift/language/odd.shm
    :language: shapeshift
 
 .. program-output:: shifty shape check odd.shm
-   :cwd: ../examples/shapeshift/language
+   :cwd: ../../examples/shapeshift/language
    :returncode: 1
 
 Recursive shapes export as legal SHACL, but the SHACL specification does not

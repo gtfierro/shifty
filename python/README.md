@@ -105,7 +105,7 @@ or look up these interfaces in the [reference](https://shifty.gtf.fyi/reference/
 
 ## Write shapes in Python
 
-`shifty.experimental.shapeshift` builds [Shapeshift](https://shifty.gtf.fyi/shapeshift/index.html)
+`shifty.experimental.shapeshift` builds [Shapeshift](https://shifty.gtf.fyi/experimental/shapeshift/index.html)
 modules, shifty's text language for shapes, and writes them as `.shm` or
 SHACL. Shapeshift is experimental: the language and the module can change in
 any release:

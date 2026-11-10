@@ -15,7 +15,7 @@ conforms. To score a repair tool you need to know the intended answer.
 that conforms, breaks it with a few chosen edits, and records them. Undoing
 those edits is a repair that is known to be correct.
 
-:doc:`../explanation/violation-generation` explains how the edits are found
+:doc:`explanation` explains how the edits are found
 and combined. This page shows how to use the module.
 
 Break a graph

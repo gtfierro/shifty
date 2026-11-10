@@ -5,14 +5,14 @@ Write your first shapes
 
 This tutorial writes two shapes for the VAV boxes of a building, checks them,
 validates a small building against them, and reads the one failure. It needs
-the ``shifty`` command (see :doc:`../install`).
+the ``shifty`` command (see :doc:`../../install`).
 
 Write the shapes
 ----------------
 
 Save this as ``vav.shm``:
 
-.. literalinclude:: ../examples/shapeshift/tutorial/vav.shm
+.. literalinclude:: ../../examples/shapeshift/tutorial/vav.shm
    :language: shapeshift
 
 Line by line:
@@ -44,13 +44,13 @@ Check them
 shapes, without any data:
 
 .. program-output:: shifty shape check vav.shm
-   :cwd: ../examples/shapeshift/tutorial
+   :cwd: ../../examples/shapeshift/tutorial
 
 A mistake is reported against its line. Here ``typo.shm`` is ``vav.shm`` with
 ``exactly`` misspelled:
 
 .. program-output:: shifty shape check typo.shm
-   :cwd: ../examples/shapeshift/tutorial
+   :cwd: ../../examples/shapeshift/tutorial
    :returncode: 1
 
 Validate a building
@@ -59,11 +59,11 @@ Validate a building
 Here is a building with two VAV boxes. The damper of ``vav-2`` has no position
 command:
 
-.. literalinclude:: ../examples/shapeshift/tutorial/building.ttl
+.. literalinclude:: ../../examples/shapeshift/tutorial/building.ttl
    :language: turtle
 
 .. program-output:: shifty shape validate vav.shm --data building.ttl
-   :cwd: ../examples/shapeshift/tutorial
+   :cwd: ../../examples/shapeshift/tutorial
    :returncode: 1
 
 The report names the node, the shape, and the line that failed, with their
@@ -86,7 +86,7 @@ Export SHACL
 engine:
 
 .. program-output:: shifty shape export vav.shm
-   :cwd: ../examples/shapeshift/tutorial
+   :cwd: ../../examples/shapeshift/tutorial
 
 Named lines become named property shapes (``:vav.fed``), so other shapes and
 reports can refer to them. ``each a brick:AHU`` became ``sh:class``, and
@@ -104,11 +104,11 @@ The same shapes in Python
 
 ``shifty.experimental.shapeshift`` builds the same module from Python:
 
-.. literalinclude:: ../examples/shapeshift/tutorial/vav.py
+.. literalinclude:: ../../examples/shapeshift/tutorial/vav.py
    :language: python
 
 .. program-output:: python vav.py
-   :cwd: ../examples/shapeshift/tutorial
+   :cwd: ../../examples/shapeshift/tutorial
 
 The output is ``vav.shm``, line for line.
 

@@ -18,8 +18,8 @@
   Draws are uniform unless predicates or operation kinds are weighted, and
   they reproduce across processes. `generate` draws a suite and writes it to
   disk, and the CLI wraps it; both split the cases across worker processes
-  with `jobs`/`--jobs`. See `docs/how-to/generate-violations.rst` and
-  `docs/explanation/violation-generation.rst`.
+  with `jobs`/`--jobs`. See `docs/experimental/violation-generation/how-to.rst` and
+  `docs/experimental/violation-generation/explanation.rst`.
 - `EvaluationSession::select_pair` (and `PreparedEvidenceValidator::select_pair`)
   returns the pair of one authored statement and one focus, if the statement's
   target selects that focus, without evaluating any other statement. Pass it to
