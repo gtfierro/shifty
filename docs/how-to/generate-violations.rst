@@ -171,6 +171,11 @@ graph. ``--shape`` and ``--predicate`` filter like ``where``, and both
 repeat. ``--weights`` and ``--kind-weights`` take JSON files of predicate and
 operation-kind weights.
 
+``-j``/``--jobs N`` splits the cases across ``N`` worker processes. Each
+worker builds its own universe and draws every ``N``-th case. A case does
+not depend on the others, so the suite is the same for any ``N``. Each
+worker holds a full universe in memory, about 550 MB for NIST-IBAL.
+
 Three examples in ``python/examples/`` run each step on their own:
 
 - ``vio_validate.py`` breaks a small graph, validates it, and repairs it.
@@ -183,9 +188,15 @@ Bound the expansion
 ``ExpansionLimits`` caps each choice point: values per count, candidate terms
 per value, joint choices, nesting depth, and injections per target. The
 defaults produce about 77,000 injections for NIST-IBAL (9,625 triples after
-materialization). One pass over them takes about 1 second. Composition costs
-more, because every candidate is revalidated: a case at ``k = 10`` takes
-about 6 seconds, and ``draws`` of ten cases at ``k = 5`` about 30 seconds.
+materialization). One pass over them takes about 1 second. A draw at
+``k = 10`` takes about 1.5 seconds, including that pass, and ``draws`` of ten
+cases at ``k = 5`` about 4 seconds. Thirty cases at ``k`` = 2, 5, and 10 take
+about 12 seconds from the CLI, and about 5 seconds with ``--jobs 8``.
+
+Composition dominates. Checking a candidate re-selects and evaluates its
+target pair only. Checking a composed case finds the failing pairs with a
+conformance pass over the whole graph, about 0.15 seconds for NIST-IBAL,
+and builds evidence only for the new failures.
 
 A streamed draw holds only its reservoirs. Listing the universe stores every
 injection: for NIST-IBAL, peak memory rises from about 550 MB to about

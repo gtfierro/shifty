@@ -16,8 +16,13 @@
   the inverse delta as the ground-truth repair. `draws` fills one reservoir
   per case from a single pass, and listing a universe caches its expansion.
   Draws are uniform unless predicates or operation kinds are weighted, and
-  they reproduce across processes. See `docs/how-to/generate-violations.rst`
-  and `docs/explanation/violation-generation.rst`.
+  they reproduce across processes. The CLI's `--jobs` splits a suite across
+  worker processes. See `docs/how-to/generate-violations.rst` and
+  `docs/explanation/violation-generation.rst`.
+- `EvaluationSession::select_pair` (and `PreparedEvidenceValidator::select_pair`)
+  returns the pair of one authored statement and one focus, if the statement's
+  target selects that focus, without evaluating any other statement. Pass it to
+  `explain` to decide that pair alone.
 - Shapeshift, a text language (`.shm`) for writing shapes that compiles to
   the shape algebra and raises to readable SHACL Turtle. It is experimental,
   and so is its Rust interface: the `shifty-experimental` crate, as

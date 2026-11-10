@@ -175,13 +175,17 @@ with a chosen injection or fails `verify`. Conflict is the paper's rule
 injection: one deletes what the other adds, both substitute one edge
 differently, or they need opposite polarities of one `(node, constraint)`.
 Shared edits are allowed, and so are several injections on one
-`(focus, statement, component)`. There is no limit on blast radius either. `verify` revalidates the injection's own delta with
-`with_delta`, and caches the result by key in the shared core. The component
+`(focus, statement, component)`. There is no limit on blast radius either.
+`verify` applies the injection's own delta with `with_delta`, finds the
+target pair with `EvaluationSession::select_pair`, and explains only that
+pair. `select_pair` runs one statement's target selection, so the pair
+must still be selected. It caches the result by key in the shared core. The component
 is the top-level conjunct of the statement that the injection breaks. It is
 taken from the root `AllHeld` child the expansion started from. An injection
 is *realized* when that component's shape id appears among the failing
 children of its target's failure evidence. After filling up to `k`, the union
-delta is revalidated. Masked injections are rejected and the remainder
+delta is revalidated: `find_failures` decides every pair without building
+evidence, and only failing pairs outside the baseline are explained. Masked injections are rejected and the remainder
 refilled until nothing is masked. Every `CaseFailure` therefore comes from an
 engine run over the final `G_test`.
 
@@ -190,8 +194,12 @@ component it proves that the component fails, not that each injection is
 separately visible: one could be redundant given another. A leave-one-out
 revalidation would check that, at about `k` more revalidations per draw.
 
-Revalidation dominates the cost of a draw: each check builds a session over
-the patched graph and evaluates every statement.
+Composition dominates the cost of a draw. A candidate check is one target
+selection and one explanation. A case check is one conformance pass over
+every statement, about 0.15 s on NIST-IBAL, so it grows with the graph.
+Sessions are neither `Send` nor `Sync` (the engine holds `Rc` and
+`std::cell::OnceCell`), so the CLI parallelizes with processes: `--jobs`
+splits the requests, and each worker builds its own universe.
 
 ## Known gaps
 

@@ -14,8 +14,8 @@ use oxrdf::{NamedOrBlankNodeRef, TermRef};
 use shifty_algebra::{Schema, Shape, ShapeArena, ShapeId};
 use shifty_engine::{
     CompiledShapes, ConformanceOptions, EngineOptions, EvaluationSession, Evidence,
-    EvidenceOptions, EvidenceRun, Failure, SessionData, SessionOptions, StatementEvaluation,
-    ValidationGraphMode,
+    EvidenceOptions, EvidenceRun, Failure, SelectedPair, SessionData, SessionOptions,
+    StatementEvaluation, ValidationGraphMode,
 };
 use shifty_parse::Loaded;
 use shifty_repair::GraphDelta;
@@ -348,11 +348,7 @@ impl Universe {
                 break Failures::new();
             }
             let (adds, deletes) = union_delta(&chosen);
-            let failures = core.revalidate(&adds, &deletes, |focus, statement| {
-                !core
-                    .baseline_failures
-                    .contains(&(focus.to_owned(), statement))
-            })?;
+            let failures = core.revalidate(&adds, &deletes)?;
             let masked: Vec<&str> = chosen
                 .iter()
                 .filter(|c| !realized(c, &failures))
@@ -592,13 +588,7 @@ impl Core {
         let failures = match cached {
             Some(f) => f,
             None => {
-                let target = |focus: &str, statement: usize| {
-                    focus == inj.focus && statement == inj.statement
-                };
-                let f = self
-                    .revalidate(&inj.adds(), &inj.deletes(), target)
-                    .ok()
-                    .map(Rc::new);
+                let f = self.target_failures(inj).ok().map(Rc::new);
                 self.verified
                     .borrow_mut()
                     .insert(inj.key().to_owned(), f.clone());
@@ -608,41 +598,64 @@ impl Core {
         failures.is_some_and(|f| realized(inj, &f))
     }
 
-    /// The failing pairs of the reference graph with `adds` and `deletes`
-    /// applied, restricted to those `wanted` keeps, with their failing
-    /// components.
-    fn revalidate(
+    /// The reference session with `adds` and `deletes` applied.
+    fn patched(
         &self,
         adds: &BTreeSet<Triple>,
         deletes: &BTreeSet<Triple>,
-        wanted: impl Fn(&str, usize) -> bool,
-    ) -> Result<Failures, Error> {
+    ) -> Result<EvaluationSession, Error> {
         let delta = GraphDelta {
             add: parse_triples(adds)?,
             delete: parse_triples(deletes)?,
         };
-        let next = self
-            .session
+        self.session
             .with_delta(&delta)
-            .map_err(|e| Error::Session(e.to_string()))?;
-        // Only wanted failing pairs need evidence: find the failing pairs by
-        // conformance, which builds none, then explain the wanted ones.
+            .map_err(|e| Error::Session(e.to_string()))
+    }
+
+    /// The pairs that fail with `adds` and `deletes` applied, and did not
+    /// fail before, with their failing components. The failing pairs are
+    /// found by conformance, which builds no evidence; only the new ones
+    /// are explained.
+    fn revalidate(
+        &self,
+        adds: &BTreeSet<Triple>,
+        deletes: &BTreeSet<Triple>,
+    ) -> Result<Failures, Error> {
+        let next = self.patched(adds, deletes)?;
         let (_, pairs) = next
             .find_failures(&ConformanceOptions::default())
             .map_err(|e| Error::Evaluation(e.to_string()))?;
+        let new = |focus: &str, statement: usize| {
+            !self
+                .baseline_failures
+                .contains(&(focus.to_owned(), statement))
+        };
         let mut statements = Vec::new();
         for pair in &pairs {
             let focus = nt::term(pair.focus());
-            if !pair.source_statements().iter().any(|&s| wanted(&focus, s)) {
-                continue;
+            if pair.source_statements().iter().any(|&s| new(&focus, s)) {
+                statements.extend(explain(&next, pair)?);
             }
-            statements.extend(
-                next.explain_canonical(pair)
-                    .map_err(|e| Error::Evaluation(e.to_string()))?,
-            );
         }
         let mut failures = failing_components(&statements);
-        failures.retain(|(focus, statement), _| wanted(focus, *statement));
+        failures.retain(|(focus, statement), _| new(focus, *statement));
+        Ok(failures)
+    }
+
+    /// The target pair's failure with `inj` applied alone, if it fails.
+    /// Only that pair is selected and explained.
+    fn target_failures(&self, inj: &Injection) -> Result<Failures, Error> {
+        let next = self.patched(&inj.adds(), &inj.deletes())?;
+        let focus = nt::parse_term(&inj.focus).ok_or_else(|| Error::Term(inj.focus.clone()))?;
+        let pair = next
+            .select_pair(inj.statement, &focus, &ConformanceOptions::default())
+            .map_err(|e| Error::Evaluation(e.to_string()))?;
+        let Some(pair) = pair else {
+            return Ok(Failures::new());
+        };
+        let mut failures = failing_components(&explain(&next, &pair)?);
+        failures.retain(|target, _| target == &(inj.focus.clone(), inj.statement));
         Ok(failures)
     }
 
@@ -890,6 +903,15 @@ impl Ord for Keyed {
             .total_cmp(&other.key)
             .then_with(|| self.inj.key().cmp(other.inj.key()))
     }
+}
+
+fn explain(
+    session: &EvaluationSession,
+    pair: &SelectedPair,
+) -> Result<Vec<StatementEvaluation>, Error> {
+    session
+        .explain_canonical(pair)
+        .map_err(|e| Error::Evaluation(e.to_string()))
 }
 
 fn union_delta(chosen: &[&Injection]) -> (BTreeSet<Triple>, BTreeSet<Triple>) {

@@ -70,8 +70,9 @@ What Shifty adds, and why
 -------------------------
 
 **Each injection must break its target alone.** Before admitting an
-injection, ``draw`` applies its delta alone to ``G_ref`` and revalidates.
-The injection's pair must then fail on the property it targets. *Why:* the
+injection, ``draw`` applies its delta alone to ``G_ref`` and evaluates the
+injection's pair. The pair must still be selected, and it must fail on the
+property it targets. *Why:* the
 expansion is approximate, so a leaf can fail to violate anything. It caps
 every choice point, follows each path along one shortest sequence of
 predicates, and does not see support that rules re-infer.

@@ -632,7 +632,69 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser.add_argument(
         "--infer", action="store_true", help="re-run SHACL-AF rules on every validation"
     )
+    parser.add_argument(
+        "-j",
+        "--jobs",
+        type=int,
+        default=1,
+        help="worker processes; each builds its own universe and draws every "
+        "JOBS-th case (default 1)",
+    )
     args = parser.parse_args(argv)
+    if args.jobs < 1:
+        parser.error("--jobs must be at least 1")
+
+    requests = [(k, args.seed + i) for k in args.k or [5] for i in range(args.cases)]
+    # Cases are independent, and a batch draws each one as a single draw
+    # would, so any split of the requests writes the same suite.
+    jobs = min(args.jobs, len(requests))
+    shares = [requests[i::jobs] for i in range(jobs)]
+    try:
+        if jobs == 1:
+            results = [_draw_share(args, shares[0], True)]
+        else:
+            from concurrent.futures import ProcessPoolExecutor
+
+            with ProcessPoolExecutor(jobs) as executor:
+                results = list(
+                    executor.map(
+                        _draw_share,
+                        [args] * jobs,
+                        shares,
+                        [i == 0 for i in range(jobs)],
+                    )
+                )
+    except ValueError as err:
+        print(f"error: {err}", file=sys.stderr)
+        return 1
+    baseline = results[0][0]
+    if baseline:
+        print(
+            f"warning: reference graph has {baseline} failing pairs; they are never"
+            " broken",
+            file=sys.stderr,
+        )
+    rows = sorted((row for _, rows, _ in results for row in rows), key=_row_order)
+    kinds: Counter[str] = sum((kinds for _, _, kinds in results), Counter())
+    suite = {
+        "baseline_failures": baseline,
+        "operation_kinds": dict(sorted(kinds.items())),
+        "cases": rows,
+    }
+    out = pathlib.Path(args.out)
+    (out / "suite.json").write_text(
+        json.dumps(suite, indent=2) + "\n", encoding="utf-8"
+    )
+    print(f"wrote {len(rows)} cases to {out}")
+    return 0
+
+
+def _draw_share(
+    args: argparse.Namespace, requests: list[tuple[int, int]], reference: bool
+) -> tuple[int, list[dict[str, Any]], Counter[str]]:
+    """Draw and save the cases for ``requests``, writing ``reference.nt``
+    too when ``reference`` is set. Returns the baseline failure count, one
+    summary row per case, and the operation kinds injected."""
 
     def load(path: Optional[str]) -> dict[str, float]:
         if not path:
@@ -642,30 +704,21 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     universe = Universe(
         args.data, args.shapes, materialize=args.materialize, infer=args.infer
     )
-    if universe.baseline_failures:
-        print(
-            f"warning: reference graph has {len(universe.baseline_failures)} failing"
-            " pairs; they are never broken",
-            file=sys.stderr,
-        )
     pool = universe.where(shape=args.shape, predicate=args.predicate).weighted(
         load(args.weights), load(args.kind_weights)
     )
     # One streamed pass fills every case's reservoir; nothing else is stored.
-    requests = [(k, args.seed + i) for k in args.k or [5] for i in range(args.cases)]
-    try:
-        cases = pool.draws(requests)
-    except ValueError as err:
-        print(f"error: {err}", file=sys.stderr)
-        return 1
+    cases = pool.draws(requests)
     out = pathlib.Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
-    (out / "reference.nt").write_text(universe.reference_ntriples, encoding="utf-8")
-    summary = []
+    if reference:
+        (out / "reference.nt").write_text(universe.reference_ntriples, encoding="utf-8")
+    rows = []
+    kinds: Counter[str] = Counter()
     for case in cases:
         i = case.seed - args.seed
         path = case.save(out / f"k{case.k:02d}" / f"case-{i:03d}")
-        summary.append(
+        rows.append(
             {
                 "path": str(path.relative_to(out)),
                 "k": case.k,
@@ -674,20 +727,12 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 "failures": len(case.failures),
             }
         )
-    suite = {
-        "baseline_failures": len(universe.baseline_failures),
-        "operation_kinds": dict(
-            sorted(
-                Counter(k for c in cases for e in c.injections for k in e.kinds).items()
-            )
-        ),
-        "cases": summary,
-    }
-    (out / "suite.json").write_text(
-        json.dumps(suite, indent=2) + "\n", encoding="utf-8"
-    )
-    print(f"wrote {len(summary)} cases to {out}")
-    return 0
+        kinds.update(k for e in case.injections for k in e.kinds)
+    return len(universe.baseline_failures), rows, kinds
+
+
+def _row_order(row: dict[str, Any]) -> tuple[int, int]:
+    return row["k"], row["seed"]
 
 
 if __name__ == "__main__":

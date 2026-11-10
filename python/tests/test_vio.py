@@ -454,6 +454,27 @@ def test_cli_writes_a_suite(tmp_path):
     assert (out / "reference.nt").is_file()
 
 
+def test_cli_jobs_write_the_same_suite(tmp_path):
+    shapes = tmp_path / "shapes.ttl"
+    data = tmp_path / "data.ttl"
+    shapes.write_text(AHU_SHAPES)
+    data.write_text(AHU_DATA)
+
+    def run(jobs):
+        out = tmp_path / f"jobs{jobs}"
+        args = ["--data", str(data), "--shapes", str(shapes), "--out", str(out)]
+        assert main([*args, "-k", "1", "-k", "3", "-n", "3", "-j", str(jobs)]) == 0
+        return {
+            str(p.relative_to(out)): p.read_bytes()
+            for p in sorted(out.rglob("*"))
+            if p.is_file()
+        }
+
+    serial = run(1)
+    assert len(serial) == 2 + 6 * 3
+    assert run(3) == serial
+
+
 def test_case_manifest_matches_the_python_objects(ahu):
     case = ahu.draw(3, seed=2)
     manifest = case.to_dict()
