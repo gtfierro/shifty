@@ -189,6 +189,6 @@ See also
 - ``python/examples/evidence_point_list.py`` — a larger worked example over
   BuildingMOTIF point-list shapes, with passing, failing, empty-selection and
   unselected cases.
-- :doc:`repair` — **experimental**: failure evidence is also the witness the
+- :doc:`../experimental/repair/index` — **experimental**: failure evidence is also the witness the
   symbolic repair layer consumes, so ``focus.failure.repair_tree()`` is one
   call away. Early, and expected to change.

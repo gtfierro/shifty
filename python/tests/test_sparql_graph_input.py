@@ -4,6 +4,7 @@ import pytest
 import rdflib
 
 import shifty
+from shifty.experimental import repair
 
 PREFIXES = """\
 @prefix sh: <http://www.w3.org/ns/shacl#> .
@@ -150,7 +151,7 @@ def test_unresolved_sparql_prefix_is_a_shapes_graph_error(shapes, operation):
     "factory",
     [
         lambda shapes: shifty.EvidenceSession(shapes, DATA, infer=False),
-        lambda shapes: shifty.RepairSession(shapes, DATA, infer=False),
+        lambda shapes: repair.RepairSession(shapes, DATA, infer=False),
         lambda shapes: shifty.PreparedValidator(shapes),
     ],
 )

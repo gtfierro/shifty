@@ -2,6 +2,7 @@
 """Show how validation reasons connect to algebra and repair witnesses."""
 
 import shifty
+from shifty.experimental import repair
 
 SHAPES = """
 @prefix sh:  <http://www.w3.org/ns/shacl#> .
@@ -26,7 +27,7 @@ ex:bob a ex:Person .
 
 def main() -> None:
     result = shifty.validate_algebra(DATA, SHAPES, infer=False)
-    session = shifty.RepairSession(SHAPES, DATA, infer=False)
+    session = repair.RepairSession(SHAPES, DATA, infer=False)
 
     witnesses = {
         (w.focus, w.statement_id, w.constraint_id): w for w in session.witnesses()

@@ -23,16 +23,7 @@ starting point.
 Experimental
 ------------
 
-.. toctree::
-   :maxdepth: 1
-
-   repair
-
-The :doc:`repair` guide covers candidate edits for supported constraint kinds.
-The API may change. Applications choose values and validate each candidate
-before applying it.
-
-More experimental features have their own guides under
-:doc:`../experimental/index`: Shapeshift, a language for writing SHACL
-shapes, and violation generation, which builds repair benchmarks with known
-answers.
+Experimental features have their own guides under
+:doc:`../experimental/index`: symbolic repair, which computes the edits that
+would fix a failing node; Shapeshift, a language for writing SHACL shapes;
+and violation generation, which builds repair benchmarks with known answers.

@@ -101,8 +101,6 @@ from typing import TYPE_CHECKING, Callable, NamedTuple, Optional, Sequence, Unio
 from ._shifty import (
     AlgebraResult,
     ChildEvaluation,
-    Choice,
-    ChoiceKind,
     ConformanceRun,
     Constraint,
     ConstraintKind,
@@ -110,30 +108,16 @@ from ._shifty import (
     EvidenceKind,
     EvidenceNode,
     EvidenceRun,
-    Failure,
     FocusEvaluation,
-    Hole,
-    Instantiated,
     MissingObligation,
     PathSupport,
     PropertyWitness,
     Reason,
     RepairDelta,
-    RepairOrigin,
-    RepairOutcome,
-    RepairPlan,
-    RepairTree,
-    SatAtom,
-    Satisfaction,
-    SatKind,
     SelectedPair,
     StatementEvaluation,
-    Target,
-    TargetKind,
     Violation,
     W3cResult,
-    WitnessAtom,
-    WitnessKind,
     __version__,
     _infer,
     _validate_algebra,
@@ -148,9 +132,6 @@ from ._shifty import (
 )
 from ._shifty import (
     PreparedValidator as _RustPreparedValidator,
-)
-from ._shifty import (
-    RepairSession as _RustRepairSession,
 )
 from ._shifty import (
     ValidationFailure as ValidationFailure,
@@ -201,8 +182,6 @@ def _warn_diagnostics(diagnostics: "Sequence[str]", stacklevel: int) -> None:
 if TYPE_CHECKING:
     import rdflib
 
-    FocusWitness = Failure
-    FocusSatisfaction = Satisfaction
 
 __all__ = [
     "ValidationFailure",
@@ -253,54 +232,48 @@ __all__ = [
     "SelectedPair",
     "PathSupport",
     "PropertyWitness",
-    # ── symbolic repair ──
-    "RepairSession",
-    "RepairPlan",
-    "Failure",
-    "Satisfaction",
-    "FocusWitness",
-    "FocusSatisfaction",
-    "Target",
-    "TargetKind",
-    "WitnessAtom",
-    "WitnessKind",
-    "SatAtom",
-    "SatKind",
-    "RepairTree",
-    "RepairOrigin",
-    "Hole",
-    "Choice",
-    "ChoiceKind",
-    "Instantiated",
+    # ── graph edits ──
     "RepairDelta",
-    "RepairOutcome",
     "delta_from_graph",
 ]
 
-_DEPRECATED_TYPE_ALIASES = {
-    "FocusWitness": (Failure, "Failure"),
-    "FocusSatisfaction": (Satisfaction, "Satisfaction"),
+# The repair API moved to shifty.experimental.repair in 0.6.0.
+_MOVED_TO_EXPERIMENTAL_REPAIR = {
+    "RepairSession": "RepairSession",
+    "RepairPlan": "RepairPlan",
+    "RepairTree": "RepairTree",
+    "RepairOrigin": "RepairOrigin",
+    "RepairOutcome": "RepairOutcome",
+    "Failure": "Failure",
+    "Satisfaction": "Satisfaction",
+    "Target": "Target",
+    "TargetKind": "TargetKind",
+    "WitnessAtom": "WitnessAtom",
+    "WitnessKind": "WitnessKind",
+    "SatAtom": "SatAtom",
+    "SatKind": "SatKind",
+    "Hole": "Hole",
+    "Choice": "Choice",
+    "ChoiceKind": "ChoiceKind",
+    "Instantiated": "Instantiated",
+    # Retired 0.3.0 aliases.
+    "FocusWitness": "Failure",
+    "FocusSatisfaction": "Satisfaction",
 }
-_WARNED_DEPRECATED_TYPE_ALIASES: set[str] = set()
 
 
 def __getattr__(name: str):
-    alias = _DEPRECATED_TYPE_ALIASES.get(name)
-    if alias is None:
-        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
-    value, replacement = alias
-    if name not in _WARNED_DEPRECATED_TYPE_ALIASES:
-        warnings.warn(
-            f"shifty.{name} is deprecated; use shifty.{replacement}",
-            DeprecationWarning,
-            stacklevel=2,
+    new_name = _MOVED_TO_EXPERIMENTAL_REPAIR.get(name)
+    if new_name is not None:
+        raise AttributeError(
+            f"shifty.{name} moved to shifty.experimental.repair in 0.6.0: "
+            f"use `from shifty.experimental.repair import {new_name}`"
         )
-        _WARNED_DEPRECATED_TYPE_ALIASES.add(name)
-    return value
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 def __dir__() -> list[str]:
-    return sorted([*globals(), *_DEPRECATED_TYPE_ALIASES])
+    return sorted(globals())
 
 
 GraphInput = Union[str, bytes, pathlib.Path, "rdflib.Graph"]
@@ -1267,170 +1240,6 @@ class EvidenceSession:
         focus no statement selects still yields well-defined evidence.
         """
         return self._inner._evidence_for(focus, constraint_id)
-
-
-class RepairSession:
-    """Inspect and drive symbolic repair of a data graph.
-
-    A session binds a shapes graph and a data graph (running SHACL-AF inference
-    first, like :func:`validate`). It exposes the repair *primitives* so you can
-    build your own driver: enumerate the violation horizon by focus node, inspect
-    each violation's repair tree (its holes and decision points), enumerate
-    candidate bindings, fold your own choices into a concrete delta, gate it, and
-    apply it. **The library decides nothing** — every choice is yours.
-
-    Typical loop::
-
-        session = shifty.RepairSession(shapes, data)
-        while True:
-            ws = session.witnesses()
-            if not ws:
-                break                      # conforms
-            fw = ws[0]                     # your focus-ordering policy
-            tree = fw.repair_tree()
-            plan = shifty.RepairPlan()
-            for hole in tree.holes():
-                plan.bind(hole.id, hole.candidates(limit=8)[0])   # your choice
-            inst = tree.instantiate(plan)
-            outcome = session.gate(inst.delta)
-            if outcome.is_progress:
-                session = session.advance(inst.delta)   # accept, re-witness
-            else:
-                break                       # reject; pick differently
-
-    Parameters
-    ----------
-    shacl_graph:
-        SHACL shapes graph (Turtle/N-Triples path, ``rdflib.Graph``, ``str``, or
-        ``bytes``).
-    data_graph:
-        Data graph to repair. If ``None``, shapes are taken to embed the data
-        (standard SHACL pattern), matching the CLI's ``repair`` with no
-        ``--data``.
-    infer:
-        Run SHACL-AF rules before witnessing (default ``True``).
-    base:
-        Base IRI for resolving relative IRIs.
-    """
-
-    def __init__(
-        self,
-        shacl_graph: GraphInputs,
-        data_graph: Optional[GraphInputs] = None,
-        *,
-        infer: bool = True,
-        base: Optional[str] = None,
-    ) -> None:
-        shapes = _to_rdf_input(_coalesce_graph_input(shacl_graph))
-        data = (
-            _to_rdf_input(_coalesce_graph_input(data_graph))
-            if data_graph is not None
-            else _RdfInput(None, None, "turtle")
-        )
-        self._inner = _RustRepairSession(
-            shapes.data,
-            shapes.path,
-            shapes.format,
-            data.data,
-            data.path,
-            data.format,
-            infer,
-            base,
-        )
-
-    @classmethod
-    def _wrap(cls, inner: _RustRepairSession) -> "RepairSession":
-        self = cls.__new__(cls)
-        self._inner = inner
-        return self
-
-    @property
-    def diagnostics(self) -> list[str]:
-        """Non-fatal lowering warnings and unsupported features.
-
-        Invalid shapes diagnostics raise while constructing the session.
-        """
-        return self._inner.diagnostics
-
-    def witnesses(self) -> list[Failure]:
-        """The violation horizon: one :class:`Failure` per failing
-        ``(focus node, statement)``. Empty ⟺ the graph conforms."""
-        return self._inner.witnesses()
-
-    def witnesses_for(self, shape_iri: str) -> list[Failure]:
-        """The violation horizon for a single shape: one :class:`Failure`
-        per failing ``(focus node, statement)`` whose statement targets
-        ``shape_iri`` (matched against the schema's shape IRIs; angle brackets
-        optional). The shape-scoped counterpart of :meth:`witnesses`; its
-        satisfaction-side dual is :meth:`satisfactions_for`. Raises
-        :class:`ValueError` if no shape is named ``shape_iri``."""
-        return self._inner.witnesses_for(shape_iri)
-
-    def satisfactions_for(self, shape_iri: str) -> list["Satisfaction"]:
-        """The satisfaction horizon for a single shape: one
-        :class:`Satisfaction` per *passing* ``(focus node, statement)``
-        whose statement targets ``shape_iri`` — the dual of
-        :meth:`witnesses_for`. Each entry records why the focus conforms,
-        including the values matched along every checked path. Raises
-        :class:`ValueError` if no shape is named ``shape_iri``."""
-        return self._inner.satisfactions_for(shape_iri)
-
-    def gate(self, delta: RepairDelta) -> RepairOutcome:
-        """Re-validate ``G ⊕ ΔG`` and diff the violations against ``G`` — sound
-        iff it introduces nothing. Decides and applies nothing.
-
-        ``G ⊕ ΔG`` applies deletes first, then adds, so a triple in both sides
-        of the delta is a net-add (the re-add wins)."""
-        return self._inner.gate(delta)
-
-    def apply(self, delta: RepairDelta) -> "rdflib.Graph":
-        """Materialize ``G ⊕ ΔG`` as a fresh :class:`rdflib.Graph`.
-
-        Deletes are applied first, then adds, so a triple present in both sides
-        of the delta ends up in the result (net-add)."""
-        import rdflib
-
-        g = rdflib.Graph()
-        g.parse(data=self._inner.apply_ntriples(delta), format="nt")
-        return g
-
-    def to_graph(self) -> "rdflib.Graph":
-        """The session's current graph as an :class:`rdflib.Graph` — ``G`` with
-        every accepted ``ΔG`` (via :meth:`advance`) already applied."""
-        import rdflib
-
-        g = rdflib.Graph()
-        g.parse(data=self._inner.current_ntriples(), format="nt")
-        return g
-
-    def advance(self, delta: RepairDelta) -> "RepairSession":
-        """A *new* session over ``G ⊕ ΔG`` (same schema, no re-inference) so you
-        can accept a repair and re-witness from the patched graph."""
-        return RepairSession._wrap(self._inner.advance(delta))
-
-    def repair_node_against(self, node: str, shape_id: int) -> "Optional[RepairTree]":
-        """Synthesize a tree that makes ``node`` conform to sub-shape ``shape_id``
-        — the building block for repairing a ``conforms to`` hole (see
-        :attr:`Hole.conforms_to` / :attr:`Hole.conforms_to_shapes`). Returns
-        ``None`` if the node already conforms."""
-        return self._inner.repair_node_against(node, shape_id)
-
-    def describe_shape(self, shape_id: int) -> str:
-        """A fully-expanded, human-readable definition of shape ``shape_id`` (the
-        integer from :attr:`Hole.conforms_to` / :attr:`Hole.conforms_to_shapes`):
-        every child shape inlined, no ``@id`` pointers. The lookup for
-        understanding exactly what a ``conforms to`` hole demands."""
-        return self._inner.describe_shape(shape_id)
-
-    def describe_shape_pretty(self, shape_id: int, width: int = 100) -> str:
-        """:meth:`describe_shape`, laid out over several lines and indented by
-        nesting depth, breaking only where a subtree does not fit in ``width``.
-        A description that already fits comes back unchanged, so this is safe to
-        call unconditionally."""
-        return self._inner.describe_shape_pretty(shape_id, width)
-
-    def __repr__(self) -> str:
-        return repr(self._inner)
 
 
 def validate(

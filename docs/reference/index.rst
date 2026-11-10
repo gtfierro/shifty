@@ -34,7 +34,7 @@ interface. For usage examples and design explanations, see the
      - Stable
      - Which parts of SHACL Core and SHACL-AF are implemented, and what
        happens at the edges.
-   * - :doc:`repair`
+   * - :doc:`../experimental/repair/reference`
      - Experimental
      - Sessions, templates, holes, plans, deltas, and the validation gate.
 
@@ -54,4 +54,3 @@ The Rust API is documented separately on
    evidence
    shape-maps
    feature-support
-   repair

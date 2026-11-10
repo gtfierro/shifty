@@ -11,6 +11,7 @@ This module provides comprehensive integration tests covering:
 - Type coercion and boolean evaluation
 """
 
+import re
 import textwrap
 
 import pytest
@@ -19,6 +20,7 @@ from rdflib.compare import isomorphic
 
 import shifty
 from shifty import validate, validate_algebra
+from shifty.experimental import repair
 
 PREFIXES = textwrap.dedent("""\
     @prefix sh:  <http://www.w3.org/ns/shacl#> .
@@ -61,16 +63,24 @@ def test_version_is_programmatically_available():
 
 
 @pytest.mark.parametrize(
-    ("legacy", "replacement"),
+    ("name", "new_name"),
     [
+        ("RepairSession", "RepairSession"),
+        ("Failure", "Failure"),
         ("FocusWitness", "Failure"),
-        ("FocusSatisfaction", "Satisfaction"),
     ],
 )
-def test_released_repair_type_aliases_warn(legacy, replacement):
-    with pytest.warns(DeprecationWarning, match=f"use shifty.{replacement}"):
-        value = getattr(shifty, legacy)
-    assert value is getattr(shifty, replacement)
+def test_repair_names_point_to_experimental_repair(name, new_name):
+    message = f"from shifty.experimental.repair import {new_name}"
+    with pytest.raises(AttributeError, match=re.escape(message)):
+        getattr(shifty, name)
+    assert hasattr(repair, new_name)
+    assert name not in dir(shifty)
+
+
+def test_graph_edits_stay_in_shifty():
+    assert shifty.RepairDelta is repair.RepairDelta
+    assert callable(shifty.delta_from_graph)
 
 
 def test_write_back_does_not_render_delta_without_a_target():
@@ -932,7 +942,7 @@ class TestMultipleGraphsUnion:
         assert any("Bob" in f for f in focuses)
 
     def test_repair_session_multiple_shapes(self):
-        session = shifty.RepairSession(
+        session = repair.RepairSession(
             [SHAPES.encode(), EXTRA_SHAPES.encode()],
             [VIOLATION_DATA.encode(), EXTRA_DATA.encode()],
         )

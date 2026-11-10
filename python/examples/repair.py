@@ -18,7 +18,7 @@ Examples:
 import argparse
 import sys
 
-import shifty
+from shifty.experimental import repair
 
 
 def solve_one(session, fw):
@@ -32,11 +32,11 @@ def solve_one(session, fw):
     if tree.is_blocked:
         return None
 
-    plan = shifty.RepairPlan()
+    plan = repair.RepairPlan()
     for choice in tree.choices():
-        if choice.kind == shifty.ChoiceKind.Repeat:
+        if choice.kind == repair.ChoiceKind.Repeat:
             plan.count(choice.node_id, choice.min)
-        elif choice.kind == shifty.ChoiceKind.Any:
+        elif choice.kind == repair.ChoiceKind.Any:
             plan.choose(choice.node_id, 0)  # first branch
 
     # Discover per-instance holes (Repeat unrolls), then bind them.
@@ -68,7 +68,7 @@ def main():
     )
     args = parser.parse_args()
 
-    session = shifty.RepairSession(args.shapes, args.data, infer=not args.no_infer)
+    session = repair.RepairSession(args.shapes, args.data, infer=not args.no_infer)
 
     applied = 0
     iterations = 0

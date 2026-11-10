@@ -1,10 +1,11 @@
-"""Tests for the symbolic-repair driver API (``shifty.RepairSession``)."""
+"""Tests for the symbolic-repair driver API (``repair.RepairSession``)."""
 
 from __future__ import annotations
 
 import pytest
 
 import shifty
+from shifty.experimental import repair
 
 SHAPES = """
 @prefix sh:  <http://www.w3.org/ns/shacl#> .
@@ -47,8 +48,8 @@ ex:x ex:q ex:y .
 """
 
 
-def session(data: str) -> shifty.RepairSession:
-    return shifty.RepairSession(SHAPES, data, infer=False)
+def session(data: str) -> repair.RepairSession:
+    return repair.RepairSession(SHAPES, data, infer=False)
 
 
 def test_witnesses_enumerate_the_horizon():
@@ -62,7 +63,7 @@ def test_witnesses_enumerate_the_horizon():
     # prefix the document declared it with
     assert fw.target == "class(ex:Person)"
     # …and the same selector is available structured, for external processing
-    assert fw.selector.kind == shifty.TargetKind.Class
+    assert fw.selector.kind == repair.TargetKind.Class
     assert fw.selector.value == "<http://example.org/Person>"
     assert str(fw.selector) == fw.target
 
@@ -72,7 +73,7 @@ def test_witness_summary_and_explain():
     atoms = fw.summary()
     assert len(atoms) == 1
     a = atoms[0]
-    assert a.kind == shifty.WitnessKind.CountHigh
+    assert a.kind == repair.WitnessKind.CountHigh
     assert a.evidence_kind == shifty.EvidenceKind.CountHigh
     assert a.constraint_kind == shifty.ConstraintKind.Cardinality
     assert a.path == "ex:name"
@@ -95,7 +96,7 @@ def test_validation_and_repair_share_statement_constraint_identity():
 
 def test_duplicate_raw_statements_join_after_normalization_dedup():
     result = shifty.validate_algebra(DUPLICATE_DATA, DUPLICATE_SHAPES, infer=False)
-    session = shifty.RepairSession(DUPLICATE_SHAPES, DUPLICATE_DATA, infer=False)
+    session = repair.RepairSession(DUPLICATE_SHAPES, DUPLICATE_DATA, infer=False)
     witnesses = session.witnesses()
 
     assert len(result.violations) == 1
@@ -142,7 +143,7 @@ def test_repair_tree_nodes_link_back_to_typed_evidence_origins():
     origins = tree.origins()
     assert len(origins) == 1
     origin = origins[0]
-    assert isinstance(origin, shifty.RepairOrigin)
+    assert isinstance(origin, repair.RepairOrigin)
     assert origin.statement_id == fw.statement
     assert origin.constraint_id in {atom.constraint_id for atom in fw.summary()}
     assert origin.node == fw.focus
@@ -159,7 +160,7 @@ def test_choices_expose_the_repeat():
     fw = session(DATA_MAXCOUNT).witnesses()[0]
     choices = fw.repair_tree().choices()
     kinds = {c.kind for c in choices}
-    assert shifty.ChoiceKind.Repeat in kinds
+    assert repair.ChoiceKind.Repeat in kinds
 
 
 def test_discover_then_bind_and_gate_is_sound():
@@ -167,9 +168,9 @@ def test_discover_then_bind_and_gate_is_sound():
     fw = s.witnesses()[0]
     tree = fw.repair_tree()
 
-    plan = shifty.RepairPlan()
+    plan = repair.RepairPlan()
     for c in tree.choices():
-        if c.kind == shifty.ChoiceKind.Repeat:
+        if c.kind == repair.ChoiceKind.Repeat:
             plan.count(c.node_id, c.min)
 
     # discovery pass surfaces the per-instance hole; bind it.
@@ -194,9 +195,9 @@ def test_advance_reaches_conformance():
     s = session(DATA_MAXCOUNT)
     fw = s.witnesses()[0]
     tree = fw.repair_tree()
-    plan = shifty.RepairPlan()
+    plan = repair.RepairPlan()
     for c in tree.choices():
-        if c.kind == shifty.ChoiceKind.Repeat:
+        if c.kind == repair.ChoiceKind.Repeat:
             plan.count(c.node_id, c.min)
     for hole in tree.instantiate(plan).open_holes:
         plan.bind(hole.id, hole.candidates()[0])
@@ -210,9 +211,9 @@ def test_apply_returns_rdflib_graph_minus_one_triple():
     s = session(DATA_MAXCOUNT)
     fw = s.witnesses()[0]
     tree = fw.repair_tree()
-    plan = shifty.RepairPlan()
+    plan = repair.RepairPlan()
     for c in tree.choices():
-        if c.kind == shifty.ChoiceKind.Repeat:
+        if c.kind == repair.ChoiceKind.Repeat:
             plan.count(c.node_id, c.min)
     for hole in tree.instantiate(plan).open_holes:
         plan.bind(hole.id, hole.candidates()[0])
@@ -239,9 +240,9 @@ def test_mincount_repair_adds_a_hole_to_fill():
 def test_bind_round_trips_a_candidate_string():
     s = session(DATA_MAXCOUNT)
     tree = s.witnesses()[0].repair_tree()
-    plan = shifty.RepairPlan()
+    plan = repair.RepairPlan()
     for c in tree.choices():
-        if c.kind == shifty.ChoiceKind.Repeat:
+        if c.kind == repair.ChoiceKind.Repeat:
             plan.count(c.node_id, c.min)
     hole = tree.instantiate(plan).open_holes[0]
     value = hole.candidates()[0]
@@ -253,7 +254,7 @@ def test_bind_round_trips_a_candidate_string():
 
 def test_embedded_shapes_no_data_graph():
     embedded = SHAPES + DATA_MAXCOUNT
-    s = shifty.RepairSession(embedded, infer=False)
+    s = repair.RepairSession(embedded, infer=False)
     assert len(s.witnesses()) == 1
 
 
@@ -276,7 +277,7 @@ ex:x a ex:Thing .
 
 
 def test_subgraph_patch_with_conforming_node_is_accepted():
-    s = shifty.RepairSession(QUAL_SHAPES, QUAL_DATA, infer=False)
+    s = repair.RepairSession(QUAL_SHAPES, QUAL_DATA, infer=False)
     assert len(s.witnesses()) == 1
     # a subgraph that adds the part AND makes it conform (it has an ex:kind).
     delta = shifty.delta_from_graph(
@@ -290,7 +291,7 @@ def test_subgraph_patch_with_conforming_node_is_accepted():
 
 
 def test_subgraph_patch_without_conforming_structure_is_rejected():
-    s = shifty.RepairSession(QUAL_SHAPES, QUAL_DATA, infer=False)
+    s = repair.RepairSession(QUAL_SHAPES, QUAL_DATA, infer=False)
     # adds the part but not its required ex:kind → the qualified count stays unmet.
     delta = shifty.delta_from_graph(
         "@prefix ex: <http://example.org/> .\nex:x ex:part ex:p1 ."
@@ -314,7 +315,7 @@ def test_gate_preserves_blank_node_violation_across_shape_collision(add_unrelate
     ex:S a sh:NodeShape ; sh:targetSubjectsOf ex:p ; sh:property _:same .
     _:same sh:path ex:q ; sh:minCount 1 .
     """
-    session = shifty.RepairSession(shapes, data, infer=False)
+    session = repair.RepairSession(shapes, data, infer=False)
 
     delta = shifty.delta_from_graph(
         "@prefix ex: <http://example.org/> . ex:other ex:flag ex:yes ."
@@ -342,7 +343,7 @@ def test_repair_witness_does_not_merge_shape_constant_with_data_node():
         sh:property [ sh:path ex:p ; sh:hasValue _:same ] .
     """
 
-    assert len(shifty.RepairSession(shapes, data, infer=False).witnesses()) == 1
+    assert len(repair.RepairSession(shapes, data, infer=False).witnesses()) == 1
 
 
 def test_gate_recomputes_inference_while_advance_keeps_materialized_data():
@@ -355,7 +356,7 @@ def test_gate_recomputes_inference_while_advance_keeps_materialized_data():
             sh:construct """CONSTRUCT { $this <http://example.org/p> <http://example.org/y> } WHERE { $this <http://example.org/q> ?v }""" ] .
     '''
     data = "@prefix ex: <http://example.org/> . ex:x ex:q ex:y ."
-    s = shifty.RepairSession(shapes, data, infer=True)
+    s = repair.RepairSession(shapes, data, infer=True)
     assert s.witnesses() == []
 
     delete_q = shifty.delta_from_graph(delete=data)
@@ -428,7 +429,7 @@ def test_delta_from_graph_delete_then_add_is_net_add():
     # A triple present on both sides of the patch is a net-add: deletes are
     # applied first, then adds, so the re-add wins and the triple survives in
     # the materialized graph. Lists make it easy to hit this across sources.
-    s = shifty.RepairSession(QUAL_SHAPES, QUAL_DATA, infer=False)
+    s = repair.RepairSession(QUAL_SHAPES, QUAL_DATA, infer=False)
     triple = "@prefix ex: <http://example.org/> .\nex:x ex:part ex:p1 ."
     delta = shifty.delta_from_graph(add=[triple], delete=[triple])
     # The triple is in both sides...
@@ -449,7 +450,7 @@ def test_delta_from_graph_replaces_via_delete_then_add():
         "@prefix ex: <http://example.org/> .\n"
         'ex:x ex:part ex:old . ex:old ex:kind "v" .'
     )
-    session = shifty.RepairSession(QUAL_SHAPES, base, infer=False)
+    session = repair.RepairSession(QUAL_SHAPES, base, infer=False)
     delta = shifty.delta_from_graph(
         add='@prefix ex: <http://example.org/> .\nex:x ex:part ex:new . ex:new ex:kind "v" .',
         delete='@prefix ex: <http://example.org/> .\nex:x ex:part ex:old . ex:old ex:kind "v" .',
@@ -476,19 +477,19 @@ def test_repair_delta_from_ntriples_add_and_delete():
 
 
 def test_conforms_to_hole_exposes_subshape_id():
-    s = shifty.RepairSession(QUAL_SHAPES, QUAL_DATA, infer=False)
+    s = repair.RepairSession(QUAL_SHAPES, QUAL_DATA, infer=False)
     hole = s.witnesses()[0].repair_tree().holes()[0]
     assert hole.conforms_to is not None  # a 'conforms to @N' hole
 
 
 def test_value_hole_has_no_conforms_to():
-    s = shifty.RepairSession(SHAPES, DATA_MAXCOUNT, infer=False)
+    s = repair.RepairSession(SHAPES, DATA_MAXCOUNT, infer=False)
     hole = s.witnesses()[0].repair_tree().holes()[0]
     assert hole.conforms_to is None  # the maxCount repair binds a value, not a node
 
 
 def test_repair_node_against_builds_the_subshape():
-    s = shifty.RepairSession(QUAL_SHAPES, QUAL_DATA, infer=False)
+    s = repair.RepairSession(QUAL_SHAPES, QUAL_DATA, infer=False)
     sid = s.witnesses()[0].repair_tree().holes()[0].conforms_to
     sub = s.repair_node_against("<urn:f1>", sid)
     assert sub is not None
@@ -505,7 +506,7 @@ def test_repair_node_against_builds_the_subshape():
 
 def test_repair_node_against_none_when_already_conforms():
     data = QUAL_DATA + '\n@prefix ex: <http://example.org/> .\n<urn:ok> ex:kind "x" .'
-    s = shifty.RepairSession(QUAL_SHAPES, data, infer=False)
+    s = repair.RepairSession(QUAL_SHAPES, data, infer=False)
     sid = s.witnesses()[0].repair_tree().holes()[0].conforms_to
     assert s.repair_node_against("<urn:ok>", sid) is None
 
@@ -523,7 +524,7 @@ ex:PartShape a sh:NodeShape ; sh:class ex:Widget .
 def test_class_qualified_build_is_not_blocked_and_types_the_node():
     # sh:class lowers to rdf:type/rdfs:subClassOf* — building must materialize the
     # type assertion reflexively rather than block on "path materialization".
-    s = shifty.RepairSession(CLASS_SHAPES, QUAL_DATA, infer=False)
+    s = repair.RepairSession(CLASS_SHAPES, QUAL_DATA, infer=False)
     sid = s.witnesses()[0].repair_tree().holes()[0].conforms_to
     sub = s.repair_node_against("<urn:p1>", sid)
     assert sub is not None
@@ -560,7 +561,7 @@ ex:vav1 a ex:Vav .
 def test_subclass_typed_proposal_makes_progress_via_shapes_hierarchy():
     import rdflib
 
-    s = shifty.RepairSession(SUBCLASS_SHAPES, SUBCLASS_DATA, infer=False)
+    s = repair.RepairSession(SUBCLASS_SHAPES, SUBCLASS_DATA, infer=False)
     # propose a point typed with the *subclass* of the required class.
     delta = shifty.delta_from_graph(
         "@prefix ex: <http://example.org/> ."
@@ -603,7 +604,7 @@ ex:x a ex:Thing .
 def test_hole_constraint_fully_renders_an_or_of_classes():
     # The hole over an `sh:or` of classes used to print bare slot pointers
     # (`@2 ∨ @5`); now every sub-shape is inlined — no `@` leaks out.
-    s = shifty.RepairSession(OR_OF_CLASSES, infer=False)
+    s = repair.RepairSession(OR_OF_CLASSES, infer=False)
     hole = s.witnesses()[0].repair_tree().holes()[0]
     assert "@" not in hole.constraint
     assert "instance of" in hole.constraint and " or " in hole.constraint
@@ -613,7 +614,7 @@ def test_hole_constraint_fully_renders_an_or_of_classes():
 
 
 def test_conforms_to_all_exposes_every_subshape_and_definition():
-    s = shifty.RepairSession(CONFORMS_ALL, infer=False)
+    s = repair.RepairSession(CONFORMS_ALL, infer=False)
     hole = s.witnesses()[0].repair_tree().holes()[0]
     # a multi-shape obligation: the single-id accessor is None, the set is complete.
     assert hole.conforms_to is None
@@ -639,7 +640,7 @@ def test_conforms_to_all_exposes_every_subshape_and_definition():
 
 
 def test_explain_has_no_unresolved_pointers():
-    s = shifty.RepairSession(OR_OF_CLASSES, infer=False)
+    s = repair.RepairSession(OR_OF_CLASSES, infer=False)
     text = s.witnesses()[0].repair_tree().explain()
     # the constraint is spelled out, not left as `@2 ∨ @5`.
     assert "instance of" in text and " or " in text
@@ -670,8 +671,8 @@ ex:gizmo a ex:Widget .
 """
 
 
-def two_shape_session() -> shifty.RepairSession:
-    return shifty.RepairSession(TWO_SHAPE_SHAPES, TWO_SHAPE_DATA, infer=False)
+def two_shape_session() -> repair.RepairSession:
+    return repair.RepairSession(TWO_SHAPE_SHAPES, TWO_SHAPE_DATA, infer=False)
 
 
 def test_witnesses_for_scopes_failures_to_one_shape():
@@ -721,18 +722,18 @@ def test_satisfactions_for_lists_passing_foci_with_matched_values():
     assert fs.statement == 0
     # the satisfaction side carries the same structured target as the witness side
     assert fs.target == "class(ex:Person)"
-    assert fs.selector.kind == shifty.TargetKind.Class
+    assert fs.selector.kind == repair.TargetKind.Class
     assert fs.selector.value == "<http://example.org/Person>"
     # the matched value for the checked property surfaces in the flat summary.
     matched = [
-        (a.path, a.value) for a in fs.summary() if a.kind == shifty.SatKind.Match
+        (a.path, a.value) for a in fs.summary() if a.kind == repair.SatKind.Match
     ]
     assert ("ex:name", '"Carol"') in matched
     assert all(
         atom.evidence_kind
         in {shifty.EvidenceKind.CountHeld, shifty.EvidenceKind.AllValuesHeld}
         for atom in fs.summary()
-        if atom.kind == shifty.SatKind.Match
+        if atom.kind == repair.SatKind.Match
     )
     assert "Held" in fs.explain()
 
@@ -774,18 +775,18 @@ ex:root  ex:other 1 .
 
 
 def test_structured_target_kinds_and_values():
-    s = shifty.RepairSession(TARGET_SHAPES, TARGET_DATA, infer=False)
+    s = repair.RepairSession(TARGET_SHAPES, TARGET_DATA, infer=False)
 
     subj = s.witnesses_for("http://example.org/SubjShape")[0].selector
-    assert subj.kind == shifty.TargetKind.SubjectsOf
+    assert subj.kind == repair.TargetKind.SubjectsOf
     assert subj.value == "<http://example.org/knows>"
 
     obj = s.witnesses_for("http://example.org/ObjShape")[0].selector
-    assert obj.kind == shifty.TargetKind.ObjectsOf
+    assert obj.kind == repair.TargetKind.ObjectsOf
     assert obj.value == "<http://example.org/owner>"
 
     node = s.witnesses_for("http://example.org/NodeShape_")[0].selector
-    assert node.kind == shifty.TargetKind.Node
+    assert node.kind == repair.TargetKind.Node
     assert node.value == "<http://example.org/root>"
 
     # the structured value round-trips: a class IRI is a parseable N-Triples term
@@ -804,7 +805,7 @@ ex:S a sh:NodeShape ; sh:targetNode ex:x ;
 def test_min_count_over_alternative_path_is_not_blocked():
     # An `Alt` path (and a `Seq` nested inside one) used to block with
     # Unsupported("path materialization"); each branch is now a build option.
-    s = shifty.RepairSession(ALT_PATH_SHAPES, QUAL_DATA, infer=False)
+    s = repair.RepairSession(ALT_PATH_SHAPES, QUAL_DATA, infer=False)
     tree = s.witnesses()[0].repair_tree()
     assert not tree.is_blocked
     delta = shifty.delta_from_graph(

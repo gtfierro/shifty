@@ -1,27 +1,24 @@
 Repair reference
 ================
 
-.. warning::
+.. include:: experimental.inc
 
-   **Experimental.** This API is expected to change. Treat the object model
-   below as a description of the current version rather than a stable
-   contract.
+Everything here is in ``shifty.experimental.repair``, except
+``RepairDelta`` and ``delta_from_graph``, which stay in ``shifty``.
 
-The repair API computes the space of edits that would make a failing node
-conform, and applies whichever ones you choose. It decides nothing itself:
-which focus to fix, which term fills a hole, which alternative to take, how
-many values to add, whether to accept a candidate, and when to stop are all
-yours. :doc:`../explanation/repair-design` explains that boundary;
-:doc:`../how-to/repair` shows the loop.
+The API computes the edits that would make a failing node conform, and
+applies the ones you choose. It decides nothing: which failure to fix, which
+term fills a hole, which branch to take, and when to stop are yours.
+:doc:`explanation` says why. :doc:`how-to` shows the loop.
 
-Repairs edit the **data graph only**. The schema is treated as ground truth.
+Repairs edit the **data graph only**. The shapes are taken as correct.
 
 ``RepairSession``
 -----------------
 
 .. code-block:: python
 
-   shifty.RepairSession(shacl_graph, data_graph=None, *, infer=True, base=None)
+   repair.RepairSession(shacl_graph, data_graph=None, *, infer=True, base=None)
 
 Binds a shapes graph and a data graph, running SHACL-AF inference first by
 default. ``data_graph=None`` means the shapes graph embeds the data.
@@ -70,13 +67,9 @@ sides is a net add.
 ``Failure`` and ``Satisfaction``
 --------------------------------
 
-The same objects the :doc:`evidence` interface returns. A ``Failure`` is the
-lossless witness of why a focus violates; a ``Satisfaction`` is why it holds.
-
-``FocusWitness`` and ``FocusSatisfaction``, which were published in 0.3.0, are
-deprecated aliases for these types. Accessing either alias emits
-``DeprecationWarning``; use ``Failure`` and ``Satisfaction`` in new code. The
-aliases will be removed in 1.0.
+The same objects the :doc:`../../reference/evidence` interface returns. A
+``Failure`` records why a focus node fails; a ``Satisfaction`` records why it
+passes.
 
 .. list-table::
    :widths: 30 70
@@ -99,7 +92,7 @@ aliases will be removed in 1.0.
    * - ``walk()``, ``supporting_triples()``, ``path_supports()``,
        ``matched_values()``, ``missing_obligations()``, ``offending_values()``,
        ``source_constraints()``
-     - The evidence projections; see :doc:`evidence`.
+     - The evidence projections; see :doc:`../../reference/evidence`.
    * - ``to_json()`` / ``to_dict()``
      - Serialization.
    * - ``repair_tree()``
@@ -215,7 +208,7 @@ legal.
 
 .. code-block:: python
 
-   plan = shifty.RepairPlan()
+   plan = repair.RepairPlan()
    plan.choose(node_id, branch_index)   # pick a child at an Any
    plan.count(node_id, n)               # pick a count at a Repeat
    plan.bind(hole_id, term)             # bind a hole
@@ -252,6 +245,9 @@ legal.
 
 ``RepairDelta``
 ---------------
+
+In ``shifty``, because ``shifty.EvidenceSession.revalidate`` takes one
+too.
 
 .. list-table::
    :widths: 34 66
@@ -307,7 +303,8 @@ by re-running the same validator.
 Rust
 ----
 
-``shifty-repair`` exposes the same model: ``witness_violations``,
+The Rust API hasn't moved: it is in ``shifty-engine`` and ``shifty-repair``,
+and is just as experimental. It exposes the same model: ``witness_violations``,
 ``witness_shape``, ``satisfy_shape``, ``witness_node``, ``synthesize``,
 ``synthesize_focus``, ``instantiate``, ``candidates``, ``gate``, and ``render``
 (which projects a template to a parameterized RDF graph plus a self-hosted

@@ -202,7 +202,7 @@ use the Python API's ``InferResult.graph()`` for that (:doc:`../how-to/infer`).
      - A concrete delta found by the built-in enumeration driver.
 
 The enumeration driver binds holes from terms already present in the graph. It
-is meant for inspection; :doc:`../how-to/repair` covers driving the loop
+is meant for inspection; :doc:`../experimental/repair/how-to` covers driving the loop
 yourself.
 
 ``shifty inspect``

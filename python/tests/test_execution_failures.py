@@ -3,6 +3,7 @@
 import pytest
 
 import shifty
+from shifty.experimental import repair
 
 PREFIXES = """
 @prefix sh: <http://www.w3.org/ns/shacl#> .
@@ -140,7 +141,7 @@ ex:S a sh:NodeShape ; {target} ; sh:rule [ a sh:TripleRule ;
         elif interface == "evidence":
             shifty.EvidenceSession(shapes, data)
         elif interface == "repair":
-            shifty.RepairSession(shapes, data)
+            repair.RepairSession(shapes, data)
         else:
             getattr(shifty, interface)(data, shapes, in_place=True)
     assert set(data) == before
@@ -156,7 +157,7 @@ ex:S a sh:NodeShape ; {target} ; sh:rule [ a sh:TripleRule ;
     ],
 )
 def test_repair_adapters_preserve_execution_failure_type(method, args):
-    session = shifty.RepairSession(WRONG_QUERY_FORM, DATA, infer=False)
+    session = repair.RepairSession(WRONG_QUERY_FORM, DATA, infer=False)
     with pytest.raises(shifty.ValidationFailure, match="query form does not match"):
         getattr(session, method)(*args)
 
@@ -169,7 +170,7 @@ ex:Container a sh:NodeShape ; sh:targetNode ex:y ;
     sh:property [ sh:path ex:child ; sh:qualifiedValueShape ex:S ; sh:qualifiedMinCount 1 ] .
 """
     )
-    session = shifty.RepairSession(shapes, DATA, infer=False)
+    session = repair.RepairSession(shapes, DATA, infer=False)
     failure = session.witnesses_for("http://ex/Container")[0]
     shape_id = failure.repair_tree().holes()[0].conforms_to
     assert shape_id is not None
