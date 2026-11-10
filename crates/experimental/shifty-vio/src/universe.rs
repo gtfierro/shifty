@@ -13,8 +13,9 @@ use oxrdf::dataset::CanonicalizationAlgorithm;
 use oxrdf::{NamedOrBlankNodeRef, TermRef};
 use shifty_algebra::{Schema, Shape, ShapeArena, ShapeId};
 use shifty_engine::{
-    CompiledShapes, EngineOptions, EvaluationSession, Evidence, EvidenceOptions, EvidenceRun,
-    Failure, SessionData, SessionOptions, ValidationGraphMode,
+    CompiledShapes, ConformanceOptions, EngineOptions, EvaluationSession, Evidence,
+    EvidenceOptions, EvidenceRun, Failure, SessionData, SessionOptions, StatementEvaluation,
+    ValidationGraphMode,
 };
 use shifty_parse::Loaded;
 use shifty_repair::GraphDelta;
@@ -347,7 +348,11 @@ impl Universe {
                 break Failures::new();
             }
             let (adds, deletes) = union_delta(&chosen);
-            let failures = core.revalidate(&adds, &deletes)?;
+            let failures = core.revalidate(&adds, &deletes, |focus, statement| {
+                !core
+                    .baseline_failures
+                    .contains(&(focus.to_owned(), statement))
+            })?;
             let masked: Vec<&str> = chosen
                 .iter()
                 .filter(|c| !realized(c, &failures))
@@ -366,7 +371,6 @@ impl Universe {
         let (adds, deletes) = union_delta(&chosen);
         let failures = final_failures
             .iter()
-            .filter(|(pair, _)| !core.baseline_failures.contains(*pair))
             .map(|((focus, statement), components)| CaseFailure {
                 focus: focus.clone(),
                 statement: *statement,
@@ -478,7 +482,9 @@ impl Core {
             index: Index::new(triples),
             limits: options.limits,
             names,
-            baseline_failures: failing_components(&baseline).into_keys().collect(),
+            baseline_failures: failing_components(&baseline.statements)
+                .into_keys()
+                .collect(),
             baseline,
             targets: Vec::new(),
             all: OnceCell::new(),
@@ -586,8 +592,11 @@ impl Core {
         let failures = match cached {
             Some(f) => f,
             None => {
+                let target = |focus: &str, statement: usize| {
+                    focus == inj.focus && statement == inj.statement
+                };
                 let f = self
-                    .revalidate(&inj.adds(), &inj.deletes())
+                    .revalidate(&inj.adds(), &inj.deletes(), target)
                     .ok()
                     .map(Rc::new);
                 self.verified
@@ -599,10 +608,14 @@ impl Core {
         failures.is_some_and(|f| realized(inj, &f))
     }
 
+    /// The failing pairs of the reference graph with `adds` and `deletes`
+    /// applied, restricted to those `wanted` keeps, with their failing
+    /// components.
     fn revalidate(
         &self,
         adds: &BTreeSet<Triple>,
         deletes: &BTreeSet<Triple>,
+        wanted: impl Fn(&str, usize) -> bool,
     ) -> Result<Failures, Error> {
         let delta = GraphDelta {
             add: parse_triples(adds)?,
@@ -612,10 +625,25 @@ impl Core {
             .session
             .with_delta(&delta)
             .map_err(|e| Error::Session(e.to_string()))?;
-        let run = next
-            .evidence(&EvidenceOptions::default())
+        // Only wanted failing pairs need evidence: find the failing pairs by
+        // conformance, which builds none, then explain the wanted ones.
+        let (_, pairs) = next
+            .find_failures(&ConformanceOptions::default())
             .map_err(|e| Error::Evaluation(e.to_string()))?;
-        Ok(failing_components(&run))
+        let mut statements = Vec::new();
+        for pair in &pairs {
+            let focus = nt::term(pair.focus());
+            if !pair.source_statements().iter().any(|&s| wanted(&focus, s)) {
+                continue;
+            }
+            statements.extend(
+                next.explain_canonical(pair)
+                    .map_err(|e| Error::Evaluation(e.to_string()))?,
+            );
+        }
+        let mut failures = failing_components(&statements);
+        failures.retain(|(focus, statement), _| wanted(focus, *statement));
+        Ok(failures)
     }
 
     // ── engine probes used by the expander ──
@@ -884,9 +912,9 @@ fn realized(inj: &Injection, failures: &Failures) -> bool {
 }
 
 /// Failing pairs mapped to the ids of their failing top-level conjuncts.
-fn failing_components(run: &EvidenceRun) -> Failures {
+fn failing_components(statements: &[StatementEvaluation]) -> Failures {
     let mut out = Failures::new();
-    for st in &run.statements {
+    for st in statements {
         for fe in &st.selected_foci {
             let Evidence::Failure(failure) = &fe.evidence else {
                 continue;
