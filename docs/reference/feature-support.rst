@@ -157,4 +157,5 @@ Evidence and repair coverage
 Structural explanations are not always available: a ``sh:sparql`` constraint is opaque to evidence and
 blocked for repair, because an arbitrary query cannot be inverted. The complete
 list of these cases is in :doc:`evidence` under "Opaque and blocked evidence",
-and repair's blocking reasons are in :doc:`repair`.
+and repair's blocking reasons are in
+:doc:`../experimental/repair/reference`.

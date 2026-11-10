@@ -212,6 +212,6 @@ Related documentation
   shape is really an extraction schema.
 - :doc:`../reference/evidence` — the exact data model, for building on.
 - :doc:`../explanation/evidence-design` — the evidence model and its limits.
-- :doc:`../how-to/repair` — **experimental**: failure evidence is also the
+- :doc:`../experimental/repair/index` — **experimental**: failure evidence is also the
   input to a symbolic repair layer that computes which edits would make a node
   conform. It is early and its API is expected to change.

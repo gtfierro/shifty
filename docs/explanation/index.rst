@@ -20,7 +20,7 @@ evidence, and experimental repair candidates.
      - Read passing and failing evaluations and understand their limits.
    * - :doc:`performance`
      - Choose an evidence entry point and avoid unnecessary work.
-   * - :doc:`repair-design`
+   * - :doc:`../experimental/repair/explanation`
      - **Experimental.** Fill repair templates and validate candidate edits.
 
 .. toctree::
@@ -33,4 +33,3 @@ evidence, and experimental repair candidates.
    recursion
    evidence-design
    performance
-   repair-design

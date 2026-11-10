@@ -6,7 +6,7 @@ concrete repair options (gated, so each is sound), prints them as a numbered
 menu, and lets you pick one. The chosen edit is applied, the graph re-validated,
 and the loop continues until the graph conforms (or you quit).
 
-This is a *driver* built entirely on the public ``shifty.RepairSession`` API —
+This is a *driver* built entirely on the public ``repair.RepairSession`` API —
 the library computes the repair space and gates candidates; every decision here
 is made by you at the prompt.
 
@@ -25,6 +25,7 @@ import re
 import sys
 
 import shifty
+from shifty.experimental import repair
 
 # bounds so enumeration stays interactive on large repair spaces.
 MAX_OPTIONS = 25
@@ -100,7 +101,7 @@ def enumerate_options(session, fw):
         if inst.open_choices:
             nid = inst.open_choices[0]
             ch = choice_by_id[nid]
-            if ch.kind == shifty.ChoiceKind.Any:
+            if ch.kind == repair.ChoiceKind.Any:
                 for b in range(ch.branches or 0):
                     rec(ops + [("choose", nid, b)])
             else:  # repeat → default to the minimum count
@@ -140,7 +141,7 @@ def enumerate_options(session, fw):
 
 
 def _build_plan(ops):
-    plan = shifty.RepairPlan()
+    plan = repair.RepairPlan()
     for kind, a, b in ops:
         if kind == "choose":
             plan.choose(a, b)
@@ -180,11 +181,11 @@ def fill_by_hand(fw):
         print("  this violation is blocked — no data repair is possible.")
         return None
 
-    plan = shifty.RepairPlan()
+    plan = repair.RepairPlan()
     for ch in tree.choices():
-        if ch.kind == shifty.ChoiceKind.Repeat:
+        if ch.kind == repair.ChoiceKind.Repeat:
             plan.count(ch.node_id, ch.min)
-        elif ch.kind == shifty.ChoiceKind.Any:
+        elif ch.kind == repair.ChoiceKind.Any:
             plan.choose(ch.node_id, 0)
 
     inst = tree.instantiate(plan)
@@ -264,11 +265,11 @@ def build_tree(session, tree, fuel, indent=""):
             + "  use 'g' to author the node's subgraph by hand instead."
         )
         return None
-    plan = shifty.RepairPlan()
+    plan = repair.RepairPlan()
     for ch in tree.choices():
-        if ch.kind == shifty.ChoiceKind.Repeat:
+        if ch.kind == repair.ChoiceKind.Repeat:
             plan.count(ch.node_id, ch.min)
-        elif ch.kind == shifty.ChoiceKind.Any:
+        elif ch.kind == repair.ChoiceKind.Any:
             plan.choose(ch.node_id, 0)
     inst = tree.instantiate(plan)
     if inst.open_choices:
@@ -369,7 +370,7 @@ def main():
     )
     args = parser.parse_args()
 
-    session = shifty.RepairSession(args.shapes, args.data, infer=not args.no_infer)
+    session = repair.RepairSession(args.shapes, args.data, infer=not args.no_infer)
     skipped: set[tuple[str, int]] = set()
     applied = 0
 

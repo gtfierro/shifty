@@ -110,16 +110,16 @@ Common tasks
      - Trace a finding through its compiled constraint and supporting triples.
    * - :doc:`Extract shape-map bindings <how-to/shape-maps>`
      - Query which focus nodes and values matched selected shapes.
-   * - :doc:`Compute symbolic repairs <how-to/repair>`
+   * - :doc:`Compute symbolic repairs <experimental/repair/how-to>`
      - Explore candidate graph edits with the experimental repair API.
    * - :doc:`Write shapes in Shapeshift <experimental/shapeshift/tutorial>`
      - Write SHACL shapes in a short language of their own, or from Python.
 
 .. note::
 
-   Symbolic repair and Shapeshift are **experimental**. Their APIs, and the
-   Shapeshift language, may change in any release; see :doc:`how-to/repair`
-   and :doc:`experimental/shapeshift/index`.
+   Symbolic repair, Shapeshift, and violation generation are
+   **experimental**. Their APIs, and the Shapeshift language, may change in
+   any release; see :doc:`experimental/index`.
 
 Documentation
 -------------

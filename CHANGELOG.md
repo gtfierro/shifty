@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### Changed
+
+- **Breaking:** the Python repair API moved to `shifty.experimental.repair`:
+  `RepairSession`, `RepairPlan`, `RepairTree`, `RepairOrigin`,
+  `RepairOutcome`, `Hole`, `Choice`, `ChoiceKind`, and `Instantiated`. The
+  old names raise `AttributeError` with the new import. The evidence types
+  (`Failure`, `Satisfaction`, `Target`, and their atoms and kinds),
+  `RepairDelta`, and `delta_from_graph` stay in `shifty`. The repair docs
+  moved to `docs/experimental/repair/`.
+
 ### Added
 
 - Experimental violation generation for repair benchmarks, in Rust as

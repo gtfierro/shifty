@@ -31,6 +31,31 @@ explicitly, use the policy for your interface:
 Best effort may omit constraints or evaluate a function over an empty dataset.
 It does not suppress malformed shapes or failures to execute a query.
 
+Repair moved to ``shifty.experimental``
+---------------------------------------
+
+Symbolic repair was always experimental. Its Python API now says so in the
+import:
+
+.. code-block:: python
+
+   # 0.5
+   session = shifty.RepairSession(shapes, data)
+
+   # 0.6
+   from shifty.experimental import repair
+
+   session = repair.RepairSession(shapes, data)
+
+This covers ``RepairSession``, ``RepairPlan``, ``RepairTree``,
+``RepairOrigin``, ``RepairOutcome``, ``Hole``, ``Choice``, ``ChoiceKind``,
+and ``Instantiated``. The old names raise ``AttributeError`` with the new
+import.
+
+The evidence types stay where they were: ``Failure``, ``Satisfaction``,
+``Target``, and their atoms and kinds. So do ``RepairDelta`` and
+``delta_from_graph``.
+
 Execution failures have no validation verdict
 ---------------------------------------------
 

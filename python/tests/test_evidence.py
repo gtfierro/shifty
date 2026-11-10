@@ -5,6 +5,7 @@ import json
 import pytest
 
 import shifty
+from shifty.experimental import repair
 
 PREFIXES = """
 @prefix sh: <http://www.w3.org/ns/shacl#> .
@@ -964,7 +965,7 @@ def test_scoped_failure_handle_explains_only_the_selected_authored_statement():
 def test_a_collapsed_shape_is_still_addressable_by_either_name():
     # The reverse lookup goes through the same name table, so a shape that lost
     # a name to the merge used to be unfindable by it.
-    session = shifty.RepairSession(COLLAPSING_SHAPES, COLLAPSING_DATA, infer=False)
+    session = repair.RepairSession(COLLAPSING_SHAPES, COLLAPSING_DATA, infer=False)
     for name in ("http://ex/S1", "http://ex/S2"):
         assert [w.focus for w in session.witnesses_for(name)] == ["<http://ex/bad>"]
     with pytest.raises(ValueError, match="no shape named"):

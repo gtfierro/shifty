@@ -16,7 +16,7 @@ bindings. Install with ``pip install pyshifty``; import as ``shifty``.
 
 This page covers validation and inference. The evidence and shape-map
 interfaces have their own pages: :doc:`evidence` and :doc:`shape-maps`. The
-experimental repair API is in :doc:`repair`.
+experimental repair API is in :doc:`../experimental/repair/reference`.
 
 Graph inputs
 ------------
