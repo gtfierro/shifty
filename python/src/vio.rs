@@ -94,7 +94,6 @@ impl VioUniverse {
         shapes=None,
         shapes_path=None,
         shapes_format="auto",
-        materialize=false,
         infer=true,
         include_external_foci=false,
         canonicalize_blank_nodes=true,
@@ -111,7 +110,6 @@ impl VioUniverse {
         shapes: Option<PyBackedBytes>,
         shapes_path: Option<String>,
         shapes_format: &str,
-        materialize: bool,
         infer: bool,
         include_external_foci: bool,
         canonicalize_blank_nodes: bool,
@@ -147,7 +145,6 @@ impl VioUniverse {
             None => ExpansionLimits::default(),
         };
         let options = Options {
-            materialize,
             infer,
             include_external_foci,
             canonicalize_blank_nodes,

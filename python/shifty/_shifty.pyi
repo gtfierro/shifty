@@ -732,7 +732,6 @@ class VioUniverse:
         shapes: Optional[bytes] = ...,
         shapes_path: Optional[str] = ...,
         shapes_format: str = ...,
-        materialize: bool = ...,
         infer: bool = ...,
         include_external_foci: bool = ...,
         canonicalize_blank_nodes: bool = ...,

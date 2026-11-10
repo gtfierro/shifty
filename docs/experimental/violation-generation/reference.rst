@@ -12,7 +12,7 @@ take IRIs accept them bare or as ``<iri>``.
 
 .. code-block:: python
 
-   vio.Universe(data_graph, shacl_graph, *, materialize=False, infer=None,
+   vio.Universe(data_graph, shacl_graph, *, infer=True,
                 include_external_foci=False, canonicalize_blank_nodes=True,
                 graph_mode="union", on_unsupported="error", base=None,
                 limits=None)
@@ -33,13 +33,8 @@ not find the injections yet.
    * - ``infer``
      - Run the shapes' SHACL-AF rules on every validation, as
        ``shifty.validate`` does, and edit only asserted triples. An
-       injection the rules would undo is never drawn. ``None``, the default,
-       is ``True`` unless ``materialize`` is set.
-   * - ``materialize``
-     - Run SHACL-AF rules once, break the inferred graph, and validate it
-       without rules. Edits may delete inferred triples that the rules would
-       infer back, so use it only for benchmarks validated without rules.
-       Cannot be combined with ``infer=True``.
+       injection the rules would undo is never drawn. ``False`` ignores the
+       rules.
    * - ``include_external_foci``
      - Also break nodes with no outgoing triples, such as vocabulary terms
        the shapes describe.
@@ -78,8 +73,8 @@ not find the injections yet.
      - The ``(focus, statement)`` pairs that already fail. They are never
        broken.
    * - ``reference_ntriples``
-     - The reference graph as sorted N-Triples, after ``materialize`` and
-       blank-node renaming.
+     - The reference graph as sorted N-Triples, after blank-node renaming.
+       It is the asserted data: inferred triples are never part of it.
    * - ``predicate_weights``, ``kind_weights``
      - The weights of this view.
 
@@ -209,12 +204,13 @@ large graph does not give an unbounded universe.
 
    vio.generate(data_graph, shacl_graph, out, *, budgets=(5,), cases=10,
                 seed=0, jobs=1, shape=None, predicate=None, focus=None,
-                predicates=None, kinds=None, materialize=False, infer=None)
+                predicates=None, kinds=None, infer=True)
 
 Draws ``cases`` cases for each ``k`` in ``budgets``, with seeds ``seed``,
 ``seed + 1``, and so on, writes them under ``out``, and returns the contents
 of ``suite.json``. ``shape``, ``predicate``, and ``focus`` filter as in
-``where``; ``predicates`` and ``kinds`` weight as in ``weighted``. ``jobs``
+``where``; ``predicates`` and ``kinds`` weight as in ``weighted``; ``infer`` is as
+in ``Universe``. ``jobs``
 worker processes split the cases; the suite is the same for any ``jobs``.
 
 .. _vio-output-files:
@@ -272,10 +268,7 @@ Command line
    * - ``--kind-weights FILE``
      - A JSON file mapping operation kinds to weights.
    * - ``--infer``, ``--no-infer``
-     - Run the rules on every validation, or not. On by default, unless
-       ``--materialize``.
-   * - ``--materialize``
-     - As the ``Universe`` parameter.
+     - Run the shapes' rules on every validation, or not. On by default.
    * - ``-j``, ``--jobs``
      - Worker processes. Default 1.
 

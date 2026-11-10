@@ -62,9 +62,9 @@ the filter returns.
 
 ## Inputs
 
-`Universe::new` compiles the shapes. With `materialize`, it runs rules once
-in `Data` graph mode and takes the session's data graph, the closure, as the
-reference. When the reference has blank nodes, they are relabeled with
+`Universe::new` compiles the shapes and takes the asserted data as the
+reference; with `infer` (the default) every session over it runs the rules.
+When the reference has blank nodes, they are relabeled with
 oxrdf's canonicalization (`canonicalize_blank_nodes`, on by default), since
 parsers label anonymous nodes afresh on every parse. An `EvaluationSession`
 over that graph, with `SessionData::Separate`, keeps the labels. Evidence
@@ -213,11 +213,10 @@ parses arguments and calls `generate`.
   generation rule.
 - `infer` (the default) re-runs rules on every revalidation, and edits target
   asserted triples only. Values whose sole support is inferred cannot be cut;
-  that would take tracing the rule back to its premises. `materialize` treats
-  the closure as asserted and validates without rules, but on NIST-IBAL 59
-  of 60 sampled injections that delete an inferred triple stop failing once
-  the rules run again, so it suits only benchmarks validated without rules.
-  `materialize` turns `infer` off.
+  that would take tracing the rule back to its premises. An earlier
+  `materialize` mode broke the inferred closure and validated it without
+  rules; it was removed because on NIST-IBAL 59 of 60 sampled injections
+  that deleted an inferred triple stopped failing once the rules ran again.
 - Edits are not checked against shapes the target does not mention. Extra
   failures are reported as amplification, not prevented.
 - `Sparql` and `Expression` shapes are keyed by their debug form, which can

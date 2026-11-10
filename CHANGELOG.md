@@ -19,8 +19,7 @@
   they reproduce across processes. Like validation, it runs the shapes'
   SHACL-AF rules on every check by default (`infer`, `--no-infer` to turn
   off), edits only asserted triples, and never draws an injection the rules
-  would undo; `materialize` instead breaks the inferred closure, for
-  benchmarks validated without rules. `generate` draws a suite and writes it
+  would undo. `generate` draws a suite and writes it
   to disk, and the CLI wraps it; both split the cases across worker
   processes with `jobs`/`--jobs`. See `docs/experimental/violation-generation/`.
 - `EvaluationSession::select_pair` (and `PreparedEvidenceValidator::select_pair`)

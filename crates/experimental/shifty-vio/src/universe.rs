@@ -31,13 +31,8 @@ pub struct Options {
     /// Run SHACL-AF rules on every validation, as validation does by default.
     /// Edits touch only the asserted reference triples, and an injection that
     /// the rules would undo, by inferring back what it removed, fails its
-    /// check and is never drawn. On by default; ignored with `materialize`.
+    /// check and is never drawn. On by default.
     pub infer: bool,
-    /// Run SHACL-AF rules once and use the inferred closure as the reference
-    /// graph, validated without rules afterwards. Edits may then delete
-    /// inferred triples, which the rules would infer back, so use it only
-    /// for benchmarks whose graphs are validated without rules.
-    pub materialize: bool,
     /// Also target focus nodes with no outgoing triple in the reference
     /// graph, such as vocabulary terms that the shapes graph describes.
     pub include_external_foci: bool,
@@ -55,7 +50,6 @@ impl Default for Options {
     fn default() -> Self {
         Self {
             infer: true,
-            materialize: false,
             include_external_foci: false,
             canonicalize_blank_nodes: true,
             graph_mode: ValidationGraphMode::Union,
@@ -153,21 +147,7 @@ impl Universe {
     pub fn new(shapes: Loaded, data: oxrdf::Graph, options: Options) -> Result<Self, Error> {
         let compiled =
             CompiledShapes::compile(shapes).map_err(|e| Error::Compile(e.to_string()))?;
-        let mut reference = if options.materialize {
-            let closure = compiled
-                .session(
-                    SessionData::Separate(data),
-                    SessionOptions {
-                        graph_mode: ValidationGraphMode::Data,
-                        inference: true,
-                        engine: options.engine,
-                    },
-                )
-                .map_err(|e| Error::Session(e.to_string()))?;
-            closure.data().clone()
-        } else {
-            data
-        };
+        let mut reference = data;
         if options.canonicalize_blank_nodes && has_blank_nodes(&reference) {
             reference.canonicalize(CanonicalizationAlgorithm::Unstable);
         }
@@ -463,7 +443,7 @@ impl Core {
                 SessionData::Separate(reference),
                 SessionOptions {
                     graph_mode: options.graph_mode,
-                    inference: options.infer && !options.materialize,
+                    inference: options.infer,
                     engine: options.engine,
                 },
             )

@@ -37,14 +37,8 @@ An injection that the rules would undo, by inferring back what it removed,
 fails its check and never reaches a case. The broken graph is the asserted
 model with the edits applied, which is what a repair tool would be given.
 
-Two other modes exist, for benchmarks that are validated without rules:
-
-- ``infer=False`` (``--no-infer``) ignores the rules.
-- ``materialize=True`` (``--materialize``) runs the rules once and breaks
-  the inferred graph, validating it without rules from then on. Edits may
-  delete inferred triples, and on NIST-IBAL nearly all of those come back
-  when the rules run again, so the violation is not real for anyone who
-  runs them.
+``infer=False`` (``--no-infer``) ignores the rules, for benchmarks whose
+graphs are validated without them.
 
 Rules make drawing slower, since every check runs them: about four times
 slower on NIST-IBAL.

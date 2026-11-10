@@ -648,16 +648,8 @@ def test_rules_run_on_every_validation_by_default():
         assert not conforms
 
 
-def test_materialize_breaks_the_closure_without_rules():
-    universe = Universe(RULE_DATA, RULE_SHAPES, materialize=True)
-    assert ROOM_TYPE in nt_triples(universe.reference_ntriples)
-    assert any(ROOM_TYPE in e.deletes for e in universe)
+def test_without_rules_the_model_does_not_conform():
     assert Universe(RULE_DATA, RULE_SHAPES, infer=False).baseline_failures
-
-
-def test_infer_and_materialize_are_exclusive():
-    with pytest.raises(ValueError, match="cannot be combined"):
-        Universe(RULE_DATA, RULE_SHAPES, materialize=True, infer=True)
 
 
 def test_cli_infers_unless_told_not_to(tmp_path, capsys):
