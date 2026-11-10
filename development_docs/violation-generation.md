@@ -198,8 +198,13 @@ Composition dominates the cost of a draw. A candidate check is one target
 selection and one explanation. A case check is one conformance pass over
 every statement, about 0.15 s on NIST-IBAL, so it grows with the graph.
 Sessions are neither `Send` nor `Sync` (the engine holds `Rc` and
-`std::cell::OnceCell`), so the CLI parallelizes with processes: `--jobs`
-splits the requests, and each worker builds its own universe.
+`std::cell::OnceCell`), so `generate` parallelizes with processes: `jobs`
+splits the requests round-robin, and each worker builds its own universe
+from a `_Recipe` of the inputs. Graph objects and input lists are turned
+into the Turtle bytes `Universe` would build (`_portable`) before they are
+pickled. Workers save their cases and return summary rows; the first also
+writes `reference.nt`, and the parent writes `suite.json`. The CLI only
+parses arguments and calls `generate`.
 
 ## Known gaps
 

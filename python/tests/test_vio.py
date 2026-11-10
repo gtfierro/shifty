@@ -11,7 +11,7 @@ import rdflib
 from rdflib.compare import isomorphic
 
 import shifty
-from shifty.experimental.vio import ExpansionLimits, Universe, main
+from shifty.experimental.vio import ExpansionLimits, Universe, generate, main
 
 PREFIXES = """
 @prefix sh: <http://www.w3.org/ns/shacl#> .
@@ -473,6 +473,51 @@ def test_cli_jobs_write_the_same_suite(tmp_path):
     serial = run(1)
     assert len(serial) == 2 + 6 * 3
     assert run(3) == serial
+
+
+def test_generate_writes_and_returns_the_suite(tmp_path):
+    out = tmp_path / "suite"
+    suite = generate(
+        AHU_DATA,
+        AHU_SHAPES,
+        out,
+        budgets=[1, 2],
+        cases=2,
+        seed=5,
+        jobs=2,
+        focus="http://ex/ahu_1",
+    )
+    assert suite == json.loads((out / "suite.json").read_text())
+    assert [(c["k"], c["seed"]) for c in suite["cases"]] == [
+        (1, 5),
+        (1, 6),
+        (2, 5),
+        (2, 6),
+    ]
+    for row in suite["cases"]:
+        manifest = json.loads((out / row["path"] / "case.json").read_text())
+        assert {e["focus"] for e in manifest["injections"]} == {ex("ahu_1")}
+    assert (out / "reference.nt").read_text() == Universe(
+        AHU_DATA, AHU_SHAPES
+    ).reference_ntriples
+    with pytest.raises(ValueError, match="jobs"):
+        generate(AHU_DATA, AHU_SHAPES, tmp_path / "none", jobs=0)
+    assert not (tmp_path / "none").exists()
+
+
+def test_generate_takes_rdflib_graphs(tmp_path):
+    def files(out):
+        return {
+            str(p.relative_to(out)): p.read_bytes()
+            for p in sorted(out.rglob("*"))
+            if p.is_file()
+        }
+
+    data = rdflib.Graph().parse(data=AHU_DATA, format="turtle")
+    shapes = rdflib.Graph().parse(data=AHU_SHAPES, format="turtle")
+    generate(AHU_DATA, AHU_SHAPES, tmp_path / "text", budgets=[1, 3], cases=2)
+    generate(data, shapes, tmp_path / "graphs", budgets=[1, 3], cases=2, jobs=2)
+    assert files(tmp_path / "graphs") == files(tmp_path / "text")
 
 
 def test_case_manifest_matches_the_python_objects(ahu):

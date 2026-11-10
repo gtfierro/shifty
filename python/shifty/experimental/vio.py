@@ -59,7 +59,7 @@ from functools import cached_property
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Optional, Union, overload
 
-from .. import RepairDelta, _coalesce_graph_input, _to_rdf_input
+from .. import RepairDelta, _coalesce_graph_input, _to_rdf_input, _to_turtle_bytes
 from .._shifty import VioCase as _VioCase
 from .._shifty import VioUniverse as _VioUniverse
 
@@ -73,6 +73,7 @@ __all__ = [
     "Injection",
     "Operation",
     "Universe",
+    "generate",
     "main",
 ]
 
@@ -641,83 +642,175 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         "JOBS-th case (default 1)",
     )
     args = parser.parse_args(argv)
-    if args.jobs < 1:
-        parser.error("--jobs must be at least 1")
-
-    requests = [(k, args.seed + i) for k in args.k or [5] for i in range(args.cases)]
-    # Cases are independent, and a batch draws each one as a single draw
-    # would, so any split of the requests writes the same suite.
-    jobs = min(args.jobs, len(requests))
-    shares = [requests[i::jobs] for i in range(jobs)]
-    try:
-        if jobs == 1:
-            results = [_draw_share(args, shares[0], True)]
-        else:
-            from concurrent.futures import ProcessPoolExecutor
-
-            with ProcessPoolExecutor(jobs) as executor:
-                results = list(
-                    executor.map(
-                        _draw_share,
-                        [args] * jobs,
-                        shares,
-                        [i == 0 for i in range(jobs)],
-                    )
-                )
-    except ValueError as err:
-        print(f"error: {err}", file=sys.stderr)
-        return 1
-    baseline = results[0][0]
-    if baseline:
-        print(
-            f"warning: reference graph has {baseline} failing pairs; they are never"
-            " broken",
-            file=sys.stderr,
-        )
-    rows = sorted((row for _, rows, _ in results for row in rows), key=_row_order)
-    kinds: Counter[str] = sum((kinds for _, _, kinds in results), Counter())
-    suite = {
-        "baseline_failures": baseline,
-        "operation_kinds": dict(sorted(kinds.items())),
-        "cases": rows,
-    }
-    out = pathlib.Path(args.out)
-    (out / "suite.json").write_text(
-        json.dumps(suite, indent=2) + "\n", encoding="utf-8"
-    )
-    print(f"wrote {len(rows)} cases to {out}")
-    return 0
-
-
-def _draw_share(
-    args: argparse.Namespace, requests: list[tuple[int, int]], reference: bool
-) -> tuple[int, list[dict[str, Any]], Counter[str]]:
-    """Draw and save the cases for ``requests``, writing ``reference.nt``
-    too when ``reference`` is set. Returns the baseline failure count, one
-    summary row per case, and the operation kinds injected."""
 
     def load(path: Optional[str]) -> dict[str, float]:
         if not path:
             return {}
         return json.loads(pathlib.Path(path).read_text(encoding="utf-8"))
 
+    try:
+        suite = generate(
+            args.data,
+            args.shapes,
+            args.out,
+            budgets=args.k or [5],
+            cases=args.cases,
+            seed=args.seed,
+            jobs=args.jobs,
+            shape=args.shape,
+            predicate=args.predicate,
+            predicates=load(args.weights),
+            kinds=load(args.kind_weights),
+            materialize=args.materialize,
+            infer=args.infer,
+        )
+    except ValueError as err:
+        print(f"error: {err}", file=sys.stderr)
+        return 1
+    if suite["baseline_failures"]:
+        print(
+            f"warning: reference graph has {suite['baseline_failures']} failing"
+            " pairs; they are never broken",
+            file=sys.stderr,
+        )
+    print(f"wrote {len(suite['cases'])} cases to {args.out}")
+    return 0
+
+
+def generate(
+    data_graph: Any,
+    shacl_graph: Any,
+    out: Union[str, pathlib.Path],
+    *,
+    budgets: Iterable[int] = (5,),
+    cases: int = 10,
+    seed: int = 0,
+    jobs: int = 1,
+    shape: Optional[Names] = None,
+    predicate: Optional[Names] = None,
+    focus: Optional[Names] = None,
+    predicates: Optional[Mapping[str, float]] = None,
+    kinds: Optional[Mapping[str, float]] = None,
+    materialize: bool = False,
+    infer: bool = False,
+) -> dict[str, Any]:
+    """Draw a suite of test cases and write it under ``out``.
+
+    For each ``k`` in ``budgets``, ``cases`` cases are drawn with seeds
+    ``seed``, ``seed + 1``, and so on. Case ``i`` at ``k`` goes to
+    ``out/kNN/case-III/`` (see :meth:`Case.save`). ``reference.nt`` holds the
+    reference graph, and ``suite.json`` the returned summary: the baseline
+    failure count, the operation kinds injected, and one row per case.
+
+    ``shape``, ``predicate``, and ``focus`` filter as in
+    :meth:`Universe.where`, and ``predicates`` and ``kinds`` weight as in
+    :meth:`Universe.weighted`. ``materialize`` and ``infer`` are as in
+    :class:`Universe`.
+
+    ``data_graph`` and ``shacl_graph`` take anything :class:`Universe` takes,
+    including :class:`rdflib.Graph` objects and lists of inputs.
+
+    ``jobs`` worker processes split the cases. Each builds its own universe
+    and holds it in memory. Graph objects reach the workers as the Turtle
+    that :class:`Universe` would build from them, serialized once. Cases do
+    not depend on each other, so the suite is the same for any ``jobs``.
+    """
+    if jobs < 1:
+        raise ValueError(f"jobs must be at least 1, got {jobs}")
+    recipe = _Recipe(
+        _portable(data_graph),
+        _portable(shacl_graph),
+        str(out),
+        seed,
+        shape,
+        predicate,
+        focus,
+        dict(predicates or {}),
+        dict(kinds or {}),
+        materialize,
+        infer,
+    )
+    requests = [(k, seed + i) for k in budgets for i in range(cases)]
+    jobs = max(1, min(jobs, len(requests)))
+    shares = [requests[i::jobs] for i in range(jobs)]
+    if jobs == 1:
+        results = [_draw_share(recipe, shares[0], True)]
+    else:
+        from concurrent.futures import ProcessPoolExecutor
+
+        with ProcessPoolExecutor(jobs) as executor:
+            firsts = [i == 0 for i in range(jobs)]
+            results = list(executor.map(_draw_share, [recipe] * jobs, shares, firsts))
+    total: Counter[str] = Counter()
+    for _, _, counts in results:
+        total.update(counts)
+    suite = {
+        "baseline_failures": results[0][0],
+        "operation_kinds": dict(sorted(total.items())),
+        "cases": sorted(
+            (row for _, rows, _ in results for row in rows),
+            key=lambda row: (row["k"], row["seed"]),
+        ),
+    }
+    root = pathlib.Path(out)
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "suite.json").write_text(
+        json.dumps(suite, indent=2) + "\n", encoding="utf-8"
+    )
+    return suite
+
+
+def _portable(graph: Any) -> Any:
+    """``graph`` in a form that pickles cheaply and builds the same universe.
+    Strings, bytes, and paths stay as they are; graph objects and lists of
+    inputs become the Turtle bytes :class:`Universe` would make of them."""
+    if isinstance(graph, (str, bytes, pathlib.Path)):
+        return graph
+    return _to_turtle_bytes(_coalesce_graph_input(graph))
+
+
+@dataclass(frozen=True)
+class _Recipe:
+    """What a worker needs to rebuild the universe and save its cases."""
+
+    data_graph: Any
+    shacl_graph: Any
+    out: str
+    seed: int
+    shape: Optional[Names]
+    predicate: Optional[Names]
+    focus: Optional[Names]
+    predicates: dict[str, float]
+    kinds: dict[str, float]
+    materialize: bool
+    infer: bool
+
+
+def _draw_share(
+    recipe: _Recipe, requests: list[tuple[int, int]], reference: bool
+) -> tuple[int, list[dict[str, Any]], Counter[str]]:
+    """Draw and save the cases for ``requests``, writing ``reference.nt``
+    too when ``reference`` is set. Returns the baseline failure count, one
+    summary row per case, and the operation kinds injected."""
     universe = Universe(
-        args.data, args.shapes, materialize=args.materialize, infer=args.infer
+        recipe.data_graph,
+        recipe.shacl_graph,
+        materialize=recipe.materialize,
+        infer=recipe.infer,
     )
-    pool = universe.where(shape=args.shape, predicate=args.predicate).weighted(
-        load(args.weights), load(args.kind_weights)
-    )
+    view = universe.where(
+        shape=recipe.shape, predicate=recipe.predicate, focus=recipe.focus
+    ).weighted(recipe.predicates, recipe.kinds)
     # One streamed pass fills every case's reservoir; nothing else is stored.
-    cases = pool.draws(requests)
-    out = pathlib.Path(args.out)
+    cases = view.draws(requests)
+    out = pathlib.Path(recipe.out)
     out.mkdir(parents=True, exist_ok=True)
     if reference:
         (out / "reference.nt").write_text(universe.reference_ntriples, encoding="utf-8")
     rows = []
-    kinds: Counter[str] = Counter()
+    counts: Counter[str] = Counter()
     for case in cases:
-        i = case.seed - args.seed
-        path = case.save(out / f"k{case.k:02d}" / f"case-{i:03d}")
+        path = case.save(out / f"k{case.k:02d}" / f"case-{case.seed - recipe.seed:03d}")
         rows.append(
             {
                 "path": str(path.relative_to(out)),
@@ -727,12 +820,8 @@ def _draw_share(
                 "failures": len(case.failures),
             }
         )
-        kinds.update(k for e in case.injections for k in e.kinds)
-    return len(universe.baseline_failures), rows, kinds
-
-
-def _row_order(row: dict[str, Any]) -> tuple[int, int]:
-    return row["k"], row["seed"]
+        counts.update(k for e in case.injections for k in e.kinds)
+    return len(universe.baseline_failures), rows, counts
 
 
 if __name__ == "__main__":

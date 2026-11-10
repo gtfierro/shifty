@@ -144,15 +144,20 @@ keeps them.
 On 223P models ``add_value`` dominates, because nearly every property carries
 both ``sh:class`` and ``sh:maxCount``.
 
-Generate a suite from the command line
---------------------------------------
+Generate a suite
+----------------
 
-.. code-block:: bash
+``vio.generate`` draws a suite of cases and writes it to disk:
 
-   python -m shifty.experimental.vio --data reference.ttl --shapes shapes.ttl \
-       --out suite/ -k 2 -k 5 -k 10 -n 10 --seed 0
+.. code-block:: python
 
-This writes ten cases for each ``k``, drawn with seeds ``0`` to ``9``:
+   suite = vio.generate(
+       "reference.ttl", "shapes.ttl", "suite/",
+       budgets=(2, 5, 10), cases=10, seed=0,
+   )
+
+This draws ten cases for each ``k`` in ``budgets``, with seeds ``0`` to
+``9``, and writes:
 
 .. code-block:: text
 
@@ -165,22 +170,50 @@ This writes ten cases for each ``k``, drawn with seeds ``0`` to ``9``:
        case.json           Δ, Δ⁻¹, each injection, and every failing
                            (focus, statement) pair in G_test
 
-Pass ``--materialize`` when the model relies on SHACL-AF rules, as ASHRAE 223P
-models do. The rules then run once, and the closure becomes the reference
+It returns the contents of ``suite.json`` as a dict.
+
+The data and shapes take anything ``Universe`` takes: paths, URLs, Turtle
+strings or bytes, ``rdflib.Graph`` objects, or lists of these, which are
+merged. ``materialize`` and ``infer`` are as for ``Universe``. ``shape``,
+``predicate``, and ``focus`` filter as in ``where``, and ``predicates`` and
+``kinds`` weight as in ``weighted``:
+
+.. code-block:: python
+
+   import rdflib
+
+   model = rdflib.Graph().parse("model.ttl")
+   suite = vio.generate(
+       model, "223p.ttl", "suite/", materialize=True,
+       predicate=S223 + "hasMedium", kinds={"remove": 2},
+   )
+
+``jobs=N`` splits the cases across ``N`` worker processes. Each worker
+builds its own universe and draws every ``N``-th case. A case does not
+depend on the others, so the suite is the same for any ``N``. Each worker
+holds a full universe in memory, about 550 MB for NIST-IBAL. Graph objects
+are serialized to Turtle once and sent to the workers in that form, so
+any rdflib store works, including one that cannot be pickled.
+
+The command line runs ``generate``:
+
+.. code-block:: bash
+
+   python -m shifty.experimental.vio --data reference.ttl --shapes shapes.ttl \
+       --out suite/ -k 2 -k 5 -k 10 -n 10 --seed 0 --jobs 4
+
+``-k`` repeats, one per budget, and ``-n`` is ``cases``. Pass
+``--materialize`` when the model relies on SHACL-AF rules, as ASHRAE 223P
+models do: the rules then run once, and the closure becomes the reference
 graph. ``--shape`` and ``--predicate`` filter like ``where``, and both
 repeat. ``--weights`` and ``--kind-weights`` take JSON files of predicate and
 operation-kind weights.
-
-``-j``/``--jobs N`` splits the cases across ``N`` worker processes. Each
-worker builds its own universe and draws every ``N``-th case. A case does
-not depend on the others, so the suite is the same for any ``N``. Each
-worker holds a full universe in memory, about 550 MB for NIST-IBAL.
 
 Three examples in ``python/examples/`` run each step on their own:
 
 - ``vio_validate.py`` breaks a small graph, validates it, and repairs it.
 - ``vio_suite.py`` narrows and weights the universe, then draws a suite.
-- ``vio_223p.py`` draws a suite for a 223P model.
+- ``vio_223p.py`` generates a suite for a 223P model with ``vio.generate``.
 
 Bound the expansion
 -------------------
