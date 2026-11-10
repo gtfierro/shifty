@@ -171,9 +171,11 @@ graph. ``--shape`` and ``--predicate`` filter like ``where``, and both
 repeat. ``--weights`` and ``--kind-weights`` take JSON files of predicate and
 operation-kind weights.
 
-``python/examples/vio_walkthrough.py`` prints each stage on a small model.
-``python/examples/vio_223p.py`` builds a suite across budgets for a 223P
-model.
+Three examples in ``python/examples/`` run each step on their own:
+
+- ``vio_validate.py`` breaks a small graph, validates it, and repairs it.
+- ``vio_suite.py`` narrows and weights the universe, then draws a suite.
+- ``vio_223p.py`` draws a suite for a 223P model.
 
 Bound the expansion
 -------------------
