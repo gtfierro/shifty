@@ -12,48 +12,46 @@ The graph and the shapes
 
 Two sensors, each in a room. The shapes say every sensor needs one string
 label, a unit of ``"degC"`` or ``"degF"``, and a room that is an
-``ex:Room``.
+``ex:Room``:
 
-.. literalinclude:: ../../examples/violation-generation/break_a_graph.py
+.. literalinclude:: ../../examples/violation-generation/graph.py
    :language: python
-   :lines: 23-42
+   :start-after: """The graph and shapes for the violation-generation tutorial."""
 
-The script
-----------
-
-Save the shapes and data above together with this code as
-``break_a_graph.py``:
-
-.. literalinclude:: ../../examples/violation-generation/break_a_graph.py
-   :language: python
-   :lines: 15-21,45-
-
-Run it:
-
-.. program-output:: python break_a_graph.py
-   :cwd: ../../examples/violation-generation
-
-The steps below walk through the output.
+Each property shape has an IRI (``ex:label``, ``ex:unit``, ``ex:room``), so
+the validation reports below can name them.
 
 1. Check that the graph conforms
 --------------------------------
 
 ``vio`` only breaks graphs that conform. If a node already fails a shape,
-``vio`` leaves it alone.
+``vio`` leaves it alone. So check first:
+
+.. literalinclude:: ../../examples/violation-generation/step1_validate.py
+   :language: python
+   :start-after: # ---
+
+.. program-output:: python step1_validate.py
+   :cwd: ../../examples/violation-generation
 
 2. Draw a case
 --------------
-
-.. code-block:: python
-
-   case = vio.Universe(DATA, SHAPES).draw(k, seed=seed)
 
 A ``Universe`` holds every way ``vio`` found to break the graph. Each way
 is an *injection*: a few edits that make one node fail one shape.
 
 ``draw(2, seed=0)`` picks up to two injections that can be applied
-together. Here, ``ex:r1`` loses its type, so ``ex:s1`` now points at
-something that is not a room. ``ex:s2`` gets a unit that is not allowed.
+together:
+
+.. literalinclude:: ../../examples/violation-generation/step2_draw.py
+   :language: python
+   :start-after: # ---
+
+.. program-output:: python step2_draw.py
+   :cwd: ../../examples/violation-generation
+
+``ex:r1`` loses its type, so ``ex:s1`` now points at something that is not
+a room. ``ex:s2`` gets a unit that is not allowed.
 
 The same seed gives the same case every time. Try another seed to see a
 different case.
@@ -61,27 +59,62 @@ different case.
 3. Read the edits
 -----------------
 
-``case.delta`` holds the edits: triples deleted (``-``) and added
-(``+``). ``case.graph()`` returns the broken graph.
+``case.delta`` holds the edits, as triples to delete and to add:
+
+.. literalinclude:: ../../examples/violation-generation/step3_edits.py
+   :language: python
+   :start-after: # ---
+
+.. program-output:: python step3_edits.py
+   :cwd: ../../examples/violation-generation
 
 4. Validate the broken graph
 ----------------------------
 
-The validator reports two violations, and ``case.failures`` expects the
-same two nodes to fail. The case does what it says.
+``case.graph()`` is the original graph with those edits applied. Validate
+it:
+
+.. literalinclude:: ../../examples/violation-generation/step4_broken.py
+   :language: python
+   :start-after: # ---
+
+.. program-output:: python step4_broken.py
+   :cwd: ../../examples/violation-generation
+
+The case already knows which nodes should fail. Compare
+``case.failures``:
+
+.. literalinclude:: ../../examples/violation-generation/step4_failures.py
+   :language: python
+   :start-after: # ---
+
+.. program-output:: python step4_failures.py
+   :cwd: ../../examples/violation-generation
+
+The two agree. Every failure a case lists has been confirmed this way.
 
 5. Repair it
 ------------
 
-``case.repair`` undoes ``case.delta``. Apply it, and the graph conforms
-again.
+``case.repair`` undoes ``case.delta``. ``case.apply`` applies a set of
+edits to the broken graph:
 
-To score a repair tool, apply the tool's edits instead, and compare:
+.. literalinclude:: ../../examples/violation-generation/step5_repair.py
+   :language: python
+   :start-after: # ---
+
+.. program-output:: python step5_repair.py
+   :cwd: ../../examples/violation-generation
+
+The graph conforms again.
+
+To score a repair tool, apply the tool's edits instead of ``case.repair``,
+and compare the result with the original:
 
 .. code-block:: python
 
    candidate = case.apply(tool_delta)
-   intended = case.apply(case.repair)  # the original graph
+   intended = case.apply(case.repair)
 
 Next steps
 ----------
