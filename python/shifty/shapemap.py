@@ -283,6 +283,17 @@ class ShapeRef:
 Qualifier = Union[Cls, Const, Datatype, ShapeRef]
 
 
+def _pick_qualifier(qualifiers: Sequence[Qualifier]) -> Optional[Qualifier]:
+    """Choose a stable representative when a slot has several qualifiers."""
+    if not qualifiers:
+        return None
+
+    def identity(q: Qualifier) -> tuple[str, str]:
+        return type(q).__name__, q.term.n3() if isinstance(q, Const) else q.iri
+
+    return min(qualifiers, key=identity)
+
+
 def _qualifier_local(q: Qualifier) -> str:
     if isinstance(q, (Cls, Datatype, ShapeRef)):
         return _local(q.iri)
@@ -418,7 +429,7 @@ def _qualifier_from_json(
 
     Handles the common encodings: `sh:class` (class-membership count over a
     `TestConst`), `sh:hasValue`/`TestConst`, `sh:datatype`/`TestType`, a `Not`
-    from the ∀-encoding, and a conjunction whose first labeled child wins.
+    from the ∀-encoding, and a conjunction with a deterministic representative.
     When `shape_name_of` resolves the qualifier's own (possibly `Not`-wrapped)
     id to a named shape, that name wins as a `ShapeRef` — a `sh:node
     <named-shape>` reference names itself, regardless of what it expands to.
@@ -452,10 +463,12 @@ def _qualifier_from_json(
             return inner
         return None
     if "And" in constraint or "Or" in constraint:
+        qualifiers = []
         for child in constraint.get("And", constraint.get("Or", [])):
             found = _qualifier_from_json(catalog, shape_name_of, child)
             if found is not None:
-                return found
+                qualifiers.append(found)
+        return _pick_qualifier(qualifiers)
     return None
 
 
@@ -472,6 +485,7 @@ class _SlotLayout:
     identity: str
     constraint_components: Optional[tuple[str, ...]]
     vacuous_property: bool
+    count_evidence: _CountEvidence
 
 
 @dataclasses.dataclass
@@ -499,7 +513,7 @@ def _derive_key_info(
         if len(paths) == 1:
             (path,) = paths
             quals = [info.qualifier for info in infos if info.qualifier is not None]
-            return _KeyInfo(path, quals[0] if quals else None, "count")
+            return _KeyInfo(path, _pick_qualifier(quals), "count")
         return _KeyInfo(None, None, "and" if is_and else "or")
     return _KeyInfo(None, None, _kind_tag(constraint))
 
@@ -574,6 +588,70 @@ def _count_domains(catalog: _Catalog, constraint_id: int) -> set[tuple[str, str]
     return set()
 
 
+def _top_count_ids(catalog: _Catalog, constraint_id: Optional[int]) -> Iterator[int]:
+    pending = [constraint_id]
+    seen = set()
+    while pending:
+        current = catalog.unwrap(pending.pop())
+        if current is None or current in seen:
+            continue
+        seen.add(current)
+        body = catalog.get(current)
+        if not isinstance(body, dict):
+            continue
+        if "Count" in body:
+            yield current
+        else:
+            pending.extend(body.get("And", body.get("Or", [])))
+
+
+@dataclasses.dataclass(frozen=True)
+class _CountEvidence:
+    universal: frozenset[int]
+    ordinary: frozenset[int]
+
+    def role(self, node: dict) -> Optional[bool]:
+        """True for value checks, False for authored counts, None if ambiguous."""
+        shape = _details(node).get("shape")
+        universal, ordinary = shape in self.universal, shape in self.ordinary
+        return universal if universal != ordinary else None
+
+    def complete_values(self, evidence: dict) -> bool:
+        return all(
+            self.role(node) is False
+            or (
+                self.role(node) is True
+                and (
+                    node.get("type") == "for_all_held"
+                    or (self.ordinary and node.get("type") == "count_held")
+                )
+            )
+            for node in _top_counts(evidence)
+        )
+
+
+def _count_evidence(
+    source: _Catalog,
+    normalized: _Catalog,
+    constraint_map: dict[int, int],
+    source_id: int,
+) -> _CountEvidence:
+    universal: set[int] = set()
+    ordinary: set[int] = set()
+    for raw in _top_count_ids(source, source_id):
+        count = source.get(raw)["Count"]
+        qualifier = source.get(count["qualifier"])
+        is_universal = (
+            count.get("min") is None
+            and count.get("max") == 0
+            and isinstance(qualifier, dict)
+            and "Not" in qualifier
+        )
+        destination = universal if is_universal else ordinary
+        destination.update(_top_count_ids(normalized, constraint_map.get(raw)))
+    return _CountEvidence(frozenset(universal), frozenset(ordinary))
+
+
 def _severity_of(
     normalized_catalog: _Catalog,
     normalized_ref: Optional[int],
@@ -620,21 +698,25 @@ def _direct_children(node: dict) -> list[dict]:
     return []
 
 
-def _is_rejected_count_high(node: dict, *, rejected_count_high: bool = False) -> bool:
-    """Recognize a universal counterexample using the authored constraint.
-
-    Class checks can normalize their negation into a count, leaving no
-    ``per_value`` failures. An empty list therefore cannot identify an
-    ordinary cardinality overflow.
-    """
+def _is_rejected_count_high(
+    node: dict,
+    *,
+    rejected_count_high: bool = False,
+    count_evidence: Optional[_CountEvidence] = None,
+) -> bool:
+    """Classify counterexamples from source provenance, never witness layout."""
     return node.get("type") == "count_high" and (
-        (rejected_count_high and _details(node).get("max") == 0)
-        or bool(_details(node).get("per_value"))
+        count_evidence.role(node) is True
+        if count_evidence is not None
+        else rejected_count_high and _details(node).get("max") == 0
     )
 
 
 def _top_values(
-    node: Optional[dict], *, rejected_count_high: bool = False
+    node: Optional[dict],
+    *,
+    rejected_count_high: bool = False,
+    count_evidence: Optional[_CountEvidence] = None,
 ) -> "list[Term]":
     """The values bound at the *top level* of an evidence subtree: what the
     property's own path matched, without descending into nested qualifier
@@ -643,21 +725,39 @@ def _top_values(
         return []
     kind = node.get("type")
     d = _details(node)
+    if (
+        count_evidence is not None
+        and count_evidence.ordinary
+        and count_evidence.role(node) is True
+    ):
+        # A passing universal restricts all path values; the authored count
+        # domains determine which of those values belong in this binding.
+        return []
     if kind == "count_held":
         found = [_term_from_json(m[0]) for m in d.get("matches", [])]
     elif kind == "for_all_held":
-        found = [_term_from_json(v[0]) for v in d.get("values", [])]
+        # A normalized universal can implement an authored zero-count over
+        # a negated qualifier. Its checked values then reject that qualifier.
+        found = (
+            []
+            if count_evidence is not None and count_evidence.role(node) is False
+            else [_term_from_json(v[0]) for v in d.get("values", [])]
+        )
     elif kind == "count_low":
         found = [_term_from_json(m["value"]) for m in d.get("qualifying_matches", [])]
     elif kind == "count_high" and not _is_rejected_count_high(
-        node, rejected_count_high=rejected_count_high
+        node, rejected_count_high=rejected_count_high, count_evidence=count_evidence
     ):
         found = [_term_from_json(m[0]) for m in d.get("matched", [])]
     elif kind in _TRANSPARENT:
         found = [
             v
             for child in _direct_children(node)
-            for v in _top_values(child, rejected_count_high=rejected_count_high)
+            for v in _top_values(
+                child,
+                rejected_count_high=rejected_count_high,
+                count_evidence=count_evidence,
+            )
         ]
     else:
         found = []
@@ -690,29 +790,45 @@ def _missing_count(node: Optional[dict]) -> int:
 
 
 def _observed_count(
-    node: Optional[dict], *, rejected_count_high: bool = False
+    node: Optional[dict],
+    *,
+    rejected_count_high: bool = False,
+    count_evidence: Optional[_CountEvidence] = None,
 ) -> Optional[int]:
     observations = set()
     for n in _top_counts(node):
         d = _details(n)
+        role = count_evidence.role(n) if count_evidence is not None else False
+        if count_evidence is not None and role is None:
+            continue
+        if count_evidence is not None and count_evidence.ordinary and role is True:
+            continue
         if n.get("type") == "count_held" and d.get("observed_count") is not None:
-            observations.add(d["observed_count"])
+            if role is False:
+                observations.add(d["observed_count"])
         if n.get("type") == "count_low" and d.get("have") is not None:
             observations.add(d["have"])
         if n.get("type") == "count_high" and not _is_rejected_count_high(
-            n, rejected_count_high=rejected_count_high
+            n, rejected_count_high=rejected_count_high, count_evidence=count_evidence
         ):
             observations.add(len(d["matched"]))
         if n.get("type") == "for_all_held":
-            observations.add(len(d["values"]))
+            observations.add(
+                0 if count_evidence is not None and role is False else len(d["values"])
+            )
     return next(iter(observations)) if len(observations) == 1 else None
 
 
 def _rejected_values(
-    node: Optional[dict], *, rejected_count_high: bool = False
+    node: Optional[dict],
+    *,
+    rejected_count_high: bool = False,
+    count_evidence: Optional[_CountEvidence] = None,
 ) -> "list[Term]":
     out: "list[Term]" = []
     for n in _top_counts(node):
+        if count_evidence is not None and count_evidence.role(n) is None:
+            continue
         for rc in _details(n).get("rejected_candidates", []):
             term = _term_from_json(rc["value"])
             if term not in out:
@@ -720,7 +836,9 @@ def _rejected_values(
         # `forall path . constraint` lowers to `Count(max=0, Not(constraint))`.
         # Its CountHigh witness carries rejected candidates, even when the
         # normalized qualifier leaves the per-value failure list empty.
-        if _is_rejected_count_high(n, rejected_count_high=rejected_count_high):
+        if _is_rejected_count_high(
+            n, rejected_count_high=rejected_count_high, count_evidence=count_evidence
+        ):
             for value in _details(n).get("excess_values", []):
                 term = _term_from_json(value[0])
                 if term not in out:
@@ -833,6 +951,7 @@ class Binding:
         constraint_components: Optional[tuple[str, ...]] = None,
         vacuous_property: bool = False,
         algebra_kind: Optional[str] = None,
+        count_evidence: Optional[_CountEvidence] = None,
     ) -> None:
         self.key = key
         self.status = status
@@ -848,6 +967,7 @@ class Binding:
         self.algebra_kind = algebra_kind if algebra_kind is not None else key.kind
         self._vacuous_property = vacuous_property
         self._rejected_count_high = rejected_count_high
+        self._count_evidence = count_evidence
         self._evidence = evidence
         self._resolve = resolve
         self._resolve_observation = resolve_observation
@@ -882,6 +1002,8 @@ class Binding:
         qualifying near-matches (same as ``partial_values``). ``None`` means
         the complete qualifying set cannot be recovered without a session,
         including a failing universal check whose witness omits valid values.
+        Without a session, mixed count domains also report an unknown set:
+        matches for an ordinary count may not satisfy a qualified count.
         An unbounded
         ``sh:qualifiedValueShape`` is vacuous for validation but still
         extracts every qualifying value when the originating session is
@@ -893,16 +1015,25 @@ class Binding:
             else:
                 evidence = self.evidence
                 self._values = (
-                    _top_values(evidence, rejected_count_high=self._rejected_count_high)
+                    _top_values(
+                        evidence,
+                        rejected_count_high=self._rejected_count_high,
+                        count_evidence=self._count_evidence,
+                    )
                     if evidence is not None
+                    and not self._ambiguous_counts
                     and not (
                         self._vacuous_property and evidence.get("type") == "irrefutable"
                     )
-                    and not any(
-                        _is_rejected_count_high(
-                            node, rejected_count_high=self._rejected_count_high
+                    and (
+                        self._count_evidence.complete_values(evidence)
+                        if self._count_evidence is not None
+                        else not any(
+                            _is_rejected_count_high(
+                                node, rejected_count_high=self._rejected_count_high
+                            )
+                            for node in _top_counts(evidence)
                         )
-                        for node in _top_counts(evidence)
                     )
                     else None
                 )
@@ -927,7 +1058,9 @@ class Binding:
             return observation[1]
         return (
             _rejected_values(
-                self._evidence, rejected_count_high=self._rejected_count_high
+                self._evidence,
+                rejected_count_high=self._rejected_count_high,
+                count_evidence=self._count_evidence,
             )
             if not self.ok
             else []
@@ -961,12 +1094,15 @@ class Binding:
         if observation is not None:
             return observation[2]
         return _observed_count(
-            self.evidence, rejected_count_high=self._rejected_count_high
+            self.evidence,
+            rejected_count_high=self._rejected_count_high,
+            count_evidence=self._count_evidence,
         )
 
     @property
     def expects_single(self) -> bool:
-        return self._min == 1 and self._max == 1
+        """Whether one count domain declares a 1..1 obligation."""
+        return not self._ambiguous_counts and self._min == 1 and self._max == 1
 
     @property
     def annotated_values(self) -> "list[BoundValue]":
@@ -996,6 +1132,8 @@ class Binding:
         no authored component metadata, that tree is also the default.
         Component names describe declarations; a failed compound binding
         does not imply that every declared constraint failed.
+        Bounds applying to different value sets are not combined into one
+        required-count interval.
         """
         if algebra or self.constraint_components is None:
             evidence = self.evidence
@@ -1012,13 +1150,16 @@ class Binding:
         elif not labels:
             lines.append("  no authored constraint components")
 
-        bounds = []
-        if self.min is not None:
-            bounds.append(f"at least {self.min}")
-        if self.max is not None:
-            bounds.append(f"at most {self.max}")
-        if bounds:
-            lines.append("  required count: " + ", ".join(bounds))
+        if self._ambiguous_counts:
+            lines.append("  count requirements apply to different value sets")
+        else:
+            bounds = []
+            if self.min is not None:
+                bounds.append(f"at least {self.min}")
+            if self.max is not None:
+                bounds.append(f"at most {self.max}")
+            if bounds:
+                lines.append("  required count: " + ", ".join(bounds))
         if self.path is not None:
             observed = self.observed
             count_text = str(observed) if observed is not None else "unavailable"
@@ -1268,6 +1409,7 @@ class ShapeMap:
         source_catalog = _Catalog(data["constraints"]["source"])
         normalized_catalog = _Catalog(data["constraints"]["normalized"])
         layout = run._binding_layout()
+        constraint_map = run._binding_constraint_map()
         # Accept the public wrapper, the native session, and lightweight
         # session proxies used by instrumentation callers.
         inner: Any = getattr(session, "_inner", session)
@@ -1304,6 +1446,7 @@ class ShapeMap:
                     focus,
                     source_catalog,
                     normalized_catalog,
+                    constraint_map,
                     inner,
                     names_table,
                     shape_name_of,
@@ -1330,6 +1473,7 @@ def _build_mapping(
     focus: dict,
     source_catalog: _Catalog,
     normalized_catalog: _Catalog,
+    constraint_map: dict[int, int],
     inner,
     names_table: "dict[int, list[str]]",
     shape_name_of: "Optional[Callable[[int], Optional[str]]]",
@@ -1426,6 +1570,12 @@ def _build_mapping(
             identity,
             (tuple(components) if components is not None else None),
             vacuous_property,
+            _count_evidence(
+                source_catalog,
+                normalized_catalog,
+                constraint_map,
+                owner if len(groups[owner]) > 1 else source_id,
+            ),
         )
 
     cache_key = tuple(sorted(groups))
@@ -1526,6 +1676,7 @@ def _build_mapping(
             components,
             ordered.slots[owner].vacuous_property,
             algebra_kind=info.kind,
+            count_evidence=ordered.slots[owner].count_evidence,
         )
 
     return Mapping(

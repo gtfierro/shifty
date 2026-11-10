@@ -22,7 +22,7 @@ members = [
 resolver = "2"
 
 [workspace.package]
-version = "0.6.0-alpha.1"
+version = "0.6.0-alpha.2"
 authors = ["Gabe Fierro <gtfierro@mines.edu>"]
 license = "BSD-3-Clause"
 edition = "2024"
@@ -34,19 +34,19 @@ documentation = "https://shifty.gtf.fyi/"
 
 [workspace.dependencies]
 # internal crates
-shifty-algebra = { path = "crates/shifty-algebra", version = "0.6.0-alpha.1" }
-shifty-parse = { path = "crates/shifty-parse", version = "0.6.0-alpha.1" }
-shifty-opt = { path = "crates/shifty-opt", version = "0.6.0-alpha.1" }
-shifty-engine = { path = "crates/shifty-engine", version = "0.6.0-alpha.1" }
-shifty-repair = { path = "crates/shifty-repair", version = "0.6.0-alpha.1" }
+shifty-algebra = { path = "crates/shifty-algebra", version = "0.6.0-alpha.2" }
+shifty-parse = { path = "crates/shifty-parse", version = "0.6.0-alpha.2" }
+shifty-opt = { path = "crates/shifty-opt", version = "0.6.0-alpha.2" }
+shifty-engine = { path = "crates/shifty-engine", version = "0.6.0-alpha.2" }
+shifty-repair = { path = "crates/shifty-repair", version = "0.6.0-alpha.2" }
 # experimental: may change in any release
-shifty-experimental = { path = "crates/experimental/shifty-experimental", version = "0.6.0-alpha.1" }
-shapeshift = { path = "crates/experimental/shapeshift", version = "0.6.0-alpha.1" }
-shapeshift-macro = { path = "crates/experimental/shapeshift-macro", version = "0.6.0-alpha.1" }
-shapeshift-parse = { path = "crates/experimental/shapeshift-parse", version = "0.6.0-alpha.1" }
-shapeshift-raise = { path = "crates/experimental/shapeshift-raise", version = "0.6.0-alpha.1" }
-shapeshift-import = { path = "crates/experimental/shapeshift-import", version = "0.6.0-alpha.1" }
-tree-sitter-shapeshift = { path = "crates/experimental/tree-sitter-shapeshift", version = "0.6.0-alpha.1" }
+shifty-experimental = { path = "crates/experimental/shifty-experimental", version = "0.6.0-alpha.2" }
+shapeshift = { path = "crates/experimental/shapeshift", version = "0.6.0-alpha.2" }
+shapeshift-macro = { path = "crates/experimental/shapeshift-macro", version = "0.6.0-alpha.2" }
+shapeshift-parse = { path = "crates/experimental/shapeshift-parse", version = "0.6.0-alpha.2" }
+shapeshift-raise = { path = "crates/experimental/shapeshift-raise", version = "0.6.0-alpha.2" }
+shapeshift-import = { path = "crates/experimental/shapeshift-import", version = "0.6.0-alpha.2" }
+tree-sitter-shapeshift = { path = "crates/experimental/tree-sitter-shapeshift", version = "0.6.0-alpha.2" }
 
 # external
 #

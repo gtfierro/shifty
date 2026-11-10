@@ -1,9 +1,9 @@
 Upgrading to 0.6
 ================
 
-Try the first alpha with ``python -m pip install "pyshifty[rdflib]==0.6.0a1"``.
-The corresponding Rust and CLI version is ``0.6.0-alpha.1`` and the release tag
-is ``v0.6.0-alpha.1``. The changes below apply when upgrading from 0.5.x.
+Try the latest alpha with ``python -m pip install "pyshifty[rdflib]==0.6.0a2"``.
+The corresponding Rust and CLI version is ``0.6.0-alpha.2`` and the release tag
+is ``v0.6.0-alpha.2``. The changes below apply when upgrading from 0.5.x.
 
 Unsupported features fail by default
 ------------------------------------
@@ -100,8 +100,9 @@ either. Standalone ``infer`` now accepts an optional third options argument for
 Shape-map kinds describe authored constraints
 ---------------------------------------------
 
-``Key.kind`` now identifies the authored SHACL family. A pattern binding has
-``kind="pattern"`` and a datatype binding has ``kind="datatype"``. Ordinary
+Starting with alpha.2, ``Key.kind`` identifies the authored SHACL family. A
+pattern binding has ``kind="pattern"`` and a datatype binding has
+``kind="datatype"``. Ordinary
 cardinalities remain ``"count"``; qualified cardinalities use
 ``"qualified_count"``. A binding combining families has ``kind="compound"``;
 inspect ``binding.constraint_components`` for its full component IRIs.

@@ -118,3 +118,44 @@ def test_by_name_uses_order_for_duplicate_names():
     )
     for mapping in shifty.shape_map(DATA, shapes, infer=False):
         assert mapping.by_name("same").min == 1
+
+
+@pytest.mark.parametrize("sibling", [False, True])
+def test_multiple_class_qualifiers_are_stable_across_processes(sibling):
+    other = "; sh:property [ sh:path ex:q ; sh:maxCount 1 ]" if sibling else ""
+    documents = [
+        PREFIXES
+        + f"""
+        ex:S a sh:NodeShape ; sh:targetNode ex:a ;
+            sh:property [ sh:path ex:p ; sh:class {classes} ; sh:minCount 1 ] {other} .
+        """
+        for classes in ("ex:First, ex:Second", "ex:Second, ex:First")
+    ]
+    data = PREFIXES + "ex:a ex:p ex:v . ex:v a ex:First, ex:Second ."
+    script = """
+import json, sys, shifty
+shapes, data = json.loads(sys.stdin.read())
+result = []
+for _ in range(3):
+    session = shifty.EvidenceSession(shapes, data, infer=False)
+    run = session.validate()
+    for origin in (None, session):
+        (mapping,) = shifty.ShapeMap.from_run(run, origin)
+        binding = next(b for b in mapping.values() if b.path == shifty.Pred("http://ex/p"))
+        result.append([str(binding.key), binding.qualifier.iri, binding.key.kind])
+print(json.dumps(result))
+"""
+    results = []
+    for shapes in documents * 4:
+        results.extend(
+            json.loads(
+                subprocess.check_output(
+                    [sys.executable, "-c", script],
+                    input=json.dumps([shapes, data]),
+                    text=True,
+                )
+            )
+        )
+    assert all(
+        result == ["p→First", "http://ex/First", "compound"] for result in results
+    )

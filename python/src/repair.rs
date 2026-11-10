@@ -2116,6 +2116,10 @@ impl EvidenceValidationOutcome {
         self.binding_layout.entries().clone()
     }
 
+    fn _binding_constraint_map(&self) -> HashMap<u32, u32> {
+        self.binding_layout.constraint_map()
+    }
+
     #[getter]
     fn statements(&self, py: Python<'_>) -> Vec<Py<PyStatementEvaluation>> {
         self.statements
@@ -2437,6 +2441,14 @@ impl EvidenceSession {
         let binding_layout = Arc::new(shapemap::BindingLayout::new(
             Arc::clone(&raw_schema),
             Arc::clone(&shapes),
+            (0..raw_schema.arena.len())
+                .filter_map(|id| {
+                    session
+                        .prepared_evidence()
+                        .normalized_constraint(ShapeId(id as u32))
+                        .map(|normalized| (id as u32, normalized.0))
+                })
+                .collect(),
         ));
 
         Ok(Self {

@@ -38,6 +38,14 @@ declarations, not per-component verdicts. `explain(algebra=True)` retains the
 evidence-tree rendering, which is also the fallback without source metadata.
 Summary extraction shares the binding's lazy observation cache.
 
+Evidence readers classify each count using its raw-to-normalized constraint
+mapping, retained alongside the run's binding layout. A nonempty `per_value`
+list is not enough to identify a universal: negated qualified counts can have
+the same witness structure. Universal successes constrain path values but do
+not add matches to an authored count's extraction domain. Their counterexample
+counts also do not contribute to the authored count's observation. If source
+roles cannot be distinguished after normalization, extraction remains unknown.
+
 `Mapping` implements the standard mapping protocol over `Key → Binding`.
 Successful and unsuccessful views both yield `(Key, Binding)` pairs.
 `value_map` projects bound values, optionally by authored name and with Python

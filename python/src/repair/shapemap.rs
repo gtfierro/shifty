@@ -114,6 +114,7 @@ pub(super) struct BindingLayout {
     schema: Arc<Schema>,
     shapes: Arc<Loaded>,
     entries: OnceLock<LayoutEntries>,
+    constraint_map: HashMap<u32, u32>,
 }
 
 pub(super) type Observation = (Vec<String>, Vec<String>, Option<u64>);
@@ -307,12 +308,21 @@ impl super::EvidenceSession {
 }
 
 impl BindingLayout {
-    pub(super) fn new(schema: Arc<Schema>, shapes: Arc<Loaded>) -> Self {
+    pub(super) fn new(
+        schema: Arc<Schema>,
+        shapes: Arc<Loaded>,
+        constraint_map: HashMap<u32, u32>,
+    ) -> Self {
         Self {
             schema,
             shapes,
             entries: OnceLock::new(),
+            constraint_map,
         }
+    }
+
+    pub(super) fn constraint_map(&self) -> HashMap<u32, u32> {
+        self.constraint_map.clone()
     }
 
     pub(super) fn entries(&self) -> &LayoutEntries {
