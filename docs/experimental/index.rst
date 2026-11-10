@@ -6,8 +6,8 @@ Experimental
 
    Everything here can change in any release, without a deprecation period:
    the languages, the commands, the ``shifty.experimental`` Python modules,
-   the ``shifty-experimental`` Rust crate, and the Rust repair API. Pin the Shifty version if you
-   depend on them.
+   the ``shifty-experimental`` Rust crate, and the Rust repair API. Pin the
+   Shifty version if you depend on them.
 
 These features are working and tested, but their interfaces are still
 settling.

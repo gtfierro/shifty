@@ -137,8 +137,7 @@ a triple in both is added.
 Check it
 --------
 
-An edit that fixes one node can break another. ``gate`` validates the whole
-patched graph without applying anything:
+``gate`` validates the whole patched graph without applying anything:
 
 .. code-block:: python
 

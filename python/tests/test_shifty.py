@@ -63,23 +63,33 @@ def test_version_is_programmatically_available():
 
 
 @pytest.mark.parametrize(
-    ("name", "new_name"),
+    ("legacy", "replacement"),
     [
-        ("RepairSession", "RepairSession"),
-        ("Failure", "Failure"),
         ("FocusWitness", "Failure"),
+        ("FocusSatisfaction", "Satisfaction"),
     ],
 )
-def test_repair_names_point_to_experimental_repair(name, new_name):
-    message = f"from shifty.experimental.repair import {new_name}"
+def test_released_repair_type_aliases_warn(legacy, replacement):
+    with pytest.warns(DeprecationWarning, match=f"use shifty.{replacement}"):
+        value = getattr(shifty, legacy)
+    assert value is getattr(shifty, replacement)
+
+
+def test_repair_names_point_to_experimental_repair():
+    message = "from shifty.experimental.repair import RepairSession"
     with pytest.raises(AttributeError, match=re.escape(message)):
-        getattr(shifty, name)
-    assert hasattr(repair, new_name)
-    assert name not in dir(shifty)
+        shifty.RepairSession
+    assert "RepairSession" not in dir(shifty)
 
 
-def test_graph_edits_stay_in_shifty():
-    assert shifty.RepairDelta is repair.RepairDelta
+def test_moved_names_match_experimental_repair():
+    native = set(repair.__all__) - set(shifty.__all__)
+    assert shifty._MOVED_TO_EXPERIMENTAL_REPAIR == native
+
+
+def test_evidence_and_graph_edits_stay_in_shifty():
+    for name in ("Failure", "Satisfaction", "Target", "RepairDelta"):
+        assert getattr(shifty, name) is getattr(repair, name)
     assert callable(shifty.delta_from_graph)
 
 

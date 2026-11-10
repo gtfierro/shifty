@@ -12,8 +12,9 @@ node conform, and applies the ones you choose. It decides nothing itself::
     failure = session.witnesses()[0]
     tree = failure.repair_tree()
 
-Edits are :class:`shifty.RepairDelta` values, which stay in ``shifty`` because
-:meth:`shifty.EvidenceSession.revalidate` takes them too.
+Failures and edits stay in ``shifty``, because the stable evidence API uses
+them too: ``shifty.Failure``, ``shifty.Satisfaction`` and ``shifty.RepairDelta``.
+This module re-exports them so a repair driver needs one import.
 """
 
 from __future__ import annotations
@@ -21,22 +22,9 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Optional
 
 from .. import (
+    Failure,
     GraphInputs,
     RepairDelta,
-    _coalesce_graph_input,
-    _RdfInput,
-    _to_rdf_input,
-)
-from .._shifty import (
-    Choice,
-    ChoiceKind,
-    Failure,
-    Hole,
-    Instantiated,
-    RepairOrigin,
-    RepairOutcome,
-    RepairPlan,
-    RepairTree,
     SatAtom,
     Satisfaction,
     SatKind,
@@ -44,6 +32,20 @@ from .._shifty import (
     TargetKind,
     WitnessAtom,
     WitnessKind,
+    _coalesce_graph_input,
+    _RdfInput,
+    _to_rdf_input,
+    delta_from_graph,
+)
+from .._shifty import (
+    Choice,
+    ChoiceKind,
+    Hole,
+    Instantiated,
+    RepairOrigin,
+    RepairOutcome,
+    RepairPlan,
+    RepairTree,
 )
 from .._shifty import (
     RepairSession as _RustRepairSession,
@@ -70,6 +72,8 @@ __all__ = [
     "Choice",
     "ChoiceKind",
     "Instantiated",
+    "RepairDelta",
+    "delta_from_graph",
 ]
 
 
@@ -143,7 +147,7 @@ class RepairSession:
         )
 
     @classmethod
-    def _wrap(cls, inner: _RustRepairSession) -> "RepairSession":
+    def _wrap(cls, inner: _RustRepairSession) -> RepairSession:
         self = cls.__new__(cls)
         self._inner = inner
         return self
@@ -170,7 +174,7 @@ class RepairSession:
         :class:`ValueError` if no shape is named ``shape_iri``."""
         return self._inner.witnesses_for(shape_iri)
 
-    def satisfactions_for(self, shape_iri: str) -> list["Satisfaction"]:
+    def satisfactions_for(self, shape_iri: str) -> list[Satisfaction]:
         """The satisfaction horizon for a single shape: one
         :class:`Satisfaction` per *passing* ``(focus node, statement)``
         whose statement targets ``shape_iri`` — the dual of
@@ -187,7 +191,7 @@ class RepairSession:
         of the delta is a net-add (the re-add wins)."""
         return self._inner.gate(delta)
 
-    def apply(self, delta: RepairDelta) -> "rdflib.Graph":
+    def apply(self, delta: RepairDelta) -> rdflib.Graph:
         """Materialize ``G ⊕ ΔG`` as a fresh :class:`rdflib.Graph`.
 
         Deletes are applied first, then adds, so a triple present in both sides
@@ -198,7 +202,7 @@ class RepairSession:
         g.parse(data=self._inner.apply_ntriples(delta), format="nt")
         return g
 
-    def to_graph(self) -> "rdflib.Graph":
+    def to_graph(self) -> rdflib.Graph:
         """The session's current graph as an :class:`rdflib.Graph` — ``G`` with
         every accepted ``ΔG`` (via :meth:`advance`) already applied."""
         import rdflib
@@ -207,12 +211,12 @@ class RepairSession:
         g.parse(data=self._inner.current_ntriples(), format="nt")
         return g
 
-    def advance(self, delta: RepairDelta) -> "RepairSession":
+    def advance(self, delta: RepairDelta) -> RepairSession:
         """A *new* session over ``G ⊕ ΔG`` (same schema, no re-inference) so you
         can accept a repair and re-witness from the patched graph."""
         return RepairSession._wrap(self._inner.advance(delta))
 
-    def repair_node_against(self, node: str, shape_id: int) -> "Optional[RepairTree]":
+    def repair_node_against(self, node: str, shape_id: int) -> Optional[RepairTree]:
         """Synthesize a tree that makes ``node`` conform to sub-shape ``shape_id``
         — the building block for repairing a ``conforms to`` hole (see
         :attr:`Hole.conforms_to` / :attr:`Hole.conforms_to_shapes`). Returns

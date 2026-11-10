@@ -6,9 +6,8 @@ Symbolic repair
 A validation report says what is wrong. It does not say what to change.
 Symbolic repair works out the edits that would make a failing node conform.
 
-It stops short of choosing them. A shape can say that a person needs an
-email address, but not which address is theirs. So Shifty returns a template
-with holes and choices in it, and your code fills them in.
+It stops short of choosing them. Shifty returns a template with holes and
+choices in it, and your code fills them in.
 
 .. code-block:: python
 

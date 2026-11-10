@@ -3,15 +3,13 @@ Repair reference
 
 .. include:: experimental.inc
 
-Everything here is in ``shifty.experimental.repair``, except
-``RepairDelta`` and ``delta_from_graph``, which stay in ``shifty``.
+Everything here is in ``shifty.experimental.repair``. ``Failure``,
+``Satisfaction``, their atom and target types, ``RepairDelta``, and
+``delta_from_graph`` also stay in ``shifty``, because the stable evidence API
+returns or takes them.
 
-The API computes the edits that would make a failing node conform, and
-applies the ones you choose. It decides nothing: which failure to fix, which
-term fills a hole, which branch to take, and when to stop are yours.
-:doc:`explanation` says why. :doc:`how-to` shows the loop.
-
-Repairs edit the **data graph only**. The shapes are taken as correct.
+Repairs edit the **data graph only**. :doc:`explanation` covers what the API
+decides and what it leaves to you. :doc:`how-to` shows the loop.
 
 ``RepairSession``
 -----------------
@@ -67,9 +65,13 @@ sides is a net add.
 ``Failure`` and ``Satisfaction``
 --------------------------------
 
-The same objects the :doc:`../../reference/evidence` interface returns. A
-``Failure`` records why a focus node fails; a ``Satisfaction`` records why it
-passes.
+The same objects the :doc:`../../reference/evidence` interface returns, and
+stable like it. A ``Failure`` records why a focus node fails; a
+``Satisfaction`` records why it passes. Only ``repair_tree()`` is
+experimental.
+
+``FocusWitness`` and ``FocusSatisfaction``, from 0.3.0, are deprecated aliases
+for these types. They warn on use and will be removed in 1.0.
 
 .. list-table::
    :widths: 30 70
@@ -245,9 +247,6 @@ legal.
 
 ``RepairDelta``
 ---------------
-
-In ``shifty``, because ``shifty.EvidenceSession.revalidate`` takes one
-too.
 
 .. list-table::
    :widths: 34 66

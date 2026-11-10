@@ -64,9 +64,9 @@ def test_statement_grouping_partition_and_empty_selection():
     foci = selected_foci(run)
     assert {focus.status for focus in foci} == {"pass", "fail"}
     assert all(
-        isinstance(focus.evidence, repair.Satisfaction)
+        isinstance(focus.evidence, shifty.Satisfaction)
         if focus.status == "pass"
-        else isinstance(focus.evidence, repair.Failure)
+        else isinstance(focus.evidence, shifty.Failure)
         for focus in foci
     )
     assert all("unselected" not in focus.focus for focus in foci)
@@ -107,7 +107,7 @@ def test_failed_conjunction_has_compact_failure_and_sibling_progress():
     focus = run.statements[0].selected_foci[0]
 
     assert focus.status == "fail"
-    assert isinstance(focus.evidence, repair.Failure)
+    assert isinstance(focus.evidence, shifty.Failure)
     assert focus.progress is not None
     assert [child.status for child in focus.progress.evaluated_children] == [
         "pass",
@@ -138,7 +138,7 @@ def test_qualified_count_retains_matches_rejections_support_and_nested_evidence(
         .evidence
     )
 
-    assert isinstance(failure, repair.Failure)
+    assert isinstance(failure, shifty.Failure)
     assert failure.matched_values()[0] == "<http://ex/good>"
     assert "<http://ex/near>" in failure.offending_values()
     assert failure.missing_obligations()[0].missing == 1
@@ -304,8 +304,8 @@ def test_focus_projections_split_by_polarity_and_ignore_angle_brackets():
 
     failures = run.failures_for("http://ex/a")
     satisfactions = run.satisfactions_for("http://ex/a")
-    assert all(isinstance(failure, repair.Failure) for failure in failures)
-    assert all(isinstance(item, repair.Satisfaction) for item in satisfactions)
+    assert all(isinstance(failure, shifty.Failure) for failure in failures)
+    assert all(isinstance(item, shifty.Satisfaction) for item in satisfactions)
     # The two polarities partition the results, and keep statement order.
     assert len(failures) + len(satisfactions) == len(results)
     assert [f.statement for f in failures] == sorted(f.statement for f in failures)
@@ -344,7 +344,7 @@ def test_strict_lookups_resolve_one_or_refuse_to_guess():
 
     # ex:a fails exactly one statement, so the strict lookup needs no hint.
     failure = run.failure_for("http://ex/a")
-    assert isinstance(failure, repair.Failure)
+    assert isinstance(failure, shifty.Failure)
     assert failure.focus == "<http://ex/a>"
     assert run.failure_for("http://ex/a", statement=failure.statement) is not None
 

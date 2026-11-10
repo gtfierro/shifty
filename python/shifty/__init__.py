@@ -108,16 +108,24 @@ from ._shifty import (
     EvidenceKind,
     EvidenceNode,
     EvidenceRun,
+    Failure,
     FocusEvaluation,
     MissingObligation,
     PathSupport,
     PropertyWitness,
     Reason,
     RepairDelta,
+    SatAtom,
+    Satisfaction,
+    SatKind,
     SelectedPair,
     StatementEvaluation,
+    Target,
+    TargetKind,
     Violation,
     W3cResult,
+    WitnessAtom,
+    WitnessKind,
     __version__,
     _infer,
     _validate_algebra,
@@ -182,6 +190,8 @@ def _warn_diagnostics(diagnostics: "Sequence[str]", stacklevel: int) -> None:
 if TYPE_CHECKING:
     import rdflib
 
+    FocusWitness = Failure
+    FocusSatisfaction = Satisfaction
 
 __all__ = [
     "ValidationFailure",
@@ -232,48 +242,65 @@ __all__ = [
     "SelectedPair",
     "PathSupport",
     "PropertyWitness",
+    # ── evidence trees ──
+    "Failure",
+    "Satisfaction",
+    "Target",
+    "TargetKind",
+    "WitnessAtom",
+    "WitnessKind",
+    "SatAtom",
+    "SatKind",
     # ── graph edits ──
     "RepairDelta",
     "delta_from_graph",
 ]
 
-# The repair API moved to shifty.experimental.repair in 0.6.0.
-_MOVED_TO_EXPERIMENTAL_REPAIR = {
-    "RepairSession": "RepairSession",
-    "RepairPlan": "RepairPlan",
-    "RepairTree": "RepairTree",
-    "RepairOrigin": "RepairOrigin",
-    "RepairOutcome": "RepairOutcome",
-    "Failure": "Failure",
-    "Satisfaction": "Satisfaction",
-    "Target": "Target",
-    "TargetKind": "TargetKind",
-    "WitnessAtom": "WitnessAtom",
-    "WitnessKind": "WitnessKind",
-    "SatAtom": "SatAtom",
-    "SatKind": "SatKind",
-    "Hole": "Hole",
-    "Choice": "Choice",
-    "ChoiceKind": "ChoiceKind",
-    "Instantiated": "Instantiated",
-    # Retired 0.3.0 aliases.
-    "FocusWitness": "Failure",
-    "FocusSatisfaction": "Satisfaction",
+# The repair API moved to shifty.experimental.repair in 0.6.0. A test keeps
+# this set equal to that module's __all__.
+_MOVED_TO_EXPERIMENTAL_REPAIR = frozenset(
+    {
+        "RepairSession",
+        "RepairPlan",
+        "RepairTree",
+        "RepairOrigin",
+        "RepairOutcome",
+        "Hole",
+        "Choice",
+        "ChoiceKind",
+        "Instantiated",
+    }
+)
+
+_DEPRECATED_TYPE_ALIASES = {
+    "FocusWitness": (Failure, "Failure"),
+    "FocusSatisfaction": (Satisfaction, "Satisfaction"),
 }
+_WARNED_DEPRECATED_TYPE_ALIASES: set[str] = set()
 
 
 def __getattr__(name: str):
-    new_name = _MOVED_TO_EXPERIMENTAL_REPAIR.get(name)
-    if new_name is not None:
+    if name in _MOVED_TO_EXPERIMENTAL_REPAIR:
         raise AttributeError(
             f"shifty.{name} moved to shifty.experimental.repair in 0.6.0: "
-            f"use `from shifty.experimental.repair import {new_name}`"
+            f"use `from shifty.experimental.repair import {name}`"
         )
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    alias = _DEPRECATED_TYPE_ALIASES.get(name)
+    if alias is None:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    value, replacement = alias
+    if name not in _WARNED_DEPRECATED_TYPE_ALIASES:
+        warnings.warn(
+            f"shifty.{name} is deprecated; use shifty.{replacement}",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        _WARNED_DEPRECATED_TYPE_ALIASES.add(name)
+    return value
 
 
 def __dir__() -> list[str]:
-    return sorted(globals())
+    return sorted([*globals(), *_DEPRECATED_TYPE_ALIASES])
 
 
 GraphInput = Union[str, bytes, pathlib.Path, "rdflib.Graph"]

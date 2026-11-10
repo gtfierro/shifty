@@ -48,12 +48,13 @@ import:
    session = repair.RepairSession(shapes, data)
 
 This covers ``RepairSession``, ``RepairPlan``, ``RepairTree``,
-``RepairOutcome``, ``Failure``, ``Satisfaction``, and the types they return.
-``RepairDelta`` and ``delta_from_graph`` stay in ``shifty``. The old names
-raise ``AttributeError`` with the new import.
+``RepairOrigin``, ``RepairOutcome``, ``Hole``, ``Choice``, ``ChoiceKind``,
+and ``Instantiated``. The old names raise ``AttributeError`` with the new
+import.
 
-The deprecated ``FocusWitness`` and ``FocusSatisfaction`` aliases are gone.
-Use ``Failure`` and ``Satisfaction``.
+The evidence types stay where they were: ``Failure``, ``Satisfaction``,
+``Target``, and their atoms and kinds. So do ``RepairDelta`` and
+``delta_from_graph``.
 
 Execution failures have no validation verdict
 ---------------------------------------------
