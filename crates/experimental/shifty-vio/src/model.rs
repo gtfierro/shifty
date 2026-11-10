@@ -384,15 +384,25 @@ impl Case {
 
     /// `G_test`, in sorted N-Triples.
     pub fn graph_ntriples(&self) -> String {
-        let mut out = String::new();
+        lines(self.graph())
+    }
+
+    /// `G_test ⊕ delta`, in sorted N-Triples. Deletes go first, then adds,
+    /// so a triple on both sides ends up in the result. A blank-node label
+    /// in `delta` names the node of the same label in `G_test`.
+    /// `apply_ntriples(&case.repair())` is `G_ref`.
+    pub fn apply_ntriples(&self, delta: &GraphDelta) -> String {
+        let deletes: BTreeSet<Triple> = delta.delete.iter().map(nt::triple).collect();
+        let adds: Vec<Triple> = delta.add.iter().map(nt::triple).collect();
+        let mut graph = self.graph();
+        graph.retain(|t| !deletes.contains(*t));
+        graph.extend(&adds);
+        lines(graph)
+    }
+
+    fn graph(&self) -> BTreeSet<&Triple> {
         let kept = self.reference.iter().filter(|t| !self.deletes.contains(*t));
-        let mut all: BTreeSet<&Triple> = kept.collect();
-        all.extend(self.adds.iter());
-        for t in all {
-            out.push_str(&nt::line(t));
-            out.push('\n');
-        }
-        out
+        kept.chain(&self.adds).collect()
     }
 
     /// The ground-truth repair as a SPARQL 1.1 Update.
@@ -466,6 +476,16 @@ impl Case {
             })).collect::<Vec<_>>(),
         })
     }
+}
+
+/// One `s p o .` line per triple.
+fn lines<'a>(triples: impl IntoIterator<Item = &'a Triple>) -> String {
+    let mut out = String::new();
+    for t in triples {
+        out.push_str(&nt::line(t));
+        out.push('\n');
+    }
+    out
 }
 
 fn triples_json<'a>(triples: impl IntoIterator<Item = &'a Triple>) -> Vec<Value> {

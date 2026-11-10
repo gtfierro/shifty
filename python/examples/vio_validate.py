@@ -13,6 +13,7 @@ Usage:
 """
 
 import sys
+from typing import Union
 
 import rdflib
 
@@ -41,7 +42,7 @@ ex:r2 a ex:Room .
 """
 
 
-def report(graph: rdflib.Graph) -> None:
+def report(graph: Union[str, rdflib.Graph]) -> None:
     conforms, _, text = shifty.validate(graph, SHAPES)
     print(f"conforms: {conforms}")
     if not conforms:
@@ -51,10 +52,9 @@ def report(graph: rdflib.Graph) -> None:
 def main() -> None:
     k = int(sys.argv[1]) if len(sys.argv) > 1 else 2
     seed = int(sys.argv[2]) if len(sys.argv) > 2 else 0
-    data = rdflib.Graph().parse(data=DATA, format="turtle")
 
     print("1. Validate the original data")
-    report(data)
+    report(DATA)
 
     print(f"\n2. Draw a case with up to {k} injections (seed {seed})")
     case = vio.Universe(DATA, SHAPES).draw(k, seed=seed)

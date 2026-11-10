@@ -8,6 +8,7 @@ from collections import Counter
 
 import pytest
 import rdflib
+from rdflib.compare import isomorphic
 
 import shifty
 from shifty.experimental.vio import ExpansionLimits, Universe, main
@@ -237,24 +238,18 @@ def test_cases_round_trip_through_the_ground_truth_repair(ahu):
 
 
 def test_case_graphs_apply_deltas(ahu):
-    from rdflib.compare import isomorphic
-
     reference = rdflib.Graph().parse(data=ahu.reference_ntriples, format="nt")
     case = ahu.draw(3, seed=0)
     broken = case.graph()
-    assert set(broken) == set(
-        rdflib.Graph().parse(data=case.graph_ntriples, format="nt")
-    )
-    assert isomorphic(case.apply(case.repair), reference)
+    repaired = case.apply(case.repair)
+    assert isomorphic(repaired, reference)
     assert not shifty.validate(broken, AHU_SHAPES)[0]
-    assert shifty.validate(case.apply(case.repair), AHU_SHAPES)[0]
+    assert shifty.validate(repaired, AHU_SHAPES)[0]
     # An empty delta leaves the broken graph as it is.
     assert set(case.apply(shifty.RepairDelta.from_ntriples())) == set(broken)
 
 
 def test_case_apply_resolves_blank_nodes_by_label():
-    from rdflib.compare import isomorphic
-
     shapes = PREFIXES + (
         "ex:S a sh:NodeShape ; sh:targetClass ex:A ; sh:property [ sh:path ex:p ;"
         " sh:node [ a sh:NodeShape ; sh:property [ sh:path ex:q ; sh:minCount 1 ] ] ] ."
@@ -269,11 +264,10 @@ def test_case_apply_resolves_blank_nodes_by_label():
     # The re-added triple lands on the node it came from, not a fresh one.
     assert isomorphic(case.apply(case.repair), reference)
     # A delete on a blank node removes that node's triple.
-    (kept,) = [
-        t for t in case.graph_ntriples.splitlines() if t.startswith("_:") and "/q>" in t
-    ]
+    broken = case.graph_ntriples.splitlines()
+    (kept,) = [t for t in broken if t.startswith("_:") and ex("q") in t]
     removed = case.apply(shifty.RepairDelta.from_ntriples(delete=kept + "\n"))
-    assert len(removed) == len(case.graph()) - 1
+    assert len(removed) == len(broken) - 1
     assert not list(removed.triples((None, rdflib.URIRef("http://ex/q"), None)))
 
 

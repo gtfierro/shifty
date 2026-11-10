@@ -327,6 +327,10 @@ impl VioCase {
         self.case.graph_ntriples()
     }
 
+    fn apply_ntriples(&self, delta: &RepairDelta) -> String {
+        self.case.apply_ntriples(&delta.inner)
+    }
+
     fn repair_sparql(&self) -> String {
         self.case.repair_sparql()
     }

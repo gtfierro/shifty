@@ -145,7 +145,7 @@ def main() -> None:
     print(f"\nThe case has {len(case.injections)} injections:")
     for i, e in enumerate(case.injections):
         print(f"\n  #{i}")
-        show(e, indent="  ")
+        show(e)
     print("\nTogether they make one change to the graph, case.delta:")
     for t in sorted(case.delta.delete):
         print(f"  - {triple(t)}")

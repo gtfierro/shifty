@@ -196,7 +196,9 @@ class Case:
 
     def graph(self) -> rdflib.Graph:
         """``G_test`` as a fresh :class:`rdflib.Graph`."""
-        return _parse(self.graph_ntriples, {})
+        from .._rdf import parse_ntriples
+
+        return parse_ntriples(self.graph_ntriples)
 
     def apply(self, delta: RepairDelta) -> rdflib.Graph:
         """``G_test ⊕ delta`` as a fresh :class:`rdflib.Graph`.
@@ -206,11 +208,9 @@ class Case:
         label in :attr:`graph_ntriples`. ``case.apply(case.repair)`` is the
         reference graph; pass a repair tool's delta to score it.
         """
-        labels: dict[str, rdflib.BNode] = {}
-        graph = _parse(self.graph_ntriples, labels)
-        graph -= _parse("".join(f"{_line(t)}\n" for t in delta.delete), labels)
-        graph += _parse("".join(f"{_line(t)}\n" for t in delta.add), labels)
-        return graph
+        from .._rdf import parse_ntriples
+
+        return parse_ntriples(self._inner.apply_ntriples(delta))
 
     @cached_property
     def repair_sparql(self) -> str:
@@ -579,14 +579,6 @@ def _node_term(node: str) -> str:
 
 def _line(t: Triple) -> str:
     return f"{t[0]} {t[1]} {t[2]} ."
-
-
-def _parse(ntriples: str, labels: dict[str, rdflib.BNode]) -> rdflib.Graph:
-    """Parse N-Triples. Blank-node labels resolve through ``labels``, so
-    graphs parsed with one dict share their blank nodes."""
-    import rdflib
-
-    return rdflib.Graph().parse(data=ntriples, format="nt", bnode_context=labels)
 
 
 def _delta(add: Iterable[Triple], delete: Iterable[Triple]) -> RepairDelta:

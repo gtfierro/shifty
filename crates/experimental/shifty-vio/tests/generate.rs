@@ -2,7 +2,8 @@
 //! extended with a datatype, a class, an `sh:in`, a disjunction, and a
 //! negation.
 
-use shifty_vio::{Error, Injection, OperationKind, Options, Triple, Universe, Weights};
+use shifty_repair::GraphDelta;
+use shifty_vio::{Error, Injection, OperationKind, Options, Triple, Universe, Weights, nt};
 use std::collections::{BTreeMap, BTreeSet};
 
 const SHAPES: &str = r#"
@@ -140,6 +141,9 @@ fn drawn_cases_apply_together_and_are_realized() {
         );
         assert_eq!(case.delta().add.len(), case.adds().len());
         assert_eq!(case.repair().add, case.delta().delete);
+        let reference: String = u.reference().iter().map(|t| nt::line(t) + "\n").collect();
+        assert_eq!(case.apply_ntriples(&case.repair()), reference);
+        assert_eq!(case.apply_ntriples(&GraphDelta::default()), graph);
         assert!(case.repair_sparql().ends_with('\n'));
     }
 }
