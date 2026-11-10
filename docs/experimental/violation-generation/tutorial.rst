@@ -1,9 +1,7 @@
 Break a graph and repair it
 ===========================
 
-.. warning::
-
-   **Experimental.** ``shifty.experimental.vio`` may change in any release.
+.. include:: experimental.inc
 
 This tutorial breaks a small graph on purpose, watches the validator catch
 it, and repairs it with the edits that broke it. It takes a few minutes and
@@ -94,5 +92,4 @@ Next
 - :doc:`how-to` covers choosing what gets broken, writing a suite of cases
   to disk, and running in parallel.
 - :doc:`explanation` describes how the edits are found and combined.
-- ``python/examples/`` in the repository has ``vio_suite.py`` and
-  ``vio_223p.py``, which generate whole suites.
+- :doc:`reference` lists every class, option, and output file.

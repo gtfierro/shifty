@@ -1,14 +1,12 @@
 Generating violations
 =====================
 
-.. note::
-
-   Violation generation is experimental. Its API and output format may
-   change.
+.. include:: experimental.inc
 
 This page explains how ``shifty.experimental.vio`` builds test cases for
-repair tools, and why it works the way it does. For usage, see
-:doc:`how-to`.
+repair tools, and why it works the way it does. To use it, start with the
+:doc:`tutorial`; the :doc:`how-to` builds a full benchmark, and the
+:doc:`reference` lists every option.
 
 The problem
 -----------
@@ -57,8 +55,8 @@ component.
 
 The search is bounded. A large graph has an enormous number of ways to
 swap one value for another, so each step tries a capped number of
-alternatives. The universe is therefore a large sample of the ways to break
-the graph, not all of them.
+alternatives (the :ref:`expansion limits <vio-limits>`). The universe is
+therefore a large sample of the ways to break the graph, not all of them.
 
 Picking injections
 ------------------
