@@ -11,10 +11,8 @@ For an introduction, see :doc:`../tutorials/explaining-a-failure`.
 Get evidence for a snapshot
 ---------------------------
 
-Build a session once, then validate. The session owns the parsed graphs, the
-inference result, the normalized schema, the dataset index, and the prepared
-SPARQL — all the fixed setup cost — so reusing it across calls is much cheaper
-than rebuilding it.
+Build a session once, then validate. The session retains the prepared shapes
+and data snapshot for reuse across queries.
 
 .. code-block:: python
 
@@ -70,9 +68,8 @@ the output at all.
 Extract values and supporting triples
 --------------------------------------
 
-Rather than walking the tree yourself, use the projections — they are the same
-on ``Satisfaction`` and ``Failure``, traverse deterministically, and deduplicate
-by first occurrence:
+Use these projections on either ``Satisfaction`` or ``Failure`` to extract
+values, supporting triples, and missing counts:
 
 .. code-block:: python
 
@@ -102,10 +99,8 @@ human to read and its wording is not a stable interface.
 See the passing siblings of a failure
 -------------------------------------
 
-Canonical failure evidence is a proof, not a log: a failed conjunction keeps the
-children that establish the failure and drops the ones that held. That is what
-you want for repair and usually not what you want for a UI, so the authored
-children are available separately:
+A failed conjunction's evidence can omit passing children. To display every
+immediate authored child's status, use ``progress``:
 
 .. code-block:: python
 
@@ -113,9 +108,7 @@ children are available separately:
        for child in focus.progress.evaluated_children:
            print(child.source_constraint_ref, child.constraint_kind, child.status)
 
-``progress`` covers the *immediate* authored children only, and reports their
-status without materializing why. To get the full evidence for one of those
-elided passes, ask the session for it directly:
+To get a child's full explanation, ask the session for it:
 
 .. code-block:: python
 
@@ -128,29 +121,19 @@ also works for a focus node no statement selects.
 Explain failures on demand
 --------------------------
 
-Materializing evidence for every selected pair is the expensive case, and
-failures are usually a small minority. If you only care about failures, do not
-call the full ``validate``: find the failing pairs first and explain each one.
+To display failure explanations, find failing pairs first and explain only
+the ones you need:
 
-That split is available today on the Rust ``PreparedEvidenceValidator``:
+.. code-block:: python
 
-.. code-block:: rust
+   counts, pairs = session.find_failures()
+   for pair in pairs:
+       detail = session.explain(pair)
 
-   let scan = ConformanceOptions::default();
-   let conformance = prepared.validate_conformance(&scan);      // counts only
-   let (_, failures) = prepared.find_failures(&scan);           // which pairs failed
-   for pair in &failures {
-       let evidence = prepared.explain(pair);                   // one pair
-   }
-   let catalog = prepared.constraints();                        // once per snapshot
-
-This avoids generating evidence for passing pairs; see
-:doc:`../explanation/performance` for entry-point guidance. ``explain`` returns
-the same evidence as ``validate`` for that pair. It does not re-run target
-selection, so pairs must come from ``find_failures`` or an earlier run.
-
-The Python ``EvidenceSession`` exposes the same workflow with
-``find_failures(shape_names=...)`` and ``explain(pair)``.
+``explain`` returns the same evidence as ``validate`` for that pair. Use a
+pair from this session's ``find_failures()`` result. The Rust
+``PreparedEvidenceValidator`` offers the same workflow. See
+:ref:`evidence-cost` for the available levels of detail.
 
 Serialize a run
 ---------------
@@ -164,9 +147,7 @@ The JSON uses explicit status and variant tags, and includes catalogs of both
 source and normalized constraints so child ids stay resolvable without the live
 session.
 
-Runs get large — a single mid-size Brick model can reach tens of megabytes —
-because the same RDF terms and evidence subtrees recur constantly. The compact
-encoding stores each distinct term and node once and refers to it by index:
+For large runs, the compact encoding stores repeated terms and subtrees once:
 
 .. code-block:: python
 
@@ -176,19 +157,17 @@ encoding stores each distinct term and node once and refers to it by index:
    restored = shifty.expand_evidence(wire, catalog)
    assert restored == run.to_dict()
 
-It is lossless and round-trips exactly. Drop the catalog when the receiver
-already has the schema — it is fixed per snapshot regardless of how many
-findings there are, and on a small run it can be the majority of the bytes.
+Drop the catalog when the receiver already has it for this schema. Expanding
+the compact payload with that catalog reconstructs the original run.
 
 See also
 --------
 
 - :doc:`../reference/evidence` — objects, fields, and projections.
-- :doc:`../explanation/evidence-design` — why the interface is
-  statement-oriented, and which constructs it cannot explain.
+- :ref:`understanding-evidence` and :ref:`evidence-limits` — interpreting
+  selected nodes and explanations.
 - ``python/examples/evidence_point_list.py`` — a larger worked example over
   BuildingMOTIF point-list shapes, with passing, failing, empty-selection and
   unselected cases.
-- :doc:`../experimental/repair/index` — **experimental**: failure evidence is also the witness the
-  symbolic repair layer consumes, so ``focus.failure.repair_tree()`` is one
-  call away. Early, and expected to change.
+- :doc:`../experimental/repair/index` — experimental repair templates built
+  from failure evidence.

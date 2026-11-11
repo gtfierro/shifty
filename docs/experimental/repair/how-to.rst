@@ -3,9 +3,9 @@ Repair a graph
 
 .. include:: experimental.inc
 
-This guide walks the repair loop: find what fails, fill in a repair, check
-it, and apply it. Repair starts from failure evidence, which
-:doc:`../../tutorials/explaining-a-failure` introduces.
+Find what fails, fill in a repair, check it, and apply it. The
+:doc:`evidence tutorial <../../tutorials/explaining-a-failure>` introduces
+the failure evidence used here.
 
 Look at the repair space
 ------------------------
@@ -33,8 +33,8 @@ The built-in driver fills each hole with any term in the graph that fits, so
 it will happily give a person someone else's email address. Use it to
 inspect, and write your own driver when the values matter.
 
-Find what fails
----------------
+Build a repair in Python
+------------------------
 
 A session holds the shapes and the data. ``witnesses()`` lists every failure:
 
@@ -53,10 +53,14 @@ means the graph conforms. ``witnesses_for(shape_iri)`` limits it to one
 shape.
 
 Fill in a template
-------------------
+~~~~~~~~~~~~~~~~~~
 
 A failure's repair tree is a template. It has **choices**, where there is
 more than one way to fix it, and **holes**, where a value is needed.
+
+For example, a shape can require an email address to be a string, but your
+application must supply the person's actual address. The shape alone cannot
+choose that value.
 
 .. code-block:: python
 
@@ -92,7 +96,7 @@ Terms are N-Triples: ``'"Bob"'`` for a string, ``'<http://example.org/bob>'``
 for an IRI.
 
 Pick a value for a hole
------------------------
+~~~~~~~~~~~~~~~~~~~~~~~
 
 Each hole says what a legal value looks like. ``candidates()`` lists terms
 already in the graph that fit:
@@ -119,7 +123,7 @@ Some holes need a value that conforms to another shape:
 conform, or ``None`` if it already does.
 
 Propose your own edit
----------------------
+~~~~~~~~~~~~~~~~~~~~~
 
 Sometimes your driver knows the answer as a subgraph, such as a new node
 with its type and properties. Build the edit from Turtle or an
@@ -132,10 +136,11 @@ with its type and properties. Build the edit from Turtle or an
 It is checked and applied like any other edit. Deletes apply before adds, so
 a triple in both is added.
 
-Check it
---------
+Check and apply a candidate
+---------------------------
 
-``gate`` validates the whole patched graph without applying anything:
+An edit that fixes one node can break another. ``gate`` validates the whole
+patched graph and reports both effects:
 
 .. code-block:: python
 
@@ -144,9 +149,6 @@ Check it
    outcome.introduced    # new failures it causes
    outcome.remaining     # old failures it leaves
    outcome.is_progress   # fixed something and broke nothing
-
-Apply it
---------
 
 ``advance`` returns a new session over the patched graph. It reuses the
 compiled shapes and doesn't re-run inference.
@@ -173,8 +175,10 @@ The whole driver is a loop:
 ``session.to_graph()`` returns the current graph as an ``rdflib.Graph``.
 ``session.apply(delta)`` returns a patched graph without advancing.
 
-When there is nothing to offer
-------------------------------
+.. _blocked-repairs:
+
+Handle blocked repairs
+----------------------
 
 Some failures have no data repair. The tree says so:
 
@@ -183,9 +187,13 @@ Some failures have no data repair. The tree says so:
    if tree.is_blocked:
        print(tree.explain())
 
-:doc:`explanation` lists the causes. A blocked branch never hides inside a
-live one: an ``All`` with a blocked child is blocked, and an ``Any`` drops
-its blocked branches.
+Common causes include arbitrary ``sh:sparql`` queries that cannot be reversed,
+identity tests that data edits cannot change, and recursive support with no
+finite set of triples to delete.
+
+An ``All`` with a blocked child is blocked. An ``Any`` drops blocked branches
+and retains the available alternatives. Repairs edit the data graph. To fix
+an incorrect constraint, edit the shapes.
 
 See also
 --------

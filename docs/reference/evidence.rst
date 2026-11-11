@@ -14,10 +14,10 @@ linked to both the authored SHACL statement and its normalized algebra.
      - Stable
    * - Related
      - :doc:`../how-to/explain-failures`,
-       :doc:`../explanation/evidence-design`, :doc:`shape-maps`
+       :ref:`understanding-evidence`, :doc:`shape-maps`
 
 :doc:`../how-to/explain-failures` shows how to use it;
-:doc:`../explanation/evidence-design` explains why it is shaped this way.
+:ref:`understanding-evidence` explains why it is shaped this way.
 
 Structure of a run
 ------------------
@@ -254,7 +254,7 @@ Each distinct evidence node and RDF term is stored once and referenced by index.
 Lossless, and ``shifty.expand_evidence(compact, catalog=None, *, as_dict=True)``
 restores the run exactly. The catalog is fixed per snapshot regardless of how
 many findings there are, so omitting it matters most on small runs — see
-:doc:`../explanation/performance` for guidance on output size and runtime.
+:ref:`evidence-cost` for guidance on output size and runtime.
 
 Rust API
 --------

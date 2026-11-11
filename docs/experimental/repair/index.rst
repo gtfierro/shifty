@@ -3,11 +3,9 @@ Symbolic repair
 
 .. include:: experimental.inc
 
-A validation report says what is wrong. It does not say what to change.
-Symbolic repair works out the edits that would make a failing node conform.
-
-It stops short of choosing them. Shifty returns a template with holes and
-choices in it, and your code fills them in.
+Symbolic repair computes edits that would make a failing node conform.
+Shifty returns a template with holes for values and choices between possible
+repairs. Your code supplies those values and choices.
 
 .. code-block:: python
 
@@ -29,8 +27,6 @@ Rust.
 
    * - :doc:`how-to`
      - Inspect the repair space, fill a template, check it, and apply it.
-   * - :doc:`explanation`
-     - What Shifty computes, what you decide, and what it can't repair.
    * - :doc:`reference`
      - Sessions, templates, holes, plans, deltas, and the gate.
 
@@ -41,5 +37,4 @@ To test a repair tool against known answers, see
    :hidden:
 
    how-to
-   explanation
    reference

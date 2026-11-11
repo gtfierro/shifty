@@ -245,7 +245,7 @@ except for ``capability``;
 ``--format dot`` emits Graphviz for the ``algebra`` and ``normalized`` stages
 and is rejected for the others.
 
-See :doc:`../how-to/inspect-pipeline` for how to read each stage.
+See :ref:`inspect-validation` for schema inspection and troubleshooting.
 
 ``shifty version``
 ------------------
@@ -272,7 +272,7 @@ format that parsed each source and the number of triples it contributed.
 
    conforms: true
    profile: shapes: 28 triples from shapes.ttl [turtle]
-   profile: data: 633 triples from ontology.ttl.md [turtle]
+   profile: data: 633 triples from ontology.ttl [turtle]
    profile: stage: shapes load: 1.234 ms
    profile: stage: compile: 2.345 ms
    profile: stage: data load: 3.456 ms
@@ -284,18 +284,9 @@ format that parsed each source and the number of triples it contributed.
      rule[0]: 1 call(s), 24µs total, 24µs avg
    ...
 
-The format is the one that *succeeded*, not the one the extension suggests. A
-document is identified by content type, then by extension, then by sniffing its
-first non-comment token, and finally by trying each supported format in turn;
-``ontology.ttl.md`` above is literate Turtle — markdown prose on ``#`` comment
-lines, statements indented — and is reported as ``turtle`` because Turtle is
-what read it.
-
-This is how to tell an empty result from an unread input: a shape whose target
-predicate never appears in the data conforms vacuously, and ``conforms: true``
-alone cannot distinguish that from a document that failed to contribute
-anything. With several sources the header gives the merged graph's size and
-each source's own contribution:
+The profile reports the format that successfully parsed each input. For
+multiple sources, it also gives the merged graph size, each source's
+contribution, and the number of duplicates:
 
 .. code-block:: text
 
@@ -303,31 +294,47 @@ each source's own contribution:
      first.ttl: 1 triple [turtle]
      second.ttl: 2 triples [turtle]
 
-``validate`` also reports what rule inference added before validation, or
-``skipped (--no-infer)``. Both commands time input loading, compilation,
-session construction (including inference), and output formatting;
-``validate`` additionally times the first validation or report. The storage
-line counts Store and encoded-dataset
-builds, source and local rows, committed inference rows, optional index bytes,
-and index builds declined by the budget. A second line attributes source and
-access-catalog compilation time, source and session encoding time, plus
-inference commit batches and their total time. The
-primary-pair-buffer line reports allocated PSO pair capacities separately for
-shared source and session partitions; it excludes dictionary strings and map
-nodes. The graph-materialization line counts full union ``Graph`` copies and lazy
-compatibility projections; compiled validation should report zero for both
-unless a caller requests a
-public graph getter. Each optional index decision then names the source or
-session scope, index direction, predicate when applicable, compiled-demand or
-observed-probe reason, estimated
-and allocated bytes, budget, build time, and whether admission succeeded. Scan
-lines count calls and candidate rows by graph scope and bound positions
-(``S``, ``P``, ``O``); they help identify repeated broad scans even when an
-index builds successfully. Reach-cache lines count hits, misses, insertions,
-and result IDs declined by its separate admission cap. Then come per-shape and
-per-rule wall-clock time, shape-cache hit rate
-and peak size, and per-query SPARQL execution time. These are timings from one run,
-rather than benchmark samples.
+``validate`` reports the number of inferred triples, or ``skipped
+(--no-infer)``. The remaining profile fields describe time, memory, and graph
+access during this run.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 25 75
+
+   * - Field group
+     - Contents
+   * - Stage timings
+     - Input loading, compilation, session construction and inference, and
+       output formatting. Validation also times its first evaluation.
+   * - Storage
+     - Store and encoded-dataset builds, source and local rows, committed
+       inference rows, optional index bytes, and indexes declined by budget.
+   * - Compilation and encoding
+     - Source and access-catalog compilation, source and session encoding,
+       and inference commit batches and time.
+   * - Primary pair buffers
+     - Allocated pair capacity for shared source and session storage.
+       Dictionary strings and map nodes are excluded.
+   * - Graph materialization
+     - Full union graph copies and lazy compatibility projections. These
+       should be zero unless a caller requests a public graph getter.
+   * - Optional indexes
+     - Scope, direction, predicate, build reason, estimated and allocated
+       bytes, budget, build time, and admission decision.
+   * - Scans
+     - Calls and candidate rows by graph scope and bound positions
+       (``S``, ``P``, ``O``), useful for finding repeated broad scans.
+   * - Reach cache
+     - Hits, misses, insertions, and result ids declined by its admission cap.
+   * - Evaluation
+     - Per-shape, per-rule, and per-query SPARQL times, plus shape-cache hit
+       rate and peak size.
+
+See :doc:`../benchmarks` for measurements across repeated runs. The
+`storage design notes
+<https://github.com/gtfierro/shifty/blob/main/development_docs/sessions-and-storage.md>`_
+explain the indexes and caches.
 
 .. _cli-dump:
 

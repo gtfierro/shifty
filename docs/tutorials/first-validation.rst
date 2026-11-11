@@ -166,7 +166,7 @@ own. The blank-node identifiers and result order can vary between runs.
    This tutorial uses ``validate()`` because it returns the standard W3C report
    vocabulary. Shifty also provides ``validate_algebra()``, its native
    structured result interface. See :doc:`validation interfaces
-   <../explanation/validation-interfaces>` before choosing an interface for an
+   <../explanation/architecture>` before choosing an interface for an
    application.
 
 Any of ``str`` (Turtle text), ``bytes``, ``pathlib.Path``, or an

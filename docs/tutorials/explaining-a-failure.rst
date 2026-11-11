@@ -89,12 +89,12 @@ maximum. ``sh:datatype`` constrains *every* value of ``ex:name``, and "every
 value satisfies φ" is compiled as "at most zero values satisfy ¬φ". A
 universal constraint therefore appears as a count with ``max 0``; its "match"
 is the value that violates the datatype constraint. The
-:doc:`architecture explanation <../explanation/architecture>` describes this
-encoding.
+:doc:`result-format explanation <../explanation/architecture>` covers the
+relationship to standard SHACL reports.
 
 ``[cuttable]`` is the engine noting that this leaf rests on a concrete triple —
 one that could be pointed at, or removed, to change the outcome. Leaves that
-have no such finite support say so instead; :doc:`../explanation/recursion`
+have no such finite support say so instead; :ref:`recursive-shapes`
 covers the case where that happens.
 
 ``explain()`` produces text for humans. Programs should use ``walk()``,
@@ -194,16 +194,9 @@ Canonical evidence explains why a result holds. Progress reports the status of
 the immediate authored children. ``evidence_for`` materializes the derivation
 for one child on demand.
 
-Evidence guarantees and cost
-----------------------------
-
-The evidence interface retains the validator's derivation. It uses the same
-SHACL evaluation as ``validate()``, with a richer return value from the same
-fold.
-
-Generating evidence requires additional work to retain each derivation. If you
-need only failure explanations, use ``find_failures()`` followed by ``explain()``
-for each pair. See :doc:`../explanation/performance` for entry-point guidance.
+To build explanations only for failing nodes, use ``find_failures()`` followed
+by ``explain()``. The :doc:`evidence guide <../how-to/explain-failures>` shows
+that workflow, and :ref:`evidence-cost` compares the available entry points.
 
 Related documentation
 ---------------------
@@ -211,7 +204,7 @@ Related documentation
 - :doc:`../how-to/shape-maps` — the same bindings as a flat table, for when a
   shape is really an extraction schema.
 - :doc:`../reference/evidence` — the exact data model, for building on.
-- :doc:`../explanation/evidence-design` — the evidence model and its limits.
-- :doc:`../experimental/repair/index` — **experimental**: failure evidence is also the
-  input to a symbolic repair layer that computes which edits would make a node
-  conform. It is early and its API is expected to change.
+- :ref:`understanding-evidence` and :ref:`evidence-limits` — how to interpret
+  an explanation.
+- :doc:`../experimental/repair/index` — experimental repair templates built
+  from failure evidence.

@@ -4,8 +4,8 @@ Reading validation results in code
 This tutorial uses the structured result interface to group failures, route
 them by severity, and render application-specific explanations.
 
-It takes about fifteen minutes. Use the ``shapes.ttl`` and the *failing*
-``data.ttl`` from the first tutorial:
+Use the ``shapes.ttl`` and the failing ``data.ttl`` from
+:doc:`first-validation`:
 
 .. code-block:: turtle
 
@@ -51,14 +51,10 @@ Walk the violations
 .. program-output:: python examples/structured-results.py
    :cwd: ..
 
-The result has two levels.
-
-A **violation** is one failing focus node under one statement. A **reason** is
-one thing that went wrong there. Bob is a single violation with two reasons.
-If you write ``len(result.violations)`` and call it "number of problems", you
-will under-count; if you flatten reasons and call it "number of bad nodes", you
-will over-count. Which one you want depends on whether you are counting things
-to fix or nodes to fix them on.
+A **violation** is one failing focus node under one statement. Its
+**reasons** describe the constraints that failed. Bob has one violation
+with two reasons, so count violations for failing node/statement pairs and
+reasons for individual failures.
 
 ``reason.value`` is the *offending value* when there is one —
 the integer ``123`` for the datatype failure. For the missing email there is no
@@ -70,8 +66,6 @@ Branch on constraint kind
 
 ``reason.message`` is generated text for display. Its wording may change, so
 use ``reason.constraint_kind`` to handle failures in code.
-
-``reason.constraint_kind`` is the stable form:
 
 .. code-block:: python
 
@@ -89,17 +83,10 @@ use ``reason.constraint_kind`` to handle failures in code.
    missing or excess values: ex:email
    wrong type: "123"^^<http://www.w3.org/2001/XMLSchema#integer> at ex:name
 
-The full set is ``Cardinality``, ``ValueType``, ``ClassMembership``,
-``NodeKind``, ``Constant``, ``Closed``, ``Conjunction``, ``Disjunction``,
-``Negation``, ``Equals``, ``Disjoint``, ``LessThan``, ``LessThanOrEquals``,
-``UniqueLang``, ``Expression``, ``Sparql``, ``Top``, and ``Unknown``.
-
-Notice these are algebra operators, not SHACL vocabulary terms. ``sh:minCount``,
-``sh:maxCount``, and ``sh:qualifiedMinCount`` all arrive as ``Cardinality``,
-because the compiler lowers all of them to the same counting operator. That is
-usually what you want — one branch handles "the number of values is wrong" —
-but it does mean ``constraint_kind`` will not tell you which SHACL keyword the
-author wrote. If you need that, read on.
+``sh:minCount``, ``sh:maxCount``, and ``sh:qualifiedMinCount`` all produce
+``Cardinality`` reasons. The :doc:`Python reference <../reference/python>`
+lists every kind. To inspect the compiled constraint behind a reason, see
+:ref:`trace-result-constraint` below.
 
 Use the author's own message
 ----------------------------
@@ -141,8 +128,8 @@ Then prefer it, falling back to the engine's:
 ``author_message`` is ``None`` when the shape declares no ``sh:message``.
 The fallback uses the engine's message in that case.
 
-Reason severity
----------------
+Apply a severity threshold
+~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 The email obligation above is a ``sh:Warning`` while the name obligation is a
 ``sh:Violation``, and Bob has both. So severity lives on the reason.
@@ -175,8 +162,8 @@ whether it makes ``conforms`` false, so you can log warnings without failing a
 build. Check ``conforms`` for the validation decision and inspect
 ``violations`` for all findings, including those below the threshold.
 
-Group findings the way your consumer needs
-------------------------------------------
+Group repeated failures
+-----------------------
 
 The result is organised by focus node. You can group it by constraint to
 summarize repeated problems, such as 40 assets missing an email:
@@ -208,8 +195,10 @@ summarize repeated problems, such as 40 assets missing an email:
 Grouping has little effect on this two-node example, but can reduce repeated
 output when many nodes fail the same constraint.
 
-Trace a finding back to the compiled constraint
------------------------------------------------
+.. _trace-result-constraint:
+
+Inspect the compiled constraint
+-------------------------------
 
 Every reason carries the algebra node that produced it, which is how you find
 out what the engine actually checked:
@@ -242,19 +231,12 @@ shapes.
 
 ``render`` is the constraint in the engine's notation and ``definition`` is the
 same thing with sub-shapes expanded. Both are what ``shifty inspect --stage
-algebra`` prints (see :doc:`../how-to/inspect-pipeline`), so a finding can be
+algebra`` prints (see :ref:`inspect-validation`), so a finding can be
 traced to a specific node of the compiled schema.
 
-What this does not tell you
----------------------------
+Continue with evidence
+----------------------
 
-Structured results list failures and their constraints. They do not include
-passing evaluations or full derivations:
-
-- **Which nodes passed?** Alice is nowhere in this output. A conforming node
-  and a node the shape never selected are equally absent.
-- **Why exactly did this fail?** You have the failing constraint, but not the
-  derivation: which branch of a disjunction was tried, which values were
-  counted, which triples supported the path to the offending value.
-
-:doc:`explaining-a-failure` answers both.
+To inspect passing nodes or the values and triples behind a result, continue
+with :doc:`explaining-a-failure`. That tutorial introduces the evidence
+interface using the same graph.

@@ -121,7 +121,7 @@ Recursion and semantics
      - ❌
      - **diagnosed and refused**, never guessed
 
-See :doc:`../explanation/recursion` for the recursion policy.
+See :ref:`recursive-shapes` for the recursion policy.
 
 Partial support
 ---------------

@@ -1,7 +1,8 @@
 Validate a graph
 ================
 
-The common variations on running a validation, and what each one changes.
+Run validation from the CLI or Python, choose the report format, and
+configure which shapes and triples are checked.
 
 Basic run
 ---------
@@ -20,14 +21,10 @@ Both ``--shapes`` and ``--data`` accept local paths or ``http(s)`` URLs, and
 both are repeatable — several files are merged into one graph before anything
 else happens.
 
-An explicitly supplied shapes graph with zero triples is rejected. Omitting the
-second Python argument uses shapes embedded in the data graph; omitting CLI
-``--data`` makes the ``--shapes`` graph serve both roles.
-
-Omitting ``--data`` (or the second Python argument) makes the single graph play
-both roles. If that is not what you expect, read
-:doc:`../explanation/shapes-and-data` before going further; it is the most
-common source of a validation that passes for the wrong reason.
+Omitting the second Python argument uses shapes embedded in the data graph.
+Omitting CLI ``--data`` makes the ``--shapes`` graph serve both roles. An
+explicitly supplied shapes graph with zero triples is rejected. See
+:doc:`../explanation/shapes-and-data` for graph-input rules.
 
 Get a machine-readable report
 -----------------------------
@@ -53,7 +50,6 @@ so serialize it however you like:
    conforms, report_graph, _ = shifty.validate(data, shapes)
    print(report_graph.serialize(format="turtle"))
 
-If you would rather have structured objects than an RDF graph to query,
 ``validate_algebra()`` returns violations as Python objects with the failing
 focus node, the property path, the offending value, and a stable constraint
 kind to branch on:
@@ -84,8 +80,8 @@ validate only what is asserted:
 
    conforms, report, text = shifty.validate(data, shapes, infer=False)
 
-Going the other way — keeping what inference derives — is ``in_place=True``,
-covered in :ref:`inference-during-validation`.
+To retain the derived triples in a Python graph, use ``in_place=True`` as
+shown in :ref:`inference-during-validation`.
 
 Validate against only some shapes
 ---------------------------------
@@ -106,11 +102,9 @@ which shapes act as *entry points*:
        shape_names=["http://example.org/PersonShape"],
    )
 
-Only target-bearing statements owned by the named shapes select focus nodes.
-Helper shapes those entries reach through ``sh:node``, ``sh:property``,
-qualified value shapes, or boolean combinations are still evaluated as normal —
-this narrows what is checked, not what the checks mean. IRIs may be bare or in
-angle brackets.
+The named shapes select the focus nodes. Any helper shapes they reference
+through ``sh:node``, ``sh:property``, qualified value shapes, or boolean
+combinations are also evaluated. IRIs may be bare or in angle brackets.
 
 Change which triples are visible
 --------------------------------
@@ -131,15 +125,10 @@ come from.
 - ``union`` (default) — focus nodes from data; evaluation sees data ∪ shapes.
 - ``union-all`` — both focus selection and evaluation see data ∪ shapes.
 
-The default exists because class hierarchies and ontology axioms are usually
-authored alongside the shapes, and ``sh:class`` needs to traverse
-``rdfs:subClassOf`` to work. Reach for ``data`` when you want a strict check
-that the data stands on its own; reach for ``union-all`` when the shapes graph
-also contains instances you intend to validate.
-
-The :doc:`shapes and data graph explanation
-<../explanation/shapes-and-data>` tabulates these modes and covers the separate
-question of where shape definitions come from.
+Use ``data`` for a self-contained data graph and ``union-all`` when the shapes
+graph also contains instances to validate. The
+:doc:`graph-input explanation <../explanation/shapes-and-data>` covers
+ontology visibility and shape definitions.
 
 Choose what counts as failure
 -----------------------------
@@ -165,9 +154,8 @@ summaries omit below-threshold findings.
 Validate many graphs against one schema
 ---------------------------------------
 
-Compiling a shapes graph — parsing, lowering, normalizing, planning — is a
-fixed cost paid before any data is examined, and for a large ontology it
-dominates a small validation. ``PreparedValidator`` pays it once:
+``PreparedValidator`` compiles the shapes once and reuses them for each
+data graph:
 
 .. code-block:: python
 
@@ -176,9 +164,8 @@ dominates a small validation. ``PreparedValidator`` pays it once:
    for path in data_files:
        conforms, report, text = validator.validate(path)
 
-On the Brick corpus, setup accounts for most of the runtime because the
-models are small compared with the 229k-triple shapes closure. Reusing the
-validator avoids this cost for subsequent graphs. See :doc:`../benchmarks`.
+This avoids repeating setup when the shapes are large relative to the data.
+See :doc:`../benchmarks` for measurements.
 
 Handle unsupported constructs
 -----------------------------
@@ -201,6 +188,29 @@ Invalid shapes are separate from ``on_unsupported``. A malformed SHACL
 constraint or rule — including malformed SPARQL or an unresolved query prefix
 — raises an error before validation starts. It is never treated as an omitted
 unsupported feature.
+
+.. _inspect-validation:
+
+Investigate unexpected results
+------------------------------
+
+Use ``shifty inspect`` to examine a shapes graph without loading data. It
+takes the shapes file as a positional argument:
+
+.. code-block:: bash
+
+   shifty inspect --stage rdf shapes.ttl
+   shifty inspect --stage algebra shapes.ttl
+   shifty inspect --stage strata shapes.ttl
+
+The ``rdf`` stage shows parsed shapes, ``algebra`` shows compiled constraints,
+and ``strata`` helps diagnose rejected recursion. The
+:doc:`CLI reference <../reference/cli>` lists every stage and format.
+
+For a validation run, ``--profile`` reports input sizes and timings.
+``--dump-data`` and ``--dump-shapes`` write the graphs used by that run,
+including inferred data. See :ref:`cli-profile` and :ref:`cli-dump` for output
+details, or :doc:`explain-failures` to inspect an individual result.
 
 See also
 --------

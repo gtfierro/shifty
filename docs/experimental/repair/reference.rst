@@ -8,8 +8,8 @@ Everything here is in ``shifty.experimental.repair``. ``Failure``,
 ``delta_from_graph`` also stay in ``shifty``, because the stable evidence API
 returns or takes them.
 
-Repairs edit the **data graph only**. :doc:`explanation` covers what the API
-decides and what it leaves to you. :doc:`how-to` shows the loop.
+Repairs edit the data graph. The :doc:`repair guide <how-to>` shows how to fill
+templates, check candidate edits, and apply them.
 
 ``RepairSession``
 -----------------

@@ -48,30 +48,9 @@ The structured Python interface returns a validation decision and reasons:
 The :doc:`playground <playground>` runs the WebAssembly build locally in the
 browser, so graphs entered there do not leave the machine.
 
-Validation interfaces
----------------------
-
-Two result interfaces are available:
-
-.. list-table::
-   :widths: 24 76
-   :header-rows: 1
-
-   * - Interface
-     - Result
-   * - Native algebraic
-     - ``validate_algebra()`` returns structured violations and their nested
-       algebraic reasons; the CLI renders the same result model by default.
-       The result is available as Python objects.
-   * - W3C-compatible
-     - ``validate()`` and ``shifty validate --report`` return a W3C
-       ``sh:ValidationReport`` for interoperability with SHACL tooling.
-
-The native representation also supports :doc:`evidence
-<reference/evidence>`, passing-node :ref:`property witnesses
-<python-property-witnesses>`, and :doc:`shape-map bindings
-<reference/shape-maps>`. See :ref:`architecture-result-paths` for the
-differences between the two result models.
+For a W3C ``sh:ValidationReport``, use ``validate()`` in Python or
+``shifty validate --report`` on the CLI. See :ref:`architecture-result-paths`
+to choose between reports, structured findings, and evidence.
 
 Interface support
 -----------------
@@ -104,8 +83,6 @@ Common tasks
        entry shapes.
    * - :doc:`Run inference <how-to/infer>`
      - Execute SHACL-AF rules and retrieve the inferred triples.
-   * - :doc:`Run the W3C test suite <how-to/conformance>`
-     - Reproduce SHACL 1.0 test results and generate an EARL report.
    * - :doc:`Explain a failure <how-to/explain-failures>`
      - Trace a finding through its compiled constraint and supporting triples.
    * - :doc:`Extract shape-map bindings <how-to/shape-maps>`
@@ -114,6 +91,8 @@ Common tasks
      - Explore candidate graph edits with the experimental repair API.
    * - :doc:`Write shapes in Shapeshift <experimental/shapeshift/tutorial>`
      - Write SHACL shapes in a short language of their own, or from Python.
+   * - :doc:`Build a repair benchmark <experimental/violation-generation/how-to>`
+     - Generate broken graphs with known repairs to evaluate a repair tool.
 
 .. note::
 
@@ -121,30 +100,13 @@ Common tasks
    **experimental**. Their APIs, and the Shapeshift language, may change in
    any release; see :doc:`experimental/index`.
 
-Documentation
--------------
+Use the :doc:`tutorials <tutorials/index>` to learn the interfaces,
+:doc:`how-to guides <how-to/index>` for specific tasks, and the
+:doc:`reference <reference/index>` for exact options and fields.
+:doc:`Explanation <explanation/index>` covers graph evaluation and results.
 
-.. list-table::
-   :widths: 25 75
-
-   * - :doc:`Tutorials <tutorials/index>`
-     - Guided introductions to validation, results, and evidence.
-   * - :doc:`How-to guides <how-to/index>`
-     - Procedures for specific validation and inference tasks.
-   * - :doc:`Reference <reference/index>`
-     - Interfaces, options, fields, and feature-support boundaries.
-   * - :doc:`Explanation <explanation/index>`
-     - Design, semantics, and performance tradeoffs.
-   * - :doc:`Experimental <experimental/index>`
-     - Shapeshift, a language for writing shapes, and violation generation
-       for repair benchmarks. These can change in any release.
-   * - :doc:`Benchmarks <benchmarks>`
-     - Validation performance across real building models, tracked per
-       release.
-
-The :doc:`documentation contribution guide <contributing>` describes the page
-conventions and preview workflow. Documentation issues can be filed on
-`GitHub <https://github.com/gtfierro/shifty/issues/new>`_.
+See :doc:`contributing` for development checks, the W3C conformance suite,
+and documentation conventions. :doc:`benchmarks` reports validation timings.
 
 .. toctree::
    :maxdepth: 2

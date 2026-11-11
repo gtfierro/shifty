@@ -32,10 +32,11 @@ deterministic source identities breaking ties. ``binding.order`` exposes the
 authored decimal order; ``binding.position`` is its one-based position among
 all bindings, including unsuccessful ones. Turtle statement order is not used.
 
-Produce a configuration dictionary
-----------------------------------
+Use bindings in an application
+------------------------------
 
-For output that feeds an application rather than more analysis:
+Build a configuration dictionary
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 .. code-block:: python
 
@@ -54,7 +55,7 @@ Names are not required to be unique. ``mapping.by_name(name)`` returns the first
 match in binding order; when uniqueness matters, key by ``Key``.
 
 Match on a key in application code
-----------------------------------
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Use ``binding.constraint_components`` when branching on authored SHACL checks:
 
@@ -106,17 +107,13 @@ example requires Python 3.10 or newer; the package also supports Python 3.9:
        case Key(Pred("http://example.org/hasPoint"), Cls(sensor_class)):
            print(sensor_class)
 
-``Key.path`` is one of ``Id``, ``Pred``, ``Inv``, ``Seq``, ``Alt``, ``Star``.
-``Key.qualifier`` is a ``Cls``, ``Const``, ``Datatype``, or ``ShapeRef`` when
-the qualification can be recovered from the shape. Both are immutable and
-hashable, so a ``Key`` works as a dict key or set member. ``ordinal``
-distinguishes two authored obligations with the same path and qualifier, and
-counts towards equality.
-
-``mapping[...]`` does accept the rendered string, for interactive use.
+Keys are immutable and hashable. Their ``ordinal`` distinguishes obligations
+with the same path and qualifier. See :doc:`../reference/shape-maps` for
+the path and qualifier types. ``mapping[...]`` also accepts a rendered string
+for interactive lookup.
 
 Work with the values
---------------------
+~~~~~~~~~~~~~~~~~~~~
 
 Bound values are typed ``Term`` objects — ``Iri``, ``Literal``, ``BNode`` — not
 rendered strings, so an IRI and a literal with the same text cannot be confused:
@@ -135,6 +132,20 @@ rendered strings, so an IRI and a literal with the same text cannot be confused:
 ``Literal.to_python()`` converts common numeric and boolean datatypes and leaves
 anything unrecognised in its lexical form, and ``Term.to_rdflib()`` is available
 when ``rdflib`` is installed.
+
+Find a node across profiles
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   for mapping in smap.for_focus("http://example.org/vav-1"):
+       print(mapping.shape_name, mapping.conforms)
+
+The argument may be a ``Term``, an N-Triples term, or a bare IRI. The index is
+built on first use.
+
+``mapping.evaluation`` provides the underlying evidence for further inspection
+or repair.
 
 Annotate slots and values
 -------------------------
@@ -168,18 +179,11 @@ Value paths resolve lazily: the first access to ``annotated_values`` or
 Supplying no ``value_paths`` costs nothing, and ``name_path=None`` skips slot
 naming entirely.
 
-Singleton and optional slots
-----------------------------
+Slot names are also retained for a node shape with a single property shape.
 
-Slot names are retained even when a node shape has only one property shape.
-The lowering layer may elide that one-child conjunction, but ``name_path``
-still begins at the authored property-shape node.
-
-An unbounded ``sh:qualifiedValueShape`` is vacuous as a validation constraint,
-yet it is useful as an extraction slot. Its binding remains successful and
-``Binding.values`` contains the values that satisfy the qualified value shape.
-This makes an optional profile point available without adding an artificial
-minimum count.
+For an optional extraction slot, an unbounded ``sh:qualifiedValueShape``
+exposes matching values through ``Binding.values`` without imposing a minimum
+count.
 
 The default ``name_path="sh:name"`` works for Turtle, paths, bytes, and
 ``rdflib.Graph`` inputs. The standard ``sh:`` prefix is available for this
@@ -212,8 +216,8 @@ set is unknown (``values`` and ``partial_values`` are ``None``). ``observed``
 is also ``None`` when unavailable or when the property combines different
 count domains, such as ordinary and qualified cardinality.
 
-Keep the session when building a map by hand
---------------------------------------------
+Reuse an evidence session
+~~~~~~~~~~~~~~~~~~~~~~~~~
 
 ``shape_map()`` is a convenience over ``EvidenceSession`` plus
 ``ShapeMap.from_run``. If you build the map yourself, pass the session too:
@@ -224,29 +228,10 @@ Keep the session when building a map by hand
    run = session.validate()
    smap = shifty.ShapeMap.from_run(run, session)
 
-The session is what keeps the map exact for partially conforming nodes.
-Canonical failure evidence omits the passing siblings of a failed conjunction;
-with the session, the map materializes those on demand. Without it, an omitted
-passing sibling has ``binding.values is None`` — explicitly unknown, rather than
-guessed.
-
-Keeping the session is also how you reuse one prepared snapshot across several
-maps instead of re-parsing and re-validating.
-
-Find every profile that selected a node
----------------------------------------
-
-.. code-block:: python
-
-   for mapping in smap.for_focus("http://example.org/vav-1"):
-       print(mapping.shape_name, mapping.conforms)
-
-The argument may be a ``Term``, an N-Triples term, or a bare IRI. The index is
-built on first use.
-
-Each mapping also carries ``mapping.evaluation``, the underlying evidence — the
-way back to the full tree or a repair when the flat view has told you there is a
-problem but not enough about it.
+The session lets the map recover values omitted from failure evidence.
+Without it, a binding whose values cannot be recovered has
+``binding.values is None``. Reuse the same session and run to build several
+maps over one snapshot.
 
 Serialize
 ---------

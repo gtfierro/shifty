@@ -76,38 +76,6 @@
 }
 
 /* ─────────────────────────────────────────────────────────
-   Benchmark chart caption
-   ───────────────────────────────────────────────────────── */
-.bench-caption {
-  font-size: 0.86rem;
-  line-height: 1.55;
-  margin: 0.25rem 0 2rem;
-  padding-left: 0.9rem;
-  border-left: 3px solid var(--color-background-border, rgba(128, 128, 128, 0.35));
-  color: var(--color-foreground-secondary, #666);
-}
-
-.bench-caption code {
-  font-size: 0.85em;
-}
-
-/* Table view of the chart above: the accessible equivalent, and the required
-   relief for the validation hue's light-mode contrast. */
-.bench-details {
-  margin: -1rem 0 2rem;
-}
-
-.bench-details > summary {
-  cursor: pointer;
-  font-size: 0.86rem;
-  color: var(--color-foreground-secondary, #666);
-}
-
-.bench-details h4 {
-  margin: 1rem 0 0.4rem;
-}
-
-/* ─────────────────────────────────────────────────────────
    Benchmark tables
    ───────────────────────────────────────────────────────── */
 .bench-table-wrap {
@@ -161,6 +129,26 @@
   border-top: 2px solid var(--color-background-border);
   background: var(--color-background-secondary);
   font-style: italic;
+}
+
+.bench-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1.25rem;
+  margin: 1rem 0;
+}
+
+.bench-controls label {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.bench-controls select {
+  color: var(--color-foreground-primary);
+  background: var(--color-background-primary);
+  border: 1px solid var(--color-background-border);
+  padding: 0.3rem;
 }
 
 /* ─────────────────────────────────────────────────────────

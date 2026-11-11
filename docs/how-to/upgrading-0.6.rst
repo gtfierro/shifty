@@ -69,26 +69,37 @@ not execute supplies neither verdict. In Python, catch that case separately:
        # No validation report is available.
        raise RuntimeError("Validation could not complete") from error
 
-Malformed inputs and shapes still raise ``ValueError``. Session admission and
-inference errors also reject the call. Failed inference targets, rule conditions,
-and node filters raise ``ValidationFailure`` before an inferred snapshot is
-returned or written back. Repair gates and witness operations raise the same
-exception for query execution failures. JavaScript throws an ``Error``; C returns
-``SHIFTY_STATUS_VALIDATION_ERROR`` and C++ throws ``shifty::Error`` with that
-status. The C ABI version is now 7; rebuild C++ applications against the new
-headers and library.
+Malformed inputs and shapes raise ``ValueError``. Execution failures in
+inference targets, rule conditions, node filters, repair gates, and witness
+operations raise ``ValidationFailure``. Failed inference stops before a
+snapshot is returned or written back.
 
-Rust session methods ``validate``, ``report``, ``evidence``, ``conformance``,
+Lazy shape-map value extraction can also raise an execution error after
+validation succeeds, when it evaluates a qualifier that validation simplified
+away.
+
+Rust callers
+~~~~~~~~~~~~
+
+Session methods ``validate``, ``report``, ``evidence``, ``conformance``,
 ``find_failures``, and ``property_witnesses`` now return ``Result``. Prepared
-evidence evaluation and standalone report functions are also fallible. Propagate
-errors with ``?``. Match ``EvaluationError::Sparql`` to inspect the operation and
-diagnostic. Standalone algebra validation returns ``ValidationError``, whose
-variants separate ``NonStratifiable`` from ``Evaluation`` failures. Standalone
-witness and repair-gate functions propagate the same error type.
-``PreparedEvidenceValidator::raw_constraint_holds`` returns
-``Result<Option<bool>, EvaluationError>``. Lazy shape-map value extraction can
-raise an execution error even after validation succeeds, when it evaluates an
-authored qualifier that validation normalized away.
+evidence evaluation and standalone report functions are also fallible.
+Propagate errors with ``?``.
+
+- ``EvaluationError::Sparql`` carries the operation and diagnostic.
+- Standalone algebra validation, witness, and repair-gate functions return
+  ``ValidationError``, distinguishing ``NonStratifiable`` and ``Evaluation``
+  failures.
+- ``PreparedEvidenceValidator::raw_constraint_holds`` returns
+  ``Result<Option<bool>, EvaluationError>``.
+
+JavaScript and C++ callers
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+JavaScript throws an ``Error``. The C API returns
+``SHIFTY_STATUS_VALIDATION_ERROR``, and C++ throws ``shifty::Error`` with that
+status. The C ABI version is 7. Rebuild C++ applications against the new headers
+and library.
 
 Construct Rust reports through the API
 --------------------------------------

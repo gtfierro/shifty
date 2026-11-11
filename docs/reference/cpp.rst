@@ -93,14 +93,13 @@ non-fatal warnings and unsupported-feature diagnostics.
 Shape maps
 ----------
 
-The shape-map view is the C++ port of Python ``shifty.shape_map()``. For every
-selected ``(shape, focus)`` pair it
-produces a ``Mapping`` of the shape's property obligations: bound keys carry the
-values the data supplied as typed ``Term``\ s (exact even on
-partially-conforming foci), unbound keys carry the shortfall count and
-near-misses. A one-property node shape retains that property's ``name_path``
-value, and an unbounded ``sh:qualifiedValueShape`` still exposes the values
-that satisfy its qualifier.
+The C++ shape-map view follows Python ``shifty.shape_map()``. Each selected
+``(shape, focus)`` pair has a ``Mapping`` of property bindings. Values are
+typed ``Term``\ s, including for nodes that only partially conform. Failed
+bindings expose shortfalls and near-misses.
+
+A node shape with one property retains that property's ``name_path`` value.
+An unbounded ``sh:qualifiedValueShape`` also exposes matching values.
 
 .. code-block:: cpp
 

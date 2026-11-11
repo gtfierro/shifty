@@ -35,7 +35,9 @@ from a fresh checkout.
 Fix diagnostics rather than weakening or skipping a check, unless a documented
 compatibility constraint requires a narrow exception.
 
-Run the pinned W3C suite with the procedure in :doc:`how-to/conformance`.
+Run the pinned W3C suite and compare CLI and Python reports with
+:doc:`how-to/conformance`.
+
 Preserve upstream fixtures unchanged. Compiler and algorithm descriptions
 belong in the repository's ``development_docs/`` directory; public pages
 should explain behavior, usage, results, and support boundaries.
@@ -77,14 +79,13 @@ then build and verify the Python source archive. Confirm that a wheel installed
 outside the checkout reports the expected version and can validate and infer.
 Keep generated release artifacts under ``target/``.
 
-Commit the release sources before tagging. Pushing a ``v*.*.*`` tag starts the
-release workflow: it checks that the tag matches Cargo and the changelog, builds
-CLI binaries and Python distributions, and smoke-tests wheels on Python 3.9 and
-3.14. After those checks pass it creates the GitHub release and publishes to
-PyPI. Tags containing a hyphen produce a GitHub prerelease and skip crates.io
-publication. Publishing uses the repository's ``publish`` and ``deploy``
-environments. Treat pushing the tag as the publication step; prepare and review
-the release commit first.
+Commit and review the release sources before pushing a ``v*.*.*`` tag.
+Pushing the tag starts publication. The workflow checks the version and
+changelog, builds distributions, and tests wheels on Python 3.9 and 3.14
+before creating the GitHub release and publishing to PyPI.
+
+Tags containing a hyphen produce a GitHub prerelease and skip crates.io.
+Publishing uses the repository's ``publish`` and ``deploy`` environments.
 
 Contribute to the documentation
 -------------------------------
@@ -162,10 +163,15 @@ From the repository root:
    cd docs
    make html SPHINXOPTS="-W --keep-going"
 
-The normal build does not rewrite benchmark source data. To regenerate the
-benchmark chart deliberately before building, set
-``SHIFTY_REGENERATE_BENCHMARKS=1``.
+The build generates benchmark charts from the recorded results under
+``benchmark/results/``. To collect new measurements, follow
+:ref:`run_history`.
 
 Every rendered page has an **Edit this page** link to its source on GitHub. For
 a change that needs discussion first, `open an issue
 <https://github.com/gtfierro/shifty/issues/new>`_.
+
+.. toctree::
+   :hidden:
+
+   how-to/conformance

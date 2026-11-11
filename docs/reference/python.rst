@@ -30,15 +30,15 @@ Every entry point accepts the same input type, written ``GraphInput`` below:
 
 A ``list`` or ``tuple`` of these is merged at the triple level first.
 
-``pathlib.Path`` is the fastest file form, because the file never crosses the
-Python/Rust boundary as text. Existing string paths use the same behavior: a
-directory raises ``IsADirectoryError``, and a missing RDF-looking filename
-such as ``shapes.ttl`` raises ``FileNotFoundError``. Long or multiline strings
-are Turtle and are never probed as paths. This policy applies to every list or
-tuple member. HTTP(S) URLs are fetched once and passed as bytes. ``rdflib.Graph``
-inputs are serialized as Turtle so namespace bindings required by SHACL-SPARQL
-queries and rules survive. URL formats are inferred from the response content
-type or the final URL suffix; Turtle is the fallback.
+Paths are parsed directly in Rust. A directory raises ``IsADirectoryError``.
+A missing RDF-looking filename such as ``shapes.ttl`` raises
+``FileNotFoundError``. Long or multiline strings are read as Turtle. These
+rules apply to every list or tuple member.
+
+HTTP(S) URLs are fetched once. The response content type or final URL suffix
+determines the format, with Turtle as the fallback. ``rdflib.Graph`` inputs
+are serialized as Turtle to preserve namespace bindings used by SPARQL
+queries and rules.
 
 File inputs resolve relative IRIs against each file's own absolute URI unless
 ``base`` is supplied. A document's base declaration can override that default.
@@ -272,13 +272,10 @@ Runs SHACL-AF ``sh:rule`` entries to a fixed point. Note it takes no
 ~~~~~~~~~~~~
 
 ``infer()``, ``validate()``, ``validate_algebra()``, and the two
-``PreparedValidator`` methods accept ``in_place=True``, which writes the triples
-SHACL-AF inference derived straight into a caller-owned ``rdflib.Graph`` passed
-as the data graph, rather than returning a separate copy. Only the derived delta
-crosses back from Rust, and a triple derived about a blank node lands on the
-blank node the caller's graph already holds. It requires an ``rdflib.Graph``
-input and is off by default, so existing calls are unaffected. See
-:doc:`../how-to/infer` and :doc:`../how-to/validate`.
+``PreparedValidator`` methods accept ``in_place=True``. It adds inferred triples
+to the supplied ``rdflib.Graph`` and preserves that graph's blank-node
+identities. The default is ``False``. Other input types raise ``TypeError``
+when this option is enabled. See :ref:`inference-during-validation` for usage.
 
 ``PreparedValidator``
 ---------------------
@@ -345,14 +342,13 @@ profile can therefore also be used to extract values.
        print(w.focus, w.key, w.values)
    # <http://example.org/vav1> outsideAirTemp ['<http://example.org/oat>']
 
-``key_path`` is a SPARQL 1.1 property path — sequence ``/``, alternation ``|``,
-inverse ``^``, and the Kleene forms ``*``, ``+``, ``?`` — evaluated from each
-``sh:property`` shape's own node over the shapes graph. The example key is not
-a direct annotation on the property shape; it is one hop further, through a
-role-descriptor node, which a bare predicate lookup could not reach. A direct
-annotation would be ``key_path="zea:roleName"``, and a descriptor pointing *at*
-the property shape would be ``key_path="^zea:describes/zea:roleName"``.
-Prefixes resolve against the shapes document's ``@prefix`` declarations.
+``key_path`` is a SPARQL 1.1 property path evaluated from each property-shape
+node over the shapes graph. It supports ``/``, ``|``, ``^``, ``*``, ``+``, and
+``?``. Prefixes come from the shapes document.
+
+The example follows a role descriptor to its name. For a direct annotation,
+use ``key_path="zea:roleName"``. For a descriptor pointing at the property
+shape, use ``key_path="^zea:describes/zea:roleName"``.
 
 .. list-table::
    :widths: 20 80

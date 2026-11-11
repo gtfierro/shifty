@@ -9,9 +9,8 @@ until nothing new appears.
 Rules and data
 --------------
 
-A rule lives on a shape and fires for each node that shape targets. This one
-copies a rectangle's width to an ``ex:area`` property — not a useful
-calculation, but a small complete example:
+A rule lives on a shape and fires for each node that shape targets. This
+example derives an ``ex:area`` value from a rectangle's width:
 
 .. literalinclude:: ../examples/inference/rules.ttl
    :language: turtle
@@ -55,9 +54,8 @@ original graph plus everything derived, use Python:
 constructing an rdflib graph, which is faster if you are writing it straight to
 a file or passing it to another process.
 
-If ``data`` is already an ``rdflib.Graph`` you own, ``in_place=True`` adds the
-derived triples into it directly instead of building a separate copy — only
-the delta crosses back from Rust, not the whole graph:
+To add the derived triples to an existing ``rdflib.Graph``, pass
+``in_place=True``:
 
 .. code-block:: python
 
@@ -68,35 +66,9 @@ the delta crosses back from Rust, not the whole graph:
    print(result.inferred_count)   # 1
    result.graph() is data         # True — same object, now extended
 
-``in_place=True`` requires a single ``rdflib.Graph`` (not bytes, a path, a
-string, or a list of inputs — there's no caller-owned object to mutate for
-those); anything else raises ``TypeError``.
-
-Triples derived about a blank node land on the blank node your graph already
-holds, so they stay reachable from whatever pointed at it:
-
-.. code-block:: python
-
-   import rdflib
-
-   EX = rdflib.Namespace("http://example.org/")
-   data = rdflib.Graph()
-   data.parse(
-       data="""
-       @prefix ex: <http://example.org/> .
-       ex:r1 ex:hasDim [ a ex:Dim ; ex:width 4 ] .
-       """,
-       format="turtle",
-   )
-
-   shifty.infer(data, rules, in_place=True)
-
-   dim = data.value(EX.r1, EX.hasDim)
-   list(data.objects(dim, EX.area))   # the derived value, reached through ex:r1
-
-Any blank node label works, including names that RDF syntax cannot spell
-directly — labels carried over from a JSON-LD ``@id`` or a database key are
-encoded for the round trip and restored on the way back.
+``in_place=True`` requires a single ``rdflib.Graph``. Other input types raise
+``TypeError``. Existing blank-node identities are preserved when inferred
+triples are added.
 
 Rules embedded in the data graph work the same way — omit the second argument:
 
@@ -138,7 +110,7 @@ into ``data_graph`` instead, the same way ``infer(..., in_place=True)`` does:
 The two phases do not interleave. Inference runs to a fixed point, then
 validation runs over the result. They also use opposite fixed points —
 inference takes the least, validation the greatest — for reasons explained in
-:doc:`../explanation/recursion`.
+:ref:`recursive-shapes`.
 
 When rules refer to each other
 ------------------------------
@@ -159,13 +131,14 @@ result's ``diagnostics``.
 
 ``sh:order`` and ``sh:condition`` on a rule are honoured within this scheme.
 
-Note that ``infer()`` takes no ``graph_mode``. Graph modes describe what
-validation can see; inference always reads and extends the data graph.
+``infer()`` takes no ``graph_mode``. With separate inputs, rules can read
+data and shapes while deriving additions to the data graph. See
+:doc:`../explanation/shapes-and-data` for the evaluation rules.
 
 See also
 --------
 
 - :doc:`../reference/feature-support` — which rule and node-expression forms
   are supported.
-- :doc:`../explanation/recursion` — stratification, and why inference uses the
+- :ref:`recursive-shapes` — stratification, and why inference uses the
   least fixed point.

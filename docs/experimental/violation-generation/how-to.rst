@@ -63,10 +63,11 @@ property, one kind of mistake. Two tools narrow the universe to that:
 
    zones.weighted(kinds={"add_value": 0.2})         # fewer extra values
 
-Both return a new view. They are cheap and they chain.
+Both return a new view and can be chained.
 
-Weights are relative, and anything unweighted counts as 1. A weight of 50
-on a predicate makes its injections 50 times as likely as the rest.
+Weights are relative, and unspecified weights default to 1. Larger weights
+favor matching injections. The :doc:`reference` explains how weights combine
+when an injection edits several predicates or uses several operation kinds.
 
 To see what you are choosing from, list the universe:
 

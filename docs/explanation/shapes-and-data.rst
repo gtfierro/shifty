@@ -1,21 +1,14 @@
-Shapes graphs and data graphs
-=============================
+Graph inputs and evaluation
+===========================
 
 .. _shapes-and-data-graphs:
 
-Shifty controls the source of shape definitions separately from the triples
-available during evaluation:
-
-1. Where do **shape definitions** come from?
-2. Which triples are **visible during evaluation**?
-
-The inputs determine where shapes come from. ``graph_mode`` determines which
-triples are visible to validation.
+The graph inputs determine where shape definitions come from. ``graph_mode``
+controls the triples visible during validation. Inference runs before
+validation and can add triples to the data graph.
 
 Where shapes come from
 ----------------------
-
-The rule is the same in every frontend.
 
 With a single graph, Shifty reads both shape definitions and data from it.
 This supports combined files, where ``sh:NodeShape`` definitions sit alongside
@@ -45,14 +38,8 @@ or ``sh:NodeShape``, does not contribute constraints.
      - ``--shapes`` only
      - ``--data`` only
 
-Why the asymmetry
-~~~~~~~~~~~~~~~~~
-
-Data graphs may include shapes copied from examples or supplied by an
-upstream exporter. Reading those as constraints would change the validation
-schema whenever the data changed. Keeping shape definitions in the supplied
-shapes graph makes the schema predictable and matches SHACL's separation of
-shapes and data.
+This keeps the schema fixed when data changes, even if the data contains
+SHACL definitions copied from another source.
 
 Shapes embedded in data
 ~~~~~~~~~~~~~~~~~~~~~~~
@@ -69,28 +56,14 @@ shapes input:
 
    conforms, report, text = shifty.validate(data, [shapes, data])
 
-To validate a combined graph in Python, omit the second argument or pass
-``None``. An explicitly supplied shapes graph that contains no triples raises
-``ValueError``, preventing an accidental vacuous validation from being reported
-as successful.
-
-.. code-block:: python
-
-   shifty.validate(combined)              # combined is both
-   shifty.validate(combined, None)        # same
-   shifty.validate(combined, rdflib.Graph())   # ValueError: empty shapes graph
-
-This guard applies only when the supplied shapes graph has zero triples. A
-nonempty schema whose targets select no focus nodes remains a valid conforming
-run.
+An explicitly supplied shapes graph with zero triples raises ``ValueError``.
+A nonempty schema whose targets select no focus nodes yields a conforming run.
 
 Which triples are visible
 -------------------------
 
-The second question is entirely separate, and applies *after* the schema is
-fixed. It is controlled by ``graph_mode`` (``--graph-mode`` on the CLI), and it
-governs both where focus nodes are selected and what path traversal,
-class-hierarchy lookup, and SPARQL can see.
+``graph_mode`` (``--graph-mode`` on the CLI) controls focus selection and the
+triples available to paths, class-hierarchy lookup, and SPARQL.
 
 .. figure:: ../_static/graph-visibility.svg
    :alt: Data mode selects and evaluates using data. Union mode selects using data and evaluates using data plus shapes. Union-all uses both graphs for selection and evaluation. The named shapes graph always stays the original shapes source.
@@ -117,31 +90,54 @@ class-hierarchy lookup, and SPARQL can see.
      - Data ∪ shapes
      - Data ∪ shapes
 
-The default is ``union`` because of class hierarchies. ``sh:class ex:Sensor``
-has to hold for an ``ex:TemperatureSensor`` when the ontology says
-``ex:TemperatureSensor rdfs:subClassOf ex:Sensor`` — and that axiom is almost
-always authored with the shapes, not with the instance data. Under ``data``
-mode the validator cannot see it, and every subclass instance fails a
-constraint it satisfies.
+The default, ``union``, makes ontology axioms in the shapes graph available
+when checking data. For example, ``sh:class ex:Sensor`` can accept an
+``ex:TemperatureSensor`` when the shapes graph declares that subclass relation.
 
-Use ``data`` to check whether the data graph is self-contained, including its
-ontology definitions. The default, ``union``, validates nodes selected from the
-data graph with vocabulary from both graphs. ``union-all`` also
-selects focus nodes from the shapes graph, which is useful when the shapes file
-contains instances you intend to validate too. It can also select ontology
-resources in the shapes graph as validation targets.
+Use ``data`` to check a self-contained data graph. Use ``union-all`` when the
+shapes graph also contains instances you want to validate. It can also select
+ontology resources as targets.
 
-``infer()`` takes no ``graph_mode``. Graph modes describe what validation can
-see; inference derives additions to the data graph. With separate inputs, rules
-can read the data and shapes graphs while selecting their focus nodes from data.
-With combined input, rules read the evolving data graph.
+Adding visible triples can change a result in either direction. It may
+satisfy a missing-value constraint, exceed ``sh:maxCount``, or add a predicate
+that ``sh:closed`` forbids.
+
+Inference before validation
+---------------------------
+
+By default, SHACL-AF rules run until no new triples are derived, then
+validation checks the extended data. With separate inputs, rules can read
+data and shapes while selecting focus nodes from data. With combined input,
+rules read the evolving data graph. ``infer()`` takes no ``graph_mode`` option.
+
+Pass ``infer=False`` or ``--no-infer`` to validate asserted data alone. See
+:doc:`../how-to/infer` to retrieve or retain inferred triples.
 
 SPARQL ``$shapesGraph`` always names the original shapes source. It does not
 grow when inference adds data triples, even when one input file supplies both
 shapes and data. To change the named shapes graph, compile a new shapes source.
 
-Note that expanding the evaluation graph can flip a result in either direction.
-It usually makes a constraint easier to satisfy — more triples to traverse —
-but it also gives ``sh:closed`` more predicates to object to, and gives
-``sh:maxCount`` more values to count. Widening the graph is not monotonically
-more permissive.
+.. _recursive-shapes:
+
+Recursive shapes
+----------------
+
+Shape references can form cycles. SHACL 1.0 leaves their meaning undefined.
+During Shifty validation, a cycle can conform if no reachable constraint
+violation rules it out. Two named people who know each other can satisfy a
+shape requiring each person and everyone they know to have a name. Removing
+either name causes the relevant checks to fail. This is greatest fixed-point
+validation.
+
+Cycles through negation are rejected. Qualified cardinality can also
+introduce a negative dependency. Use :ref:`inspect-validation` to inspect a
+rejected schema.
+
+Inference uses a least fixed point, deriving facts from asserted or previously
+derived facts. It finishes before validation begins.
+
+A recursive success can end in a ``coinductive`` evidence leaf. Such a leaf
+provides no finite set of triples to delete, so deletion-based repair may be
+blocked. The `evaluation design notes
+<https://github.com/gtfierro/shifty/blob/main/development_docs/evaluation.md>`_
+describe the algorithms.

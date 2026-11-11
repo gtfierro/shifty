@@ -62,20 +62,15 @@ A convenience over ``EvidenceSession(...).validate()`` followed by
    smap = shifty.ShapeMap.from_run(run, session, name_path="sh:name",
                                    value_paths=None)
 
-Pass the session. Canonical failure evidence omits the passing siblings of a
-failed conjunction; with the session the map materializes them on demand, and
-without it such a binding has ``values is None`` — explicitly unknown rather
-than guessed.
+Pass the session used to produce the run. The map uses it to recover values
+omitted from failure evidence, including passing siblings and valid values of
+properties with ``sh:pattern`` or ``sh:datatype`` checks.
 
-Failure witnesses for universal value checks (such as ``sh:pattern`` or
-``sh:datatype``) can also omit valid values. With the session, the map lazily
-recovers accepted and rejected candidates from the authored property. Without
-it, ``values`` and ``partial_values`` are ``None`` when the complete qualifying
-set is unavailable; ``rejected_values`` still exposes witnessed failures.
-Recovery requires the session's original data snapshot. An unrelated session,
-or the original session passed alongside a ``revalidate()`` result, is treated
-as unavailable for graph-based resolution so old values cannot replace the
-new run's evidence.
+Without a matching session, ``values`` and ``partial_values`` are ``None``
+where the complete qualifying set is unavailable. ``rejected_values`` still
+contains witnessed failures. Resolution requires the original data snapshot.
+An unrelated session, or the original session paired with a ``revalidate()``
+run, is treated as unavailable.
 
 ``ShapeMap``
 ------------
