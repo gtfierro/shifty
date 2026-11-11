@@ -2,6 +2,78 @@
 
 ## Unreleased
 
+## 0.6.0
+
+Shifty 0.6.0 tightens validation defaults and failure handling, improves shape-map
+bindings and W3C reports, and adds experimental Shapeshift authoring and
+violation generation. Install Python with
+`python -m pip install "pyshifty[rdflib]==0.6.0"` or the CLI with
+`cargo install shifty-cli --version 0.6.0`.
+
+See the [upgrade guide](https://shifty.gtf.fyi/how-to/upgrading-0.6.html)
+before migrating from 0.5.x.
+
+### Compatibility changes
+
+- Unsupported features fail by default across interfaces. Set
+  `on_unsupported="ignore"` in Python or `--on-unsupported ignore` on CLI
+  validation for explicit best effort.
+- Query execution failures are separate from constraint violations. Python
+  raises `ValidationFailure`; Rust validation, evidence, witness, and report
+  operations return `Result`. JavaScript throws an error; the C API returns
+  `SHIFTY_STATUS_VALIDATION_ERROR`.
+- The Python repair API moved to `shifty.experimental.repair`. Existing evidence
+  types, `RepairDelta`, and `delta_from_graph` remain in `shifty`.
+- Shape-map `Key.kind` describes authored SHACL families. Use
+  `Binding.algebra_kind` for compiler tags and `constraint_components` for
+  component IRIs. `Binding.explain()` describes authored checks; pass
+  `algebra=True` for the evidence tree.
+- The C ABI is version 7. Rebuild C++ consumers. Rust report types are
+  non-exhaustive and provide constructors and accessors.
+- WebAssembly validation defaults to union graph mode. Omitted, null, and empty
+  options consistently enable inference and deterministic sorting.
+
+### Added
+
+- Experimental Shapeshift, a text language and Python authoring API for SHACL
+  shapes, with templates, imports, formatting, SHACL export, validation, and an
+  interactive CLI. Python exposes it under `shifty.experimental.shapeshift`;
+  Rust exposes it through `shifty-experimental`. The implementation crate is
+  published as `shifty-shapeshift`.
+- Experimental violation generation under `shifty.experimental.vio`, with
+  reproducible weighted sampling, revalidated broken graphs, and inverse deltas
+  as known repairs. The language and experimental APIs may change in any release.
+- Repair synthesis choices for alternative paths, inverse sequences, nested
+  paths, and repetitions. Candidate edits still require whole-graph validation.
+- Pinned W3C SHACL 1.0 checks, EARL reports, and CLI/Python report parity in CI.
+  All 120 approved cases and one separately reported proposed case pass.
+
+### Fixed
+
+- Inference and lazy shape-map queries propagate execution failures instead of
+  accepting incomplete results. Failed inference does not write back a partial
+  closure.
+- Shape maps preserve authored ordering, distinguish unknown from known-empty
+  values, recover partial bindings, and report counts consistently across
+  authored constraint families.
+- W3C reports retain complex property paths, direct SPARQL constraint sources,
+  and literal lexical forms. Local files resolve relative IRIs against their
+  own file URIs.
+- Range constraints support non-numeric datatypes, including dates and times.
+- Shapeshift commands compile once per operation. Violation-generation filters
+  propagate callback errors and can be retried without cached partial results.
+- Python source archives include licensing and a lockfile matching the packaged
+  workspace, supporting immediate locked builds.
+
+### Documentation and benchmarks
+
+- Short tutorials cover validation, inference, and shape maps. Detailed result
+  handling and evidence live in the how-to guides, and a conformance page offers
+  verified reports and downloads.
+- One benchmark runner collects tagged releases and HEAD. Charts show measured
+  inference and validation times, include the available release history, and
+  retain source revisions and measurement metadata.
+
 ## 0.6.0-alpha.4
 
 Fourth alpha for 0.6.0, with release cleanup and fixes to Shapeshift compilation
