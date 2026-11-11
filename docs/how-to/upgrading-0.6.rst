@@ -1,9 +1,7 @@
 Upgrading to 0.6
 ================
 
-Try the latest alpha with ``python -m pip install "pyshifty[rdflib]==0.6.0a3"``.
-The corresponding Rust and CLI version is ``0.6.0-alpha.3`` and the release tag
-is ``v0.6.0-alpha.3``. The changes below apply when upgrading from 0.5.x.
+The changes below apply when upgrading from 0.5.x.
 
 Unsupported features fail by default
 ------------------------------------

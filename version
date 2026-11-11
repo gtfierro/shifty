@@ -1,39 +1,24 @@
 #!/usr/bin/env python3
-"""Version management helper for ontoenv-rs.
+"""Version management helper for Shifty.
 
 - Without arguments: print the current workspace version.
-- With a version string: update all manifests and rebuild lockfiles.
+- With a version string: update the workspace version and rebuild Rust and Python.
 """
 
 from __future__ import annotations
 
 import argparse
 import os
-import subprocess
-import sys
 import re
+import subprocess
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 CARGO_TOML = ROOT / "Cargo.toml"
-ONTOENV_PYPROJECT = ROOT / "python" / "pyproject.toml"
-
-
-def semver_to_pep440(version: str) -> str:
-    """Convert workspace semver (with `-pre`) into a PEP 440 compatible form."""
-    base, plus, build = version.partition("+")
-    release, hyphen, suffix = base.partition("-")
-    pep = release
-    if hyphen:
-        pep += suffix.replace("-", ".")
-    if plus:
-        normalized = build.replace("-", ".")
-        pep += f".post{normalized or '0'}"
-    return pep
 
 
 def read_current_version() -> str:
-    text = (ROOT / "Cargo.toml").read_text(encoding="utf-8").splitlines()
+    text = CARGO_TOML.read_text(encoding="utf-8").splitlines()
     in_workspace = False
     for raw in text:
         line = raw.strip()
@@ -49,21 +34,9 @@ def read_current_version() -> str:
     raise SystemExit("Unable to find workspace.package.version in Cargo.toml")
 
 
-def write_if_contains(path: Path, old: str, new: str) -> bool:
-    text = path.read_text(encoding="utf-8")
-    if old not in text:
-        return False
-    path.write_text(text.replace(old, new), encoding="utf-8")
-    return True
-
-
 def update_versions(old: str, new: str) -> None:
-    touched = []
-    for path in (CARGO_TOML, ONTOENV_PYPROJECT):
-        if write_if_contains(path, old, new):
-            touched.append(path)
-    if not touched:
-        print("warning: no files updated; version string may already be current", file=sys.stderr)
+    text = CARGO_TOML.read_text(encoding="utf-8")
+    CARGO_TOML.write_text(text.replace(old, new), encoding="utf-8")
 
 
 def run_command(cmd: list[str], cwd: Path | None = None) -> None:
@@ -79,9 +52,12 @@ def run_command(cmd: list[str], cwd: Path | None = None) -> None:
 
 
 def rebuild() -> None:
-    run_command(["cargo", "check"])
     run_command(["cargo", "build"])
     run_command(["uv", "lock"], cwd=ROOT / "python")
+    run_command(
+        ["uv", "sync", "--dev", "--frozen", "--reinstall-package", "pyshifty"],
+        cwd=ROOT / "python",
+    )
 
 
 def main() -> None:

@@ -153,7 +153,8 @@ fn _shapeshift_export(
             source,
         )));
     }
-    s.export(core)
+    compiled
+        .export(core)
         .map_err(|e| ShapeshiftError::new_err(e.to_string()))
 }
 

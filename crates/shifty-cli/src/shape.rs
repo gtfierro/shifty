@@ -282,32 +282,19 @@ pub fn run(cmd: ShapeCommand) -> Result<(), Box<dyn Error>> {
 fn compile_file(
     file: &Path,
     opts: &ImportOpts,
-) -> Result<(Session, shapeshift::Compiled, Vec<Diagnostic>), Box<dyn Error>> {
-    let (session, mut diags) = session_for(file, opts)?;
-    if diags.iter().any(Diagnostic::is_error) {
-        return Ok((session, empty_compiled(), diags));
-    }
+) -> Result<(Session, shapeshift::Compiled), Box<dyn Error>> {
+    let (session, diags) = session_for(file, opts)?;
+    require_clean(&diags)?;
     let compiled = session.compile();
-    diags.extend(compiled.diagnostics.iter().cloned());
-    Ok((session, compiled, diags))
-}
-
-fn empty_compiled() -> shapeshift::Compiled {
-    let program = shapeshift::macros::Program::default();
-    shapeshift::Compiled {
-        built: shapeshift::macros::build(&program),
-        resolved: shapeshift::import::Resolved {
-            program,
-            graphs: Vec::new(),
-            closure: Vec::new(),
-            diagnostics: Vec::new(),
-        },
-        diagnostics: Vec::new(),
-    }
+    require_clean(&compiled.diagnostics)?;
+    Ok((session, compiled))
 }
 
 fn check(a: FileArgs) -> Result<(), Box<dyn Error>> {
-    let (_, _, diags) = compile_file(&a.file, &a.imports)?;
+    let (session, mut diags) = session_for(&a.file, &a.imports)?;
+    if !diags.iter().any(Diagnostic::is_error) {
+        diags.extend(session.compile().diagnostics);
+    }
     let errors = diags.iter().filter(|d| d.is_error()).count();
     match a.format {
         OutFormat::Json => println!("{}", serde_json::to_string_pretty(&diags)?),
@@ -349,8 +336,7 @@ fn build(a: BuildArgs) -> Result<(), Box<dyn Error>> {
         println!("{}", serde_json::to_string_pretty(&parsed.module)?);
         return Ok(());
     }
-    let (_, compiled, diags) = compile_file(&a.file, &a.imports)?;
-    require_clean(&diags)?;
+    let (_, compiled) = compile_file(&a.file, &a.imports)?;
     let b = &compiled.built;
     match a.emit {
         Emit::Schema => println!("{}", serde_json::to_string_pretty(&b.schema)?),
@@ -436,9 +422,8 @@ fn fmt(a: FmtArgs) -> Result<(), Box<dyn Error>> {
 }
 
 fn export(a: ExportArgs) -> Result<(), Box<dyn Error>> {
-    let (session, _, diags) = compile_file(&a.file, &a.imports)?;
-    require_clean(&diags)?;
-    let (ttl, warnings) = session.export(a.core).map_err(|e| fail(e.to_string()))?;
+    let (_, compiled) = compile_file(&a.file, &a.imports)?;
+    let (ttl, warnings) = compiled.export(a.core)?;
     for w in warnings {
         eprintln!("warning: {w}");
     }
@@ -450,12 +435,11 @@ fn export(a: ExportArgs) -> Result<(), Box<dyn Error>> {
 }
 
 fn validate(a: ValidateArgs) -> Result<(), Box<dyn Error>> {
-    let (mut session, _, diags) = compile_file(&a.file, &a.imports)?;
-    require_clean(&diags)?;
+    let (mut session, compiled) = compile_file(&a.file, &a.imports)?;
     for d in &a.data {
         session.add_data(d).map_err(|e| fail(e.to_string()))?;
     }
-    let report = session.validate().map_err(|e| fail(e.to_string()))?;
+    let report = shapeshift::validate_compiled(&compiled, &session.data_graph()?)?;
     match a.format {
         OutFormat::Json => println!("{}", serde_json::to_string_pretty(&report)?),
         OutFormat::Text => print!("{}", report.to_text()),
@@ -516,11 +500,10 @@ fn imports(a: ImportsArgs) -> Result<(), Box<dyn Error>> {
 }
 
 fn explain(a: ExplainArgs) -> Result<(), Box<dyn Error>> {
-    let (session, _, diags) = compile_file(&a.file, &a.imports)?;
-    require_clean(&diags)?;
-    print!(
-        "{}",
-        session.explain(&a.shape).map_err(|e| fail(e.to_string()))?
-    );
+    let (session, compiled) = compile_file(&a.file, &a.imports)?;
+    let decl = session
+        .shape(&a.shape)
+        .ok_or_else(|| fail(format!("no shape named `{}`", a.shape)))?;
+    print!("{}", compiled.explain(decl));
     Ok(())
 }

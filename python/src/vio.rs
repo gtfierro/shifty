@@ -75,12 +75,17 @@ impl VioUniverse {
         }
     }
 
-    /// Raise what a Python filter raised during the last call, if anything.
-    fn check(&self) -> PyResult<()> {
-        match self.raised.borrow_mut().take() {
-            Some(err) => Err(err),
-            None => Ok(()),
+    fn with_filter_errors<T>(&mut self, run: impl FnOnce(&Universe) -> T) -> PyResult<T> {
+        // A callback failure can leave a partial membership cache. Commit the
+        // view's cache only after all callbacks succeed. The expansion itself
+        // is independent of callbacks and stays shared with the other views.
+        let view = self.inner.clone();
+        let result = run(&view);
+        if let Some(err) = self.raised.borrow_mut().take() {
+            return Err(err);
         }
+        self.inner = view;
+        Ok(result)
     }
 }
 
@@ -159,19 +164,10 @@ impl VioUniverse {
         })
     }
 
-    /// The number of injections. Expands and caches the universe.
-    fn __len__(&self) -> PyResult<usize> {
-        let n = self.inner.len();
-        self.check()?;
-        Ok(n)
-    }
-
     /// The injections of this view, in expansion order. Expands and caches
     /// the universe.
-    fn injections(&self) -> PyResult<Vec<PyInjection>> {
-        let rows = self.inner.iter().map(injection).collect();
-        self.check()?;
-        Ok(rows)
+    fn injections(&mut self) -> PyResult<Vec<PyInjection>> {
+        self.with_filter_errors(|view| view.iter().map(injection).collect())
     }
 
     /// The view of the injections that break one of `shapes` (bare IRIs),
@@ -243,10 +239,9 @@ impl VioUniverse {
     }
 
     /// One case per `(k, seed)`, from one pass over the expansion.
-    fn draws(&self, requests: Vec<(usize, u64)>) -> PyResult<Vec<VioCase>> {
-        let cases = self.inner.draws(&requests);
-        self.check()?;
-        Ok(cases
+    fn draws(&mut self, requests: Vec<(usize, u64)>) -> PyResult<Vec<VioCase>> {
+        Ok(self
+            .with_filter_errors(|view| view.draws(&requests))?
             .map_err(py_error)?
             .into_iter()
             .map(|case| VioCase { case })

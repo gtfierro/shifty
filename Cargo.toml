@@ -42,7 +42,7 @@ shifty-engine = { path = "crates/shifty-engine", version = "0.6.0-alpha.3" }
 shifty-repair = { path = "crates/shifty-repair", version = "0.6.0-alpha.3" }
 # experimental: may change in any release
 shifty-experimental = { path = "crates/experimental/shifty-experimental", version = "0.6.0-alpha.3" }
-shapeshift = { path = "crates/experimental/shapeshift", version = "0.6.0-alpha.3" }
+shapeshift = { package = "shifty-shapeshift", path = "crates/experimental/shapeshift", version = "0.6.0-alpha.3" }
 shapeshift-macro = { path = "crates/experimental/shapeshift-macro", version = "0.6.0-alpha.3" }
 shapeshift-parse = { path = "crates/experimental/shapeshift-parse", version = "0.6.0-alpha.3" }
 shapeshift-raise = { path = "crates/experimental/shapeshift-raise", version = "0.6.0-alpha.3" }

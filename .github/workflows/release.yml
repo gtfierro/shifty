@@ -32,7 +32,7 @@ jobs:
           test -n "$VERSION"
           test "$GITHUB_REF_TYPE" = "tag"
           test "$GITHUB_REF_NAME" = "v$VERSION"
-          grep -F "## $VERSION" CHANGELOG.md
+          grep -Fx "## $VERSION" CHANGELOG.md
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
       - name: Check and test workspace
         run: |
@@ -383,7 +383,7 @@ jobs:
           sleep 30
           cargo publish --locked -p shapeshift-raise
           sleep 30
-          cargo publish --locked -p shapeshift
+          cargo publish --locked -p shifty-shapeshift
           sleep 30
           cargo publish --locked -p shifty-experimental
           sleep 30

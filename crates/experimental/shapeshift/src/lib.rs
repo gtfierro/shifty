@@ -6,8 +6,7 @@
 //! point for Shapeshift (`shifty_experimental::shapeshift`): depend on that
 //! instead.
 //!
-//! This crate is the facade the interfaces (`shifty shape`, the REPL, and
-//! later the Python and WASM bindings) build on:
+//! The CLI, REPL, and Python bindings build on this crate:
 //!
 //! - [`session`] — definitions, data, and imports that persist across
 //!   commands, transactional redefinition, and save/load of `.shm` files and

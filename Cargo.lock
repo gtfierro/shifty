@@ -1300,23 +1300,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "shapeshift"
-version = "0.6.0-alpha.3"
-dependencies = [
- "oxrdf",
- "serde",
- "serde_json",
- "shapeshift-import",
- "shapeshift-macro",
- "shapeshift-parse",
- "shapeshift-raise",
- "shifty-algebra",
- "shifty-engine",
- "shifty-parse",
- "tempfile",
-]
-
-[[package]]
 name = "shapeshift-import"
 version = "0.6.0-alpha.3"
 dependencies = [
@@ -1443,7 +1426,7 @@ dependencies = [
 name = "shifty-experimental"
 version = "0.6.0-alpha.3"
 dependencies = [
- "shapeshift",
+ "shifty-shapeshift",
  "shifty-vio",
  "tree-sitter-shapeshift",
 ]
@@ -1479,6 +1462,23 @@ dependencies = [
  "serde",
  "serde_json",
  "shifty-algebra",
+]
+
+[[package]]
+name = "shifty-shapeshift"
+version = "0.6.0-alpha.3"
+dependencies = [
+ "oxrdf",
+ "serde",
+ "serde_json",
+ "shapeshift-import",
+ "shapeshift-macro",
+ "shapeshift-parse",
+ "shapeshift-raise",
+ "shifty-algebra",
+ "shifty-engine",
+ "shifty-parse",
+ "tempfile",
 ]
 
 [[package]]

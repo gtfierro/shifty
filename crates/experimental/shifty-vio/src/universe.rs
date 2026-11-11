@@ -222,17 +222,11 @@ impl Universe {
                 Rc::new(move |inj| prev(inj) && keep(inj))
             }
         };
-        let members = OnceCell::new();
-        if let Some(mine) = self.members.get() {
-            let all = self.core.all();
-            let narrowed: Rc<[usize]> = mine.iter().copied().filter(|&j| keep(&all[j])).collect();
-            let _ = members.set(narrowed);
-        }
         Self {
             core: Rc::clone(&self.core),
             keep: Some(keep),
             weights: self.weights.clone(),
-            members,
+            members: OnceCell::new(),
         }
     }
 

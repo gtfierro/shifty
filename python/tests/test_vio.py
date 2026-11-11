@@ -595,6 +595,26 @@ def test_filter_exceptions_propagate():
         len(view)
 
 
+def test_failed_filter_does_not_cache_partial_membership(ahu):
+    expected = tuple(ahu)
+    fail = True
+
+    def keep(injection):
+        if fail and injection == expected[1]:
+            raise RuntimeError("boom")
+        return True
+
+    view = ahu.where(keep)
+    with pytest.raises(RuntimeError, match="boom"):
+        len(view)
+    with pytest.raises(RuntimeError, match="boom"):
+        view.draw(1)
+
+    fail = False
+    assert tuple(view) == expected
+    assert view.draw(1).injections == ahu.draw(1).injections
+
+
 # A rule infers the room's type from ex:roomNumber; the sensor's room must be
 # an ex:Room. The asserted graph conforms only once the rule has run.
 RULE_SHAPES = (

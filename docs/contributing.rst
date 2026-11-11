@@ -67,11 +67,10 @@ directly skips lockfile preparation.
 Prepare a release
 -----------------
 
-Use the Cargo prerelease spelling for the workspace version, internal crate
-dependencies, changelog heading, and Git tag. For the third 0.6 alpha these are
-``0.6.0-alpha.3`` and ``v0.6.0-alpha.3``. Maturin writes the Python distribution
-version as ``0.6.0a3``; the Python runtime's ``shifty.version()`` continues to
-report the Rust version.
+Use the Cargo version for the workspace, internal crate dependencies, and
+changelog heading. Prefix that version with ``v`` for the Git tag. Maturin
+converts the version to Python's distribution format. ``shifty.version()``
+reports the Cargo version.
 
 Run the Rust, Python, SDK, documentation, and pinned conformance checks above,
 then build and verify the Python source archive. Confirm that a wheel installed

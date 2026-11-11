@@ -69,6 +69,54 @@ impl Compiled {
     pub fn has_errors(&self) -> bool {
         self.diagnostics.iter().any(Diagnostic::is_error)
     }
+
+    /// Raise this compiled program to SHACL Turtle.
+    pub fn export(&self, core: bool) -> Result<(String, Vec<String>)> {
+        if self.has_errors() {
+            return Err(err(shapeshift_macro::diagnostic::render_all(
+                &self.diagnostics,
+            )));
+        }
+        let raised = raise(&self.built, RaiseOptions { core }).map_err(err)?;
+        Ok((raised.to_turtle(), raised.warnings))
+    }
+
+    /// Render a shape declaration from this program with its compiled algebra.
+    pub fn explain(&self, decl: &ShapeDecl) -> String {
+        let source = display::format_module(&Module {
+            shapes: vec![decl.clone()],
+            ..Default::default()
+        });
+        let mut out = format!("-- source\n{source}");
+        if let Some(slot) = self.built.shapes.get(&decl.name) {
+            let s = &self.built.schema;
+            let body = match s.arena.get(*slot) {
+                shifty_algebra::Shape::Annotated { shape, .. } => *shape,
+                _ => *slot,
+            };
+            out.push_str("\n-- algebra\n");
+            out.push_str(&shifty_algebra::render::describe_shape_pretty(
+                &s.arena,
+                body,
+                &s.prefixes,
+                88,
+            ));
+            out.push('\n');
+            for st in &s.statements {
+                if st.shape == *slot {
+                    out.push_str(&format!(
+                        "for {}\n",
+                        shifty_algebra::render::selector_to_string_in_px(
+                            &st.selector,
+                            &s.arena,
+                            &s.prefixes
+                        )
+                    ));
+                }
+            }
+        }
+        out
+    }
 }
 
 /// What [`Session::apply`] did.
@@ -310,14 +358,7 @@ impl Session {
 
     /// Raise the session's definitions to SHACL Turtle.
     pub fn export(&self, core: bool) -> Result<(String, Vec<String>)> {
-        let compiled = self.compile();
-        if compiled.has_errors() {
-            return Err(err(shapeshift_macro::diagnostic::render_all(
-                &compiled.diagnostics,
-            )));
-        }
-        let raised = raise(&compiled.built, RaiseOptions { core }).map_err(err)?;
-        Ok((raised.to_turtle(), raised.warnings))
+        self.compile().export(core)
     }
 
     /// The definitions as canonical `.shm` text.
@@ -329,48 +370,12 @@ impl Session {
         self.module.shapes.iter().find(|s| s.name == name)
     }
 
-    /// Source, algebra, and SHACL of one shape.
+    /// Source and algebra of one shape.
     pub fn explain(&self, name: &str) -> Result<String> {
         let decl = self
             .shape(name)
             .ok_or_else(|| err(format!("no shape named `{name}`")))?;
-        let mut one = self.module.clone();
-        one.shapes = vec![decl.clone()];
-        one.header_order.clear();
-        let source = display::format_module(&Module {
-            shapes: vec![decl.clone()],
-            ..Default::default()
-        });
-        let compiled = self.compile();
-        let mut out = format!("-- source\n{source}");
-        if let Some(slot) = compiled.built.shapes.get(name) {
-            let s = &compiled.built.schema;
-            let body = match s.arena.get(*slot) {
-                shifty_algebra::Shape::Annotated { shape, .. } => *shape,
-                _ => *slot,
-            };
-            out.push_str("\n-- algebra\n");
-            out.push_str(&shifty_algebra::render::describe_shape_pretty(
-                &s.arena,
-                body,
-                &s.prefixes,
-                88,
-            ));
-            out.push('\n');
-            for st in &s.statements {
-                if st.shape == *slot {
-                    out.push_str(&format!(
-                        "for {}\n",
-                        shifty_algebra::render::selector_to_string_in_px(
-                            &st.selector,
-                            &s.arena,
-                            &s.prefixes
-                        )
-                    ));
-                }
-            }
-        }
-        Ok(out)
+        Ok(self.compile().explain(decl))
     }
 
     pub fn save_source(&self, path: &Path) -> Result<()> {

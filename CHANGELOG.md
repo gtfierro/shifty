@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### Fixed
+
+- The release workflow publishes the Shapeshift implementation as
+  `shifty-shapeshift` to avoid the unrelated `shapeshift` package on crates.io.
+  The `shifty_experimental::shapeshift` import remains available.
+- Shapeshift's CLI export, validation, and explanation commands and its Python
+  export resolve imports and compile once per call.
+- Violation-generation filters propagate callback exceptions and can be retried
+  without caching a partial set of injections.
+
 ## 0.6.0-alpha.3
 
 Third alpha for 0.6.0. It adds two experimental features, Shapeshift (a text

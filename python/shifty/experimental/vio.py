@@ -432,8 +432,10 @@ class Universe(Sequence[Injection]):
 
     @property
     def reference_ntriples(self) -> str:
-        """The reference graph ``G_ref`` as sorted N-Triples: the closure,
-        with canonical blank-node labels."""
+        """The asserted reference graph ``G_ref`` as sorted N-Triples.
+
+        Blank-node labels are canonicalized by default.
+        """
         return self._shared.reference_ntriples
 
     @property

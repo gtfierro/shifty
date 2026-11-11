@@ -3,8 +3,7 @@
 //! **Everything in this crate may change in any release, without a
 //! deprecation period.** It is kept apart from shifty's stable crates
 //! (`shifty-algebra`, `shifty-parse`, `shifty-engine`, ...) so that depending
-//! on it is a deliberate choice. Pin an exact version (`=0.6.0-alpha.1`) if
-//! you build on it.
+//! on it is a deliberate choice. Pin an exact version if you build on it.
 //!
 //! - [`shapeshift`]: Shapeshift, a text language (`.shm`) for writing shapes,
 //!   which compiles to shifty's shape algebra and exports readable SHACL. The
@@ -14,7 +13,7 @@
 //!   knowledge-graph repair benchmarks. Python's `shifty.experimental.vio`
 //!   is built on it.
 //!
-//! This crate is the entry point. The crates it re-exports (`shapeshift`,
+//! This crate is the entry point. The crates it re-exports (`shifty-shapeshift`,
 //! `shapeshift-parse`, `shapeshift-macro`, `shapeshift-import`,
 //! `shapeshift-raise`, `tree-sitter-shapeshift`, and `shifty-vio`) are its
 //! implementation, published only so this one can be.

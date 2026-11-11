@@ -1,5 +1,5 @@
 [package]
-name = "shapeshift"
+name = "shifty-shapeshift"
 version.workspace = true
 authors.workspace = true
 license.workspace = true
@@ -8,6 +8,9 @@ description = "Experimental, may change in any release (use shifty-experimental)
 repository.workspace = true
 documentation.workspace = true
 readme.workspace = true
+
+[lib]
+name = "shapeshift"
 
 [dependencies]
 shapeshift-macro.workspace = true
