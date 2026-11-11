@@ -37,7 +37,7 @@ produces the W3C report.
 The formats describe constraints differently. A datatype failure may appear
 as a count of invalid values in a structured finding, while the RDF report
 identifies ``sh:DatatypeConstraintComponent``. The
-:doc:`result-reading tutorial <../tutorials/reading-results>` shows how to
+:doc:`result-handling guide <../how-to/results>` shows how to
 handle findings in code. Exact fields and arguments are in
 :doc:`../reference/python`.
 

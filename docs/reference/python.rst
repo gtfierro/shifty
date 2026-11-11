@@ -245,7 +245,7 @@ because the compiler lowers them to one counting operator — see
 :doc:`../explanation/architecture`. Use ``reason.constraint`` when you need to
 distinguish them.
 
-:doc:`../tutorials/reading-results` works through consuming these.
+:doc:`../how-to/results` shows how to consume these.
 
 ``infer``
 ---------

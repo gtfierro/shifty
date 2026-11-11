@@ -1,6 +1,8 @@
 Run the W3C SHACL suite
 =======================
 
+See :doc:`../conformance` for the recorded results and downloadable reports.
+
 From a checkout with Rust and uv installed:
 
 .. code-block:: bash

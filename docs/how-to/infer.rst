@@ -6,6 +6,9 @@ them by forward chaining to a fixed point: every rule whose body is satisfied
 fires, the derived triples become available to other rules, and this repeats
 until nothing new appears.
 
+For a complete example from rule to validation, see
+:doc:`../tutorials/applying-inference`.
+
 Rules and data
 --------------
 

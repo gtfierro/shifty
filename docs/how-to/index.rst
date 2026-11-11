@@ -3,7 +3,7 @@ How-to guides
 
 Use these guides to configure validation, run rules, inspect results, extract
 values, or embed the browser module. Start with the
-:doc:`tutorials <../tutorials/index>` for a first validation, or use the
+:doc:`tutorials <../tutorials/index>` for worked examples, or use the
 :doc:`reference <../reference/index>` to look up options.
 
 .. toctree::
@@ -11,6 +11,7 @@ values, or embed the browser module. Start with the
 
    validate
    infer
+   results
    explain-failures
    shape-maps
    browser

@@ -5,6 +5,8 @@ A shape map extracts the values that satisfied a shape's property constraints.
 For example, a shape requiring a VAV to have a supply-air temperature sensor
 can also identify that sensor for an application.
 
+For a short walkthrough, see :doc:`../tutorials/shape-maps`.
+
 The map contains one entry per selected ``(shape, focus)`` pair, with bindings
 for each property obligation. It uses the validation evidence, so you can
 retrieve these values without writing a separate query for the shape's paths

@@ -92,7 +92,7 @@ or rule. ``inspect`` remains diagnostic-oriented and shows lowering output.
      - Print input, shape, cache, and SPARQL execution telemetry afterwards.
        See :ref:`cli-profile`.
 
-Default output for the :doc:`first-validation example
+Default output for the :doc:`validation example
 <../tutorials/first-validation>`:
 
 .. program-output:: bash validate.sh

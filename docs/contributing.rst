@@ -36,7 +36,7 @@ Fix diagnostics rather than weakening or skipping a check, unless a documented
 compatibility constraint requires a narrow exception.
 
 Run the pinned W3C suite and compare CLI and Python reports with
-:doc:`how-to/conformance`.
+:doc:`how-to/conformance`. Recorded results are on :doc:`conformance`.
 
 Preserve upstream fixtures unchanged. Compiler and algorithm descriptions
 belong in the repository's ``development_docs/`` directory; public pages

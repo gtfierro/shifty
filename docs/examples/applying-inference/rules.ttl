@@ -1,0 +1,15 @@
+@prefix ex: <http://example.org/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+
+ex:PersonShape a sh:NodeShape ;
+    sh:targetClass ex:Person ;
+    sh:rule [
+        a sh:TripleRule ;
+        sh:subject sh:this ;
+        sh:predicate ex:displayName ;
+        sh:object [ sh:path ex:name ] ;
+    ] ;
+    sh:property [
+        sh:path ex:displayName ;
+        sh:minCount 1 ;
+    ] .

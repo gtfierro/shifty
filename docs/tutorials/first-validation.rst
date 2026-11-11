@@ -1,69 +1,30 @@
-Your first validation
-=====================
+Validating a model
+==================
 
-In this tutorial you write a SHACL shapes file and a data file, validate one
-against the other, read the report, and fix the data. It takes about ten
-minutes and assumes no prior SHACL knowledge — only that you can read Turtle,
-RDF's text format, well enough to recognise a triple when you see one.
+Validate an RDF data file against SHACL shapes, read the failures, and fix the
+data. The examples use Turtle, RDF's text format.
 
-Install
--------
+Install Shifty with ``pip install "pyshifty[rdflib]"`` for Python. For the CLI,
+follow :doc:`../install`.
 
-Wheels for ``pyshifty`` are published to PyPI and contain a pre-compiled
-engine, so installing it needs no Rust toolchain:
+Create the shapes and data
+--------------------------
 
-.. code-block:: bash
-
-   pip install "pyshifty[rdflib]"
-
-The distribution is named ``pyshifty`` but the module is ``shifty``:
-
-.. code-block:: python
-
-   import shifty
-
-For the command-line tool, download an archive from `GitHub Releases
-<https://github.com/gtfierro/shifty/releases>`_ and put the extracted
-``shifty`` executable on your ``PATH``. Linux x86-64, Windows x86-64, and macOS
-arm64 archives are built by the release workflow. To build from source instead,
-use Rust:
-
-.. code-block:: bash
-
-   git clone https://github.com/gtfierro/shifty
-   cd shifty
-   cargo install --path crates/shifty-cli
-
-This tutorial uses the CLI for the first half and Python for the second. If
-you want to use only Python, skip to `Validate from Python`_ — nothing in the
-CLI half is a prerequisite.
-
-Create the shapes and data graphs
----------------------------------
-
-Create a working directory with two files in it. The first describes what a
-valid person looks like. Call it ``shapes.ttl``:
+Save this as ``shapes.ttl``. Every person must have a string name and an email.
 
 .. literalinclude:: ../examples/quick-start/shapes.ttl
    :language: turtle
 
-Read that as three separate claims. ``sh:targetClass ex:Person`` says *which*
-nodes this shape applies to: every node typed ``ex:Person``. The first
-``sh:property`` block says each of those nodes must have at least one
-``ex:name``, and that every value found there must be a string. The second says
-each must have at least one ``ex:email``, with no constraint on the value.
-
-The second file is the data to check. Call it ``data.ttl``:
+Save this as ``data.ttl``. Alice satisfies the shape. Bob has an integer name
+and no email.
 
 .. literalinclude:: ../examples/quick-start/data.ttl
    :language: turtle
 
-Alice satisfies both obligations. Bob's ``ex:name`` is an integer rather than a
-string, and he has no ``ex:email``. The validator reports these as distinct
-reasons.
+Validate from the command line
+------------------------------
 
-Run the validator
------------------
+Run this in the directory containing the two files:
 
 .. literalinclude:: ../examples/quick-start/validate.sh
    :language: bash
@@ -71,135 +32,66 @@ Run the validator
 .. program-output:: bash validate.sh
    :cwd: ../examples/quick-start
 
-Alice is absent from the output. A validation report contains failures only. It
-does not distinguish between a node that passed validation and a node that was
-never selected by the shape. To inspect selection and passing evaluations, use
-the :doc:`evidence interface <../reference/evidence>`; to extract selected
-nodes and values as bindings, use :doc:`shape maps <../reference/shape-maps>`.
-The :doc:`failure-explanation tutorial <explaining-a-failure>` demonstrates
-the evidence workflow.
+Both findings concern Bob: one for his name's datatype and one for the missing
+email. Alice does not appear because the report lists failures.
 
-The CLI groups by *finding*: one for the missing email and one for the wrong
-name datatype. Both affect Bob, so the summary says one violation in two
-findings. ``value node`` identifies ``"123"^^xsd:integer`` for the datatype
-failure; the missing email has no offending value. ``target class(ex:Person)``
-shows why Bob was checked. See :doc:`../explanation/architecture` for the
-compiled constraint notation.
+Validation runs SHACL-AF inference before checking the data by default. These
+shapes contain no rules, so the data stays as written. Use ``--no-infer`` on
+the CLI or ``infer=False`` in Python to check only asserted triples. The
+:doc:`applying-inference` tutorial shows a model with rules.
+
+Validate from Python
+--------------------
+
+Pass the data file first and the shapes file second:
+
+.. literalinclude:: ../examples/quick-start/report.py
+   :language: python
+
+.. program-output:: python report.py
+   :cwd: ../examples/quick-start
+
+``conforms`` is the validation decision. ``report_graph`` is an
+``rdflib.Graph`` containing a standard W3C ``sh:ValidationReport``;
+``results_text`` renders that report for display. Print ``results_text`` to
+see the individual failures.
+
+You can also pass RDFLib graphs directly:
+
+.. code-block:: python
+
+   from rdflib import Graph
+
+   data = Graph().parse("data.ttl")
+   shapes = Graph().parse("shapes.ttl")
+   conforms, report_graph, results_text = shifty.validate(data, shapes)
+
+See the :doc:`Python reference <../reference/python>` for other input forms
+and options. If shapes and data share one file, ``shifty.validate("model.ttl")``
+uses it for both roles.
 
 Fix the data
 ------------
 
-Edit ``data.ttl`` so Bob's name is a string and he has an email:
+Replace Bob's entry in ``data.ttl`` with a string name and an email:
 
 .. code-block:: turtle
 
-   @prefix ex: <http://example.org/> .
+   ex:bob a ex:Person ; ex:name "Bob" ; ex:email "bob@example.org" .
 
-   ex:alice a ex:Person ; ex:name "Alice" ; ex:email "alice@example.org" .
-   ex:bob   a ex:Person ; ex:name "Bob"   ; ex:email "bob@example.org" .
-
-Run the same command again:
+Run either validation again. The CLI now prints:
 
 .. code-block:: text
 
    conforms: true
 
-In Turtle, ``123`` is an
-``xsd:integer`` and ``"123"`` is an ``xsd:string``; they are different RDF
-terms, and ``sh:datatype`` distinguishes them. Many SHACL datatype violations
-come from this difference.
-
-Validate from Python
---------------------
-
-``shifty.validate`` takes the data graph first and the shapes graph second and
-returns the same three kinds of values as ``pyshacl.validate``. Check keyword
-arguments when migrating an existing call; :doc:`../reference/python` lists
-the accepted Shifty signature.
-
-.. code-block:: python
-
-   import pathlib
-   import shifty
-
-   conforms, report_graph, results_text = shifty.validate(
-       pathlib.Path("data.ttl"),
-       pathlib.Path("shapes.ttl"),
-   )
-
-   print(conforms)
-   print(results_text)
-
-You get three things back. ``conforms`` is the boolean. ``report_graph`` is an
-``rdflib.Graph`` holding a W3C ``sh:ValidationReport``, which is the
-interoperable form to hand to another tool. ``results_text`` is that report
-rendered for a human:
-
-.. code-block:: text
-
-   Validation Report
-   Conforms: False
-   Results (2):
-   Constraint Violation in DatatypeConstraintComponent
-     Severity: sh:Violation
-     Source Shape: _:...
-     Focus Node: <http://example.org/bob>
-     Result Path: <http://example.org/name>
-     Value: "123"^^<http://www.w3.org/2001/XMLSchema#integer>
-     Message: Value 123 does not have datatype <http://www.w3.org/2001/XMLSchema#string>
-
-   Constraint Violation in MinCountConstraintComponent
-     Severity: sh:Violation
-     Source Shape: _:...
-     Focus Node: <http://example.org/bob>
-     Result Path: <http://example.org/email>
-     Message: Fewer than 1 values on path <http://example.org/email>
-
-This is the standard SHACL report vocabulary rather than the CLI's compact
-summary, so the two commands print different text for the same input. The
-``Source Shape`` is a blank-node identifier because the property shapes in
-``shapes.ttl`` were written inline with ``[ ... ]`` and so have no IRI of their
-own. The blank-node identifiers and result order can vary between runs.
-
-.. note::
-
-   This tutorial uses ``validate()`` because it returns the standard W3C report
-   vocabulary. Shifty also provides ``validate_algebra()``, its native
-   structured result interface. See :doc:`validation interfaces
-   <../explanation/architecture>` before choosing an interface for an
-   application.
-
-Any of ``str`` (Turtle text), ``bytes``, ``pathlib.Path``, or an
-``rdflib.Graph`` works as an argument, and a list of them is merged first.
-Passing paths is the fastest option, because the file is parsed in Rust without
-a round-trip through rdflib.
-
-Shapes and data graph inputs
-----------------------------
-
-With these two files, Shifty reads shapes only from ``shapes.ttl``.
-A ``sh:NodeShape`` definition in ``data.ttl`` would not contribute constraints.
-
-If you pass just one graph, it plays both roles:
-
-.. code-block:: bash
-
-   shifty validate --shapes combined.ttl
-
-.. code-block:: python
-
-   conforms, report, text = shifty.validate("combined.ttl")
-
-This is the common case where shape definitions and instance data live in the
-same file. :doc:`../explanation/shapes-and-data` specifies the graph-input and
-visibility rules, including how to validate against shapes embedded in data.
+In Python, ``conforms`` is now ``True``. In Turtle, ``123`` is an integer and
+``"123"`` is a string; ``sh:datatype`` distinguishes them.
 
 Next steps
 ----------
 
-:doc:`reading-results` continues with this same graph, and moves from reading a
-report to writing code that consumes one.
-
-For a specific job — running SHACL-AF rules, extracting bindings from a
-conforming node, or looking at how the shapes were compiled — the
-:doc:`how-to guides <../how-to/index>` are the shorter path.
+- :doc:`applying-inference` — derive triples with rules and validate the result.
+- :doc:`shape-maps` — retrieve the values that satisfied a shape.
+- :doc:`../how-to/results` — handle individual failures in application code.
+- :doc:`../how-to/validate` — configure reports, graph visibility, and severity.

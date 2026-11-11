@@ -76,7 +76,7 @@ Common tasks
 .. list-table::
    :widths: 32 68
 
-   * - :doc:`Run a first validation <tutorials/first-validation>`
+   * - :doc:`Validate a model <tutorials/first-validation>`
      - Install Shifty, validate a small graph, and fix one failure.
    * - :doc:`Configure validation <how-to/validate>`
      - Choose graph visibility, report format, severity threshold, and named
@@ -105,8 +105,9 @@ Use the :doc:`tutorials <tutorials/index>` to learn the interfaces,
 :doc:`reference <reference/index>` for exact options and fields.
 :doc:`Explanation <explanation/index>` covers graph evaluation and results.
 
-See :doc:`contributing` for development checks, the W3C conformance suite,
-and documentation conventions. :doc:`benchmarks` reports validation timings.
+See :doc:`conformance` for the SHACL validator's test results and
+:doc:`benchmarks` for validation timings. :doc:`contributing` covers
+development checks and documentation conventions.
 
 .. toctree::
    :maxdepth: 2
@@ -120,6 +121,7 @@ and documentation conventions. :doc:`benchmarks` reports validation timings.
    experimental/index
    playground
    benchmarks
+   conformance
    changelog
    contributing
    Rust API (docs.rs) <https://docs.rs/shifty-engine>

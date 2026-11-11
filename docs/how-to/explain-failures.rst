@@ -5,8 +5,8 @@ The evidence interface records derivations for passing and failing nodes.
 You can traverse them to inspect the constraints, values, and supporting
 triples behind a result.
 
-For an introduction, see :doc:`../tutorials/explaining-a-failure`.
-:doc:`../reference/evidence` describes the data model.
+Use the shapes and failing data from :doc:`../tutorials/first-validation`
+to try the examples. :doc:`../reference/evidence` describes the data model.
 
 Get evidence for a snapshot
 ---------------------------
@@ -16,12 +16,32 @@ and data snapshot for reuse across queries.
 
 .. code-block:: python
 
+   import shifty
+
+   shapes = "shapes.ttl"
+   data = "data.ttl"
    session = shifty.EvidenceSession(shapes, data, infer=False)
    run = session.validate()
 
    for statement in run.statements:
        for focus in statement.selected_foci:
            print(focus.status, focus.focus)
+
+Alice has status ``pass`` and Bob has status ``fail``. To render Bob's
+explanation, add:
+
+.. code-block:: python
+
+   for statement in run.statements:
+       for focus in statement.selected_foci:
+           if focus.status == "fail":
+               print(focus.evidence.explain())
+
+The tree groups the constraints that establish the failure. ``CountLow``
+records too few matching values. A datatype constraint can appear as
+``CountHigh`` with a maximum of zero: it counts values that violate the
+datatype. Use :doc:`results` to handle individual findings in code, or the
+structured projections below to inspect evidence.
 
 ``EvidenceSession`` accepts the graph input forms in :doc:`../reference/python`.
 Pass lists when a schema or data snapshot spans several files:

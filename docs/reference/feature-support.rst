@@ -3,8 +3,8 @@ Feature support
 
 Legend: ✅ supported · ⚠️ partial or gated · ❌ unsupported.
 
-The pinned SHACL 1.0 suite and reporting procedure are described in
-:doc:`../how-to/conformance`. Test results cover the cases in that suite;
+The :doc:`conformance report <../conformance>` lists the pinned SHACL 1.0
+suite results and downloads. Test results cover the cases in that suite;
 the feature descriptions below also identify extension-specific limits.
 
 SHACL Core

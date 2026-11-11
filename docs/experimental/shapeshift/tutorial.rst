@@ -1,5 +1,5 @@
-Write your first shapes
-=======================
+Writing shapes
+==============
 
 .. include:: experimental.inc
 

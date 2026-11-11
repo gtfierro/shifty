@@ -4,7 +4,7 @@ Repair a graph
 .. include:: experimental.inc
 
 Find what fails, fill in a repair, check it, and apply it. The
-:doc:`evidence tutorial <../../tutorials/explaining-a-failure>` introduces
+:doc:`evidence guide <../../how-to/explain-failures>` introduces
 the failure evidence used here.
 
 Look at the repair space
