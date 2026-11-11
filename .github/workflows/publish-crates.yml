@@ -1,0 +1,49 @@
+name: Publish Rust crates
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing stable release tag to publish or resume
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: crates-io-${{ inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    environment:
+      name: deploy
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.tag }}
+          path: release-source
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Verify stable release tag and version
+        working-directory: release-source
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          VERSION=$(awk '/^\[workspace.package\]/{found=1; next} found && /^version = /{gsub(/[" ]/, "", $3); print $3; exit}' Cargo.toml)
+          test "$RELEASE_TAG" = "v$VERSION"
+          git show-ref --verify "refs/tags/$RELEASE_TAG"
+          grep -Fx "## $VERSION" CHANGELOG.md
+      - name: Publish missing crate versions
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          CARGO_TERM_COLOR: never
+        run: python3 .github/scripts/publish_crates.py release-source

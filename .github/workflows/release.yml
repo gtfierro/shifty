@@ -345,46 +345,12 @@ jobs:
   publish_crates:
     name: Publish crates to crates.io
     if: ${{ !contains(github.ref_name, '-') }}
-    runs-on: ubuntu-latest
     needs:
       - release
       - build-cli
-    environment:
-      name: deploy
     permissions:
       contents: read
-    steps:
-      - uses: actions/checkout@v5
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-      - name: Publish crates in dependency order
-        env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-        run: |
-          cargo publish --locked -p shifty-algebra
-          sleep 30
-          cargo publish --locked -p shifty-parse
-          cargo publish --locked -p shifty-repair
-          sleep 30
-          cargo publish --locked -p shifty-opt
-          sleep 30
-          cargo publish --locked -p shifty-engine
-          sleep 30
-          # experimental: Shapeshift and the violation generator, behind
-          # shifty-experimental (in order of dependencies and
-          # dev-dependencies, which crates.io also resolves)
-          cargo publish --locked -p shifty-vio
-          cargo publish --locked -p shapeshift-macro
-          sleep 30
-          cargo publish --locked -p shapeshift-parse
-          sleep 30
-          cargo publish --locked -p shapeshift-import
-          cargo publish --locked -p tree-sitter-shapeshift
-          sleep 30
-          cargo publish --locked -p shapeshift-raise
-          sleep 30
-          cargo publish --locked -p shifty-shapeshift
-          sleep 30
-          cargo publish --locked -p shifty-experimental
-          sleep 30
-          cargo publish --locked -p shifty-cli
+    uses: ./.github/workflows/publish-crates.yml
+    with:
+      tag: ${{ github.ref_name }}
+    secrets: inherit
