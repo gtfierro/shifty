@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 0.6.0-alpha.4
+
+Fourth alpha for 0.6.0, with release cleanup and fixes to Shapeshift compilation
+and violation-generation filters. The Rust and CLI version is
+`0.6.0-alpha.4`; the Python distribution version is `0.6.0a4`. Install it with
+`python -m pip install "pyshifty[rdflib]==0.6.0a4"`.
+
 ### Fixed
 
 - The release workflow publishes the Shapeshift implementation as
