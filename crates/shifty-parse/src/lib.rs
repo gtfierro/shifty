@@ -232,7 +232,7 @@ mod tests {
         assert!(out.diagnostics.is_empty(), "diags: {:?}", out.diagnostics);
         assert_eq!(out.schema.rules.len(), 1);
         let r = &out.schema.rules[0];
-        assert_eq!(r.order, Some(1));
+        assert_eq!(r.order, Some(1.into()));
         assert_eq!(r.conditions.len(), 1);
         use shifty_algebra::{NodeExpr, RuleHead};
         match &r.head {

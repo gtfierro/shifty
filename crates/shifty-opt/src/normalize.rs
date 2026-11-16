@@ -712,10 +712,12 @@ impl<'a> Interner<'a> {
     fn rule(&mut self, r: &Rule) -> Rule {
         Rule {
             source: r.source.clone(),
+            owner: r.owner.clone(),
+            shape_order: r.shape_order.clone(),
             selector: self.selector(&r.selector),
             conditions: r.conditions.iter().map(|c| self.intern(*c)).collect(),
             head: self.head(&r.head),
-            order: r.order,
+            order: r.order.clone(),
             deactivated: r.deactivated,
         }
     }

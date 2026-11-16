@@ -43,7 +43,7 @@ pub fn collect_functions(shapes: &Loaded) -> Vec<FunctionDef> {
 }
 
 fn function_parameters(shapes: &Loaded, func: &NamedOrBlankNode) -> Vec<(String, bool)> {
-    let mut params: Vec<(i64, String, bool)> = shapes
+    let mut params: Vec<(shifty_algebra::Order, String, bool)> = shapes
         .objects(func, vocab::SH_PARAMETER)
         .iter()
         .filter_map(|parameter| {
@@ -53,8 +53,8 @@ fn function_parameters(shapes: &Loaded, func: &NamedOrBlankNode) -> Vec<(String,
                 Term::Literal(_) => return None,
             };
             let order = match shapes.object(&node, vocab::SH_ORDER) {
-                Some(Term::Literal(value)) => value.value().parse::<i64>().unwrap_or(0),
-                _ => 0,
+                Some(Term::Literal(value)) => shifty_algebra::Order::try_from(value.value().to_string()).unwrap_or_default(),
+                _ => shifty_algebra::Order::default(),
             };
             let name = match shapes.object(&node, vocab::SH_NAME) {
                 Some(Term::Literal(value)) => value.value().to_string(),

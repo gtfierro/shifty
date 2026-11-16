@@ -48,6 +48,7 @@ pub(crate) enum GraphSel {
 
 // ── Term dictionary ──────────────────────────────────────────────────────────
 
+#[derive(Clone)]
 struct TermDictInner {
     id_to_term: Vec<Term>,
     term_to_id: HashMap<Term, TermId>,
@@ -56,6 +57,7 @@ struct TermDictInner {
 /// Bidirectional Term ↔ TermId map. Interior-mutable so that
 /// `QueryableDataset::internalize_term` (which takes `&self`) can lazily
 /// assign IDs to query constants that did not appear in the loaded triples.
+#[derive(Clone)]
 struct TermDictionary {
     source: Option<Arc<SourceStorage>>,
     local: RefCell<TermDictInner>,
@@ -268,6 +270,35 @@ struct PredicatePartition {
     reverse_probes: AtomicU32,
 }
 
+impl Clone for PredicatePartition {
+    fn clone(&self) -> Self {
+        Self {
+            pairs: self.pairs.clone(),
+            reverse: self.reverse.clone(),
+            reverse_probes: AtomicU32::new(self.reverse_probes.load(Ordering::Relaxed)),
+        }
+    }
+}
+impl Clone for TripleIndex {
+    fn clone(&self) -> Self {
+        Self {
+            partitions: self.partitions.clone(),
+            len: self.len,
+            policy: self.policy,
+            reverse_demand: self.reverse_demand.clone(),
+            secondary_budget: self.secondary_budget,
+            secondary_bytes: AtomicUsize::new(self.secondary_bytes.load(Ordering::Relaxed)),
+            subject_dir: self.subject_dir.clone(),
+            object_dir: self.object_dir.clone(),
+            subject_probes: AtomicU32::new(self.subject_probes.load(Ordering::Relaxed)),
+            object_probes: AtomicU32::new(self.object_probes.load(Ordering::Relaxed)),
+            subject_demand: self.subject_demand,
+            object_demand: self.object_demand,
+            scope: self.scope,
+            predicate_labels: self.predicate_labels.clone(),
+        }
+    }
+}
 impl Default for PredicatePartition {
     fn default() -> Self {
         Self {
@@ -787,6 +818,7 @@ impl TripleIndex {
 // ── Statistics ───────────────────────────────────────────────────────────────
 
 /// Dataset statistics used in stage 3+ for join-order planning (doc §198).
+#[derive(Clone)]
 pub struct DatasetStatistics {
     pub triple_count: u64,
     pub distinct_subjects: u64,
@@ -839,12 +871,14 @@ impl DatasetStatistics {
 /// Source rows visible in this dataset's default graph. Embedded snapshots
 /// usually contain almost every source row, so keep exclusions in that case;
 /// sparse separate-data overlap uses inclusions instead.
+#[derive(Clone)]
 enum SourceMembership {
     All,
     Included(HashSet<[TermId; 3]>),
     Excluded(HashSet<[TermId; 3]>),
 }
 
+#[derive(Clone)]
 struct SourceView {
     index: Arc<TripleIndex>,
     membership: SourceMembership,
@@ -873,7 +907,7 @@ impl SourceView {
 pub struct FrozenIndexedDataset {
     terms: TermDictionary,
     /// Triples outside the immutable source partition.
-    default_graph: TripleIndex,
+    default_graph: Arc<TripleIndex>,
     source_view: Option<SourceView>,
     /// Named graphs keyed by graph-IRI ID. Compiled sessions point at the
     /// immutable source index, rather than copying its rows per session.
@@ -907,6 +941,20 @@ struct ReachCache {
     /// aliasing safe and avoiding a clone proportional to the closure size.
     entries: HashMap<ReachCacheKey, Rc<HashSet<TermId>>>,
     cached_ids: usize,
+}
+
+impl Clone for FrozenIndexedDataset {
+    fn clone(&self) -> Self {
+        Self {
+            terms: self.terms.clone(),
+            default_graph: Arc::clone(&self.default_graph),
+            source_view: self.source_view.clone(),
+            named_graphs: self.named_graphs.clone(),
+            reach_cache: RefCell::new(ReachCache::default()),
+            revision: self.revision,
+            stats: self.stats.clone(),
+        }
+    }
 }
 
 impl FrozenIndexedDataset {
@@ -990,7 +1038,7 @@ impl FrozenIndexedDataset {
         }
         Self {
             terms,
-            default_graph,
+            default_graph: Arc::new(default_graph),
             source_view: Some(source_view),
             named_graphs,
             reach_cache: RefCell::new(ReachCache::default()),
@@ -1008,7 +1056,7 @@ impl FrozenIndexedDataset {
         crate::profile::record_dataset_build(default_graph.len());
         Self {
             terms,
-            default_graph,
+            default_graph: Arc::new(default_graph),
             source_view: None,
             named_graphs: HashMap::new(),
             reach_cache: RefCell::new(ReachCache::default()),
@@ -1028,7 +1076,7 @@ impl FrozenIndexedDataset {
         crate::profile::record_dataset_build(default_graph.len());
         Self {
             terms,
-            default_graph,
+            default_graph: Arc::new(default_graph),
             source_view: None,
             named_graphs: HashMap::new(),
             reach_cache: RefCell::new(ReachCache::default()),
@@ -1365,12 +1413,12 @@ impl FrozenIndexedDataset {
             if !self.default_graph.predicate_labels.contains_key(&predicate)
                 && let Term::NamedNode(node) = self.externalize_id(predicate)
             {
-                self.default_graph
+                Arc::make_mut(&mut self.default_graph)
                     .predicate_labels
                     .insert(predicate, node.as_str().to_owned());
             }
         }
-        self.default_graph.extend(encoded);
+        Arc::make_mut(&mut self.default_graph).extend(encoded);
         *self.reach_cache.borrow_mut() = ReachCache::default();
         if committed != 0 {
             self.revision = self
@@ -1430,7 +1478,7 @@ impl FrozenIndexedDataset {
 
         Self {
             terms,
-            default_graph,
+            default_graph: Arc::new(default_graph),
             source_view: None,
             named_graphs,
             reach_cache: RefCell::new(ReachCache::default()),
@@ -1457,7 +1505,7 @@ impl FrozenIndexedDataset {
 
         Self {
             terms,
-            default_graph,
+            default_graph: Arc::new(default_graph),
             source_view: None,
             named_graphs,
             reach_cache: RefCell::new(ReachCache::default()),

@@ -4,7 +4,8 @@
 //! triples from its head's node expressions. Per the decided semantics
 //! ([`docs/03-recursion-semantics.md`](../../../docs/03-recursion-semantics.md)),
 //! inference is the **least fixpoint**. Rules run in ascending `sh:order`
-//! groups, and output from a later group may reactivate an earlier group in the
+//! groups within ordered shapes. Tied shapes read isolated branches, and output
+//! from a later group may reactivate an earlier group in the
 //! next pass. Predicate-level delta scheduling avoids rerunning rules whose
 //! graph reads cannot observe the newly added triples. Triple rules only
 //! combine existing terms. SPARQL `CONSTRUCT` may reuse blank nodes from the
@@ -70,7 +71,9 @@ pub(crate) fn infer_with_compiled_functions(
     let rules: Vec<ScheduledRule<'_>> = schedule
         .iter()
         .map(|entry| ScheduledRule {
-            order: entry.order,
+            order: entry.order.clone(),
+            shape_order: entry.shape_order.clone(),
+            owner: entry.owner.clone(),
             dependencies: entry.dependencies.clone(),
             guard_dependencies: entry.guard_dependencies.clone(),
             rule: &schema.rules[entry.index],
@@ -140,44 +143,73 @@ pub(crate) fn infer_with_compiled_functions(
         let mut pass_changed: HashSet<NamedNode> = HashSet::new();
 
         while start < rules.len() {
-            let order = rules[start].order;
-            let mut end = start + 1;
-            while end < rules.len() && rules[end].order == order {
-                end += 1;
+            let mut group_end = start + 1;
+            while group_end < rules.len()
+                && rules[group_end].shape_order == rules[start].shape_order
+            {
+                group_end += 1;
             }
+            let mut shape_end = start + 1;
+            while shape_end < group_end && rules[shape_end].owner == rules[start].owner {
+                shape_end += 1;
+            }
+            // The common single-shape case retains the original executor/caches.
+            let tied_shapes = shape_end < group_end;
+            let baseline = tied_shapes.then(|| sparql.fork());
+            let baseline_len = inferred.len();
+            let base_changed = pass_changed.clone();
+            let base_visible = visible_changed.clone();
+            let mut staged = HashSet::new();
+            while start < group_end {
+                shape_end = start + 1;
+                while shape_end < group_end && rules[shape_end].owner == rules[start].owner {
+                    shape_end += 1;
+                }
+                if let Some(base) = &baseline {
+                    sparql = base.fork();
+                    focus_cache.clear();
+                    pass_changed.clone_from(&base_changed);
+                    visible_changed.clone_from(&base_visible);
+                }
+                while start < shape_end {
+                    let order = rules[start].order.clone();
+                    let mut end = start + 1;
+                    while end < shape_end && rules[end].order == order {
+                        end += 1;
+                    }
 
-            // Tied rules observe the same graph snapshot. Their additions are
-            // visible to subsequent order groups in this pass.
-            // HashSet deduplicates within the batch; fire_rule pre-filters
-            // against the context so only genuinely new triples reach here.
-            let mut candidates: HashSet<Triple> = HashSet::new();
-            for (position, scheduled) in rules[start..end].iter().enumerate() {
-                if !active.contains(&(start + position)) {
-                    continue;
-                }
-                let sel = &scheduled.rule.selector;
-                if selector_stale(sel, &pass_changed) {
-                    focus_cache.remove(sel);
-                }
-                let backend = sparql.frozen().expect("compiled inference dataset");
-                let indexed_focus = IndexedFocus::new(
-                    backend,
-                    if separate {
-                        FocusScope::Data
-                    } else {
-                        FocusScope::Default
-                    },
-                );
-                let focus: &dyn FocusNodes = &indexed_focus;
-                let focus_nodes = sparql.checked(|| {
-                    focus_cache.entry(sel.clone()).or_insert_with(|| {
-                        focus_nodes_with(focus, backend, sel, &schema.arena, &sparql)
-                    })
-                })?;
-                let mut delta_focus_nodes = Vec::new();
-                let execution_focus_nodes = match &scheduled.rule.head {
-                    RuleHead::Sparql(construct)
-                        if !first_pass
+                    // Tied rules observe the same graph snapshot. Their additions are
+                    // visible to subsequent order groups in this pass.
+                    // HashSet deduplicates within the batch; fire_rule pre-filters
+                    // against the context so only genuinely new triples reach here.
+                    let mut candidates: HashSet<Triple> = HashSet::new();
+                    for (position, scheduled) in rules[start..end].iter().enumerate() {
+                        if !active.contains(&(start + position)) {
+                            continue;
+                        }
+                        let sel = &scheduled.rule.selector;
+                        if selector_stale(sel, &pass_changed) {
+                            focus_cache.remove(sel);
+                        }
+                        let backend = sparql.frozen().expect("compiled inference dataset");
+                        let indexed_focus = IndexedFocus::new(
+                            backend,
+                            if separate {
+                                FocusScope::Data
+                            } else {
+                                FocusScope::Default
+                            },
+                        );
+                        let focus: &dyn FocusNodes = &indexed_focus;
+                        let focus_nodes = sparql.checked(|| {
+                            focus_cache.entry(sel.clone()).or_insert_with(|| {
+                                focus_nodes_with(focus, backend, sel, &schema.arena, &sparql)
+                            })
+                        })?;
+                        let mut delta_focus_nodes = Vec::new();
+                        let execution_focus_nodes = match &scheduled.rule.head {
+                            RuleHead::Sparql(construct)
+                                if !first_pass
                             && !generative_rules.contains(&(start + position))
                             && !focus_nodes.is_empty()
                             // Differential BGP execution visits the delta once
@@ -188,61 +220,79 @@ pub(crate) fn infer_with_compiled_functions(
                             && !scheduled
                                 .guard_dependencies
                                 .affected_by(&visible_changed) =>
-                    {
-                        match sparql.construct_delta_foci(
-                            &construct.query,
-                            &inferred[delta_start..],
-                            sparql.frozen(),
-                        ) {
-                            Ok(Some(affected)) => {
-                                delta_focus_nodes.extend(
-                                    focus_nodes
-                                        .iter()
-                                        .filter(|focus| affected.contains(*focus))
-                                        .cloned(),
-                                );
-                                delta_focus_nodes.as_slice()
+                            {
+                                match sparql.construct_delta_foci(
+                                    &construct.query,
+                                    &inferred[delta_start..],
+                                    sparql.frozen(),
+                                ) {
+                                    Ok(Some(affected)) => {
+                                        delta_focus_nodes.extend(
+                                            focus_nodes
+                                                .iter()
+                                                .filter(|focus| affected.contains(*focus))
+                                                .cloned(),
+                                        );
+                                        delta_focus_nodes.as_slice()
+                                    }
+                                    Ok(None) | Err(_) => focus_nodes.as_slice(),
+                                }
                             }
-                            Ok(None) | Err(_) => focus_nodes.as_slice(),
+                            _ => focus_nodes.as_slice(),
+                        };
+                        let rule_label = format!("rule[{}]", start + position);
+                        let rule_t = web_time::Instant::now();
+                        let runtime = RuleRuntime {
+                            backend,
+                            arena: &schema.arena,
+                            sparql: &sparql,
+                            input_blank_nodes: &input_blank_nodes,
+                        };
+                        // Conditions and filter expressions use boolean shape evaluation.
+                        // Check its retained failures before committing any candidate
+                        // triples, including results produced through negation.
+                        let generated = sparql.checked(|| {
+                            fire_rule(
+                                execution_focus_nodes,
+                                scheduled.rule,
+                                &runtime,
+                                &mut candidates,
+                                &mut diags,
+                            )
+                        })?;
+                        if generated {
+                            generative_rules.insert(start + position);
                         }
+                        crate::profile::record_shape(
+                            &rule_label,
+                            rule_t.elapsed().as_micros() as u64,
+                        );
                     }
-                    _ => focus_nodes.as_slice(),
-                };
-                let rule_label = format!("rule[{}]", start + position);
-                let rule_t = web_time::Instant::now();
-                let runtime = RuleRuntime {
-                    backend,
-                    arena: &schema.arena,
-                    sparql: &sparql,
-                    input_blank_nodes: &input_blank_nodes,
-                };
-                // Conditions and filter expressions use boolean shape evaluation.
-                // Check its retained failures before committing any candidate
-                // triples, including results produced through negation.
-                let generated = sparql.checked(|| {
-                    fire_rule(
-                        execution_focus_nodes,
-                        scheduled.rule,
-                        &runtime,
-                        &mut candidates,
-                        &mut diags,
-                    )
-                })?;
-                if generated {
-                    generative_rules.insert(start + position);
-                }
-                crate::profile::record_shape(&rule_label, rule_t.elapsed().as_micros() as u64);
-            }
-            sparql.extend_triples(candidates.iter());
-            for t in candidates {
-                pass_changed.insert(t.predicate.clone());
-                visible_changed.insert(t.predicate.clone());
-                changed_predicates.insert(t.predicate.clone());
-                inferred.push(t);
-                added = true;
-            }
+                    sparql.extend_triples(candidates.iter());
+                    for t in candidates {
+                        pass_changed.insert(t.predicate.clone());
+                        visible_changed.insert(t.predicate.clone());
+                        changed_predicates.insert(t.predicate.clone());
+                        inferred.push(t);
+                        added = true;
+                    }
 
-            start = end;
+                    start = end;
+                }
+                if tied_shapes {
+                    staged.extend(inferred.drain(baseline_len..));
+                }
+            }
+            if let Some(base) = baseline {
+                sparql = base;
+                sparql.extend_triples(staged.iter());
+                for triple in staged {
+                    pass_changed.insert(triple.predicate.clone());
+                    visible_changed.insert(triple.predicate.clone());
+                    inferred.push(triple);
+                }
+                focus_cache.clear();
+            }
         }
 
         if !added {
@@ -272,7 +322,9 @@ pub(crate) fn infer_with_compiled_functions(
 }
 
 struct ScheduledRule<'a> {
-    order: i64,
+    order: shifty_algebra::Order,
+    shape_order: shifty_algebra::Order,
+    owner: Option<String>,
     dependencies: RuleDependencies,
     guard_dependencies: RuleDependencies,
     rule: &'a Rule,

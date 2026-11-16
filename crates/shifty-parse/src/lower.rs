@@ -968,10 +968,12 @@ impl Lowerer<'_> {
             for sel in selectors {
                 self.rules.push(Rule {
                     source: Some(format!("rule {rn} on shape {s}")),
+                    owner: Some(s.clone()),
+                    shape_order: self.order(s),
                     selector: sel.clone(),
                     conditions: conditions.clone(),
                     head: head.clone(),
-                    order,
+                    order: order.clone(),
                     deactivated,
                 });
             }
@@ -1223,9 +1225,9 @@ impl Lowerer<'_> {
         })
     }
 
-    fn order(&self, s: &NamedOrBlankNode) -> Option<i64> {
+    fn order(&self, s: &NamedOrBlankNode) -> Option<shifty_algebra::Order> {
         match self.g.object(s, vocab::SH_ORDER) {
-            Some(Term::Literal(l)) => l.value().parse().ok(),
+            Some(Term::Literal(l)) => shifty_algebra::Order::try_from(l.value().to_string()).ok(),
             _ => None,
         }
     }

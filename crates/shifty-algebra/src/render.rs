@@ -74,7 +74,7 @@ pub fn schema_to_text(schema: &Schema) -> String {
                 } else {
                     conds.join(", ")
                 },
-                r.order.unwrap_or(0),
+                r.order.clone().unwrap_or_default(),
                 if r.deactivated { "(deactivated)" } else { "" },
                 rule_head_to_string(&r.head, px),
             ));
@@ -1210,7 +1210,11 @@ pub fn schema_to_dot(schema: &Schema) -> String {
     // Rule entry nodes
     for (i, r) in schema.rules.iter().enumerate() {
         let sel_label = dot_escape(&selector_to_string_px(&r.selector, px));
-        let order_label = r.order.map(|o| format!(" ord={o}")).unwrap_or_default();
+        let order_label = r
+            .order
+            .clone()
+            .map(|o| format!(" ord={o}"))
+            .unwrap_or_default();
         let deact = if r.deactivated { " (off)" } else { "" };
         out.push_str(&format!(
             "  rule_{i} [shape=hexagon, style=filled, fillcolor=plum, label=\"rule:{i}\\n{sel_label}{}{}\"];\n",

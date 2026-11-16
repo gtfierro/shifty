@@ -515,6 +515,7 @@ fn project_af_regressions() {
             "ask-and-optional.test.ttl",
             "expressions.test.ttl",
             "fresh-blank-node.test.ttl",
+            "ordering.test.ttl",
             "path-inputs.test.ttl"
         ]
     );

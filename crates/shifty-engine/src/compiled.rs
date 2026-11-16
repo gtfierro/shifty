@@ -40,7 +40,9 @@ pub(crate) struct CompiledShapesInner {
 
 pub(crate) struct CompiledRuleSchedule {
     pub(crate) index: usize,
-    pub(crate) order: i64,
+    pub(crate) order: shifty_algebra::Order,
+    pub(crate) shape_order: shifty_algebra::Order,
+    pub(crate) owner: Option<String>,
     pub(crate) dependencies: RuleDependencies,
     pub(crate) guard_dependencies: RuleDependencies,
 }
@@ -131,12 +133,20 @@ impl CompiledShapes {
             .filter(|(_, rule)| !rule.deactivated)
             .map(|(index, rule)| CompiledRuleSchedule {
                 index,
-                order: rule.order.unwrap_or(0),
+                order: rule.order.clone().unwrap_or_default(),
+                shape_order: rule.shape_order.clone().unwrap_or_default(),
+                owner: rule.owner.as_ref().map(ToString::to_string),
                 dependencies: rule_dependencies(rule, &normalized.schema.arena),
                 guard_dependencies: rule_guard_dependencies(rule, &normalized.schema.arena),
             })
             .collect();
-        rules.sort_by_key(|rule| (rule.order, rule.index));
+        rules.sort_by(|a, b| {
+            a.shape_order
+                .cmp(&b.shape_order)
+                .then(a.owner.cmp(&b.owner))
+                .then(a.order.cmp(&b.order))
+                .then(a.index.cmp(&b.index))
+        });
         Ok(Self {
             inner: Arc::new(CompiledShapesInner {
                 source: Arc::new(source),

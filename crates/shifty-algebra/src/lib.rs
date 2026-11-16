@@ -43,7 +43,7 @@ pub use import::{Import, ImportKind, ImportSource};
 pub use path::Path;
 pub use prefix::Prefixes;
 pub use provenance::{BooleanFrame, Origin, OriginKind, SourceLocation};
-pub use rule::{Rule, RuleHead};
+pub use rule::{Order, Rule, RuleHead};
 pub use schema::{Schema, ShapeRemap, Statement};
 pub use selector::Selector;
 pub use severity::Severity;

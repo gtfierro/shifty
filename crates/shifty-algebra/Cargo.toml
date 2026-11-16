@@ -10,6 +10,7 @@ documentation.workspace = true
 readme.workspace = true
 
 [dependencies]
+bigdecimal.workspace = true
 oxrdf.workspace = true
 oxsdatatypes.workspace = true
 serde.workspace = true

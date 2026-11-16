@@ -284,6 +284,17 @@ impl SparqlExecutor {
         }
     }
 
+    /// Independent inference branch sharing immutable indexes with its parent.
+    pub(crate) fn fork(&self) -> Self {
+        let mut branch = Self::from_frozen_with_parsed(
+            self.frozen.as_ref().expect("compiled snapshot").clone(),
+            self.shapes_graph.is_some(),
+            self.shared_parsed.clone(),
+        );
+        branch.set_functions(self.functions.clone(), self.unsupported);
+        branch
+    }
+
     /// Register `sh:SPARQLFunction`s so that calls to them inside constraint,
     /// CONSTRUCT, target, and expression queries resolve. `policy` decides what
     /// happens to graph-reading function bodies (which this layer can only run

@@ -1355,6 +1355,7 @@ dependencies = [
 name = "shifty-algebra"
 version = "0.6.0"
 dependencies = [
+ "bigdecimal",
  "oxrdf",
  "oxsdatatypes",
  "regex",

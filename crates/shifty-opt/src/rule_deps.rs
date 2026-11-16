@@ -351,6 +351,8 @@ mod tests {
         });
         let rule = Rule {
             source: None,
+            owner: None,
+            shape_order: None,
             selector: Selector::HasOut(named("target")),
             conditions: vec![condition],
             head: RuleHead::Triple {
@@ -376,6 +378,8 @@ mod tests {
         let top = arena.top();
         let rule = Rule {
             source: None,
+            owner: None,
+            shape_order: None,
             selector: Selector::HasPath(Path::Id, top),
             conditions: Vec::new(),
             head: RuleHead::Sparql(shifty_algebra::SparqlConstruct {
@@ -392,6 +396,8 @@ mod tests {
     fn sparql_rule(query: &str) -> Rule {
         Rule {
             source: None,
+            owner: None,
+            shape_order: None,
             selector: Selector::IsConst(Term::NamedNode(named("focus"))),
             conditions: Vec::new(),
             head: RuleHead::Sparql(shifty_algebra::SparqlConstruct {

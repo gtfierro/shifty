@@ -84,7 +84,9 @@ SHACL-AF (Advanced Features)
      - Notes
    * - Rules — ``sh:TripleRule``, ``sh:SPARQLRule`` (CONSTRUCT)
      - ✅
-     - forward-chained to a fixed point, honouring ``sh:order`` / ``sh:condition``;
+     - forward-chained to a fixed point; decimal ``sh:order`` sorts shapes first,
+       then rules within each shape. Tied shapes, rules, and focus nodes read
+       isolated snapshots; ``sh:condition`` is supported;
        CONSTRUCT supports ``VALUES`` and fresh blank nodes; inference is bounded
        by an iteration limit (1000 passes by default)
    * - Node expressions — ``sh:this``, constants, ``sh:path``, ``sh:filterShape``, ``sh:intersection``, ``sh:union``, function application

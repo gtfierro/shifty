@@ -741,6 +741,8 @@ mod tests {
         ] {
             schema.rules.push(shifty_algebra::Rule {
                 source: None,
+                owner: None,
+                shape_order: None,
                 selector: Selector::IsConst(Term::NamedNode(named("focus"))),
                 conditions: vec![],
                 head: RuleHead::Triple {

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- SHACL-AF execution orders shapes before their rules, supports decimal orders
+  on shapes, rules and function parameters, and isolates tied shapes, rules
+  and focus nodes from each other's additions.
+
 - Tightened AF/DASH regression coverage: fixed fixture inventory and category
   counts, no implicit skips on errors, complete inferred-delta comparison with
   blank-node isomorphism, and checks for report severity, messages and source

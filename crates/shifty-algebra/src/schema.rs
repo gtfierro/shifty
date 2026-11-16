@@ -166,6 +166,8 @@ impl Schema {
         for rule in &other.rules {
             self.rules.push(Rule {
                 source: rule.source.clone(),
+                owner: rule.owner.clone(),
+                shape_order: rule.shape_order.clone(),
                 selector: rule.selector.remap(&f),
                 conditions: rule.conditions.iter().map(|c| f(*c)).collect(),
                 head: match &rule.head {
@@ -180,7 +182,7 @@ impl Schema {
                     },
                     RuleHead::Sparql(q) => RuleHead::Sparql(q.clone()),
                 },
-                order: rule.order,
+                order: rule.order.clone(),
                 deactivated: rule.deactivated,
             });
         }
