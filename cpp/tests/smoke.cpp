@@ -65,12 +65,12 @@ int main() {
     shifty::PreparedValidator validator(shapes);
     assert(validator.diagnostics_json() == "[]");
 
-    // Unsupported functions are execution failures, never SHACL findings.
+    // Recursive function failures remain execution errors under both policies.
     {
         shifty::PreparedValidator unsupported(R"(
             @prefix sh: <http://www.w3.org/ns/shacl#> .
             @prefix ex: <http://example.com/> .
-            ex:exists a sh:SPARQLFunction ; sh:ask "ASK { ?s ?p ?o }" .
+            ex:exists a sh:SPARQLFunction ; sh:ask "ASK { FILTER (<http://example.com/exists>()) }" .
             ex:S a sh:NodeShape ; sh:targetNode ex:alice ;
                 sh:sparql [ sh:select "SELECT $this WHERE { FILTER (<http://example.com/exists>()) }" ] .
         )");
@@ -86,8 +86,10 @@ int main() {
         }
         shifty::ValidationOptions best_effort;
         best_effort.on_unsupported = shifty::UnsupportedPolicy::Ignore;
-        assert(unsupported.validate(dataset, best_effort).conforms());
-        assert(unsupported.validate_algebra(dataset, best_effort).conforms());
+        bool rejected = false;
+        try { (void)unsupported.validate(dataset, best_effort); }
+        catch (const shifty::Error &error) { rejected = error.status() == SHIFTY_STATUS_VALIDATION_ERROR; }
+        assert(rejected);
     }
 
     // A qualifier normalized out of validation still has to execute when a
@@ -96,7 +98,7 @@ int main() {
         shifty::PreparedValidator lazy(R"(
             @prefix sh: <http://www.w3.org/ns/shacl#> .
             @prefix ex: <http://example.com/> .
-            ex:exists a sh:SPARQLFunction ; sh:ask "ASK { ?s ?p ?o }" .
+            ex:exists a sh:SPARQLFunction ; sh:ask "ASK { FILTER (<http://example.com/exists>()) }" .
             ex:Bad a sh:NodeShape ; sh:not [ sh:sparql [
                 sh:select "SELECT $this WHERE { FILTER (<http://example.com/exists>()) }" ] ] .
             ex:S a sh:NodeShape ; sh:targetNode ex:alice ;

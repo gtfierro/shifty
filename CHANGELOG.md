@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Unified SHACL function execution across node expressions and SPARQL queries.
+  Function bodies can call other functions and read the current data/shapes
+  snapshot through shared immutable indexes. Recursive invocation is limited
+  to 32 levels; callback failures propagate under either unsupported policy.
+  Scheduling includes transitive function reads and invalidates callback
+  snapshots after inferred additions.
+
 - SHACL-AF execution orders shapes before their rules, supports decimal orders
   on shapes, rules and function parameters, and isolates tied shapes, rules
   and focus nodes from each other's additions.

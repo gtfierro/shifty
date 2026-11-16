@@ -1021,10 +1021,7 @@ mod tests {
     }
 
     #[test]
-    fn graph_reading_function_policy_gates_loud_failure() {
-        // `ex:exists` reads the data graph, so from a SPARQL context it can only
-        // be evaluated over an empty dataset. The UnsupportedPolicy decides what
-        // happens when it is called from a sh:sparql constraint.
+    fn graph_reading_functions_share_the_data_snapshot_under_both_policies() {
         let ttl = br#"
             @prefix sh: <http://www.w3.org/ns/shacl#> .
             @prefix ex: <http://ex/> .
@@ -1041,34 +1038,22 @@ mod tests {
         "#;
         let loaded = shifty_parse::load_turtle(ttl, None).unwrap();
 
-        // Explicit Ignore: the function runs over an empty dataset (best-effort);
-        // here it returns false, so the constraint silently conforms.
-        let lenient = validate_report_with_options(
-            &loaded,
-            &loaded.graph,
-            &ValidationOptions {
-                engine: EngineOptions {
-                    unsupported: UnsupportedPolicy::Ignore,
+        for unsupported in [UnsupportedPolicy::Ignore, UnsupportedPolicy::Error] {
+            let report = validate_report_with_options(
+                &loaded,
+                &loaded.graph,
+                &ValidationOptions {
+                    engine: EngineOptions {
+                        unsupported,
+                        ..Default::default()
+                    },
                     ..Default::default()
                 },
-                ..Default::default()
-            },
-        )
-        .unwrap();
-        assert!(lenient.conforms, "results: {:?}", lenient.results);
-
-        // Error: the graph-reading function is not registered, so the SPARQL call
-        // fails and the constraint fails closed (loud) rather than silently wrong.
-        let strict_opts = ValidationOptions {
-            engine: EngineOptions {
-                unsupported: UnsupportedPolicy::Error,
-                ..Default::default()
-            },
-            ..Default::default()
-        };
-        let strict =
-            validate_report_with_options(&loaded, &loaded.graph, &strict_opts).unwrap_err();
-        assert!(matches!(strict, EvaluationError::Sparql { .. }));
+            )
+            .unwrap();
+            assert!(!report.conforms);
+            assert_eq!(report.results.len(), 1);
+        }
     }
 
     #[test]

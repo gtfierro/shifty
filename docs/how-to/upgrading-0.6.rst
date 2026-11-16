@@ -6,9 +6,8 @@ The changes below apply when upgrading from 0.5.x.
 Unsupported features fail by default
 ------------------------------------
 
-Validation and inference now reject partially supported features. This includes
-calls to graph-reading SHACL functions from SPARQL queries. To retain best effort
-explicitly, use the policy for your interface:
+Validation and inference now reject partially supported features. To retain
+best effort explicitly, use the policy for your interface:
 
 .. list-table::
    :header-rows: 1
@@ -26,8 +25,10 @@ explicitly, use the policy for your interface:
    * - C++ validation
      - ``options.on_unsupported = shifty::UnsupportedPolicy::Ignore``
 
-Best effort may omit constraints or evaluate a function over an empty dataset.
-It does not suppress malformed shapes or failures to execute a query.
+Best effort may omit unsupported constraints. It does not suppress malformed
+shapes or failures to execute a query. Graph-reading SHACL functions, including
+calls between function bodies, now use the current data/shapes snapshot under
+either policy.
 
 Repair moved to ``shifty.experimental``
 ---------------------------------------

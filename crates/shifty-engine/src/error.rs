@@ -12,6 +12,7 @@ pub enum SparqlOperation {
     AskValidator,
     SelectValidator,
     NodeExpression,
+    Function,
 }
 
 /// An evaluation could not complete. No validation verdict is available.

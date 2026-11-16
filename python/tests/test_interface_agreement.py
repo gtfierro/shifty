@@ -125,7 +125,7 @@ def test_unsupported_policy_reaches_validations_automatic_inference():
         PREFIX
         + """
     ex:exists a sh:SPARQLFunction ;
-        sh:ask "ASK { ?s <http://ex/marker> ?o }" .
+        sh:ask "ASK { FILTER (<http://ex/exists>()) }" .
     ex:S a sh:NodeShape ; sh:targetNode ex:x ;
         sh:rule [ a sh:SPARQLRule ;
             sh:construct "CONSTRUCT { $this <http://ex/flag> true } WHERE { FILTER (! <http://ex/exists>()) }" ] ;
@@ -134,11 +134,13 @@ def test_unsupported_policy_reaches_validations_automatic_inference():
     )
     data = PREFIX + 'ex:x ex:marker "present" .'
 
-    with pytest.raises(ValueError, match="strict inference failed"):
+    with pytest.raises(shifty.ValidationFailure, match="recursive function invocation"):
         shifty.infer(data, shapes, on_unsupported="error")
 
     for call in (shifty.validate, shifty.validate_algebra):
-        with pytest.raises(ValueError, match="strict inference failed"):
+        with pytest.raises(
+            shifty.ValidationFailure, match="recursive function invocation"
+        ):
             call(data, shapes, on_unsupported="error")
 
 

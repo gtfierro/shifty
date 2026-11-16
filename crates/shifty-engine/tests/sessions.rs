@@ -689,12 +689,12 @@ fn union_all_keeps_data_out_of_the_named_shapes_graph() {
 }
 
 #[test]
-fn strict_rule_diagnostics_fail_session_construction() {
+fn function_execution_failure_rejects_session_construction() {
     let shapes = loaded(
         r#"
         @prefix sh: <http://www.w3.org/ns/shacl#> .
         @prefix ex: <http://ex/> .
-        ex:exists a sh:SPARQLFunction ; sh:ask "ASK { ?s ex:p ?o }" .
+        ex:exists a sh:SPARQLFunction ; sh:ask "ASK { FILTER (<http://ex/exists>()) }" .
         ex:S a sh:NodeShape ; sh:targetNode ex:x ;
             sh:rule [ a sh:SPARQLRule ;
                 sh:construct "CONSTRUCT { $this ex:p true } WHERE { FILTER (<http://ex/exists>()) }" ] .
@@ -712,7 +712,7 @@ fn strict_rule_diagnostics_fail_session_construction() {
             ..SessionOptions::default()
         },
     );
-    assert!(matches!(result, Err(SessionError::StrictInference(_))));
+    assert!(matches!(result, Err(SessionError::Evaluation(_))));
 }
 
 #[test]

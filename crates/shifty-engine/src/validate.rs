@@ -233,9 +233,8 @@ pub enum UnsupportedPolicy {
 /// inference sessions accept it, so callers configure behavior in one place.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct EngineOptions {
-    /// How to handle partially supported features encountered at run time —
-    /// currently graph-reading `sh:SPARQLFunction` bodies called from a SPARQL
-    /// context (which the engine can only evaluate as pure functions).
+    /// How to handle partially supported features encountered at run time.
+    /// This never suppresses malformed shapes or function execution failures.
     pub unsupported: UnsupportedPolicy,
     /// Maximum complete inference passes, including the final convergence
     /// check. Exceeding this limit is an execution failure under either policy.

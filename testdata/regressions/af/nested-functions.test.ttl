@@ -1,0 +1,13 @@
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix ex: <http://example.org/function#> .
+@prefix dash: <http://datashapes.org/dash#> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+ex:outer a sh:SPARQLFunction ; sh:parameter [sh:path ex:arg] ;
+    sh:select "SELECT (ex:inner(?arg) AS ?result) WHERE {}" .
+ex:inner a sh:SPARQLFunction ; sh:parameter [sh:path ex:arg] ;
+    sh:ask "ASK { ?arg ex:flag true }" .
+ex:x ex:flag true .
+ex:S a sh:NodeShape ; sh:targetNode ex:x ;
+    sh:rule [a sh:SPARQLRule ; sh:construct "CONSTRUCT { $this ex:derived true } WHERE { FILTER(ex:outer($this)) }"] .
+ex:Case a dash:InferencingTestCase ;
+    dash:expectedResult [rdf:subject ex:x ; rdf:predicate ex:derived ; rdf:object true] .

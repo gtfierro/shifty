@@ -136,8 +136,32 @@ impl CompiledShapes {
                 order: rule.order.clone().unwrap_or_default(),
                 shape_order: rule.shape_order.clone().unwrap_or_default(),
                 owner: rule.owner.as_ref().map(ToString::to_string),
-                dependencies: rule_dependencies(rule, &normalized.schema.arena),
-                guard_dependencies: rule_guard_dependencies(rule, &normalized.schema.arena),
+                dependencies: {
+                    let mut deps = rule_dependencies(rule, &normalized.schema.arena);
+                    if let Some(reads) = access
+                        .consumers
+                        .iter()
+                        .find(|c| c.consumer == shifty_opt::Consumer::Rule(index))
+                    {
+                        deps.predicates
+                            .extend(reads.default.predicates.iter().cloned());
+                        deps.wildcard |= reads.default.any_predicate
+                            || reads.default.reads_node_domain
+                            || reads.default.incomplete;
+                    }
+                    deps
+                },
+                guard_dependencies: {
+                    let mut deps = rule_guard_dependencies(rule, &normalized.schema.arena);
+                    // Custom calls can hide non-monotone reads; prevent delta-focus
+                    // narrowing from treating them as a simple BGP.
+                    if access.consumers.iter().any(|c| {
+                        c.consumer == shifty_opt::Consumer::Rule(index) && !c.calls.is_empty()
+                    }) {
+                        deps.wildcard = true;
+                    }
+                    deps
+                },
             })
             .collect();
         rules.sort_by(|a, b| {

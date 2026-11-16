@@ -1551,6 +1551,124 @@ fn predicate_labels(rows: &[[TermId; 3]], terms: &TermDictionary) -> HashMap<Ter
         .collect()
 }
 
+/// Thread-safe read view for SPARQL callbacks. Indexes stay shared with the
+/// session; the small, session-local dictionary is captured once per revision.
+/// Query constants remain RDF terms, so evaluation never mutates this view.
+pub(crate) struct FunctionDataset {
+    source: Option<Arc<SourceStorage>>,
+    local: TermDictInner,
+    default_graph: Arc<TripleIndex>,
+    source_view: Option<SourceView>,
+    named_graphs: HashMap<TermId, Arc<TripleIndex>>,
+}
+
+impl FrozenIndexedDataset {
+    pub(crate) fn function_snapshot(&self) -> FunctionDataset {
+        FunctionDataset {
+            source: self.terms.source.clone(),
+            local: self.terms.local.borrow().clone(),
+            default_graph: Arc::clone(&self.default_graph),
+            source_view: self.source_view.clone(),
+            named_graphs: self.named_graphs.clone(),
+        }
+    }
+}
+impl FunctionDataset {
+    fn id(&self, term: &Term) -> Option<TermId> {
+        self.source
+            .as_ref()
+            .and_then(|s| s.term_to_id.get(term))
+            .or_else(|| self.local.term_to_id.get(term))
+            .copied()
+    }
+    fn term(&self, id: TermId) -> Term {
+        let offset = self.source.as_ref().map_or(0, |s| s.id_to_term.len());
+        if (id as usize) < offset {
+            self.source.as_ref().unwrap().id_to_term[id as usize].clone()
+        } else {
+            self.local.id_to_term[id as usize - offset].clone()
+        }
+    }
+}
+#[allow(refining_impl_trait)]
+impl<'a> QueryableDataset<'a> for &'a FunctionDataset {
+    type InternalTerm = Term;
+    type Error = Infallible;
+    fn internal_quads_for_pattern(
+        &self,
+        subject: Option<&Term>,
+        predicate: Option<&Term>,
+        object: Option<&Term>,
+        graph_name: Option<Option<&Term>>,
+    ) -> Box<dyn Iterator<Item = Result<InternalQuad<Term>, Infallible>> + 'a> {
+        let ds = *self;
+        let resolve =
+            |term: Option<&Term>| term.map(|t| ds.id(t)).map_or(Some(None), |id| id.map(Some));
+        let (Some(s), Some(p), Some(o)) = (resolve(subject), resolve(predicate), resolve(object))
+        else {
+            return Box::new(std::iter::empty());
+        };
+        let rows: Box<dyn Iterator<Item = ([TermId; 3], Option<TermId>)> + 'a> =
+            match graph_name {
+                Some(None) => {
+                    let local = ds.default_graph.scan(s, p, o).map(|row| (row, None));
+                    if let Some(source) = &ds.source_view {
+                        Box::new(
+                            local.chain(
+                                source
+                                    .index
+                                    .scan(s, p, o)
+                                    .filter(|row| source.includes(*row))
+                                    .map(|row| (row, None)),
+                            ),
+                        )
+                    } else {
+                        Box::new(local)
+                    }
+                }
+                Some(Some(graph)) => {
+                    let Some(g) = ds.id(graph) else {
+                        return Box::new(std::iter::empty());
+                    };
+                    let Some(index) = ds.named_graphs.get(&g) else {
+                        return Box::new(std::iter::empty());
+                    };
+                    Box::new(index.scan(s, p, o).map(move |row| (row, Some(g))))
+                }
+                None => Box::new(ds.named_graphs.iter().flat_map(move |(&g, index)| {
+                    index.scan(s, p, o).map(move |row| (row, Some(g)))
+                })),
+            };
+        Box::new(rows.map(move |([s, p, o], g)| {
+            Ok(InternalQuad {
+                subject: ds.term(s),
+                predicate: ds.term(p),
+                object: ds.term(o),
+                graph_name: g.map(|g| ds.term(g)),
+            })
+        }))
+    }
+    fn internal_named_graphs(&self) -> impl Iterator<Item = Result<Term, Infallible>> + use<'a> {
+        let ds = *self;
+        ds.named_graphs.keys().map(|&g| Ok(ds.term(g)))
+    }
+    fn contains_internal_graph_name(&self, graph_name: &Term) -> Result<bool, Infallible> {
+        Ok(self
+            .id(graph_name)
+            .is_some_and(|g| self.named_graphs.contains_key(&g)))
+    }
+    fn internalize_term(&self, term: Term) -> Result<Term, Infallible> {
+        Ok(term)
+    }
+    fn externalize_term(&self, term: Term) -> Result<Term, Infallible> {
+        Ok(term)
+    }
+}
+const _: fn() = || {
+    fn assert_send_sync<T: Send + Sync>() {}
+    assert_send_sync::<FunctionDataset>();
+};
+
 // ── QueryableDataset impl ────────────────────────────────────────────────────
 
 #[allow(refining_impl_trait)]
@@ -1711,6 +1829,35 @@ mod tests {
         g.insert(triple_nnn("http://ex/a", "http://ex/p", "http://ex/c").as_ref());
         g.insert(triple_nnn("http://ex/b", "http://ex/q", "http://ex/c").as_ref());
         g
+    }
+
+    #[test]
+    fn function_snapshot_shares_indexes_and_retains_its_revision() {
+        let graph =
+            shifty_parse::load_turtle(br#"@prefix ex: <http://ex/> . ex:x ex:p ex:y ."#, None)
+                .unwrap()
+                .graph;
+        let mut dataset = FrozenIndexedDataset::from_graph(&graph);
+        let snapshot = dataset.function_snapshot();
+        assert!(Arc::ptr_eq(&snapshot.default_graph, &dataset.default_graph));
+        let added = oxrdf::Triple::new(
+            NamedNode::new("http://ex/x").unwrap(),
+            NamedNode::new("http://ex/p").unwrap(),
+            NamedNode::new("http://ex/z").unwrap(),
+        );
+        dataset.extend_triples([&added]);
+        assert_eq!(
+            (&snapshot)
+                .internal_quads_for_pattern(None, None, None, Some(None))
+                .count(),
+            1
+        );
+        assert_eq!(
+            (&dataset.function_snapshot())
+                .internal_quads_for_pattern(None, None, None, Some(None))
+                .count(),
+            2
+        );
     }
 
     #[test]

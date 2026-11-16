@@ -16,6 +16,9 @@
 //! the fast path a replaceable implementation detail rather than a separate
 //! dialect of SPARQL.
 
+mod functions;
+use functions::FunctionRuntime;
+
 use crate::compiled::ParsedQueries;
 use crate::error::{EvaluationError, SparqlOperation};
 use crate::frozen::{FrozenIndexedDataset, TermId};
@@ -71,19 +74,13 @@ pub(crate) struct SparqlExecutor {
     /// them inside constraint / CONSTRUCT / expression queries resolve. Empty
     /// unless [`set_functions`](Self::set_functions) was called.
     functions: Vec<FunctionDef>,
+    function_runtime: RefCell<Option<Arc<FunctionRuntime>>>,
     /// How partially supported features are handled (see [`UnsupportedPolicy`]).
     unsupported: UnsupportedPolicy,
     failure: RefCell<Option<EvaluationError>>,
 }
 
-/// A `sh:SPARQLFunction` (SHACL-AF §5) registered as a custom SPARQL function.
-///
-/// Evaluated as a **pure** function of its arguments: the body runs over an
-/// empty dataset, so computational functions (math, string, URI building) work,
-/// but a body that reads the data graph is not supported in SPARQL contexts —
-/// the frozen dataset is `Rc`-based and cannot cross the `Send + Sync` boundary
-/// the custom-function closure requires. (Node-expression function calls keep
-/// full graph access via [`SparqlExecutor::call_sparql_function`].)
+/// Canonical document-owned SHACL function definition.
 pub(crate) use shifty_algebra::FunctionDef;
 
 /// Cache key for a compiled constraint: the canonical query plus the static
@@ -180,8 +177,28 @@ impl SparqlExecutor {
     /// evaluation starts a fresh scope, including when a session is reused.
     pub(crate) fn checked<T>(&self, evaluate: impl FnOnce() -> T) -> Result<T, EvaluationError> {
         self.failure.borrow_mut().take();
+        if let Some(runtime) = self.function_runtime.borrow().as_ref() {
+            runtime
+                .failure
+                .lock()
+                .expect("function failure lock")
+                .take();
+        }
         let value = evaluate();
-        match self.failure.borrow_mut().take() {
+        let function_error = self.function_runtime.borrow().as_ref().and_then(|runtime| {
+            runtime
+                .failure
+                .lock()
+                .expect("function failure lock")
+                .take()
+        });
+        let failure = self.failure.borrow_mut().take().or_else(|| {
+            function_error.map(|message| EvaluationError::Sparql {
+                operation: SparqlOperation::Function,
+                message,
+            })
+        });
+        match failure {
             Some(error) => Err(error),
             None => Ok(value),
         }
@@ -192,6 +209,19 @@ impl SparqlExecutor {
         operation: SparqlOperation,
         result: Result<T, String>,
     ) -> Result<T, String> {
+        let result = result.and_then(|value| {
+            let error = self.function_runtime.borrow().as_ref().and_then(|runtime| {
+                runtime
+                    .failure
+                    .lock()
+                    .expect("function failure lock")
+                    .clone()
+            });
+            match error {
+                Some(message) => Err(message),
+                None => Ok(value),
+            }
+        });
         if let Err(message) = &result {
             self.failure
                 .borrow_mut()
@@ -253,6 +283,7 @@ impl SparqlExecutor {
             batch_construct: RefCell::new(HashSet::new()),
             shapes_graph,
             functions: Vec::new(),
+            function_runtime: RefCell::new(None),
             unsupported: UnsupportedPolicy::default(),
             failure: RefCell::new(None),
         })
@@ -279,6 +310,7 @@ impl SparqlExecutor {
             shapes_graph: has_shapes_graph
                 .then(|| NamedNode::new(SHAPES_GRAPH_IRI).expect("static IRI is valid")),
             functions: Vec::new(),
+            function_runtime: RefCell::new(None),
             unsupported: UnsupportedPolicy::default(),
             failure: RefCell::new(None),
         }
@@ -295,44 +327,28 @@ impl SparqlExecutor {
         branch
     }
 
-    /// Register `sh:SPARQLFunction`s so that calls to them inside constraint,
-    /// CONSTRUCT, target, and expression queries resolve. `policy` decides what
-    /// happens to graph-reading function bodies (which this layer can only run
-    /// as pure functions over an empty dataset).
+    /// Register the same definitions for node expressions and SPARQL bodies.
     pub(crate) fn set_functions(&mut self, functions: Vec<FunctionDef>, policy: UnsupportedPolicy) {
         self.functions = functions;
         self.unsupported = policy;
+        self.function_runtime.borrow_mut().take();
+        self.prepared.borrow_mut().clear();
     }
 
-    /// A fresh evaluator with every registered SHACL function available as a
-    /// custom SPARQL function. Use in place of `SparqlEvaluator::new()` for any
-    /// Spareval execution so function calls in the query resolve. When no
-    /// functions are registered this is exactly `SparqlEvaluator::new()`.
-    ///
-    /// Under [`UnsupportedPolicy::Error`], a graph-reading function is *not*
-    /// registered: a SPARQL call to it then raises an unknown-function error
-    /// (surfaced as a constraint failure) rather than silently evaluating its
-    /// body over an empty dataset.
+    fn function_runtime(&self) -> Arc<FunctionRuntime> {
+        Arc::clone(
+            self.function_runtime
+                .borrow_mut()
+                .get_or_insert_with(|| FunctionRuntime::new(self)),
+        )
+    }
+
     fn evaluator(&self) -> SparqlEvaluator {
-        let mut evaluator = SparqlEvaluator::new();
-        for f in &self.functions {
-            if f.reads_graph && self.unsupported == UnsupportedPolicy::Error {
-                continue;
-            }
-            let query = f.query.clone();
-            let params = f.params.clone();
-            let optional = f.optional_params.clone();
-            evaluator = evaluator.with_custom_function(f.iri.clone(), move |args| {
-                if args.len() > params.len()
-                    || (args.len()..params.len())
-                        .any(|index| !optional.get(index).copied().unwrap_or(false))
-                {
-                    return None;
-                }
-                eval_sparql_function(&query, &params, args)
-            });
+        if self.functions.is_empty() {
+            SparqlEvaluator::new()
+        } else {
+            self.function_runtime().evaluator(0)
         }
-        evaluator
     }
 
     /// Evaluate a SPARQL expression (e.g. a `dash:expression` function call) to
@@ -379,6 +395,14 @@ impl SparqlExecutor {
 
     /// Commit an inference batch after all query iterators have been consumed.
     pub(crate) fn extend_triples<'a>(&mut self, triples: impl IntoIterator<Item = &'a Triple>) {
+        let triples: Vec<_> = triples.into_iter().collect();
+        if triples.is_empty() {
+            return;
+        }
+        // Release callback snapshots before mutating indexes. With no tied
+        // shape branch retaining them, commit can update the indexes in place.
+        self.function_runtime.borrow_mut().take();
+        self.prepared.borrow_mut().clear();
         let changed = if let Some(frozen) = &mut self.frozen {
             let revision = frozen.revision();
             frozen.extend_triples(triples);
@@ -657,8 +681,18 @@ impl SparqlExecutor {
     /// dataset when present, else the Store), substituting `$this` for this call.
     fn run_fallback(&self, query: &Query, focus: &Term) -> Result<Vec<SparqlViolation>, String> {
         let mut query = query.clone();
-        substitute_query(&mut query, &variable("this"), focus);
-        let prepared = self.evaluator().for_query(query);
+        let this = variable("this");
+        let prepared = if matches!(focus, Term::BlankNode(_)) {
+            if let Query::Select { pattern, .. } | Query::Ask { pattern, .. } = &mut query {
+                project_variable(pattern, &this);
+            }
+            self.evaluator()
+                .for_query(query)
+                .substitute_variable(this, focus.clone())
+        } else {
+            substitute_query(&mut query, &this, focus);
+            self.evaluator().for_query(query)
+        };
         let query_result = if let Some(frozen) = &self.frozen {
             prepared
                 .on_queryable_dataset(frozen)
@@ -1087,33 +1121,6 @@ impl SparqlExecutor {
         Ok(prepared)
     }
 
-    // SPARQL expression errors normally discard a FILTER row or leave a BIND
-    // unbound. That behavior cannot enforce an unsupported-feature policy: an
-    // unregistered function would silently yield a successful verdict. Inspect
-    // the parsed query before either native or fallback execution instead.
-    fn check_function_support(&self, query: &Query) -> Result<(), String> {
-        if self.unsupported == UnsupportedPolicy::Ignore {
-            return Ok(());
-        }
-        let mut calls = HashSet::new();
-        let pattern = match query {
-            Query::Select { pattern, .. }
-            | Query::Ask { pattern, .. }
-            | Query::Construct { pattern, .. }
-            | Query::Describe { pattern, .. } => pattern,
-        };
-        collect_function_calls(pattern, &mut calls);
-        for function in &self.functions {
-            if function.reads_graph && calls.contains(&function.iri) {
-                return Err(format!(
-                    "graph-reading SPARQL function <{}> is unsupported in SPARQL queries; use on_unsupported=ignore for best effort",
-                    function.iri.as_str()
-                ));
-            }
-        }
-        Ok(())
-    }
-
     /// Parse (and cache) a canonical query string into its algebra form. The
     /// cached `Query` is cloned per call so callers can substitute pre-bound
     /// variables into it without affecting the cache.
@@ -1126,11 +1133,9 @@ impl SparqlExecutor {
             .as_ref()
             .and_then(|queries| queries.get(query))
         {
-            self.check_function_support(parsed)?;
             return Ok(parsed.clone());
         }
         let parsed = SparqlParser::new().parse_query(query).map_err(err)?;
-        self.check_function_support(&parsed)?;
         self.parsed
             .borrow_mut()
             .insert(query.to_string(), parsed.clone());
@@ -1159,44 +1164,11 @@ impl SparqlExecutor {
         params: &[(String, Term)],
     ) -> Result<Vec<Term>, String> {
         let query = self.parse(raw_query)?;
-        let result_name = function_result_name(&query);
-        let (mut query, is_ask) = function_select_query(query);
-        let mut substitutions = Vec::with_capacity(params.len());
-        for (name, value) in params {
-            let var = Variable::new(name).map_err(err)?;
-            if let Query::Select { pattern, .. } | Query::Ask { pattern, .. } = &mut query {
-                project_variable(pattern, &var);
-            }
-            substitutions.push((var, value.clone()));
-        }
-        let mut prepared = SparqlEvaluator::new().for_query(query);
-        for (var, value) in substitutions {
-            prepared = prepared.substitute_variable(var, value);
-        }
-        let result = if let Some(frozen) = &self.frozen {
-            prepared
-                .on_queryable_dataset(frozen)
-                .execute()
-                .map_err(err)?
-        } else {
-            prepared.on_store(self.store()?).execute().map_err(err)?
-        };
-        match result {
-            QueryResults::Solutions(mut solutions) => {
-                let solution = solutions.next().transpose().map_err(err)?;
-                if is_ask {
-                    return Ok(vec![Term::Literal(Literal::from(solution.is_some()))]);
-                }
-                let name =
-                    result_name.ok_or("sh:SPARQLFunction SELECT must project one variable")?;
-                Ok(solution
-                    .and_then(|solution| solution.get(name.as_str()).cloned())
-                    .into_iter()
-                    .collect())
-            }
-            QueryResults::Boolean(b) => Ok(vec![Term::Literal(Literal::from(b))]),
-            QueryResults::Graph(_) => Err("sh:SPARQLFunction produced graph results".to_string()),
-        }
+        Ok(self
+            .function_runtime()
+            .evaluate(query, params, 0)?
+            .into_iter()
+            .collect())
     }
 
     /// Apply a document-owned function to the Cartesian product of argument
@@ -1327,11 +1299,22 @@ impl SparqlExecutor {
         if let Some(path) = path {
             query = apply_path_substitution(query, path)?;
         }
+        let mut blank_bindings = Vec::new();
         for (name, value) in bindings {
             let var = Variable::new(name).map_err(err)?;
-            substitute_query(&mut query, &var, value);
+            if matches!(value, Term::BlankNode(_)) {
+                if let Query::Select { pattern, .. } | Query::Ask { pattern, .. } = &mut query {
+                    project_variable(pattern, &var);
+                }
+                blank_bindings.push((var, value.clone()));
+            } else {
+                substitute_query(&mut query, &var, value);
+            }
         }
-        let prepared = self.evaluator().for_query(query);
+        let mut prepared = self.evaluator().for_query(query);
+        for (var, value) in blank_bindings {
+            prepared = prepared.substitute_variable(var, value);
+        }
         if let Some(frozen) = &self.frozen {
             prepared.on_queryable_dataset(frozen).execute().map_err(err)
         } else {
@@ -1862,44 +1845,21 @@ fn term_pattern_is(t: &TermPattern, var: &Variable) -> bool {
     matches!(t, TermPattern::Variable(v) if v == var)
 }
 
-/// Evaluate a SHACL function body as a pure function of `args`: substitute the
-/// call arguments positionally for the parameter variables and run the body
-/// over an empty store. Returns the `?result` binding (SELECT) or the boolean
-/// (ASK). `None` on any parse/eval failure — the calling query then sees an
-/// unbound result, matching SPARQL's treatment of a failed function call.
+#[cfg(test)]
 fn eval_sparql_function(query: &str, params: &[String], args: &[Term]) -> Option<Term> {
-    let q = SparqlParser::new().parse_query(query).ok()?;
-    let result_name = function_result_name(&q);
-    let (mut q, is_ask) = function_select_query(q);
-    if args.len() > params.len() {
-        return None;
-    }
-    let mut substitutions = Vec::with_capacity(params.len());
-    for (name, value) in params.iter().zip(args) {
-        if let Ok(var) = Variable::new(name) {
-            if let Query::Select { pattern, .. } | Query::Ask { pattern, .. } = &mut q {
-                project_variable(pattern, &var);
-            }
-            substitutions.push((var, value.clone()));
-        }
-    }
-    let store = Store::new().ok()?;
-    let mut prepared = SparqlEvaluator::new().for_query(q);
-    for (var, value) in substitutions {
-        prepared = prepared.substitute_variable(var, value);
-    }
-    match prepared.on_store(&store).execute().ok()? {
-        QueryResults::Solutions(mut solutions) => {
-            let solution = solutions.next().transpose().ok()?;
-            if is_ask {
-                Some(Term::Literal(Literal::from(solution.is_some())))
-            } else {
-                solution?.get(result_name?.as_str()).cloned()
-            }
-        }
-        QueryResults::Boolean(b) => Some(Term::Literal(Literal::from(b))),
-        QueryResults::Graph(_) => None,
-    }
+    let executor = SparqlExecutor::new(&Graph::new()).ok()?;
+    executor
+        .call_sparql_function(
+            query,
+            &params
+                .iter()
+                .cloned()
+                .zip(args.iter().cloned())
+                .collect::<Vec<_>>(),
+        )
+        .ok()?
+        .into_iter()
+        .next()
 }
 
 /// Evaluate ASK function bodies through SELECT so externally bound argument
@@ -1941,120 +1901,6 @@ fn function_result_name(query: &Query) -> Option<String> {
     }
 }
 
-fn collect_function_calls(pattern: &GraphPattern, calls: &mut HashSet<NamedNode>) {
-    match pattern {
-        GraphPattern::Bgp { .. } | GraphPattern::Path { .. } | GraphPattern::Values { .. } => {}
-        GraphPattern::Join { left, right }
-        | GraphPattern::Union { left, right }
-        | GraphPattern::Minus { left, right }
-        | GraphPattern::Lateral { left, right } => {
-            collect_function_calls(left, calls);
-            collect_function_calls(right, calls);
-        }
-        GraphPattern::LeftJoin {
-            left,
-            right,
-            expression,
-        } => {
-            collect_function_calls(left, calls);
-            collect_function_calls(right, calls);
-            if let Some(expr) = expression {
-                collect_expression_calls(expr, calls);
-            }
-        }
-        GraphPattern::Filter { expr, inner } => {
-            collect_expression_calls(expr, calls);
-            collect_function_calls(inner, calls);
-        }
-        GraphPattern::Extend {
-            inner, expression, ..
-        } => {
-            collect_expression_calls(expression, calls);
-            collect_function_calls(inner, calls);
-        }
-        GraphPattern::Graph { inner, .. }
-        | GraphPattern::Service { inner, .. }
-        | GraphPattern::Project { inner, .. }
-        | GraphPattern::Distinct { inner }
-        | GraphPattern::Reduced { inner }
-        | GraphPattern::Slice { inner, .. } => collect_function_calls(inner, calls),
-        GraphPattern::OrderBy { inner, expression } => {
-            collect_function_calls(inner, calls);
-            for order in expression {
-                let (OrderExpression::Asc(expr) | OrderExpression::Desc(expr)) = order;
-                collect_expression_calls(expr, calls);
-            }
-        }
-        GraphPattern::Group {
-            inner, aggregates, ..
-        } => {
-            collect_function_calls(inner, calls);
-            for (_, aggregate) in aggregates {
-                if let AggregateExpression::FunctionCall { expr, .. } = aggregate {
-                    collect_expression_calls(expr, calls);
-                }
-            }
-        }
-    }
-}
-
-fn collect_expression_calls(expr: &Expression, calls: &mut HashSet<NamedNode>) {
-    use spargebra::algebra::Function;
-    match expr {
-        Expression::FunctionCall(function, args) => {
-            if let Function::Custom(iri) = function {
-                calls.insert(iri.clone());
-            }
-            for arg in args {
-                collect_expression_calls(arg, calls);
-            }
-        }
-        Expression::Or(a, b)
-        | Expression::And(a, b)
-        | Expression::Equal(a, b)
-        | Expression::SameTerm(a, b)
-        | Expression::Greater(a, b)
-        | Expression::GreaterOrEqual(a, b)
-        | Expression::Less(a, b)
-        | Expression::LessOrEqual(a, b)
-        | Expression::Add(a, b)
-        | Expression::Subtract(a, b)
-        | Expression::Multiply(a, b)
-        | Expression::Divide(a, b) => {
-            collect_expression_calls(a, calls);
-            collect_expression_calls(b, calls);
-        }
-        Expression::In(a, list) => {
-            collect_expression_calls(a, calls);
-            for expr in list {
-                collect_expression_calls(expr, calls);
-            }
-        }
-        Expression::UnaryPlus(a) | Expression::UnaryMinus(a) | Expression::Not(a) => {
-            collect_expression_calls(a, calls)
-        }
-        Expression::Exists(pattern) => collect_function_calls(pattern, calls),
-        Expression::If(a, b, c) => {
-            collect_expression_calls(a, calls);
-            collect_expression_calls(b, calls);
-            collect_expression_calls(c, calls);
-        }
-        Expression::Coalesce(list) => {
-            for expr in list {
-                collect_expression_calls(expr, calls);
-            }
-        }
-        Expression::NamedNode(_)
-        | Expression::Literal(_)
-        | Expression::Variable(_)
-        | Expression::Bound(_) => {}
-    }
-}
-
-/// Rename every occurrence of `from` to `to` throughout a query AST. Used to
-/// implement the `bind_value_to_this` flag: for node-shape activations of ASK
-/// validators, `?value` is the focus node (`?this`), so we rename before the
-/// per-focus `$this` binding is applied.
 fn rename_variable_in_query(query: &mut Query, from: &Variable, to: &Variable) {
     match query {
         Query::Select { pattern, .. }

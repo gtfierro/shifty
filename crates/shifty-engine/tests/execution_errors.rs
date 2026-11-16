@@ -6,7 +6,8 @@ use shifty_engine::{
 };
 
 const PREFIXES: &str = "@prefix sh: <http://www.w3.org/ns/shacl#> . @prefix ex: <http://ex/> .";
-const FUNCTION: &str = r#"ex:exists a sh:SPARQLFunction ; sh:ask "ASK { ?s <http://ex/p> ?o }" ."#;
+const FUNCTION: &str =
+    r#"ex:exists a sh:SPARQLFunction ; sh:ask "ASK { FILTER (<http://ex/exists>()) }" ."#;
 
 fn session(shape: &str, policy: UnsupportedPolicy) -> shifty_engine::EvaluationSession {
     let loaded =
@@ -197,8 +198,12 @@ fn inference_rejects_failed_targets_conditions_and_node_filters() {
                     ..Default::default()
                 },
             )
-            .unwrap();
-        assert!(legacy.inferred().is_empty());
+            .err()
+            .expect("ignore must retain function execution failures");
+        assert!(matches!(
+            legacy,
+            SessionError::Evaluation(EvaluationError::Sparql { .. })
+        ));
     }
 }
 

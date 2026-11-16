@@ -108,9 +108,10 @@ SHACL-AF (Advanced Features)
      - ✅
      - full data-graph access
    * - SHACL functions — ``sh:SPARQLFunction`` called from SPARQL (``sh:sparql``, CONSTRUCT, ``dash:expression``)
-     - ⚠️
-     - evaluated as **pure** functions of their arguments; a body that reads
-       the data graph is gated — see `Partial support`_
+     - ✅
+     - shared function environment supports calls inside function bodies and
+       reads the current data/shapes snapshot; recursive invocation is bounded
+       to 32 levels and execution failures propagate under either policy
    * - JavaScript — ``sh:js*``, ``sh:JSFunction``
      - ❌
      - no JS engine
@@ -144,8 +145,8 @@ A ⚠️ feature has partial support and may produce incorrect results.
 Python:
 
 ``"ignore"``
-   Best effort. A graph-reading function called from a SPARQL context is
-   evaluated over an empty dataset, so the result may be wrong.
+   Best effort for partially supported features. It does not suppress query
+   execution failures or the function recursion limit.
 
 ``"error"`` (default)
    Refuse. The unsupported construct surfaces as a failure instead of a silent
