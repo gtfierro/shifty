@@ -22,7 +22,7 @@ baseline records this difference without changing the upstream fixture or
 counting it as a SHACL 1.0 pass.
 
 Run the SHACL-AF regressions
----------------------------
+-----------------------------
 
 From the repository root:
 

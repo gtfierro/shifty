@@ -104,11 +104,12 @@ check("version is exported", typeof version() === "string" && version().length >
       ex:S a sh:NodeShape ; sh:targetNode ex:x ;
         sh:sparql [ sh:select "SELECT $this WHERE { FILTER (<http://ex/exists>()) }" ] .`;
     for (const opts of [undefined, null, {}, { onUnsupported: "error" }]) {
-      let rejected = false;
-      try { call(functions, data, opts); } catch (error) { rejected = String(error).includes("graph-reading SPARQL function"); }
-      check(`${call.name}: strict policy rejects unsupported function`, rejected);
+      let supported = false;
+      try { supported = call(functions, data, opts).conforms === false; } catch {}
+      check(`${call.name}: graph-reading function runs under strict policy`, supported);
     }
-    check(`${call.name}: best effort requires explicit ignore`, call(functions, data, { onUnsupported: "ignore" }).conforms);
+    check(`${call.name}: graph-reading function runs in best-effort mode`,
+      call(functions, data, { onUnsupported: "ignore" }).conforms === false);
     let invalidOption = false;
     try { call(shapes, data, { onUnsupported: "typo" }); } catch (error) { invalidOption = String(error).includes("onUnsupported"); }
     check(`${call.name}: invalid policy is rejected`, invalidOption);
@@ -126,11 +127,14 @@ check("version is exported", typeof version() === "string" && version().length >
     ex:S a sh:NodeShape ; sh:targetNode ex:x ; sh:rule [ a sh:TripleRule ;
       sh:condition ex:Guard ; sh:subject sh:this ; sh:predicate ex:derived ; sh:object true ] .`;
   const data = `${prefixes} ex:x ex:p ex:y .`;
-  for (const call of [validate, validateW3c, infer]) {
-    let rejected = false;
-    try { call(shapes, data); } catch (error) { rejected = String(error).includes("graph-reading SPARQL function"); }
-    check(`${call.name}: failed inference guard rejects the run`, rejected);
+  for (const call of [validate, validateW3c]) {
+    let completed = false;
+    try { completed = call(shapes, data).conforms === true; } catch {}
+    check(`${call.name}: graph-reading inference guard completes`, completed);
   }
+  let inferenceCompleted = false;
+  try { inferenceCompleted = infer(shapes, data).inferredCount === 1; } catch {}
+  check("infer: graph-reading inference guard enables the rule", inferenceCompleted);
 }
 
 if (failures) {

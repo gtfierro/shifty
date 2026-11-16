@@ -84,7 +84,7 @@ thing: it means "run with an explicitly empty rules graph", so no rules are
 found and nothing is derived.
 
 Rules that create blank nodes
-----------------------------
+------------------------------
 
 SPARQL rules can create fresh blank nodes in CONSTRUCT templates or through
 ``BNODE()``. Use a guard such as ``FILTER NOT EXISTS`` when a rule should add a
