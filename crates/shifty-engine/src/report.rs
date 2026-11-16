@@ -839,7 +839,8 @@ impl Reporter<'_> {
             // SPARQL-based target: sh:target [ sh:select "…" ]
             if p == vocab::SH_TARGET
                 && let Some(target) = term_to_node(&t.object.into_owned())
-                && self.shapes.object(&target, vocab::SH_SELECT).is_some()
+                && shifty_parse::targets::sparql_targets(self.shapes, &target)
+                    .is_ok_and(|resolved| resolved.is_some())
             {
                 found.insert(t.subject.into_owned());
             }
@@ -906,19 +907,16 @@ impl Reporter<'_> {
                 let Some(target_node) = term_to_node(&target) else {
                     continue;
                 };
-                let Some(Term::Literal(query)) = self.shapes.object(&target_node, vocab::SH_SELECT)
-                else {
-                    continue;
-                };
-                // Retain canonicalization failures for the evaluation boundary.
-                let Ok((_, canonical)) = self.sparql.record(
+                let resolved = self.sparql.record(
                     crate::SparqlOperation::Target,
-                    canonical_sparql_query(self.shapes, &target_node, query.value()),
-                ) else {
-                    continue;
-                };
-                if let Ok(found) = exec.target_nodes(&canonical) {
-                    nodes.extend(found);
+                    shifty_parse::targets::sparql_targets(self.shapes, &target_node),
+                );
+                if let Ok(Some(targets)) = resolved {
+                    for target in targets {
+                        if let Ok(found) = exec.target_nodes(&target) {
+                            nodes.extend(found);
+                        }
+                    }
                 }
             }
         }

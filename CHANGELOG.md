@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Added reusable `sh:SPARQLTargetType` targets with prefix declarations,
+  required/optional parameters, pre-binding collision checks, and shared target
+  execution across validation, reporting, evidence and inference. Missing
+  required parameters select no nodes; blank-node or multiple values are invalid.
+
 - Unified SHACL function execution across node expressions and SPARQL queries.
   Function bodies can call other functions and read the current data/shapes
   snapshot through shared immutable indexes. Recursive invocation is limited

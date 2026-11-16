@@ -819,6 +819,7 @@ mod tests {
         let top = schema.arena.insert(Shape::Top);
         schema.statements.push(shifty_algebra::Statement {
             selector: Selector::Sparql(shifty_algebra::SparqlTarget {
+                extra_bindings: Vec::new(),
                 query: "SELECT * WHERE { FILTER(<http://ex/a>()) }".into(),
             }),
             shape: top,
@@ -860,6 +861,7 @@ mod tests {
         let top = schema.arena.insert(Shape::Top);
         schema.statements.push(shifty_algebra::Statement {
             selector: Selector::Sparql(shifty_algebra::SparqlTarget {
+                extra_bindings: Vec::new(),
                 query: "SELECT * WHERE { FILTER(<http://ex/missing>()) }".into(),
             }),
             shape: top,

@@ -32,7 +32,7 @@ use oxrdf::{
     Triple, Variable,
 };
 use serde::{Deserialize, Serialize};
-use shifty_algebra::{Path, SparqlConstraint, SparqlQueryKind};
+use shifty_algebra::{Path, SparqlConstraint, SparqlQueryKind, SparqlTarget};
 use shifty_opt::{NativeQueryPlan, QueryForm, lower_query_with_stats};
 use spargebra::algebra::{
     AggregateExpression, Expression, GraphPattern, OrderExpression, PropertyPathExpression,
@@ -431,23 +431,26 @@ impl SparqlExecutor {
             .map_err(|e| e.to_string())
     }
 
-    pub(crate) fn target_nodes(&self, query: &str) -> Result<Vec<Term>, String> {
-        self.record(SparqlOperation::Target, self.target_nodes_inner(query))
+    pub(crate) fn target_nodes(&self, target: &SparqlTarget) -> Result<Vec<Term>, String> {
+        self.record(SparqlOperation::Target, self.target_nodes_inner(target))
     }
 
-    fn target_nodes_inner(&self, query: &str) -> Result<Vec<Term>, String> {
+    fn target_nodes_inner(&self, target: &SparqlTarget) -> Result<Vec<Term>, String> {
+        let query = &target.query;
         let fp = profile::fingerprint(query);
         let start = web_time::Instant::now();
-        let results = if let Some(frozen) = &self.frozen {
-            self.prepared(query)?
-                .on_queryable_dataset(frozen)
-                .execute()
-                .map_err(err)?
+        let results = if target.extra_bindings.is_empty() {
+            let prepared = self.prepared(query)?;
+            if let Some(frozen) = &self.frozen {
+                prepared
+                    .on_queryable_dataset(frozen)
+                    .execute()
+                    .map_err(err)?
+            } else {
+                prepared.on_store(self.store()?).execute().map_err(err)?
+            }
         } else {
-            self.prepared(query)?
-                .on_store(self.store()?)
-                .execute()
-                .map_err(err)?
+            self.run_substituted(query, None, &target.extra_bindings)?
         };
         let QueryResults::Solutions(solutions) = results else {
             return Err("SPARQL target did not produce SELECT solutions".to_string());

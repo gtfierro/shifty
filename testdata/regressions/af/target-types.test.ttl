@@ -1,0 +1,12 @@
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix ex: <http://example.org/targets#> .
+@prefix dash: <http://datashapes.org/dash#> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+ex:T a sh:SPARQLTargetType ; sh:parameter [sh:path ex:desired] ;
+    sh:select "SELECT ?this WHERE { ?this ex:flag ?desired }" .
+ex:x ex:flag true .
+ex:y ex:flag false .
+ex:S a sh:NodeShape ; sh:target [a ex:T ; ex:desired true] ;
+    sh:rule [a sh:TripleRule ; sh:subject sh:this ; sh:predicate ex:derived ; sh:object true] .
+ex:Case a dash:InferencingTestCase ;
+    dash:expectedResult [rdf:subject ex:x ; rdf:predicate ex:derived ; rdf:object true] .

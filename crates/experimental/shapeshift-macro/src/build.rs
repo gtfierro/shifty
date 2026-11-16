@@ -1051,7 +1051,10 @@ impl<'p> Builder<'p> {
             Target::Sparql(q) => {
                 let query = self.sparql_target(ctx, span, q)?;
                 self.portability.sparql_targets = true;
-                Selector::Sparql(SparqlTarget { query })
+                Selector::Sparql(SparqlTarget {
+                    query,
+                    extra_bindings: Vec::new(),
+                })
             }
         })
     }

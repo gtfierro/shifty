@@ -12,6 +12,7 @@ pub mod graph;
 pub mod lower;
 pub mod path;
 pub mod sparql_path;
+pub mod targets;
 pub mod vocab;
 
 pub use diagnostics::{DiagLevel, Diagnostic, ParseError};

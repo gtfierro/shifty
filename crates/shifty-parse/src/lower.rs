@@ -32,8 +32,8 @@ use crate::vocab;
 use oxrdf::{Literal, NamedNode, NamedOrBlankNode, Term};
 use shifty_algebra::{
     Bound, NodeExpr, NodeKindSet, Path, Prefixes, Rule, RuleHead, Schema, Selector, Severity,
-    Shape, ShapeArena, ShapeId, SparqlConstraint, SparqlConstruct, SparqlQueryKind, SparqlTarget,
-    Statement, ValueType,
+    Shape, ShapeArena, ShapeId, SparqlConstraint, SparqlConstruct, SparqlQueryKind, Statement,
+    ValueType,
 };
 use spargebra::{
     Query, SparqlParser,
@@ -699,19 +699,14 @@ impl Lowerer<'_> {
                 self.diag(DiagLevel::Error, "sh:target must reference a resource", s);
                 continue;
             };
-            match self.g.object(&target_node, vocab::SH_SELECT) {
-                Some(Term::Literal(query)) => {
-                    if let Some(query) =
-                        self.canonical_sparql(&target_node, query.value(), ExpectedQuery::Select)
-                    {
-                        sels.push(Selector::Sparql(SparqlTarget { query }));
-                    }
-                }
-                _ => self.diag(
+            match crate::targets::sparql_targets(self.g, &target_node) {
+                Ok(Some(targets)) => sels.extend(targets.into_iter().map(Selector::Sparql)),
+                Ok(None) => self.diag(
                     DiagLevel::Unsupported,
-                    "custom sh:target without sh:select is not yet lowered",
+                    "custom sh:target has no supported SPARQL implementation",
                     &target_node,
                 ),
+                Err(message) => self.diag(DiagLevel::Error, message, &target_node),
             }
         }
 
@@ -1295,39 +1290,6 @@ impl Lowerer<'_> {
         }
     }
 
-    /// Parse a SHACL SPARQL query once, resolving both document prefixes and
-    /// `sh:prefixes` declarations. `Query::to_string` expands prefix names, so
-    /// the IR remains self-contained and can be reparsed or rewritten later.
-    fn canonical_sparql(
-        &mut self,
-        owner: &NamedOrBlankNode,
-        raw: &str,
-        expected: ExpectedQuery,
-    ) -> Option<String> {
-        let (query, canonical) = match canonical_sparql_query(self.g, owner, raw) {
-            Ok(result) => result,
-            Err(message) => {
-                self.diag(DiagLevel::Error, message, owner);
-                return None;
-            }
-        };
-        let actual = match &query {
-            Query::Select { .. } => ExpectedQuery::Select,
-            Query::Ask { .. } => ExpectedQuery::Ask,
-            Query::Construct { .. } => ExpectedQuery::Construct,
-            Query::Describe { .. } => ExpectedQuery::Describe,
-        };
-        if actual != expected {
-            self.diag(
-                DiagLevel::Error,
-                format!("expected SPARQL {expected}, found {actual}"),
-                owner,
-            );
-            return None;
-        }
-        Some(canonical)
-    }
-
     /// Parse and validate a query that is evaluated with SHACL pre-bound
     /// variables. The SPARQL grammar accepts several constructs whose
     /// interaction with pre-binding is forbidden by SHACL. VALUES follows the
@@ -1371,7 +1333,7 @@ impl Lowerer<'_> {
 /// Enforce pre-binding restrictions, allowing VALUES on unrelated variables
 /// as specified by SHACL 1.2. CONSTRUCT rules only enforce the VALUES check;
 /// their other existing SHACL-AF query behavior is preserved.
-fn validate_shacl_prebinding<'a>(
+pub(crate) fn validate_shacl_prebinding<'a>(
     query: &Query,
     prebound: impl IntoIterator<Item = &'a str>,
 ) -> Result<(), String> {

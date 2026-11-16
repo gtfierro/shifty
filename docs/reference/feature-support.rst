@@ -97,9 +97,10 @@ SHACL-AF (Advanced Features)
      - ✅
      -
    * - Reusable SPARQL target types — ``sh:SPARQLTargetType``
-     - ❌
-     - inline SELECT targets are supported; parameterized target types remain
-       outside the current implementation
+     - ✅
+     - shared parameter binding and prefix resolution across interfaces;
+       missing required parameters select no nodes; absent optional parameters
+       remain unbound. Blank-node and multiple parameter values are rejected
    * - Expression constraints — ``sh:expression``
      - ✅
      - evaluated at every value node; require exactly ``{ true }``; support

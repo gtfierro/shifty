@@ -39,6 +39,11 @@ iri!(
     "http://www.w3.org/ns/shacl#PropertyShape"
 );
 
+iri!(
+    SH_SPARQL_TARGET_TYPE,
+    "http://www.w3.org/ns/shacl#SPARQLTargetType"
+);
+
 // targets
 iri!(SH_TARGET_NODE, "http://www.w3.org/ns/shacl#targetNode");
 iri!(SH_TARGET_CLASS, "http://www.w3.org/ns/shacl#targetClass");

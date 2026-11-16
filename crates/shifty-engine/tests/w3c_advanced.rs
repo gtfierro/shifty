@@ -517,7 +517,8 @@ fn project_af_regressions() {
             "fresh-blank-node.test.ttl",
             "nested-functions.test.ttl",
             "ordering.test.ttl",
-            "path-inputs.test.ttl"
+            "path-inputs.test.ttl",
+            "target-types.test.ttl"
         ]
     );
     for file in files {

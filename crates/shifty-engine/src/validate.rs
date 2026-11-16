@@ -909,14 +909,9 @@ fn focus_for_source(
             })
             .collect(),
         FocusSource::Sparql(target) => {
-            let candidates = data.all_nodes();
-            evaluator
-                .sparql
-                .target_nodes(&target.query)
-                .unwrap_or_default()
-                .into_iter()
-                .filter(|node| candidates.contains(node))
-                .collect()
+            // A SELECT target defines its focus nodes, just as targetNode
+            // does; a returned constant need not already occur in the data.
+            evaluator.sparql.target_nodes(target).unwrap_or_default()
         }
     }
 }
@@ -969,14 +964,9 @@ pub(crate) fn focus_nodes_with_evaluator(
                 .collect(),
         },
         Selector::Sparql(target) => {
-            let candidates = data.all_nodes();
-            evaluator
-                .sparql
-                .target_nodes(&target.query)
-                .unwrap_or_default()
-                .into_iter()
-                .filter(|node| candidates.contains(node))
-                .collect()
+            // A SELECT target defines its focus nodes, just as targetNode
+            // does; a returned constant need not already occur in the data.
+            evaluator.sparql.target_nodes(target).unwrap_or_default()
         }
     }
 }

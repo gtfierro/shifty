@@ -45,6 +45,8 @@ pub struct SparqlConstraint {
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct SparqlTarget {
     pub query: String,
+    #[serde(default)]
+    pub extra_bindings: Vec<(String, Term)>,
 }
 
 /// `sh:SPARQLRule` — a `CONSTRUCT` rule head.
