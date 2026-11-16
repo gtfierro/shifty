@@ -329,9 +329,29 @@ fn compare_report(
             let messages = loaded.objects(&expected, vocab::SH_RESULT_MESSAGE);
             let path = loaded.object(&expected, vocab::SH_RESULT_PATH);
             let value = loaded.object(&expected, vocab::SH_VALUE);
+            let annotation_properties: std::collections::HashSet<_> = loaded
+                .graph
+                .triples_for_predicate(vocab::SH_ANNOTATION_PROPERTY)
+                .filter_map(|triple| match triple.object {
+                    oxrdf::TermRef::NamedNode(node) => Some(node.into_owned()),
+                    _ => None,
+                })
+                .collect();
+            let annotations: std::collections::HashSet<_> = loaded
+                .graph
+                .triples_for_subject(&expected)
+                .filter(|triple| annotation_properties.contains(&triple.predicate.into_owned()))
+                .map(|triple| (triple.predicate.into_owned(), triple.object.into_owned()))
+                .collect();
             let Some(position) = remaining.iter().position(|result| {
                 let key = result_key(loaded, result);
-                key.0 == focus.to_string()
+                result
+                    .annotations
+                    .iter()
+                    .cloned()
+                    .collect::<std::collections::HashSet<_>>()
+                    == annotations
+                    && key.0 == focus.to_string()
                     && key.3 == component.to_string()
                     && (matches!(shape, Term::BlankNode(_)) || result.source_shape == shape)
                     && key.1 == path.as_ref().map(|path| path_term_key(loaded, path))
@@ -512,6 +532,7 @@ fn project_af_regressions() {
     assert_eq!(
         names,
         [
+            "annotations.test.ttl",
             "ask-and-optional.test.ttl",
             "expressions.test.ttl",
             "fresh-blank-node.test.ttl",
@@ -567,4 +588,25 @@ fn inference_oracle_preserves_input_blank_identity() {
     let expected = Triple::new(a, predicate.clone(), oxrdf::Literal::from(1));
     let wrong = Triple::new(b, predicate, oxrdf::Literal::from(1));
     assert!(compare_inferred(&asserted, &[expected], &[wrong]).is_err());
+}
+
+#[test]
+fn report_oracle_checks_annotation_values_and_cardinality() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../testdata/regressions/af/annotations.test.ttl");
+    let loaded = shifty_parse::load_turtle(&std::fs::read(path).unwrap(), None).unwrap();
+    let report = shifty_engine::validate_report(&loaded, &loaded.graph).unwrap();
+    compare_report(&loaded, &report).unwrap();
+    for extra in [false, true] {
+        let mut broken = report.clone();
+        if extra {
+            broken.results[0].annotations.push((
+                NamedNode::new("urn:unexpected").unwrap(),
+                oxrdf::Literal::from(99).into(),
+            ));
+        } else {
+            broken.results[0].annotations.pop();
+        }
+        assert!(compare_report(&loaded, &broken).is_err());
+    }
 }

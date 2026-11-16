@@ -15,9 +15,56 @@ pub enum SparqlQueryKind {
     Select,
 }
 
+/// One SHACL-AF result annotation declaration.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct ResultAnnotation {
+    pub property: NamedNode,
+    pub variable: Option<String>,
+    pub defaults: Vec<Term>,
+}
+
+impl ResultAnnotation {
+    /// Resolve one solution row, preserving all distinct property/value pairs.
+    pub fn resolve(
+        declarations: &[Self],
+        bindings: &std::collections::HashMap<String, Term>,
+    ) -> Vec<(NamedNode, Term)> {
+        let mut values = std::collections::HashSet::new();
+        for annotation in declarations {
+            let name = annotation.variable.as_deref().unwrap_or_else(|| {
+                annotation
+                    .property
+                    .as_str()
+                    .rsplit(['#', '/'])
+                    .next()
+                    .unwrap_or(annotation.property.as_str())
+            });
+            if let Some(value) = bindings.get(name) {
+                values.insert((annotation.property.clone(), value.clone()));
+            } else {
+                values.extend(
+                    annotation
+                        .defaults
+                        .iter()
+                        .map(|value| (annotation.property.clone(), value.clone())),
+                );
+            }
+        }
+        let mut values: Vec<_> = values.into_iter().collect();
+        values.sort_by(|a, b| {
+            a.0.as_str()
+                .cmp(b.0.as_str())
+                .then_with(|| a.1.to_string().cmp(&b.1.to_string()))
+        });
+        values
+    }
+}
+
 /// `sh:sparql` constraint (an `ASK` or `SELECT` producing violations).
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct SparqlConstraint {
+    #[serde(default)]
+    pub annotations: Vec<ResultAnnotation>,
     pub kind: SparqlQueryKind,
     pub query: String,
     /// The owning property shape's path. Simple predicate paths are prebound

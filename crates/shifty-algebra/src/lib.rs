@@ -48,6 +48,8 @@ pub use schema::{Schema, ShapeRemap, Statement};
 pub use selector::Selector;
 pub use severity::Severity;
 pub use shape::{ConstraintKind, Shape, ShapeArena, ShapeId};
-pub use sparql::{FunctionDef, SparqlConstraint, SparqlConstruct, SparqlQueryKind, SparqlTarget};
+pub use sparql::{
+    FunctionDef, ResultAnnotation, SparqlConstraint, SparqlConstruct, SparqlQueryKind, SparqlTarget,
+};
 pub use term::{BlankNode, Literal, NamedNode, NodeKindSet, Term};
 pub use value_type::{Bound, ValueType};

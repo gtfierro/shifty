@@ -221,3 +221,8 @@ target_link_libraries(my_target PRIVATE Shifty::shifty)
 The static library contains Rust and all Rust crate dependencies. The generated
 CMake package adds the required platform threading, dynamic-loader, and math
 libraries.
+
+SHACL-AF result annotations are retained in W3C report RDF and in
+`AlgebraReason::annotations`, a vector of property IRI / N-Triples term pairs.
+Repeated property IRIs preserve multiple annotation values. The C ABI exposes
+annotation count, property and value accessors for each algebra reason.

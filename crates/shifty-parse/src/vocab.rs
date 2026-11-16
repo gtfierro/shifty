@@ -420,3 +420,21 @@ iri!(
     SS_TARGET_FOR,
     "https://shifty.gtf.fyi/ns/shapeshift#targetFor"
 );
+
+// SHACL-AF result annotations
+iri!(
+    SH_RESULT_ANNOTATION,
+    "http://www.w3.org/ns/shacl#resultAnnotation"
+);
+iri!(
+    SH_ANNOTATION_PROPERTY,
+    "http://www.w3.org/ns/shacl#annotationProperty"
+);
+iri!(
+    SH_ANNOTATION_VAR_NAME,
+    "http://www.w3.org/ns/shacl#annotationVarName"
+);
+iri!(
+    SH_ANNOTATION_VALUE,
+    "http://www.w3.org/ns/shacl#annotationValue"
+);

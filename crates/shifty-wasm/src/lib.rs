@@ -157,6 +157,7 @@ struct JsViolation {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct JsReason {
+    annotations: Vec<(String, String)>,
     value: String,
     path: Option<String>,
     /// Engine-generated description of the failure — always present.
@@ -423,6 +424,11 @@ fn violation_to_js(v: &Violation, schema: &Schema) -> JsViolation {
             .reasons
             .iter()
             .map(|r| JsReason {
+                annotations: r
+                    .annotations
+                    .iter()
+                    .map(|(p, v)| (p.as_str().to_string(), v.to_string()))
+                    .collect(),
                 value: r.value.to_string(),
                 path: r.path.clone(),
                 message: r.message.clone(),

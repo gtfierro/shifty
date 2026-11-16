@@ -339,6 +339,8 @@ pub(crate) fn constraint_to_py(
 
 #[pyclass(get_all)]
 pub struct Reason {
+    /// Annotation property IRIs and RDF terms in N-Triples notation.
+    pub annotations: Vec<(String, String)>,
     /// The node at which the constraint failed.
     pub value: String,
     /// Path from the focus node to the value, in π notation (e.g. `ex:name`).
@@ -980,6 +982,11 @@ pub(crate) fn violation_to_py_with_arena(
             Py::new(
                 py,
                 Reason {
+                    annotations: r
+                        .annotations
+                        .iter()
+                        .map(|(p, v)| (p.as_str().to_string(), v.to_string()))
+                        .collect(),
                     value: r.value.to_string(),
                     path: r.path.clone(),
                     message: r.message.clone(),
@@ -1100,6 +1107,7 @@ impl RawConstraint {
 }
 
 struct RawReason {
+    annotations: Vec<(String, String)>,
     value: String,
     path: Option<String>,
     message: String,
@@ -1146,6 +1154,7 @@ impl RawAlgebraResult {
                         Py::new(
                             py,
                             Reason {
+                                annotations: reason.annotations,
                                 value: reason.value,
                                 path: reason.path,
                                 message: reason.message,
@@ -1209,6 +1218,11 @@ fn raw_algebra_result(
                 .reasons
                 .iter()
                 .map(|reason| RawReason {
+                    annotations: reason
+                        .annotations
+                        .iter()
+                        .map(|(p, v)| (p.as_str().to_string(), v.to_string()))
+                        .collect(),
                     value: reason.value.to_string(),
                     path: reason.path.clone(),
                     message: reason.message.clone(),

@@ -130,3 +130,12 @@ def test_new_inferred_triples_create_targets_on_the_next_pass(interface):
     data = Graph()
     shifty.infer(data, shapes, in_place=True)
     assert (EX.x, EX.derived, Literal(True)) in data
+
+
+@pytest.mark.parametrize("interface", INTERFACES)
+def test_unparameterized_targets_do_not_have_prebinding_restrictions(interface):
+    shapes = (
+        PREFIX
+        + """ex:S a sh:NodeShape ; sh:target [sh:select "SELECT ?this WHERE { VALUES ?this { ex:x } MINUS { ?this ex:excluded true } }"] ; sh:nodeKind sh:Literal ."""
+    )
+    assert not verdict(interface, "", shapes, infer=False)

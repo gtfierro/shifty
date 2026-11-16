@@ -186,6 +186,8 @@ private:
 /// One failed atomic constraint within an AlgebraViolation. An absent `path`
 /// or `author_message` is represented as an empty string.
 struct AlgebraReason {
+    /// SHACL-AF annotation property IRIs and RDF terms in N-Triples notation.
+    std::vector<std::pair<std::string, std::string>> annotations;
     /// The node at which the constraint failed.
     std::string value;
 
@@ -1786,6 +1788,12 @@ public:
                     detail::copy(shifty_algebra_reason_author_message(result.get(), i, r));
                 reason.severity =
                     detail::copy(shifty_algebra_reason_severity(result.get(), i, r));
+                const auto annotation_count = shifty_algebra_reason_annotation_count(result.get(), i, r);
+                for (std::size_t a = 0; a < annotation_count; ++a) {
+                    reason.annotations.emplace_back(
+                        detail::copy(shifty_algebra_reason_annotation_property(result.get(), i, r, a)),
+                        detail::copy(shifty_algebra_reason_annotation_value(result.get(), i, r, a)));
+                }
                 violation.reasons.push_back(std::move(reason));
             }
             violations.push_back(std::move(violation));

@@ -165,6 +165,7 @@ struct ParamDef {
 }
 
 struct ValidatorDef {
+    annotations: Vec<shifty_algebra::ResultAnnotation>,
     kind: SparqlQueryKind,
     query: String,
     messages: Vec<Term>,
@@ -317,6 +318,7 @@ impl Lowerer<'_> {
                     messages = self.g.objects(s, vocab::SH_MESSAGE);
                 }
                 let constraint = SparqlConstraint {
+                    annotations: self.annotations(&constraint_node),
                     kind,
                     query,
                     path: path.clone(),
@@ -773,6 +775,7 @@ impl Lowerer<'_> {
                 let Some(validator) = validator else { continue };
 
                 let constraint = SparqlConstraint {
+                    annotations: validator.annotations.clone(),
                     kind: validator.kind,
                     query: validator.query.clone(),
                     // SHACL §6.3 substitutes `$PATH` only for SELECT
@@ -933,6 +936,7 @@ impl Lowerer<'_> {
         };
         let messages = self.g.objects(&node, vocab::SH_MESSAGE);
         Some(ValidatorDef {
+            annotations: self.annotations(&node),
             kind,
             query: canonical,
             messages,
@@ -1218,6 +1222,16 @@ impl Lowerer<'_> {
             iri: func_iri,
             args,
         })
+    }
+
+    fn annotations(&mut self, owner: &NamedOrBlankNode) -> Vec<shifty_algebra::ResultAnnotation> {
+        match crate::annotations::result_annotations(self.g, owner) {
+            Ok(annotations) => annotations,
+            Err(message) => {
+                self.diag(DiagLevel::Error, message, owner);
+                Vec::new()
+            }
+        }
     }
 
     fn order(&self, s: &NamedOrBlankNode) -> Option<shifty_algebra::Order> {

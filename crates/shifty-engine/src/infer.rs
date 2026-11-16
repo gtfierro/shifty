@@ -184,7 +184,9 @@ pub(crate) fn infer_with_compiled_functions(
                     // against the context so only genuinely new triples reach here.
                     let mut candidates: HashSet<Triple> = HashSet::new();
                     for (position, scheduled) in rules[start..end].iter().enumerate() {
-                        if !active.contains(&(start + position)) {
+                        if !active.contains(&(start + position))
+                            && !scheduled.dependencies.affected_by(&pass_changed)
+                        {
                             continue;
                         }
                         let sel = &scheduled.rule.selector;

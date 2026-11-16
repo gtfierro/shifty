@@ -226,6 +226,9 @@ impl PublicIdentity {
 
     fn reason(&self, reason: &mut Reason) {
         reason.value = self.term(&reason.value);
+        for (_, value) in &mut reason.annotations {
+            *value = self.term(value);
+        }
         if let Some(diagnostic) = &mut reason.sparql_diagnostic {
             self.diagnostic(diagnostic);
         }
@@ -250,6 +253,9 @@ impl PublicIdentity {
     fn report(&self, report: &mut crate::report::ValidationReport) {
         for result in &mut report.results {
             result.focus = self.term(&result.focus);
+            for (_, value) in &mut result.annotations {
+                *value = self.term(value);
+            }
             result.path = result.path.as_ref().map(|term| self.term(term));
             result.value = result.value.as_ref().map(|term| self.term(term));
             result.source_shape = self.term(&result.source_shape);

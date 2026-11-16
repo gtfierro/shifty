@@ -125,6 +125,9 @@ pub enum Failure {
     },
     /// `¬φ` failed because `φ` holds at `node` — it must be falsified.
     Not {
+        /// Defaults for a failing ASK validator lowered through negation.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        annotations: Vec<(NamedNode, Term)>,
         shape: ShapeId,
         node: Term,
         inner: Box<Satisfaction>,
@@ -175,6 +178,9 @@ pub enum Failure {
     },
     /// Opaque SPARQL — no algebraic witness.
     Opaque {
+        /// Annotation property/value pairs per solution, in diagnostic row order.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        result_annotations: Vec<Vec<(NamedNode, Term)>>,
         shape: ShapeId,
         node: Term,
         messages: Vec<Term>,
@@ -1471,6 +1477,19 @@ fn evaluate_node(
                     .constraint_diagnostic(&constraint, node, &violations)
                     .ok();
                 Evidence::Failure(Witness::Opaque {
+                    result_annotations: if constraint.annotations.is_empty() {
+                        Vec::new()
+                    } else {
+                        violations
+                            .iter()
+                            .map(|violation| {
+                                shifty_algebra::ResultAnnotation::resolve(
+                                    &constraint.annotations,
+                                    &violation.bindings,
+                                )
+                            })
+                            .collect()
+                    },
                     shape: id,
                     node: node.clone(),
                     messages: constraint.messages,
@@ -1487,6 +1506,7 @@ fn evaluate_node(
                 })
             } else {
                 Evidence::Failure(Witness::Opaque {
+                    result_annotations: Vec::new(),
                     shape: id,
                     node: node.clone(),
                     messages: Vec::new(),
@@ -1502,6 +1522,17 @@ fn evaluate_node(
                     inner_fails: Box::new(inner_fails),
                 }),
                 Evidence::Satisfaction(inner) => Evidence::Failure(Witness::Not {
+                    annotations: match eval.arena().get(child) {
+                        Shape::Sparql(constraint)
+                            if constraint.kind == shifty_algebra::SparqlQueryKind::Ask =>
+                        {
+                            shifty_algebra::ResultAnnotation::resolve(
+                                &constraint.annotations,
+                                &std::collections::HashMap::new(),
+                            )
+                        }
+                        _ => Vec::new(),
+                    },
                     shape: id,
                     node: node.clone(),
                     inner: Box::new(inner),
@@ -2498,11 +2529,13 @@ mod tests {
             node: node.clone(),
             failed: vec![
                 Witness::Not {
+                    annotations: Vec::new(),
                     shape: ShapeId(1),
                     node: node.clone(),
                     inner: Box::new(SatTrace::Irrefutable { shape: ShapeId(2) }),
                 },
                 Witness::Opaque {
+                    result_annotations: Vec::new(),
                     shape: ShapeId(3),
                     node: node.clone(),
                     messages: Vec::new(),
@@ -2537,6 +2570,7 @@ mod tests {
             shape: ShapeId(4),
             node,
             inner_fails: Box::new(Witness::Opaque {
+                result_annotations: Vec::new(),
                 shape: ShapeId(5),
                 node: Term::NamedNode(NamedNode::new_unchecked("http://ex/x")),
                 messages: Vec::new(),

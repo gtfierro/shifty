@@ -126,3 +126,21 @@ def test_orders_are_not_rounded_to_machine_precision():
     data = Graph()
     shifty.infer(data, shapes, in_place=True)
     assert set(data.objects(EX.x, EX.chosen)) == {EX.A}
+
+
+def test_current_pass_additions_activate_later_rules_before_competing_guards():
+    shapes = (
+        PREFIX
+        + """
+    ex:A a sh:NodeShape ; sh:order 0 ; sh:targetNode ex:x ;
+        sh:rule [a sh:SPARQLRule ; sh:construct "CONSTRUCT { $this ex:trigger true } WHERE { $this ex:seed true }"] .
+    ex:B a sh:NodeShape ; sh:order 1 ; sh:targetNode ex:x ;
+        sh:rule [a sh:SPARQLRule ; sh:construct "CONSTRUCT { $this ex:chosen ex:B } WHERE { $this ex:trigger true . FILTER NOT EXISTS { $this ex:chosen ?value } }"] .
+    ex:C a sh:NodeShape ; sh:order 2 ; sh:targetNode ex:x ;
+        sh:rule [a sh:SPARQLRule ; sh:construct "CONSTRUCT { $this ex:chosen ex:C } WHERE { $this ex:seed true . FILTER NOT EXISTS { $this ex:chosen ?value } }"] .
+    ex:D a sh:NodeShape ; sh:order 3 ; sh:targetNode ex:x ;
+        sh:rule [a sh:TripleRule ; sh:subject sh:this ; sh:predicate ex:seed ; sh:object true] ."""
+    )
+    data = Graph()
+    shifty.infer(data, shapes, in_place=True)
+    assert set(data.objects(EX.x, EX.chosen)) == {EX.B}

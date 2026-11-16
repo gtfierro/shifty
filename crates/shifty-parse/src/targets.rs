@@ -93,7 +93,9 @@ pub fn sparql_targets(
             }
         }
         // Omitted optional parameters remain potentially pre-bound variables.
-        validate_shacl_prebinding(&query, names.iter().map(String::as_str))?;
+        if !names.is_empty() {
+            validate_shacl_prebinding(&query, names.iter().map(String::as_str))?;
+        }
         if !missing {
             bindings.sort_by(|a, b| a.0.cmp(&b.0));
             targets.push(SparqlTarget {

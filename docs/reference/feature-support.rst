@@ -113,6 +113,12 @@ SHACL-AF (Advanced Features)
      - shared function environment supports calls inside function bodies and
        reads the current data/shapes snapshot; recursive invocation is bounded
        to 32 levels and execution failures propagate under either policy
+   * - Result annotations — ``sh:resultAnnotation``
+     - ✅
+     - explicit variable names or property-local-name fallback; unbound values
+       use every constant default. RDF reports retain repeated properties;
+       algebra reasons expose annotation pairs, and evidence retains each
+       solution's annotation values
    * - JavaScript — ``sh:js*``, ``sh:JSFunction``
      - ❌
      - no JS engine
@@ -172,3 +178,14 @@ blocked for repair, because an arbitrary query cannot be inverted. The complete
 list of these cases is in :doc:`evidence` under "Opaque and blocked evidence",
 and repair's blocking reasons are in
 :doc:`../experimental/repair/reference`.
+
+Annotation values
+-----------------
+
+``Reason.annotations`` in Python, C++ algebra reasons, and WASM algebra results
+contain pairs of absolute property IRIs and RDF terms in N-Triples notation.
+Repeated property IRIs represent distinct values. W3C reports serialize these
+pairs as RDF triples on each validation result. Opaque evidence groups SELECT
+solutions and retains their annotation pairs in ``result_annotations``, in the
+same row order as its SPARQL diagnostic. ASK validator failures retain constant
+defaults on the failed negation node.

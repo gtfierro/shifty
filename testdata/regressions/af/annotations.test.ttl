@@ -1,0 +1,15 @@
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix ex: <http://example.org/annotations#> .
+@prefix dash: <http://datashapes.org/dash#> .
+ex:S a sh:NodeShape ; sh:targetNode ex:x ; sh:sparql ex:Constraint .
+ex:Constraint sh:select "SELECT $this ?actual WHERE { BIND(42 AS ?actual) }" ;
+    sh:resultAnnotation [sh:annotationProperty ex:score ; sh:annotationVarName "actual" ; sh:annotationValue 0],
+        [sh:annotationProperty ex:tag ; sh:annotationValue "first", "second"] .
+ex:Case a dash:GraphValidationTestCase ; dash:expectedResult [
+    a sh:ValidationReport ; sh:conforms false ; sh:result [
+        a sh:ValidationResult ; sh:focusNode ex:x ; sh:value ex:x ;
+        sh:sourceShape ex:S ; sh:sourceConstraint ex:Constraint ;
+        sh:sourceConstraintComponent sh:SPARQLConstraintComponent ; sh:resultSeverity sh:Violation ;
+        ex:score 42 ; ex:tag "first", "second"
+    ]
+] .

@@ -17,11 +17,14 @@ Inference comparisons cover the entire derived delta, including unexpected
 triples. Fresh blank-node labels are compared by graph isomorphism while
 preserving existing input-node identities. Report checks include severity,
 authored expected messages, and source constraints when specified, in addition
-to focus, value, path, component, and source shape.
+to focus, value, path, component, and source shape. Annotation values and
+cardinality are compared, including unexpected annotations.
 
 The harness also runs project-owned cases in `testdata/regressions/af/`, covering
 function expressions, property value scope, empty and mixed results, optional
-arguments, ASK results, path inputs, and fresh CONSTRUCT blank nodes. These
+arguments, ASK results, path inputs, fresh CONSTRUCT blank nodes, hierarchical
+decimal ordering, nested graph-reading functions, reusable target types, and
+result annotations. These
 cases are kept separate from the vendored inventory.
 
 It resolves imported helper ontologies locally. Metadata-only DASH/schema

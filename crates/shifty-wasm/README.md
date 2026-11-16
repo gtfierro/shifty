@@ -138,7 +138,7 @@ traps in the browser.
   });
 
   // Each violation is { focusNode, shapeName?, severity, reasons: [...] }.
-  // Each reason is { value, path?, message, severity, authorMessage? }:
+  // Each reason is { value, path?, message, severity, authorMessage?, annotations }:
   //   message       — always present, engine-generated description.
   //   authorMessage  — present only when the source shape declared an
   //                    sh:message ({$this}/{?var} already resolved); prefer it.
@@ -179,3 +179,7 @@ ES modules + wasm need a real origin (not `file://`), so serve over HTTP:
 python3 -m http.server -d crates/shifty-wasm
 # open http://localhost:8000/example/
 ```
+
+SHACL-AF result annotations are exposed on algebra reasons as `annotations`,
+an array of `[propertyIri, ntriplesTerm]` pairs. Repeated property IRIs preserve
+multiple values. W3C report output includes the same values as RDF triples.

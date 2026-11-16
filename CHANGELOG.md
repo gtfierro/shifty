@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Added SHACL-AF result annotations to SPARQL constraints and custom validators:
+  explicit variable names, property-local-name fallback, and all constant
+  defaults for unbound variables. Reports, algebra reasons and evidence retain
+  multiple values; Python, WASM and C++ bindings expose them. Annotation values
+  participate in reason deduplication and preserve caller blank-node identity.
+
 - Added reusable `sh:SPARQLTargetType` targets with prefix declarations,
   required/optional parameters, pre-binding collision checks, and shared target
   execution across validation, reporting, evidence and inference. Missing
@@ -16,7 +22,8 @@
 
 - SHACL-AF execution orders shapes before their rules, supports decimal orders
   on shapes, rules and function parameters, and isolates tied shapes, rules
-  and focus nodes from each other's additions.
+  and focus nodes from each other's additions. Current-pass additions also
+  reactivate later rules before competing guards execute.
 
 - Tightened AF/DASH regression coverage: fixed fixture inventory and category
   counts, no implicit skips on errors, complete inferred-delta comparison with

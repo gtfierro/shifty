@@ -113,6 +113,7 @@ pub struct ShiftyValidationResult {
 /// stringified for the C ABI. An absent `path`/`author_message` is
 /// represented as an empty string.
 struct AlgebraReasonItem {
+    annotations: Vec<(String, String)>,
     value: String,
     path: String,
     message: String,
@@ -715,6 +716,11 @@ fn build_algebra_result(outcome: ValidationOutcome, schema: &Schema) -> ShiftyAl
                 .reasons
                 .iter()
                 .map(|reason| AlgebraReasonItem {
+                    annotations: reason
+                        .annotations
+                        .iter()
+                        .map(|(p, v)| (p.as_str().to_string(), v.to_string()))
+                        .collect(),
                     value: term_string(&reason.value),
                     path: reason.path.clone().unwrap_or_default(),
                     message: reason.message.clone(),
@@ -2085,6 +2091,47 @@ pub unsafe extern "C" fn shifty_algebra_reason_severity(
         .and_then(|result| result.violations.get(index))
         .and_then(|violation| violation.reasons.get(reason_index))
         .map_or(empty_view(), |reason| string_view(&reason.severity))
+}
+
+/// Number of SHACL-AF annotation property/value pairs on an algebra reason.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_algebra_reason_annotation_count(
+    result: *const ShiftyAlgebraResult,
+    index: usize,
+    reason_index: usize,
+) -> usize {
+    unsafe { result.as_ref() }
+        .and_then(|r| r.violations.get(index))
+        .and_then(|v| v.reasons.get(reason_index))
+        .map_or(0, |r| r.annotations.len())
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_algebra_reason_annotation_property(
+    result: *const ShiftyAlgebraResult,
+    index: usize,
+    reason_index: usize,
+    annotation_index: usize,
+) -> ShiftyStringView {
+    unsafe { result.as_ref() }
+        .and_then(|r| r.violations.get(index))
+        .and_then(|v| v.reasons.get(reason_index))
+        .and_then(|r| r.annotations.get(annotation_index))
+        .map_or(empty_view(), |(p, _)| string_view(p))
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_algebra_reason_annotation_value(
+    result: *const ShiftyAlgebraResult,
+    index: usize,
+    reason_index: usize,
+    annotation_index: usize,
+) -> ShiftyStringView {
+    unsafe { result.as_ref() }
+        .and_then(|r| r.violations.get(index))
+        .and_then(|v| v.reasons.get(reason_index))
+        .and_then(|r| r.annotations.get(annotation_index))
+        .map_or(empty_view(), |(_, v)| string_view(v))
 }
 
 /// Build configuration-oriented shape bindings/// Build configuration-oriented shape bindings in one call. Evidence is an

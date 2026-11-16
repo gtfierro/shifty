@@ -6,6 +6,7 @@
 //! richer AF constructs produce [`Diagnostic`]s rather than silent wrong
 //! answers.
 
+pub mod annotations;
 pub mod diagnostics;
 pub mod functions;
 pub mod graph;

@@ -288,6 +288,11 @@ ShiftyStringView shifty_algebra_reason_author_message(
 ShiftyStringView shifty_algebra_reason_severity(
     const ShiftyAlgebraResult *result, size_t index, size_t reason_index);
 
+/* Annotation properties are absolute IRIs; values use N-Triples term syntax. */
+size_t shifty_algebra_reason_annotation_count(const ShiftyAlgebraResult *result, size_t index, size_t reason_index);
+ShiftyStringView shifty_algebra_reason_annotation_property(const ShiftyAlgebraResult *result, size_t index, size_t reason_index, size_t annotation_index);
+ShiftyStringView shifty_algebra_reason_annotation_value(const ShiftyAlgebraResult *result, size_t index, size_t reason_index, size_t annotation_index);
+
 /*
  * Shape map: typed key -> value bindings for every selected (shape, focus)
  * pair.

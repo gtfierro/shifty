@@ -476,7 +476,31 @@ impl SparqlExecutor {
     ) -> Result<Vec<SparqlViolation>, String> {
         self.record(
             SparqlOperation::Constraint,
-            self.constraint_violations_inner(constraint, focus),
+            self.constraint_violations_inner(constraint, focus)
+                .and_then(|mut violations| {
+                    if !constraint.annotations.is_empty() {
+                        let projected = projected_variables(&self.parse(&constraint.query)?);
+                        let mut bindings = constraint.extra_bindings.clone();
+                        bindings.push(("this".into(), focus.clone()));
+                        if let Some(shape) = &constraint.shape {
+                            bindings.push(("currentShape".into(), shape.clone()));
+                        }
+                        if let Some(graph) = &self.shapes_graph {
+                            bindings.push(("shapesGraph".into(), graph.clone().into()));
+                        }
+                        for violation in &mut violations {
+                            for (name, value) in &bindings {
+                                if projected.contains(name) {
+                                    violation
+                                        .bindings
+                                        .entry(name.clone())
+                                        .or_insert_with(|| value.clone());
+                                }
+                            }
+                        }
+                    }
+                    Ok(violations)
+                }),
         )
     }
 
@@ -1280,7 +1304,14 @@ impl SparqlExecutor {
                             .filter_map(|name| {
                                 solution
                                     .get(name.as_str())
-                                    .map(|t| (name.clone(), t.clone()))
+                                    .cloned()
+                                    .or_else(|| {
+                                        bindings
+                                            .iter()
+                                            .find(|(variable, _)| variable == name)
+                                            .map(|(_, value)| value.clone())
+                                    })
+                                    .map(|term| (name.clone(), term))
                             })
                             .collect())
                     })
@@ -1882,6 +1913,26 @@ fn function_select_query(query: Query) -> (Query, bool) {
             true,
         ),
         query => (query, false),
+    }
+}
+
+fn projected_variables(query: &Query) -> HashSet<String> {
+    fn variables(pattern: &GraphPattern) -> HashSet<String> {
+        match pattern {
+            GraphPattern::Project { variables, .. } => variables
+                .iter()
+                .map(|variable| variable.as_str().to_string())
+                .collect(),
+            GraphPattern::Distinct { inner }
+            | GraphPattern::Reduced { inner }
+            | GraphPattern::Slice { inner, .. }
+            | GraphPattern::OrderBy { inner, .. } => variables(inner),
+            _ => HashSet::new(),
+        }
+    }
+    match query {
+        Query::Select { pattern, .. } => variables(pattern),
+        _ => HashSet::new(),
     }
 }
 
@@ -2575,6 +2626,7 @@ mod batch_tests {
         // OPTIONAL forces the non-native fallback path, where VALUES batching
         // applies. Every subject violates (no ex:other), projecting its value.
         let constraint = SparqlConstraint {
+            annotations: Vec::new(),
             kind: SparqlQueryKind::Select,
             query: "SELECT $this ?value WHERE { \
                 $this <http://ex/value> ?value . \
@@ -2605,6 +2657,7 @@ mod batch_tests {
     fn batched_ask_matches_per_focus() {
         // ASK is true iff value > 10: only b and c violate.
         let constraint = SparqlConstraint {
+            annotations: Vec::new(),
             kind: SparqlQueryKind::Ask,
             query: "ASK { $this <http://ex/value> ?value . \
                 OPTIONAL { $this <http://ex/other> ?o } \
@@ -2675,6 +2728,7 @@ mod batch_tests {
         // `?this` is positively bound (subject of `?this ex:flag true`), so the
         // free strategy applies; OPTIONAL forces the non-native fallback.
         let constraint = SparqlConstraint {
+            annotations: Vec::new(),
             kind: SparqlQueryKind::Select,
             query: "SELECT ?s $this WHERE { \
                 $this <http://ex/flag> true . \
@@ -2712,6 +2766,7 @@ mod batch_tests {
         // GROUP BY / COUNT is outside the safe-batch subset: build_batch_query
         // returns None, so prefetch is a no-op and per-focus results are used.
         let constraint = SparqlConstraint {
+            annotations: Vec::new(),
             kind: SparqlQueryKind::Select,
             query: "SELECT $this (COUNT(?value) AS ?n) WHERE { \
                 $this <http://ex/value> ?value } \

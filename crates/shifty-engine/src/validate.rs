@@ -140,6 +140,9 @@ impl Drop for ShapeEvaluator<'_> {
 /// A single failed atomic constraint.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Reason {
+    /// Additional SHACL-AF result annotation values.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub annotations: Vec<(NamedNode, Term)>,
     /// The node at which the constraint failed (a value node, or the focus).
     pub value: Term,
     /// The path from the enclosing focus to `value`, if the failure is
@@ -1357,7 +1360,11 @@ fn explain(
                             // Compute the message before the value/path fields are
                             // moved out of `violation`.
                             let message = sparql_violation_message(&violation, &constraint, node);
-                            reason(
+                            let annotations = shifty_algebra::ResultAnnotation::resolve(
+                                &constraint.annotations,
+                                &violation.bindings,
+                            );
+                            let mut result = reason(
                                 evaluator.arena,
                                 id,
                                 violation.value.unwrap_or_else(|| node.clone()),
@@ -1376,7 +1383,9 @@ fn explain(
                                 None,
                                 Vec::new(),
                                 diagnostic.clone(),
-                            )
+                            );
+                            result.annotations = annotations;
+                            result
                         })
                         .collect()
                 }
@@ -1809,7 +1818,19 @@ fn reason(
     sub_reasons: Vec<Reason>,
     sparql_diagnostic: Option<SparqlDiagnostic>,
 ) -> Reason {
+    let annotations = match arena.get(id) {
+        Shape::Not(child) => match arena.get(*child) {
+            Shape::Sparql(constraint)
+                if constraint.kind == shifty_algebra::SparqlQueryKind::Ask =>
+            {
+                shifty_algebra::ResultAnnotation::resolve(&constraint.annotations, &HashMap::new())
+            }
+            _ => Vec::new(),
+        },
+        _ => Vec::new(),
+    };
     Reason {
+        annotations,
         value,
         path,
         shape: id,
@@ -1917,6 +1938,7 @@ fn dedup_reasons(reasons: &mut Vec<Reason>) {
         // constraints. Preserve their provenance when removing duplicates.
         seen.insert((
             r.constraint_id,
+            r.annotations.clone(),
             r.path.clone(),
             r.value.to_string(),
             r.message.clone(),

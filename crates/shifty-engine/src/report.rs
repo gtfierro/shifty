@@ -37,6 +37,8 @@ use std::collections::{HashMap, HashSet};
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub struct ValidationResult {
+    /// Additional SHACL-AF annotation properties; repeated properties retain all values.
+    pub annotations: Vec<(NamedNode, Term)>,
     pub focus: Term,
     /// `sh:resultPath` as the original RDF node (predicate IRI for simple paths).
     pub path: Option<Term>,
@@ -70,6 +72,7 @@ impl ValidationResult {
     /// Construct a violation result, then set optional provenance and values.
     pub fn new(focus: Term, component: NamedNode, source_shape: Term) -> Self {
         Self {
+            annotations: Vec::new(),
             focus,
             component,
             source_shape,
@@ -82,6 +85,9 @@ impl ValidationResult {
         }
     }
 
+    pub fn annotations(&self) -> &[(NamedNode, Term)] {
+        &self.annotations
+    }
     pub fn focus(&self) -> &Term {
         &self.focus
     }
@@ -568,6 +574,9 @@ pub fn report_to_graph(report: &ValidationReport) -> Graph {
             vocab::RDF_TYPE,
             vocab::SH_VALIDATION_RESULT.into_owned().into(),
         ));
+        for (property, value) in &r.annotations {
+            g.insert(&t(rn.clone().into(), property.as_ref(), value.clone()));
+        }
         g.insert(&t(rn.clone().into(), vocab::SH_FOCUS_NODE, r.focus.clone()));
         if let Some(path) = &r.path {
             g.insert(&t(rn.clone().into(), vocab::SH_RESULT_PATH, path.clone()));
@@ -656,6 +665,7 @@ struct ComponentParam {
 }
 
 struct ComponentValidator {
+    annotations: Vec<shifty_algebra::ResultAnnotation>,
     kind: SparqlQueryKind,
     /// Prefix-expanded query text (`sh:ask` / `sh:select`).
     query: String,
@@ -774,6 +784,7 @@ fn parse_validator(shapes: &Loaded, node: &Term) -> Result<ComponentValidator, S
         .map_err(|e| format!("invalid SPARQL in {node}: {e}"))?;
     let messages = shapes.objects(&node, vocab::SH_MESSAGE);
     Ok(ComponentValidator {
+        annotations: shifty_parse::annotations::result_annotations(shapes, &node)?,
         kind,
         query,
         messages,
@@ -994,6 +1005,7 @@ impl Reporter<'_> {
         let messages = self.messages_or_inherited(shape, inherited);
         let push = |out: &mut Vec<ValidationResult>, value, component| {
             out.push(ValidationResult {
+                annotations: Vec::new(),
                 focus: focus.clone(),
                 path: path_term.clone(),
                 value,
@@ -1279,6 +1291,7 @@ impl Reporter<'_> {
                                 &validator.messages,
                                 inherited,
                                 &validator.query,
+                                &validator.annotations,
                             );
                         }
                     }
@@ -1309,6 +1322,7 @@ impl Reporter<'_> {
                                 &validator.messages,
                                 inherited,
                                 &validator.query,
+                                &validator.annotations,
                             );
                         }
                     }
@@ -1331,6 +1345,7 @@ impl Reporter<'_> {
         validator_messages: &[Term],
         inherited: &[Term],
         validator_query: &str,
+        annotations: &[shifty_algebra::ResultAnnotation],
     ) {
         let raw = if validator_messages.is_empty() {
             self.messages_or_inherited(shape, inherited)
@@ -1345,6 +1360,10 @@ impl Reporter<'_> {
             bindings.iter().chain(result_row.iter()).cloned().collect();
         let messages = substitute_messages(&raw, focus, &bind_map);
         out.push(ValidationResult {
+            annotations: shifty_algebra::ResultAnnotation::resolve(
+                annotations,
+                &result_row.iter().cloned().collect(),
+            ),
             focus: focus.clone(),
             path,
             value,
@@ -1395,6 +1414,7 @@ impl Reporter<'_> {
                     continue;
                 }
                 out.push(ValidationResult {
+                    annotations: Vec::new(),
                     focus: focus.clone(),
                     path: path.clone(),
                     value: Some(value.clone()),
@@ -1554,6 +1574,13 @@ impl Reporter<'_> {
             )
             .ok()?;
         Some(SparqlConstraint {
+            annotations: self
+                .sparql
+                .record(
+                    crate::SparqlOperation::Constraint,
+                    shifty_parse::annotations::result_annotations(self.shapes, constraint_node),
+                )
+                .ok()?,
             kind,
             query,
             path: parsed_path.clone(),
@@ -1640,6 +1667,10 @@ impl Reporter<'_> {
                         SparqlQueryKind::Ask => None,
                     });
                     out.push(ValidationResult {
+                        annotations: shifty_algebra::ResultAnnotation::resolve(
+                            &constraint.annotations,
+                            &violation.bindings,
+                        ),
                         focus: focus.clone(),
                         path: violation.path.or_else(|| path_term.clone()),
                         value,
@@ -1688,6 +1719,7 @@ impl Reporter<'_> {
                     continue;
                 }
                 out.push(ValidationResult {
+                    annotations: Vec::new(),
                     focus: focus.clone(),
                     path: Some(Term::NamedNode(predicate)),
                     value: Some(object),
@@ -1940,6 +1972,7 @@ impl Reporter<'_> {
         let raw = self.messages_or_inherited(shape, inherited);
         let messages = substitute_messages(&raw, focus, &bindings);
         out.push(ValidationResult {
+            annotations: Vec::new(),
             focus: focus.clone(),
             path,
             value,

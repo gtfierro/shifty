@@ -151,6 +151,25 @@ int main() {
     assert(algebra_violation.reasons.front().severity == "Violation");
     assert(algebra.results_text().find("bob") != std::string::npos);
 
+    // Annotation pairs retain multiple defaults in reports and algebra results.
+    {
+        shifty::PreparedValidator annotated(R"(
+            @prefix sh: <http://www.w3.org/ns/shacl#> .
+            @prefix ex: <http://example.com/> .
+            ex:S a sh:NodeShape ; sh:targetNode ex:alice ; sh:sparql [
+                sh:select "SELECT $this ?score WHERE { BIND(42 AS ?score) }" ;
+                sh:resultAnnotation [sh:annotationProperty ex:score],
+                    [sh:annotationProperty ex:tag ; sh:annotationValue "one", "two"] ] .
+        )");
+        const auto annotated_algebra = annotated.validate_algebra(dataset);
+        assert(!annotated_algebra.conforms());
+        const auto &pairs = annotated_algebra.violations().front().reasons.front().annotations;
+        assert(pairs.size() == 3);
+        assert(pairs.front().first == "http://example.com/score");
+        const auto annotated_report = annotated.validate(dataset);
+        assert(annotated_report.report_turtle().find("two") != std::string::npos);
+    }
+
     // Severity threshold (minimum_severity): the lowest result severity that
     // fails validation. Findings below the threshold stay in the report /
     // violation tree; they just don't make conforms() false. A focus node
