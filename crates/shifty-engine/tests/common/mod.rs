@@ -10,7 +10,7 @@ pub type Key = (String, Option<String>, Option<String>, String, String);
 
 /// Render complex paths structurally; their expected and actual roots can
 /// have different blank-node labels in the same fixture.
-fn path_term_key(loaded: &shifty_parse::Loaded, t: &Term) -> String {
+pub fn path_term_key(loaded: &shifty_parse::Loaded, t: &Term) -> String {
     if matches!(t, Term::BlankNode(_))
         && let Ok(p) = shifty_parse::path::parse_path(loaded, t)
     {

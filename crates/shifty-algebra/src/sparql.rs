@@ -59,6 +59,8 @@ pub struct FunctionDef {
     pub iri: NamedNode,
     /// Parameter variable names in positional call order.
     pub params: Vec<String>,
+    /// Optional flags in the same positional order as `params`.
+    pub optional_params: Vec<bool>,
     /// Prefix-expanded `sh:select` or `sh:ask` body.
     pub query: String,
     /// Whether the body reads RDF data rather than only computing a value.

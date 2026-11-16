@@ -21,6 +21,28 @@ reports ``failed``: it expects a blanket rejection of ``VALUES ?any``. The CI
 baseline records this difference without changing the upstream fixture or
 counting it as a SHACL 1.0 pass.
 
+Run the SHACL-AF regressions
+---------------------------
+
+From the repository root:
+
+.. code-block:: bash
+
+   cargo test -p shifty-engine --test w3c_advanced -- --nocapture
+
+The locally adapted AF/DASH inventory covers 7 inference cases, 97 validation
+cases, and 2 function cases. Four additional project fixtures cover function
+expressions, value-node scope, optional arguments, path inputs, and fresh blank
+nodes. These regressions are separate from the pinned SHACL 1.0 implementation
+report.
+
+The harness enforces its fixture inventory and category counts. Unexpected
+diagnostics and execution failures fail the test, rather than reducing the
+number of cases executed. Inference compares the complete derived delta,
+including unexpected triples and blank-node structure. Validation checks
+severity, expected authored messages and source constraints as well as the
+usual result fields. SHACL-JS remains outside this profile.
+
 The runner loads the data and shapes specified by each manifest and compares
 Shifty's report with the expected report using the `W3C test process
 <https://w3c.github.io/data-shapes/data-shapes-test-suite/>`_. Inference is

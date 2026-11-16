@@ -926,8 +926,7 @@ mod tests {
         );
         let loaded = shifty_parse::load_turtle(ttl.as_bytes(), None).unwrap();
 
-        // The boolean values that survive the filter are {true, false}; `false`
-        // is the lone non-true value, so exactly one result, sh:value false.
+        // {true, false} fails once, identifying the focus value node.
         let report = validate_report(&loaded, &loaded.graph).unwrap();
         assert!(!report.conforms);
         assert_eq!(report.results.len(), 1);
@@ -937,7 +936,7 @@ mod tests {
         );
         assert_eq!(
             report.results[0].value.as_ref().map(ToString::to_string),
-            Some("\"false\"^^<http://www.w3.org/2001/XMLSchema#boolean>".to_string())
+            Some("<http://ex/x>".to_string())
         );
 
         // algebra path agrees on (non-)conformance.
@@ -947,25 +946,15 @@ mod tests {
     }
 
     #[test]
-    fn expression_constraint_with_function_is_diagnosed() {
-        // A function application inside sh:expression cannot be evaluated by the
-        // validation paths yet, so it is diagnosed rather than silently dropped.
+    fn expression_unknown_function_is_an_execution_failure() {
         let ttl = format!(
             "{PREFIXES}
-            ex:S a sh:NodeShape ;
-                sh:targetNode ex:x ;
-                sh:expression [ ex:fn ( sh:this ) ] .
-            "
+            ex:S a sh:NodeShape ; sh:targetNode ex:x ;
+                sh:expression [ ex:missing ( sh:this ) ] ."
         );
-        let parsed = parse_turtle(ttl.as_bytes(), None).unwrap();
-        assert!(
-            parsed
-                .diagnostics
-                .iter()
-                .any(|d| d.message.contains("sh:expression")),
-            "expected an unsupported-expression diagnostic, got: {:?}",
-            parsed.diagnostics
-        );
+        let loaded = shifty_parse::load_turtle(ttl.as_bytes(), None).unwrap();
+        let error = validate_report(&loaded, &loaded.graph).unwrap_err();
+        assert!(error.to_string().contains("has no sh:select or sh:ask"));
     }
 
     #[test]

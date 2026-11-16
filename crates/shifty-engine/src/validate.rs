@@ -1024,12 +1024,12 @@ fn holds_memoized(
             cacheable: true,
         },
         Shape::Expression(expr) => {
-            // SHACL-AF §5: conform iff every value the expression produces (with
-            // `v` as `?this`) is the boolean `true`.
+            // SHACL-AF §7: the result must be exactly { true }, including when
+            // an argument expression or a function produces no values.
             let mut cacheable = true;
             let results = eval_expr(g, arena, v, expr, sparql, state, &mut cacheable);
             EvalResult {
-                holds: results.iter().all(is_boolean_true),
+                holds: results.len() == 1 && results.iter().all(is_boolean_true),
                 cacheable,
             }
         }
@@ -1144,7 +1144,6 @@ fn holds_memoized(
 /// over the same low-level primitives as [`holds_memoized`]. `cacheable` is
 /// cleared if any nested shape evaluation observed a recursion back-edge, so the
 /// enclosing `Shape::Expression` result is not memoized on a provisional truth.
-/// `Function` applications are refused at parse time, so they never appear here.
 fn eval_expr(
     g: &dyn PathBackend,
     arena: &ShapeArena,
@@ -1166,6 +1165,12 @@ fn eval_expr(
             s
         }
         NodeExpr::Path(p) => succ(g, v, p),
+        NodeExpr::PathFrom { input, path } => {
+            eval_expr(g, arena, v, input, sparql, state, cacheable)
+                .iter()
+                .flat_map(|node| succ(g, node, path))
+                .collect()
+        }
         NodeExpr::Filter { input, shape } => {
             let inputs = eval_expr(g, arena, v, input, sparql, state, cacheable);
             inputs
@@ -1198,13 +1203,24 @@ fn eval_expr(
             }
             acc
         }
-        NodeExpr::Function { .. } => HashSet::new(),
+        NodeExpr::Function { iri, args } => {
+            let args: Vec<_> = args
+                .iter()
+                .map(|arg| eval_expr(g, arena, v, arg, sparql, state, cacheable))
+                .collect();
+            sparql
+                .record(
+                    crate::SparqlOperation::NodeExpression,
+                    sparql.node_function_values(iri, &args),
+                )
+                .unwrap_or_default()
+        }
     }
 }
 
 /// The boolean literal `true` (`"true"^^xsd:boolean`).
 pub(crate) fn is_boolean_true(t: &Term) -> bool {
-    matches!(t, Term::Literal(l) if l.datatype() == oxrdf::vocab::xsd::BOOLEAN && l.value() == "true")
+    matches!(t, Term::Literal(l) if l.datatype() == oxrdf::vocab::xsd::BOOLEAN && matches!(l.value(), "true" | "1"))
 }
 
 fn estimated_memo_bytes(memo: &FxHashMap<ShapeId, FxHashMap<Term, bool>>) -> usize {

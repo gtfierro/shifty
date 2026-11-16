@@ -248,6 +248,10 @@ fn node_expr_dependencies(expr: &NodeExpr, arena: &ShapeArena, deps: &mut RuleDe
     match expr {
         NodeExpr::This | NodeExpr::Constant(_) => {}
         NodeExpr::Path(path) => path_dependencies(path, deps),
+        NodeExpr::PathFrom { input, path } => {
+            node_expr_dependencies(input, arena, deps);
+            path_dependencies(path, deps);
+        }
         NodeExpr::Filter { input, shape } => {
             node_expr_dependencies(input, arena, deps);
             let mut visited = HashSet::new();

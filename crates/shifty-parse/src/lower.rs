@@ -58,6 +58,7 @@ pub fn lower(g: &Loaded) -> Lowered {
         g,
         arena: ShapeArena::new(),
         cache: HashMap::new(),
+        active_expressions: HashSet::new(),
         statements: Vec::new(),
         rules: Vec::new(),
         diags: Vec::new(),
@@ -143,6 +144,7 @@ struct Lowerer<'a> {
     /// end. This keeps cyclic SHACL shapes a graph rather than forcing a
     /// special recursive AST throughout the rest of the program.
     cache: HashMap<NamedOrBlankNode, ShapeId>,
+    active_expressions: HashSet<NamedOrBlankNode>,
     statements: Vec<Statement>,
     rules: Vec<Rule>,
     diags: Vec<Diagnostic>,
@@ -327,22 +329,15 @@ impl Lowerer<'_> {
             }
         }
 
-        // sh:expression (SHACL-AF §5): the node expression must evaluate to
-        // `true` with the focus node as `?this`. Focus-scoped, so it joins the
-        // conjuncts directly rather than under a `∀π` wrapper.
+        // SHACL-AF §7: evaluate at every value node and require exactly { true }.
         for expr_term in self.g.objects(s, vocab::SH_EXPRESSION) {
             if let Some(expr) = self.parse_node_expr(expr_term, s) {
-                if node_expr_has_function(&expr) {
-                    // SPARQL functions inside expressions need shapes-graph
-                    // lookups the validation evaluators don't perform; refuse
-                    // rather than silently under-constrain.
-                    self.diag(
-                        DiagLevel::Unsupported,
-                        "sh:expression with a function call is not yet evaluated",
-                        s,
-                    );
+                let expression = self.arena.insert(Shape::Expression(expr));
+                if let Some(path) = &path {
+                    let failing = self.arena.not(expression);
+                    conjuncts.push(self.arena.count(path.clone(), None, Some(0), failing));
                 } else {
-                    conjuncts.push(self.arena.insert(Shape::Expression(expr)));
+                    conjuncts.push(expression);
                 }
             }
         }
@@ -1054,6 +1049,28 @@ impl Lowerer<'_> {
     /// path expressions, filter / intersection / union expressions, and SPARQL
     /// function calls `[ ex:fn (arg …) ]`.
     fn parse_node_expr(&mut self, term: Term, owner: &NamedOrBlankNode) -> Option<NodeExpr> {
+        let node = match &term {
+            Term::BlankNode(node) => Some(NamedOrBlankNode::BlankNode(node.clone())),
+            _ => None,
+        };
+        if let Some(node) = &node
+            && !self.active_expressions.insert(node.clone())
+        {
+            self.diag(
+                DiagLevel::Error,
+                "recursive SHACL-AF node expression",
+                owner,
+            );
+            return None;
+        }
+        let expression = self.parse_node_expr_inner(term, owner);
+        if let Some(node) = node {
+            self.active_expressions.remove(&node);
+        }
+        expression
+    }
+
+    fn parse_node_expr_inner(&mut self, term: Term, owner: &NamedOrBlankNode) -> Option<NodeExpr> {
         match &term {
             Term::NamedNode(n) if n.as_ref() == vocab::SH_THIS => Some(NodeExpr::This),
             Term::NamedNode(_) | Term::Literal(_) => Some(NodeExpr::Constant(term)),
@@ -1061,7 +1078,16 @@ impl Lowerer<'_> {
                 let node = term_to_node(&term).expect("blank node");
                 if let Some(path_term) = self.g.object(&node, vocab::SH_PATH) {
                     match parse_path(self.g, &path_term) {
-                        Ok(path) => Some(NodeExpr::Path(path)),
+                        Ok(path) => {
+                            if let Some(nodes) = self.g.object(&node, vocab::SH_NODES) {
+                                Some(NodeExpr::PathFrom {
+                                    input: Box::new(self.parse_node_expr(nodes, owner)?),
+                                    path,
+                                })
+                            } else {
+                                Some(NodeExpr::Path(path))
+                            }
+                        }
                         Err(e) => {
                             self.diag(
                                 DiagLevel::Error,
@@ -1639,19 +1665,6 @@ fn class_path() -> Path {
         Path::Pred(vocab::rdf_type()),
         Path::star(Path::Pred(vocab::rdfs_subclassof())),
     ])
-}
-
-/// Whether a node expression contains a SPARQL function application anywhere in
-/// its tree. Such expressions cannot yet be evaluated in the validation paths
-/// (they need shapes-graph function lookups), so expression constraints over
-/// them are diagnosed rather than lowered.
-fn node_expr_has_function(e: &NodeExpr) -> bool {
-    match e {
-        NodeExpr::Function { .. } => true,
-        NodeExpr::Filter { input, .. } => node_expr_has_function(input),
-        NodeExpr::Intersection(es) | NodeExpr::Union(es) => es.iter().any(node_expr_has_function),
-        NodeExpr::This | NodeExpr::Constant(_) | NodeExpr::Path(_) => false,
-    }
 }
 
 fn map_node_kind(term: &Term) -> Option<NodeKindSet> {

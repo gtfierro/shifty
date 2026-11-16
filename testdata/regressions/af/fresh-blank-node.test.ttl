@@ -1,0 +1,13 @@
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix ex: <http://example.org/af#> .
+@prefix dash: <http://datashapes.org/dash#> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+
+ex:S a sh:NodeShape ; sh:targetNode ex:x ;
+    sh:rule [ a sh:SPARQLRule ; sh:construct """
+        CONSTRUCT { $this <http://example.org/af#default> [ <http://example.org/af#flag> true ] }
+        WHERE { FILTER NOT EXISTS { $this <http://example.org/af#default> ?value } }
+    """ ] .
+ex:Case a dash:InferencingTestCase ;
+    dash:expectedResult [ rdf:subject ex:x ; rdf:predicate ex:default ; rdf:object _:output ],
+        [ rdf:subject _:output ; rdf:predicate ex:flag ; rdf:object true ] .

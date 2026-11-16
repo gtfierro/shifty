@@ -737,6 +737,10 @@ impl<'a> Interner<'a> {
 
     fn node_expr(&mut self, e: &NodeExpr) -> NodeExpr {
         match e {
+            NodeExpr::PathFrom { input, path } => NodeExpr::PathFrom {
+                input: Box::new(self.node_expr(input)),
+                path: path.clone(),
+            },
             NodeExpr::Filter { input, shape } => NodeExpr::Filter {
                 input: Box::new(self.node_expr(input)),
                 shape: self.intern(*shape),

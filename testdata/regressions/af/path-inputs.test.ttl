@@ -1,0 +1,14 @@
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix ex: <http://example.org/af#> .
+@prefix dash: <http://datashapes.org/dash#> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+
+ex:source ex:friend ex:a, ex:b .
+ex:a ex:label "A" .
+ex:b ex:label "B" .
+ex:S a sh:NodeShape ; sh:targetNode ex:source ; sh:rule [ a sh:TripleRule ;
+    sh:subject sh:this ; sh:predicate ex:copied ;
+    sh:object [ sh:nodes [ sh:path ex:friend ] ; sh:path ex:label ] ] .
+ex:Case a dash:InferencingTestCase ;
+    dash:expectedResult [ rdf:subject ex:source ; rdf:predicate ex:copied ; rdf:object "A" ],
+        [ rdf:subject ex:source ; rdf:predicate ex:copied ; rdf:object "B" ] .

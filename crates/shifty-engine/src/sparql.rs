@@ -310,7 +310,14 @@ impl SparqlExecutor {
             }
             let query = f.query.clone();
             let params = f.params.clone();
+            let optional = f.optional_params.clone();
             evaluator = evaluator.with_custom_function(f.iri.clone(), move |args| {
+                if args.len() > params.len()
+                    || (args.len()..params.len())
+                        .any(|index| !optional.get(index).copied().unwrap_or(false))
+                {
+                    return None;
+                }
                 eval_sparql_function(&query, &params, args)
             });
         }
@@ -1140,18 +1147,16 @@ impl SparqlExecutor {
         raw_query: &str,
         params: &[(String, Term)],
     ) -> Result<Vec<Term>, String> {
-        let mut query = self.parse(raw_query)?;
+        let query = self.parse(raw_query)?;
+        let result_name = function_result_name(&query);
+        let (mut query, is_ask) = function_select_query(query);
         let mut substitutions = Vec::with_capacity(params.len());
         for (name, value) in params {
             let var = Variable::new(name).map_err(err)?;
-            if matches!(value, Term::BlankNode(_))
-                && let Query::Select { pattern, .. } = &mut query
-            {
+            if let Query::Select { pattern, .. } | Query::Ask { pattern, .. } = &mut query {
                 project_variable(pattern, &var);
-                substitutions.push((var, value.clone()));
-            } else {
-                substitute_query(&mut query, &var, value);
             }
+            substitutions.push((var, value.clone()));
         }
         let mut prepared = SparqlEvaluator::new().for_query(query);
         for (var, value) in substitutions {
@@ -1166,22 +1171,69 @@ impl SparqlExecutor {
             prepared.on_store(self.store()?).execute().map_err(err)?
         };
         match result {
-            QueryResults::Solutions(solutions) => {
-                let mut out = Vec::new();
-                for sol in solutions {
-                    if let Some(t) = sol.map_err(err)?.get("result") {
-                        out.push(t.clone());
-                    }
+            QueryResults::Solutions(mut solutions) => {
+                let solution = solutions.next().transpose().map_err(err)?;
+                if is_ask {
+                    return Ok(vec![Term::Literal(Literal::from(solution.is_some()))]);
                 }
-                Ok(out)
+                let name =
+                    result_name.ok_or("sh:SPARQLFunction SELECT must project one variable")?;
+                Ok(solution
+                    .and_then(|solution| solution.get(name.as_str()).cloned())
+                    .into_iter()
+                    .collect())
             }
-            QueryResults::Boolean(b) => Ok(if b {
-                vec![Term::Literal(Literal::from(true))]
-            } else {
-                vec![]
-            }),
+            QueryResults::Boolean(b) => Ok(vec![Term::Literal(Literal::from(b))]),
             QueryResults::Graph(_) => Err("sh:SPARQLFunction produced graph results".to_string()),
         }
+    }
+
+    /// Apply a document-owned function to the Cartesian product of argument
+    /// expression sets. Each invocation returns at most one RDF term.
+    pub(crate) fn node_function_values(
+        &self,
+        iri: &NamedNode,
+        args: &[HashSet<Term>],
+    ) -> Result<HashSet<Term>, String> {
+        let function = self
+            .functions
+            .iter()
+            .find(|function| function.iri == *iri)
+            .ok_or_else(|| format!("function <{}> has no sh:select or sh:ask", iri.as_str()))?;
+        if args.len() > function.params.len() {
+            return Ok(HashSet::new());
+        }
+        let mut combinations = vec![Vec::new()];
+        for (index, name) in function.params.iter().enumerate() {
+            let values = args.get(index);
+            if values.is_none_or(HashSet::is_empty) {
+                if function
+                    .optional_params
+                    .get(index)
+                    .copied()
+                    .unwrap_or(false)
+                {
+                    continue;
+                }
+                return Ok(HashSet::new());
+            }
+            let values = values.expect("nonempty argument set");
+            combinations = combinations
+                .into_iter()
+                .flat_map(|bindings| {
+                    values.iter().map(move |value| {
+                        let mut bindings = bindings.clone();
+                        bindings.push((name.clone(), value.clone()));
+                        bindings
+                    })
+                })
+                .collect();
+        }
+        let mut results = HashSet::new();
+        for bindings in combinations {
+            results.extend(self.call_sparql_function(&function.query, &bindings)?);
+        }
+        Ok(results)
     }
 
     /// Run a custom constraint-component **ASK** validator (SHACL §6.3.2) with
@@ -1288,17 +1340,16 @@ impl SparqlExecutor {
     }
 }
 
-/// Blank nodes cannot be written as SPARQL expression constants, so function
-/// calls pass them as true initial substitutions. Spareval only allocates an
-/// initial-substitution column when it survives a SELECT projection. Function
-/// parameters are normally not returned, so add them internally; callers still
-/// extract only `?result`.
+/// Function arguments use initial bindings, preserving blank-node identity and
+/// parameters projected as the result. Keep argument columns through nested
+/// projections too: canonical ASK bodies may contain empty SELECT projections.
 fn project_variable(pattern: &mut GraphPattern, var: &Variable) {
     match pattern {
-        GraphPattern::Project { variables, .. } => {
+        GraphPattern::Project { variables, inner } => {
             if !variables.iter().any(|candidate| candidate == var) {
                 variables.push(var.clone());
             }
+            project_variable(inner, var);
         }
         GraphPattern::Distinct { inner }
         | GraphPattern::Reduced { inner }
@@ -1806,18 +1857,19 @@ fn term_pattern_is(t: &TermPattern, var: &Variable) -> bool {
 /// (ASK). `None` on any parse/eval failure — the calling query then sees an
 /// unbound result, matching SPARQL's treatment of a failed function call.
 fn eval_sparql_function(query: &str, params: &[String], args: &[Term]) -> Option<Term> {
-    let mut q = SparqlParser::new().parse_query(query).ok()?;
+    let q = SparqlParser::new().parse_query(query).ok()?;
+    let result_name = function_result_name(&q);
+    let (mut q, is_ask) = function_select_query(q);
+    if args.len() > params.len() {
+        return None;
+    }
     let mut substitutions = Vec::with_capacity(params.len());
     for (name, value) in params.iter().zip(args) {
         if let Ok(var) = Variable::new(name) {
-            if matches!(value, Term::BlankNode(_))
-                && let Query::Select { pattern, .. } = &mut q
-            {
+            if let Query::Select { pattern, .. } | Query::Ask { pattern, .. } = &mut q {
                 project_variable(pattern, &var);
-                substitutions.push((var, value.clone()));
-            } else {
-                substitute_query(&mut q, &var, value);
             }
+            substitutions.push((var, value.clone()));
         }
     }
     let store = Store::new().ok()?;
@@ -1826,9 +1878,55 @@ fn eval_sparql_function(query: &str, params: &[String], args: &[Term]) -> Option
         prepared = prepared.substitute_variable(var, value);
     }
     match prepared.on_store(&store).execute().ok()? {
-        QueryResults::Solutions(mut solutions) => solutions.next()?.ok()?.get("result").cloned(),
+        QueryResults::Solutions(mut solutions) => {
+            let solution = solutions.next().transpose().ok()?;
+            if is_ask {
+                Some(Term::Literal(Literal::from(solution.is_some())))
+            } else {
+                solution?.get(result_name?.as_str()).cloned()
+            }
+        }
         QueryResults::Boolean(b) => Some(Term::Literal(Literal::from(b))),
         QueryResults::Graph(_) => None,
+    }
+}
+
+/// Evaluate ASK function bodies through SELECT so externally bound argument
+/// columns survive projection and query optimization, including blank nodes.
+fn function_select_query(query: Query) -> (Query, bool) {
+    match query {
+        Query::Ask {
+            dataset,
+            pattern,
+            base_iri,
+        } => (
+            Query::Select {
+                dataset,
+                base_iri,
+                pattern,
+            },
+            true,
+        ),
+        query => (query, false),
+    }
+}
+
+fn function_result_name(query: &Query) -> Option<String> {
+    fn projected(pattern: &GraphPattern) -> Option<String> {
+        match pattern {
+            GraphPattern::Project { variables, .. } if variables.len() == 1 => {
+                Some(variables[0].as_str().to_owned())
+            }
+            GraphPattern::Distinct { inner }
+            | GraphPattern::Reduced { inner }
+            | GraphPattern::Slice { inner, .. }
+            | GraphPattern::OrderBy { inner, .. } => projected(inner),
+            _ => None,
+        }
+    }
+    match query {
+        Query::Select { pattern, .. } => projected(pattern),
+        _ => None,
     }
 }
 

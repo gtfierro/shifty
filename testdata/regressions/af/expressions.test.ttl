@@ -1,0 +1,40 @@
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix ex: <http://example.org/af#> .
+@prefix dash: <http://datashapes.org/dash#> .
+
+ex:check a sh:SPARQLFunction ; sh:parameter [ sh:path ex:arg ] ;
+    sh:select "SELECT (?arg = true AS ?answer) WHERE {}" .
+
+ex:NodeShape a sh:NodeShape ; sh:targetNode ex:good, ex:bad, ex:empty, ex:multi ;
+    sh:message "shape fallback" ; sh:expression _:check .
+_:check ex:check ( [ sh:path ex:flag ] ) ; sh:message "needs a true flag" .
+ex:ContainerShape a sh:NodeShape ; sh:targetNode ex:container ; sh:property ex:ChildShape .
+ex:ChildShape sh:path ex:child ; sh:expression _:check .
+ex:container ex:child ex:good, ex:bad, ex:empty .
+ex:good ex:flag true .
+ex:bad ex:flag false .
+ex:multi ex:flag true, false .
+
+ex:Case a dash:GraphValidationTestCase ; dash:expectedResult [
+    a sh:ValidationReport ; sh:conforms false ;
+    sh:result [ a sh:ValidationResult ; sh:focusNode ex:bad ; sh:value ex:bad ;
+        sh:sourceShape ex:NodeShape ; sh:sourceConstraint _:check ;
+        sh:sourceConstraintComponent sh:ExpressionConstraintComponent ;
+        sh:resultSeverity sh:Violation ; sh:resultMessage "needs a true flag" ] ;
+    sh:result [ a sh:ValidationResult ; sh:focusNode ex:empty ; sh:value ex:empty ;
+        sh:sourceShape ex:NodeShape ; sh:sourceConstraint _:check ;
+        sh:sourceConstraintComponent sh:ExpressionConstraintComponent ;
+        sh:resultSeverity sh:Violation ; sh:resultMessage "needs a true flag" ] ;
+    sh:result [ a sh:ValidationResult ; sh:focusNode ex:multi ; sh:value ex:multi ;
+        sh:sourceShape ex:NodeShape ; sh:sourceConstraint _:check ;
+        sh:sourceConstraintComponent sh:ExpressionConstraintComponent ;
+        sh:resultSeverity sh:Violation ; sh:resultMessage "needs a true flag" ] ;
+    sh:result [ a sh:ValidationResult ; sh:focusNode ex:container ; sh:value ex:bad ;
+        sh:resultPath ex:child ; sh:sourceShape ex:ChildShape ; sh:sourceConstraint _:check ;
+        sh:sourceConstraintComponent sh:ExpressionConstraintComponent ;
+        sh:resultSeverity sh:Violation ; sh:resultMessage "needs a true flag" ] ;
+    sh:result [ a sh:ValidationResult ; sh:focusNode ex:container ; sh:value ex:empty ;
+        sh:resultPath ex:child ; sh:sourceShape ex:ChildShape ; sh:sourceConstraint _:check ;
+        sh:sourceConstraintComponent sh:ExpressionConstraintComponent ;
+        sh:resultSeverity sh:Violation ; sh:resultMessage "needs a true flag" ]
+] .

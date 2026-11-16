@@ -214,7 +214,6 @@ pub(crate) fn infer_with_compiled_functions(
                     backend,
                     arena: &schema.arena,
                     sparql: &sparql,
-                    functions,
                     input_blank_nodes: &input_blank_nodes,
                 };
                 // Conditions and filter expressions use boolean shape evaluation.
@@ -297,7 +296,6 @@ struct RuleRuntime<'a> {
     backend: &'a dyn crate::path::PathBackend,
     arena: &'a ShapeArena,
     sparql: &'a SparqlExecutor,
-    functions: &'a [FunctionDef],
     input_blank_nodes: &'a HashSet<BlankNode>,
 }
 
@@ -327,30 +325,10 @@ fn fire_rule(
             object,
         } => {
             for v in eligible {
-                let subjects = eval_node_expr(
-                    runtime.backend,
-                    v,
-                    subject,
-                    &mut evaluator,
-                    runtime.functions,
-                    diags,
-                );
-                let predicates = eval_node_expr(
-                    runtime.backend,
-                    v,
-                    predicate,
-                    &mut evaluator,
-                    runtime.functions,
-                    diags,
-                );
-                let objects = eval_node_expr(
-                    runtime.backend,
-                    v,
-                    object,
-                    &mut evaluator,
-                    runtime.functions,
-                    diags,
-                );
+                let subjects = eval_node_expr(runtime.backend, v, subject, &mut evaluator, diags);
+                let predicates =
+                    eval_node_expr(runtime.backend, v, predicate, &mut evaluator, diags);
+                let objects = eval_node_expr(runtime.backend, v, object, &mut evaluator, diags);
                 for s in &subjects {
                     let Some(subj) = node_of(s) else { continue };
                     for p in &predicates {
@@ -403,26 +381,27 @@ fn eval_node_expr(
     v: &Term,
     expr: &NodeExpr,
     evaluator: &mut ShapeEvaluator<'_>,
-    functions: &[FunctionDef],
     diags: &mut BTreeSet<String>,
 ) -> HashSet<Term> {
     match expr {
         NodeExpr::This => once(v.clone()),
         NodeExpr::Constant(t) => once(t.clone()),
         NodeExpr::Path(p) => succ(backend, v, p),
-        NodeExpr::Filter { input, shape } => {
-            eval_node_expr(backend, v, input, evaluator, functions, diags)
-                .into_iter()
-                .filter(|x| evaluator.holds(x, *shape))
-                .collect()
-        }
+        NodeExpr::PathFrom { input, path } => eval_node_expr(backend, v, input, evaluator, diags)
+            .iter()
+            .flat_map(|node| succ(backend, node, path))
+            .collect(),
+        NodeExpr::Filter { input, shape } => eval_node_expr(backend, v, input, evaluator, diags)
+            .into_iter()
+            .filter(|x| evaluator.holds(x, *shape))
+            .collect(),
         NodeExpr::Intersection(es) => {
             let mut iter = es.iter();
             match iter.next() {
                 Some(first) => {
-                    let mut acc = eval_node_expr(backend, v, first, evaluator, functions, diags);
+                    let mut acc = eval_node_expr(backend, v, first, evaluator, diags);
                     for e in iter {
-                        let s = eval_node_expr(backend, v, e, evaluator, functions, diags);
+                        let s = eval_node_expr(backend, v, e, evaluator, diags);
                         acc.retain(|x| s.contains(x));
                     }
                     acc
@@ -433,62 +412,28 @@ fn eval_node_expr(
         NodeExpr::Union(es) => {
             let mut acc = HashSet::new();
             for e in es {
-                acc.extend(eval_node_expr(backend, v, e, evaluator, functions, diags));
+                acc.extend(eval_node_expr(backend, v, e, evaluator, diags));
             }
             acc
         }
         NodeExpr::Function { iri, args } => {
-            // Evaluate arguments before borrowing evaluator for sparql().
-            let arg_values: Vec<HashSet<Term>> = args
+            let args: Vec<_> = args
                 .iter()
-                .map(|a| eval_node_expr(backend, v, a, evaluator, functions, diags))
+                .map(|arg| eval_node_expr(backend, v, arg, evaluator, diags))
                 .collect();
-
-            let Some(function) = functions.iter().find(|function| function.iri == *iri) else {
-                diags.insert(format!("function <{}> has no sh:select", iri.as_str()));
-                return HashSet::new();
-            };
-            let sparql = evaluator.sparql();
-            let mut results = HashSet::new();
-            for combo in cartesian_product(&arg_values) {
-                if combo.len() != function.params.len() {
-                    continue;
-                }
-                let bindings: Vec<(String, Term)> = function
-                    .params
-                    .iter()
-                    .zip(combo)
-                    .map(|(name, val)| (name.clone(), val))
-                    .collect();
-                match sparql.call_sparql_function(&function.query, &bindings) {
-                    Ok(terms) => results.extend(terms),
-                    Err(e) => {
-                        diags.insert(format!("function <{}> error: {e}", iri.as_str()));
-                    }
+            match evaluator.sparql().node_function_values(iri, &args) {
+                Ok(values) => values,
+                Err(error) => {
+                    diags.insert(error);
+                    HashSet::new()
                 }
             }
-            results
         }
     }
 }
 
 fn once(t: Term) -> HashSet<Term> {
-    let mut s = HashSet::with_capacity(1);
-    s.insert(t);
-    s
-}
-
-/// Cartesian product of term sets — one arg combo per returned vec.
-fn cartesian_product(sets: &[HashSet<Term>]) -> Vec<Vec<Term>> {
-    sets.iter().fold(vec![vec![]], |acc, set| {
-        acc.into_iter()
-            .flat_map(|combo| {
-                set.iter().map(move |item| {
-                    let mut row = combo.clone();
-                    row.push(item.clone());
-                    row
-                })
-            })
-            .collect()
-    })
+    let mut values = HashSet::with_capacity(1);
+    values.insert(t);
+    values
 }

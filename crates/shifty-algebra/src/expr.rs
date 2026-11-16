@@ -20,6 +20,8 @@ pub enum NodeExpr {
     Constant(Term),
     /// Values reachable from the focus node along a path (`sh:path` expression).
     Path(Path),
+    /// Follow a path from every term produced by `sh:nodes`.
+    PathFrom { input: Box<NodeExpr>, path: Path },
     /// `sh:filterShape` — keep only inputs satisfying `shape`.
     Filter {
         input: Box<NodeExpr>,
@@ -40,6 +42,7 @@ impl NodeExpr {
     /// expressions just as they do inside the shape grammar.
     pub fn referenced_shapes(&self, out: &mut Vec<ShapeId>) {
         match self {
+            NodeExpr::PathFrom { input, .. } => input.referenced_shapes(out),
             NodeExpr::Filter { input, shape } => {
                 out.push(*shape);
                 input.referenced_shapes(out);
@@ -62,6 +65,10 @@ impl NodeExpr {
     /// `f`.
     pub fn remap(&self, f: &impl Fn(ShapeId) -> ShapeId) -> NodeExpr {
         match self {
+            NodeExpr::PathFrom { input, path } => NodeExpr::PathFrom {
+                input: Box::new(input.remap(f)),
+                path: path.clone(),
+            },
             NodeExpr::Filter { input, shape } => NodeExpr::Filter {
                 input: Box::new(input.remap(f)),
                 shape: f(*shape),

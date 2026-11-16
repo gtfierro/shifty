@@ -30,9 +30,11 @@ pub fn collect_functions(shapes: &Loaded) -> Vec<FunctionDef> {
         let Ok((_, query)) = canonical_sparql_query(shapes, &func, &raw) else {
             continue;
         };
+        let params = function_parameters(shapes, &func);
         out.push(FunctionDef {
             iri: iri.clone(),
-            params: function_param_names(shapes, &func),
+            params: params.iter().map(|(name, _)| name.clone()).collect(),
+            optional_params: params.iter().map(|(_, optional)| *optional).collect(),
             reads_graph: query_reads_graph(&query),
             query,
         });
@@ -40,8 +42,8 @@ pub fn collect_functions(shapes: &Loaded) -> Vec<FunctionDef> {
     out
 }
 
-fn function_param_names(shapes: &Loaded, func: &NamedOrBlankNode) -> Vec<String> {
-    let mut params: Vec<(i64, String)> = shapes
+fn function_parameters(shapes: &Loaded, func: &NamedOrBlankNode) -> Vec<(String, bool)> {
+    let mut params: Vec<(i64, String, bool)> = shapes
         .objects(func, vocab::SH_PARAMETER)
         .iter()
         .filter_map(|parameter| {
@@ -61,11 +63,15 @@ fn function_param_names(shapes: &Loaded, func: &NamedOrBlankNode) -> Vec<String>
                     _ => return None,
                 },
             };
-            Some((order, name))
+            let optional = matches!(shapes.object(&node, vocab::SH_OPTIONAL), Some(Term::Literal(value)) if matches!(value.value(), "true" | "1"));
+            Some((order, name, optional))
         })
         .collect();
     params.sort_by(|left, right| left.0.cmp(&right.0).then(left.1.cmp(&right.1)));
-    params.into_iter().map(|(_, name)| name).collect()
+    params
+        .into_iter()
+        .map(|(_, name, optional)| (name, optional))
+        .collect()
 }
 
 fn local_name(iri: &str) -> &str {

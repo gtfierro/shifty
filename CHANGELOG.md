@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- Tightened AF/DASH regression coverage: fixed fixture inventory and category
+  counts, no implicit skips on errors, complete inferred-delta comparison with
+  blank-node isomorphism, and checks for report severity, messages and source
+  constraints. SHACL-JS remains outside the supported profile.
+- Added function calls to `sh:expression`, including nested expressions,
+  graph-reading functions in node expressions, and optional arguments. Corrected
+  expression validation to require exactly `{ true }` at every value node and
+  report the source expression and failing value.
+- Path node expressions now honour `sh:nodes`. ASK functions return both true
+  and false values; SELECT functions use the first solution's projected variable
+  rather than requiring the variable name `result`. Recursive node expressions
+  are rejected during shape loading.
+
 - SHACL-AF CONSTRUCT rules now support fresh blank nodes, including guarded
   defaults such as Brick's EVSE directionality rule. Inference has a limit of
   1000 passes; Python `infer(max_iterations=...)` and Rust

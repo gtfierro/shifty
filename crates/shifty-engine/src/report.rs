@@ -43,7 +43,7 @@ pub struct ValidationResult {
     pub value: Option<Term>,
     pub component: NamedNode,
     pub source_shape: Term,
-    /// The authored `sh:sparql` constraint responsible for this result.
+    /// The authored `sh:sparql` constraint or `sh:expression` behind this result.
     pub source_constraint: Option<Term>,
     /// `sh:resultSeverity` — the `sh:severity` declared on the source shape,
     /// defaulting to `sh:Violation`.
@@ -1062,7 +1062,15 @@ impl Reporter<'_> {
         }
 
         self.collect_sparql(shape, focus, &path_term, &parsed, out, &messages);
-        self.collect_expression(shape, focus, out, visited, &messages);
+        self.collect_expression(
+            shape,
+            focus,
+            &path_term,
+            &value_nodes,
+            out,
+            visited,
+            &messages,
+        );
         self.collect_components(
             shape,
             focus,
@@ -1363,37 +1371,40 @@ impl Reporter<'_> {
         });
     }
 
-    /// `sh:expression` constraints (SHACL-AF §5). The node expression is
-    /// evaluated with the focus node as `?this`; every produced value that is
-    /// not the boolean `true` yields one `sh:ExpressionConstraintComponent`
-    /// result whose `sh:value` is that value. Expression forms the report path
-    /// cannot evaluate (function applications) are skipped, matching the
-    /// lowering path which diagnoses them rather than under-constraining.
+    /// SHACL-AF §7: evaluate at each value node, require exactly { true },
+    /// and identify the expression and failing value in the result.
+    #[allow(clippy::too_many_arguments)]
     fn collect_expression(
         &self,
         shape: &NamedOrBlankNode,
         focus: &Term,
+        path: &Option<Term>,
+        values: &[Term],
         out: &mut Vec<ValidationResult>,
         visited: &mut Visited,
         inherited: &[Term],
     ) {
         for expr_term in self.shapes.objects(shape, vocab::SH_EXPRESSION) {
-            let Some(results) = self.eval_node_expr(&expr_term, focus, visited) else {
-                continue;
-            };
-            for value in results {
-                if is_boolean_true(&value) {
+            let messages = term_to_node(&expr_term)
+                .map(|node| self.shapes.objects(&node, vocab::SH_MESSAGE))
+                .filter(|messages| !messages.is_empty())
+                .unwrap_or_else(|| self.messages_or_inherited(shape, inherited));
+            for value in values {
+                let Some(results) = self.eval_node_expr(&expr_term, value, visited) else {
+                    continue;
+                };
+                if results.len() == 1 && results.iter().all(is_boolean_true) {
                     continue;
                 }
                 out.push(ValidationResult {
                     focus: focus.clone(),
-                    path: None,
-                    value: Some(value),
+                    path: path.clone(),
+                    value: Some(value.clone()),
                     component: vocab::SH_CC_EXPRESSION.into_owned(),
                     source_shape: node_term_ref(shape),
-                    source_constraint: None,
+                    source_constraint: Some(expr_term.clone()),
                     severity: self.severity(shape),
-                    messages: self.messages_or_inherited(shape, inherited),
+                    messages: messages.clone(),
                     sparql_diagnostic: None,
                 });
             }
@@ -1401,9 +1412,8 @@ impl Reporter<'_> {
     }
 
     /// Evaluate a SHACL-AF node expression term (read straight from the shapes
-    /// graph) with `focus` as `?this`. `None` means the expression uses a form
-    /// the report path cannot evaluate (e.g. a function application), so the
-    /// caller skips the owning constraint.
+    /// graph) with `focus` as `?this`. Execution failures are retained on the
+    /// executor and propagated by the enclosing checked report operation.
     fn eval_node_expr(
         &self,
         term: &Term,
@@ -1417,7 +1427,19 @@ impl Reporter<'_> {
                 let node = term_to_node(term)?;
                 if let Some(path_term) = self.shapes.object(&node, vocab::SH_PATH) {
                     let path = parse_path(self.shapes, &path_term).ok()?;
-                    Some(succ(self.frozen(), focus, &path).into_iter().collect())
+                    let inputs = if let Some(input) = self.shapes.object(&node, vocab::SH_NODES) {
+                        self.eval_node_expr(&input, focus, visited)?
+                    } else {
+                        vec![focus.clone()]
+                    };
+                    Some(
+                        inputs
+                            .iter()
+                            .flat_map(|node| succ(self.frozen(), node, &path))
+                            .collect::<HashSet<_>>()
+                            .into_iter()
+                            .collect(),
+                    )
                 } else if let Some(filter_shape) = self.shapes.object(&node, vocab::SH_FILTER_SHAPE)
                 {
                     let filter_shape = term_to_node(&filter_shape)?;
@@ -1434,8 +1456,37 @@ impl Reporter<'_> {
                 } else if let Some(list) = self.shapes.object(&node, vocab::SH_UNION) {
                     self.eval_node_expr_set(&list, focus, visited, false)
                 } else {
-                    // Function application or unrecognized form: unsupported here.
-                    None
+                    let calls: Vec<_> = self
+                        .shapes
+                        .graph
+                        .triples_for_subject(&node)
+                        .filter(|triple| {
+                            let iri = triple.predicate.as_str();
+                            ![vocab::SH, vocab::RDF, vocab::RDFS, vocab::OWL]
+                                .iter()
+                                .any(|namespace| iri.starts_with(namespace))
+                        })
+                        .collect();
+                    let [call] = calls.as_slice() else {
+                        return None;
+                    };
+                    let args: Option<Vec<HashSet<Term>>> = self
+                        .shapes
+                        .read_list(&call.object.into_owned())
+                        .iter()
+                        .map(|arg| {
+                            self.eval_node_expr(arg, focus, visited)
+                                .map(|values| values.into_iter().collect())
+                        })
+                        .collect();
+                    self.sparql
+                        .record(
+                            crate::SparqlOperation::NodeExpression,
+                            self.sparql
+                                .node_function_values(&call.predicate.into_owned(), &args?),
+                        )
+                        .ok()
+                        .map(|results| results.into_iter().collect())
                 }
             }
         }

@@ -1,0 +1,17 @@
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix ex: <http://example.org/af#> .
+@prefix dash: <http://datashapes.org/dash#> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+
+ex:ask a sh:SPARQLFunction ; sh:ask "ASK { FILTER (false) }" .
+ex:optional a sh:SPARQLFunction ;
+    sh:parameter [ sh:path ex:arg ; sh:optional true ] ;
+    sh:select "SELECT (!BOUND(?arg) AS ?result) WHERE {}" .
+ex:S a sh:NodeShape ; sh:targetNode ex:source ;
+    sh:rule [ a sh:TripleRule ; sh:subject sh:this ; sh:predicate ex:false ;
+        sh:object [ ex:ask () ] ],
+        [ a sh:TripleRule ; sh:subject sh:this ; sh:predicate ex:optional ;
+        sh:object [ ex:optional ( [ sh:path ex:missing ] ) ] ] .
+ex:Case a dash:InferencingTestCase ;
+    dash:expectedResult [ rdf:subject ex:source ; rdf:predicate ex:false ; rdf:object false ],
+        [ rdf:subject ex:source ; rdf:predicate ex:optional ; rdf:object true ] .

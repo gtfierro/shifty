@@ -413,6 +413,10 @@ impl AccessCatalog {
         match expression {
             NodeExpr::This | NodeExpr::Constant(_) => {}
             NodeExpr::Path(path) => self.path(path, access, paths),
+            NodeExpr::PathFrom { input, path } => {
+                self.expression(input, arena, access, visited, queries, paths);
+                self.path(path, access, paths);
+            }
             NodeExpr::Filter { input, shape } => {
                 self.expression(input, arena, access, visited, queries, paths);
                 self.shape(*shape, arena, access, visited, queries, paths);
@@ -829,12 +833,14 @@ mod tests {
             FunctionDef {
                 iri: named("a"),
                 params: vec![],
+                optional_params: vec![],
                 query: "ASK { FILTER(<http://ex/b>()) }".into(),
                 reads_graph: true,
             },
             FunctionDef {
                 iri: named("b"),
                 params: vec![],
+                optional_params: vec![],
                 query: "ASK { ?s <http://ex/p> ?o . FILTER(<http://ex/a>()) }".into(),
                 reads_graph: true,
             },

@@ -89,13 +89,19 @@ SHACL-AF (Advanced Features)
        by an iteration limit (1000 passes by default)
    * - Node expressions — ``sh:this``, constants, ``sh:path``, ``sh:filterShape``, ``sh:intersection``, ``sh:union``, function application
      - ✅
-     -
+     - path expressions honour ``sh:nodes``; function arguments expand over
+       their result sets, including empty optional arguments
    * - SPARQL targets — ``sh:target`` + ``sh:select``
      - ✅
      -
+   * - Reusable SPARQL target types — ``sh:SPARQLTargetType``
+     - ❌
+     - inline SELECT targets are supported; parameterized target types remain
+       outside the current implementation
    * - Expression constraints — ``sh:expression``
      - ✅
-     -
+     - evaluated at every value node; require exactly ``{ true }``; support
+       nested function calls and graph-reading functions in node expressions
    * - SHACL functions — ``sh:SPARQLFunction`` in node expressions
      - ✅
      - full data-graph access

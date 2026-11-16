@@ -4,8 +4,7 @@
 //! uses the DASH test vocabulary and mixes several test-case shapes in one tree:
 //!
 //!   * `dash:InferencingTestCase` — run forward-chaining rules (`infer`) and
-//!     check that each expected `rdf:subject/predicate/object` triple is present
-//!     in the inferred graph.
+//!     compare the complete derived delta, allowing fresh blank-node labels.
 //!   * `sht:Validate` / `dash:GraphValidationTestCase` — run the RDF-driven
 //!     report validator (`validate_report`) and match the result-set against the
 //!     expected `sh:ValidationReport`, the same way `data_shapes_report` does.
@@ -13,18 +12,22 @@
 //!     `sh:SPARQLFunction` call) and compare against `dash:expectedResult`.
 //!
 //! `owl:imports` to vendored sibling ontologies are merged so a test's data
-//! graph is complete. Only JS-based cases (`sh:js*`) remain skipped.
+//! graph is complete. Fixture inventory and category counts are fixed; parsing,
+//! execution and comparison failures never become skips. JS stays excluded.
 
 mod common;
 
-use common::{Key, expected_report, result_key};
+use common::{path_term_key, result_key};
 use oxrdf::{Graph, NamedNode, NamedNodeRef, NamedOrBlankNode, Term, Triple};
 use shifty_engine::{CompiledShapes, SessionData, SessionOptions};
 use shifty_parse::vocab;
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 const OWL_IMPORTS: NamedNodeRef =
     NamedNodeRef::new_unchecked("http://www.w3.org/2002/07/owl#imports");
+const SH_SOURCE_CONSTRAINT: NamedNodeRef =
+    NamedNodeRef::new_unchecked("http://www.w3.org/ns/shacl#sourceConstraint");
 const OWL_ONTOLOGY: NamedNodeRef =
     NamedNodeRef::new_unchecked("http://www.w3.org/2002/07/owl#Ontology");
 const DASH_INFERENCING_TEST_CASE: NamedNodeRef =
@@ -42,21 +45,15 @@ const RDF_PREDICATE: NamedNodeRef =
 const RDF_OBJECT: NamedNodeRef =
     NamedNodeRef::new_unchecked("http://www.w3.org/1999/02/22-rdf-syntax-ns#object");
 
-/// Predicates whose presence means the case exercises a feature the RDF-driven
-/// validator / inference engine doesn't support yet; skip rather than report a
-/// spurious failure.
-const UNSUPPORTED_VALIDATION: &[&str] = &[
+/// JavaScript is outside the supported AF profile. Every other case must run.
+const JS_PREDICATES: &[&str] = &[
     "http://www.w3.org/ns/shacl#js",
     "http://www.w3.org/ns/shacl#jsLibrary",
     "http://www.w3.org/ns/shacl#jsFunctionName",
 ];
-
-/// SHACL function node expressions (AF-F) are not supported in rule objects yet.
-const UNSUPPORTED_INFERENCE: &[&str] = &[
-    "http://www.w3.org/ns/shacl#js",
-    "http://www.w3.org/ns/shacl#jsLibrary",
-    "http://www.w3.org/ns/shacl#jsFunctionName",
-];
+/// Adding a JS fixture requires an explicit profile exclusion, never an
+/// automatic skip based on an unexpected predicate or execution diagnostic.
+const EXCLUDED_JS_CASES: &[&str] = &[];
 
 fn suite_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -66,8 +63,8 @@ fn suite_dir() -> PathBuf {
 }
 
 fn collect(dir: &Path, out: &mut Vec<PathBuf>) {
-    for entry in std::fs::read_dir(dir).unwrap().flatten() {
-        let path = entry.path();
+    for entry in std::fs::read_dir(dir).unwrap() {
+        let path = entry.unwrap().path();
         if path.is_dir() {
             collect(&path, out);
         } else if path
@@ -86,8 +83,8 @@ fn uses_any(g: &Graph, predicates: &[&str]) -> bool {
 /// Every `.ttl` file under the suite (including non-`.test.ttl` ontologies like
 /// `person.ttl` that tests import).
 fn collect_all_ttl(dir: &Path, out: &mut Vec<PathBuf>) {
-    for entry in std::fs::read_dir(dir).unwrap().flatten() {
-        let path = entry.path();
+    for entry in std::fs::read_dir(dir).unwrap() {
+        let path = entry.unwrap().path();
         if path.is_dir() {
             collect_all_ttl(&path, out);
         } else if path.extension().is_some_and(|e| e == "ttl") {
@@ -104,13 +101,10 @@ fn ontology_index(dir: &Path) -> std::collections::HashMap<String, PathBuf> {
     collect_all_ttl(dir, &mut files);
     let mut index = std::collections::HashMap::new();
     for file in files {
-        let Ok(bytes) = std::fs::read(&file) else {
-            continue;
-        };
+        let bytes = std::fs::read(&file).unwrap();
         let base = format!("file://{}", file.display());
-        let Ok(loaded) = shifty_parse::load_turtle(&bytes, Some(&base)) else {
-            continue;
-        };
+        let loaded = shifty_parse::load_turtle(&bytes, Some(&base))
+            .unwrap_or_else(|error| panic!("{}: {error}", file.display()));
         for subject in loaded
             .graph
             .subjects_for_predicate_object(vocab::RDF_TYPE, OWL_ONTOLOGY)
@@ -136,14 +130,27 @@ fn resolve_imports(
         if !visited.insert(iri.clone()) {
             continue;
         }
+        if loaded
+            .graph
+            .triples_for_subject(NamedNode::new(&iri).unwrap().as_ref())
+            .next()
+            .is_some()
+        {
+            // Some fixtures inline the imported prefix-declaration resource.
+            continue;
+        }
         let Some(file) = index.get(&iri) else {
+            // Metadata-only vocabulary imports used by the local fixtures.
+            assert!(
+                ["http://datashapes.org/dash", "http://datashapes.org/schema"]
+                    .contains(&iri.as_str()),
+                "unresolved AF fixture import: {iri}"
+            );
             continue;
         };
         let base = format!("file://{}", file.display());
-        let Ok(imported) = shifty_parse::load_turtle(&std::fs::read(file).unwrap(), Some(&base))
-        else {
-            continue;
-        };
+        let imported =
+            shifty_parse::load_turtle(&std::fs::read(file).unwrap(), Some(&base)).unwrap();
         pending.extend(import_iris(&imported.graph));
         for triple in imported.graph.iter() {
             loaded.graph.insert(triple);
@@ -175,7 +182,7 @@ fn function_tests(loaded: &shifty_parse::Loaded) -> Vec<(String, Term)> {
             loaded.object(&case, DASH_EXPRESSION),
             loaded.object(&case, DASH_EXPECTED_RESULT),
         ) else {
-            continue;
+            panic!("malformed AF expected result or function case: {case}");
         };
         out.push((expr.value().to_string(), expected));
     }
@@ -201,23 +208,21 @@ fn expected_inferred(loaded: &shifty_parse::Loaded) -> Vec<Triple> {
         .collect::<Vec<_>>()
     {
         for er in loaded.objects(&case, DASH_EXPECTED_RESULT) {
-            let Some(ern) = shifty_parse::graph::term_to_node(&er) else {
-                continue;
-            };
+            let ern = shifty_parse::graph::term_to_node(&er).expect("expected triple resource");
             let (Some(s), Some(p), Some(o)) = (
                 loaded.object(&ern, RDF_SUBJECT),
                 loaded.object(&ern, RDF_PREDICATE),
                 loaded.object(&ern, RDF_OBJECT),
             ) else {
-                continue;
+                panic!("malformed expected inference triple: {ern}");
             };
             let subj: NamedOrBlankNode = match shifty_parse::graph::term_to_node(&s) {
                 Some(n) => n,
-                None => continue,
+                None => panic!("invalid expected triple subject"),
             };
             let pred: NamedNode = match p {
                 Term::NamedNode(n) => n,
-                _ => continue,
+                _ => panic!("invalid expected triple predicate"),
             };
             out.push(Triple::new(subj, pred, o));
         }
@@ -225,141 +230,338 @@ fn expected_inferred(loaded: &shifty_parse::Loaded) -> Vec<Triple> {
     out
 }
 
+/// The expected inference graph describes the entire delta, not a subset of
+/// the final graph. Already-asserted triples do not count as inferred output.
+fn compare_inferred(
+    asserted: &Graph,
+    expected: &[Triple],
+    actual: &[Triple],
+) -> Result<(), String> {
+    let expected: HashSet<_> = expected
+        .iter()
+        .filter(|triple| !asserted.contains(*triple))
+        .cloned()
+        .collect();
+    let actual: HashSet<_> = actual.iter().cloned().collect();
+    if expected == actual {
+        return Ok(());
+    }
+    // Fresh template nodes may have different labels. Anchor existing input
+    // nodes, then compare complete deltas by graph isomorphism. Reified expected
+    // triples describe output placeholders rather than asserted node identity.
+    let mut input_nodes = HashSet::new();
+    for triple in asserted.iter() {
+        if [RDF_SUBJECT, RDF_PREDICATE, RDF_OBJECT].contains(&triple.predicate) {
+            continue;
+        }
+        if let oxrdf::NamedOrBlankNodeRef::BlankNode(node) = triple.subject {
+            input_nodes.insert(node.into_owned());
+        }
+        if let oxrdf::TermRef::BlankNode(node) = triple.object {
+            input_nodes.insert(node.into_owned());
+        }
+    }
+    let canonical = |triples: &HashSet<Triple>| {
+        let mut graph = Graph::new();
+        for triple in triples {
+            graph.insert(triple);
+        }
+        for node in &input_nodes {
+            graph.insert(&Triple::new(
+                node.clone(),
+                NamedNode::new("urn:shifty:af-input-identity").unwrap(),
+                oxrdf::Literal::new_simple_literal(node.as_str()),
+            ));
+        }
+        graph.canonicalize(oxrdf::dataset::CanonicalizationAlgorithm::Unstable);
+        graph
+    };
+    if canonical(&expected) == canonical(&actual) {
+        return Ok(());
+    }
+    Err(format!(
+        "inference mismatch: missing {:?}; unexpected {:?}",
+        expected.difference(&actual).collect::<Vec<_>>(),
+        actual.difference(&expected).collect::<Vec<_>>()
+    ))
+}
+
+fn compare_report(
+    loaded: &shifty_parse::Loaded,
+    actual: &shifty_engine::ValidationReport,
+) -> Result<(), String> {
+    common::expected_report(loaded).ok_or("validation case has no well-formed expected report")?;
+    // Some adapted fixtures carry both DASH and sht:Validate expectations.
+    // Check every declared report, including severity, authored messages and
+    // sourceConstraint whenever the fixture specifies them.
+    let reports: Vec<_> = loaded
+        .graph
+        .subjects_for_predicate_object(vocab::RDF_TYPE, vocab::SH_VALIDATION_REPORT)
+        .map(|node| node.into_owned())
+        .collect();
+    if reports.is_empty() {
+        return Err("validation case has no expected report".into());
+    }
+    for report in reports {
+        let expected_conforms = loaded
+            .object(&report, vocab::SH_CONFORMS)
+            .ok_or("expected report lacks sh:conforms")?;
+        if expected_conforms != Term::Literal(oxrdf::Literal::from(actual.conforms)) {
+            return Err("report conformance differs".into());
+        }
+        let mut remaining: Vec<_> = actual.results.iter().collect();
+        for expected in loaded.objects(&report, vocab::SH_RESULT) {
+            let expected = shifty_parse::graph::term_to_node(&expected)
+                .ok_or("expected result is not a resource")?;
+            let focus = loaded
+                .object(&expected, vocab::SH_FOCUS_NODE)
+                .ok_or("missing expected focus")?;
+            let component = loaded
+                .object(&expected, vocab::SH_SOURCE_CONSTRAINT_COMPONENT)
+                .ok_or("missing expected component")?;
+            let shape = loaded
+                .object(&expected, vocab::SH_SOURCE_SHAPE)
+                .ok_or("missing expected shape")?;
+            let severity = loaded
+                .object(&expected, vocab::SH_RESULT_SEVERITY)
+                .ok_or("missing expected severity")?;
+            let source = loaded.object(&expected, SH_SOURCE_CONSTRAINT);
+            let messages = loaded.objects(&expected, vocab::SH_RESULT_MESSAGE);
+            let path = loaded.object(&expected, vocab::SH_RESULT_PATH);
+            let value = loaded.object(&expected, vocab::SH_VALUE);
+            let Some(position) = remaining.iter().position(|result| {
+                let key = result_key(loaded, result);
+                key.0 == focus.to_string()
+                    && key.3 == component.to_string()
+                    && (matches!(shape, Term::BlankNode(_)) || result.source_shape == shape)
+                    && key.1 == path.as_ref().map(|path| path_term_key(loaded, path))
+                    && result.value == value
+                    && Term::NamedNode(result.severity.clone()) == severity
+                    && source
+                        .as_ref()
+                        .is_none_or(|source| result.source_constraint.as_ref() == Some(source))
+                    && messages
+                        .iter()
+                        .all(|message| result.messages.contains(message))
+            }) else {
+                return Err(format!(
+                    "missing or incorrect report result {expected}; actual: {:?}",
+                    actual.results
+                ));
+            };
+            remaining.remove(position);
+        }
+        if !remaining.is_empty() {
+            return Err(format!("unexpected report results: {remaining:?}"));
+        }
+    }
+    Ok(())
+}
+
+fn run_fixture(
+    file: &Path,
+    imports: &std::collections::HashMap<String, PathBuf>,
+) -> Result<(usize, usize, usize), String> {
+    let base = shifty_parse::graph::file_base_iri(file).map_err(|error| error.to_string())?;
+    let loaded = shifty_parse::load_turtle(
+        &std::fs::read(file).map_err(|error| error.to_string())?,
+        Some(&base),
+    )
+    .map_err(|error| error.to_string())?;
+    if uses_any(&loaded.graph, JS_PREDICATES) {
+        return Err("SHACL-JS case requires an explicit inventory exclusion".into());
+    }
+    let loaded = resolve_imports(loaded, imports);
+    let parsed = shifty_parse::parse_loaded(&loaded);
+    if !parsed.diagnostics.is_empty() {
+        return Err(format!(
+            "unexpected lowering diagnostics: {:?}",
+            parsed.diagnostics
+        ));
+    }
+    let functions = function_tests(&loaded);
+    if !functions.is_empty() {
+        for (expression, expected) in &functions {
+            let result = shifty_engine::evaluate_function_expression(&loaded, expression)?;
+            if result.as_ref() != Some(expected) {
+                return Err(format!(
+                    "function {expression}: {result:?}, expected {expected}"
+                ));
+            }
+        }
+        return Ok((0, 0, functions.len()));
+    }
+    if is_inferencing(&loaded) {
+        let expected = expected_inferred(&loaded);
+        let asserted = loaded.graph.clone();
+        let session = CompiledShapes::compile(loaded)
+            .map_err(|error| error.to_string())?
+            .session(
+                SessionData::Embedded,
+                SessionOptions {
+                    inference: true,
+                    ..Default::default()
+                },
+            )
+            .map_err(|error| error.to_string())?;
+        if !session.diagnostics().is_empty() {
+            return Err(format!(
+                "inference diagnostics: {:?}",
+                session.diagnostics()
+            ));
+        }
+        compare_inferred(&asserted, &expected, session.inferred())?;
+        return Ok((1, 0, 0));
+    }
+    let report = shifty_engine::validate_report(&loaded, &loaded.graph)
+        .map_err(|error| error.to_string())?;
+    compare_report(&loaded, &report)?;
+    Ok((0, 1, 0))
+}
+
 #[test]
 fn w3c_advanced_conformance() {
     let mut files = Vec::new();
     collect(&suite_dir(), &mut files);
     files.sort();
-    assert!(!files.is_empty(), "no advanced test files found");
-    // owl:imports resolution against vendored sibling ontologies.
-    let imports_index = ontology_index(&suite_dir());
-
-    let (mut inf_pass, mut inf_fail, mut inf_skip) = (0u32, 0u32, 0u32);
-    let (mut val_pass, mut val_fail, mut val_skip) = (0u32, 0u32, 0u32);
-    let (mut fn_pass, mut fn_fail) = (0u32, 0u32);
-    let mut failures: Vec<String> = Vec::new();
-
-    for file in &files {
-        let name = file
-            .strip_prefix(suite_dir())
-            .unwrap_or(file)
-            .display()
-            .to_string();
-        let bytes = std::fs::read(file).unwrap();
-        // Advanced tests use relative IRIs (e.g. `<square.test.ttl>`), so a base
-        // is required to resolve them — mirror the `sparql.rs` fixture loader.
-        let base = format!("file://{}", file.display());
-        let Ok(loaded) = shifty_parse::load_turtle(&bytes, Some(&base)) else {
-            // can't classify a graph we can't parse; count under validation skips
-            val_skip += 1;
-            continue;
-        };
-
-        // dash:FunctionTestCase — evaluate each function-call expression.
-        let fn_tests = function_tests(&loaded);
-        if !fn_tests.is_empty() {
-            for (expr, expected) in fn_tests {
-                match shifty_engine::evaluate_function_expression(&loaded, &expr) {
-                    Ok(Some(result)) if result == expected => fn_pass += 1,
-                    other => {
-                        fn_fail += 1;
-                        failures.push(format!("FUNCTION {name}: {expr} -> {other:?}"));
-                    }
-                }
-            }
-            continue;
-        }
-
-        if is_inferencing(&loaded) {
-            if uses_any(&loaded.graph, UNSUPPORTED_INFERENCE) {
-                inf_skip += 1;
-                continue;
-            }
-            match shifty_parse::parse_turtle(&bytes, Some(&base)) {
-                Ok(p) if p.diagnostics.is_empty() => p,
-                _ => {
-                    inf_skip += 1;
-                    continue;
-                }
-            };
-            // Merge any vendored ontologies the test imports so its data graph is
-            // complete (the rules/schema still come from the test file itself).
-            let loaded = resolve_imports(loaded, &imports_index);
-            let expected = expected_inferred(&loaded);
-            if expected.is_empty() {
-                inf_skip += 1;
-                continue;
-            }
-            let inferred = CompiledShapes::compile(loaded)
-                .map_err(|error| error.to_string())
-                .and_then(|compiled| {
-                    compiled
-                        .session(
-                            SessionData::Embedded,
-                            SessionOptions {
-                                inference: true,
-                                ..SessionOptions::default()
-                            },
-                        )
-                        .map_err(|error| error.to_string())
-                });
-            match inferred {
-                Ok(outcome) if outcome.diagnostics().is_empty() => {
-                    if expected.iter().all(|t| outcome.data().contains(t)) {
-                        inf_pass += 1;
-                    } else if outcome.inferred().is_empty() {
-                        // No new triples produced — likely missing data from
-                        // unresolved owl:imports; skip rather than fail.
-                        inf_skip += 1;
-                    } else {
-                        inf_fail += 1;
-                        failures.push(format!("INFER {name}"));
-                    }
-                }
-                _ => inf_skip += 1,
-            }
-            continue;
-        }
-
-        // --- validation case ---
-        if uses_any(&loaded.graph, UNSUPPORTED_VALIDATION) {
-            val_skip += 1;
-            continue;
-        }
-        let Some((exp_conforms, mut exp)) = expected_report(&loaded) else {
-            val_skip += 1;
-            continue;
-        };
-
-        let report = shifty_engine::validate_report(&loaded, &loaded.graph).unwrap();
-        let mut got: Vec<Key> = report
-            .results
-            .iter()
-            .map(|r| result_key(&loaded, r))
-            .collect();
-        exp.sort();
-        got.sort();
-
-        if report.conforms == exp_conforms && got == exp {
-            val_pass += 1;
-        } else {
-            val_fail += 1;
-            failures.push(format!("VALIDATE {name}"));
-        }
-    }
-
-    eprintln!(
-        "\nW3C advanced conformance:\n  inferencing: {inf_pass} pass, {inf_fail} fail, {inf_skip} skip\n  validation:  {val_pass} pass, {val_fail} fail, {val_skip} skip\n  functions:   {fn_pass} pass, {fn_fail} fail\n  (of {} files)",
-        files.len()
+    let names: Vec<_> = files
+        .iter()
+        .map(|file| {
+            file.strip_prefix(suite_dir())
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .to_owned()
+        })
+        .collect();
+    let inventory: Vec<_> = include_str!("../../../testdata/test-suite/advanced/cases.txt")
+        .lines()
+        .filter(|line| !line.is_empty() && !line.starts_with('#'))
+        .collect();
+    assert_eq!(
+        names, inventory,
+        "AF fixture inventory changed; review coverage before updating cases.txt"
     );
-    for f in failures.iter().take(40) {
-        eprintln!("  FAIL {f}");
+    let imports = ontology_index(&suite_dir());
+    let mut counts = (0, 0, 0);
+    let mut failures = Vec::new();
+    let mut excluded = 0;
+    for file in files {
+        let name = file.strip_prefix(suite_dir()).unwrap().to_str().unwrap();
+        if EXCLUDED_JS_CASES.contains(&name) {
+            let loaded =
+                shifty_parse::load_turtle(&std::fs::read(&file).unwrap(), Some("urn:af-excluded:"))
+                    .unwrap();
+            assert!(
+                uses_any(&loaded.graph, JS_PREDICATES),
+                "only SHACL-JS cases may be excluded: {name}"
+            );
+            excluded += 1;
+            continue;
+        }
+        match run_fixture(&file, &imports) {
+            Ok((inference, validation, functions)) => {
+                counts.0 += inference;
+                counts.1 += validation;
+                counts.2 += functions;
+            }
+            Err(error) => failures.push(format!("{}: {error}", file.display())),
+        }
     }
+    assert!(
+        failures.is_empty(),
+        "AF regressions:\n{}",
+        failures.join("\n")
+    );
+    assert_eq!(counts, (7, 97, 2), "AF category coverage changed");
+    assert_eq!(
+        excluded,
+        EXCLUDED_JS_CASES.len(),
+        "missing excluded JS fixture"
+    );
+    eprintln!(
+        "AF/DASH: {} inference, {} validation, {} functions; zero skips",
+        counts.0, counts.1, counts.2
+    );
+}
 
-    assert_eq!(inf_fail, 0, "inferencing has {inf_fail} failing cases");
-    assert_eq!(val_fail, 0, "validation has {val_fail} failing cases");
-    assert_eq!(fn_fail, 0, "functions have {fn_fail} failing cases");
-    assert!(inf_pass >= 1, "expected at least one inferencing pass");
-    assert!(val_pass >= 1, "expected at least one validation pass");
-    assert!(fn_pass >= 1, "expected at least one function pass");
+#[test]
+fn inference_oracle_rejects_missing_and_extra_output() {
+    let triple = Triple::new(
+        NamedNode::new("urn:s").unwrap(),
+        NamedNode::new("urn:p").unwrap(),
+        NamedNode::new("urn:o").unwrap(),
+    );
+    assert!(compare_inferred(&Graph::new(), std::slice::from_ref(&triple), &[]).is_err());
+    assert!(compare_inferred(&Graph::new(), &[], std::slice::from_ref(&triple)).is_err());
+    let mut asserted = Graph::new();
+    asserted.insert(&triple);
+    assert!(compare_inferred(&asserted, &[triple], &[]).is_ok());
+}
+
+#[test]
+fn project_af_regressions() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../testdata/regressions/af");
+    let mut files = Vec::new();
+    collect(&root, &mut files);
+    files.sort();
+    let names: Vec<_> = files
+        .iter()
+        .map(|file| file.file_name().unwrap().to_str().unwrap())
+        .collect();
+    assert_eq!(
+        names,
+        [
+            "ask-and-optional.test.ttl",
+            "expressions.test.ttl",
+            "fresh-blank-node.test.ttl",
+            "path-inputs.test.ttl"
+        ]
+    );
+    for file in files {
+        run_fixture(&file, &std::collections::HashMap::new())
+            .unwrap_or_else(|error| panic!("{}: {error}", file.display()));
+    }
+}
+
+#[test]
+fn report_oracle_checks_provenance_messages_severity_and_extra_results() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../testdata/regressions/af/expressions.test.ttl");
+    let loaded = shifty_parse::load_turtle(&std::fs::read(path).unwrap(), None).unwrap();
+    let report = shifty_engine::validate_report(&loaded, &loaded.graph).unwrap();
+    for defect in 0..4 {
+        let mut broken = report.clone();
+        match defect {
+            0 => broken.results[0].source_constraint = None,
+            1 => broken.results[0].messages.clear(),
+            2 => {
+                broken.results[0].severity =
+                    NamedNode::new("http://www.w3.org/ns/shacl#Info").unwrap()
+            }
+            _ => broken.results.push(broken.results[0].clone()),
+        }
+        assert!(
+            compare_report(&loaded, &broken).is_err(),
+            "report defect {defect} escaped the oracle"
+        );
+    }
+}
+
+#[test]
+fn inference_oracle_preserves_input_blank_identity() {
+    let a = oxrdf::BlankNode::new("a").unwrap();
+    let b = oxrdf::BlankNode::new("b").unwrap();
+    let predicate = NamedNode::new("urn:p").unwrap();
+    let mut asserted = Graph::new();
+    for node in [&a, &b] {
+        asserted.insert(&Triple::new(
+            node.clone(),
+            predicate.clone(),
+            oxrdf::Literal::from(0),
+        ));
+    }
+    let expected = Triple::new(a, predicate.clone(), oxrdf::Literal::from(1));
+    let wrong = Triple::new(b, predicate, oxrdf::Literal::from(1));
+    assert!(compare_inferred(&asserted, &[expected], &[wrong]).is_err());
 }

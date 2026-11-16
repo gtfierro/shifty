@@ -107,6 +107,11 @@ fn node_expr_to_string(e: &crate::expr::NodeExpr, px: &Prefixes) -> String {
         NodeExpr::This => "this".to_string(),
         NodeExpr::Constant(t) => term_to_string(t, px),
         NodeExpr::Path(p) => path_to_string_in(p, px),
+        NodeExpr::PathFrom { input, path } => format!(
+            "{} / {}",
+            node_expr_to_string(input, px),
+            path_to_string_in(path, px)
+        ),
         NodeExpr::Filter { input, shape } => {
             format!("filter({}, @{})", node_expr_to_string(input, px), shape.0)
         }
@@ -713,6 +718,10 @@ impl<'a> Describer<'a> {
     fn node_expr(&mut self, e: &crate::expr::NodeExpr) -> String {
         use crate::expr::NodeExpr;
         match e {
+            NodeExpr::PathFrom { input, path } => {
+                let input = self.node_expr(input);
+                format!("{input} / {}", path_to_string_in(path, self.prefixes))
+            }
             NodeExpr::Filter { input, shape } => {
                 let input = self.node_expr(input);
                 let shape = self.describe(*shape).flat_nested();
