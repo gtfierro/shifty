@@ -68,9 +68,11 @@ formats.
 | [WebAssembly](crates/shifty-wasm/README.md) | Local browser validation and inference; try the [playground](https://shifty.gtf.fyi/playground/). |
 
 SHACL Core and much of SHACL-AF are supported. JavaScript constraints and
-functions are unsupported; some calls to SHACL functions from SPARQL have
-limited graph access. Check the [feature matrix](https://shifty.gtf.fyi/reference/feature-support.html)
-before relying on an advanced feature. Symbolic repair is experimental.
+functions are unsupported. SHACL functions called from SPARQL can read the
+current data and shapes snapshot, including inferred additions; recursive
+calls are limited to 32 levels. Check the
+[feature matrix](https://shifty.gtf.fyi/reference/feature-support.html) before
+relying on an advanced feature. Symbolic repair is experimental.
 
 The [W3C conformance guide](https://shifty.gtf.fyi/how-to/conformance.html)
 documents the pinned SHACL 1.0 suite, its manifest runner, and EARL output.
