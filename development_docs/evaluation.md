@@ -123,8 +123,11 @@ dependencies. Execution starts from asserted data:
 Separate-input rules read evolving data union shapes; embedded rules read
 evolving data. Triple-rule node expressions compute terms from focus, paths,
 filters, set operations, and supported functions. SPARQL rules evaluate
-CONSTRUCT. Existing input blank nodes can be reused, but fresh blank-node
-construction is rejected to prevent unbounded creation on repeated passes.
+CONSTRUCT. Rules can reuse existing blank nodes and create fresh ones. Rules
+that emit fresh blank nodes remain active on later passes even if their read
+predicates have not changed. Inference fails if it exceeds
+`EngineOptions.max_inference_iterations` (1000 passes by default), under either
+unsupported-feature policy, without returning a partial closure.
 
 Changed predicates and conservative dependencies avoid unnecessary rule and
 guard work. Unknown reads retain wildcard dependencies. This scheduling is

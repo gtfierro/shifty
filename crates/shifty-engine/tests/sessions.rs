@@ -559,6 +559,7 @@ fn compiled_inference_uses_only_source_functions() {
                 inference: true,
                 engine: shifty_engine::EngineOptions {
                     unsupported: shifty_engine::UnsupportedPolicy::Ignore,
+                    ..Default::default()
                 },
                 ..Default::default()
             },
@@ -693,9 +694,10 @@ fn strict_rule_diagnostics_fail_session_construction() {
         r#"
         @prefix sh: <http://www.w3.org/ns/shacl#> .
         @prefix ex: <http://ex/> .
+        ex:exists a sh:SPARQLFunction ; sh:ask "ASK { ?s ex:p ?o }" .
         ex:S a sh:NodeShape ; sh:targetNode ex:x ;
             sh:rule [ a sh:SPARQLRule ;
-                sh:construct "CONSTRUCT { $this ex:p [] } WHERE {}" ] .
+                sh:construct "CONSTRUCT { $this ex:p true } WHERE { FILTER (<http://ex/exists>()) }" ] .
         "#,
     );
     let compiled = CompiledShapes::compile(shapes).unwrap();
@@ -705,6 +707,7 @@ fn strict_rule_diagnostics_fail_session_construction() {
             inference: true,
             engine: EngineOptions {
                 unsupported: UnsupportedPolicy::Error,
+                ..Default::default()
             },
             ..SessionOptions::default()
         },

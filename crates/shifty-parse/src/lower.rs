@@ -35,7 +35,10 @@ use shifty_algebra::{
     Shape, ShapeArena, ShapeId, SparqlConstraint, SparqlConstruct, SparqlQueryKind, SparqlTarget,
     Statement, ValueType,
 };
-use spargebra::{Query, SparqlParser, algebra::GraphPattern};
+use spargebra::{
+    Query, SparqlParser,
+    algebra::{AggregateExpression, Expression, GraphPattern, OrderExpression},
+};
 use std::collections::{BTreeSet, HashMap, HashSet};
 
 pub struct Lowered {
@@ -173,6 +176,17 @@ fn local_name(iri: &str) -> &str {
 
 impl Lowerer<'_> {
     fn diag(&mut self, level: DiagLevel, msg: impl Into<String>, subj: &NamedOrBlankNode) {
+        let mut msg = msg.into();
+        let mut owners: Vec<_> = self.g.graph
+            .triples_for_object(subj.as_ref())
+            .filter(|triple| matches!(triple.predicate, p if p == vocab::SH_SPARQL || p == vocab::SH_RULE))
+            .map(|triple| triple.subject.to_string())
+            .collect();
+        owners.sort();
+        owners.dedup();
+        if !owners.is_empty() {
+            msg.push_str(&format!(" (on shape {})", owners.join(", ")));
+        }
         self.diags
             .push(Diagnostic::new(level, msg, Some(subj.to_string())));
     }
@@ -958,6 +972,7 @@ impl Lowerer<'_> {
 
             for sel in selectors {
                 self.rules.push(Rule {
+                    source: Some(format!("rule {rn} on shape {s}")),
                     selector: sel.clone(),
                     conditions: conditions.clone(),
                     head: head.clone(),
@@ -1002,7 +1017,12 @@ impl Lowerer<'_> {
         // sh:SPARQLRule — parse and canonicalize the CONSTRUCT while retaining
         // an opaque algebra leaf for later query rewriting.
         if let Some(Term::Literal(q)) = self.g.object(rn, vocab::SH_CONSTRUCT) {
-            let query = self.canonical_sparql(rn, q.value(), ExpectedQuery::Construct)?;
+            let query = self.canonical_shacl_sparql(
+                rn,
+                q.value(),
+                ExpectedQuery::Construct,
+                &["this", "shapesGraph", "currentShape"],
+            )?;
             return Some(RuleHead::Sparql(SparqlConstruct { query }));
         }
         // sh:TripleRule — subject/predicate/object node expressions
@@ -1282,7 +1302,8 @@ impl Lowerer<'_> {
 
     /// Parse and validate a query that is evaluated with SHACL pre-bound
     /// variables. The SPARQL grammar accepts several constructs whose
-    /// interaction with pre-binding is explicitly forbidden by SHACL 1.0.
+    /// interaction with pre-binding is forbidden by SHACL. VALUES follows the
+    /// SHACL 1.2 collision restriction rather than SHACL 1.0's blanket ban.
     fn canonical_shacl_sparql(
         &mut self,
         owner: &NamedOrBlankNode,
@@ -1319,12 +1340,15 @@ impl Lowerer<'_> {
     }
 }
 
-/// Enforce the SHACL 1.0 restrictions needed to make pre-binding well-defined.
+/// Enforce pre-binding restrictions, allowing VALUES on unrelated variables
+/// as specified by SHACL 1.2. CONSTRUCT rules only enforce the VALUES check;
+/// their other existing SHACL-AF query behavior is preserved.
 fn validate_shacl_prebinding<'a>(
     query: &Query,
     prebound: impl IntoIterator<Item = &'a str>,
 ) -> Result<(), String> {
     let prebound: HashSet<&str> = prebound.into_iter().collect();
+    let values_only = matches!(query, Query::Construct { .. });
     let pattern = match query {
         Query::Select { pattern, .. }
         | Query::Ask { pattern, .. }
@@ -1346,30 +1370,58 @@ fn validate_shacl_prebinding<'a>(
         prebound: &HashSet<&str>,
         projection_prebound: &HashSet<&str>,
         seen_top_projection: bool,
+        values_only: bool,
     ) -> Result<(), String> {
+        let recurse = |inner: &GraphPattern| {
+            visit(
+                inner,
+                prebound,
+                projection_prebound,
+                seen_top_projection,
+                values_only,
+            )
+        };
         match pattern {
-            GraphPattern::Minus { .. } => {
+            GraphPattern::Minus { .. } if !values_only => {
                 return Err("SHACL-SPARQL queries must not contain MINUS".into());
             }
-            GraphPattern::Service { .. } => {
+            GraphPattern::Service { .. } if !values_only => {
                 return Err("SHACL-SPARQL queries must not contain SERVICE".into());
             }
-            GraphPattern::Values { .. } => {
-                return Err("SHACL-SPARQL queries must not contain VALUES".into());
+            GraphPattern::Values { variables, .. } => {
+                let mut collisions: Vec<_> = variables
+                    .iter()
+                    .map(|variable| variable.as_str())
+                    .filter(|name| prebound.contains(name))
+                    .collect();
+                collisions.sort_unstable();
+                if !collisions.is_empty() {
+                    return Err(format!(
+                        "SHACL-SPARQL VALUES must not bind potentially pre-bound variable(s): {}",
+                        collisions
+                            .into_iter()
+                            .map(|name| format!("?{name}"))
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    ));
+                }
             }
             GraphPattern::Extend {
-                inner, variable, ..
+                inner,
+                variable,
+                expression,
             } => {
-                if prebound.contains(variable.as_str()) {
+                if !values_only && prebound.contains(variable.as_str()) {
                     return Err(format!(
                         "SHACL-SPARQL must not assign potentially pre-bound variable ?{} with AS",
                         variable.as_str()
                     ));
                 }
-                visit(inner, prebound, projection_prebound, seen_top_projection)?;
+                recurse(inner)?;
+                visit_expression(expression, &recurse)?;
             }
             GraphPattern::Project { inner, variables } => {
-                if seen_top_projection {
+                if !values_only && seen_top_projection {
                     let projected: HashSet<&str> = variables.iter().map(|v| v.as_str()).collect();
                     let mut missing: Vec<&str> = projection_prebound
                         .iter()
@@ -1388,23 +1440,52 @@ fn validate_shacl_prebinding<'a>(
                         ));
                     }
                 }
-                visit(inner, prebound, projection_prebound, true)?;
+                visit(inner, prebound, projection_prebound, true, values_only)?;
             }
             GraphPattern::Join { left, right }
-            | GraphPattern::LeftJoin { left, right, .. }
             | GraphPattern::Union { left, right }
+            | GraphPattern::Minus { left, right }
             | GraphPattern::Lateral { left, right } => {
-                visit(left, prebound, projection_prebound, seen_top_projection)?;
-                visit(right, prebound, projection_prebound, seen_top_projection)?;
+                recurse(left)?;
+                recurse(right)?;
+            }
+            GraphPattern::LeftJoin {
+                left,
+                right,
+                expression,
+            } => {
+                recurse(left)?;
+                recurse(right)?;
+                if let Some(expression) = expression {
+                    visit_expression(expression, &recurse)?;
+                }
+            }
+            GraphPattern::Filter { inner, expr } => {
+                recurse(inner)?;
+                visit_expression(expr, &recurse)?;
+            }
+            GraphPattern::OrderBy { inner, expression } => {
+                recurse(inner)?;
+                for OrderExpression::Asc(expr) | OrderExpression::Desc(expr) in expression {
+                    visit_expression(expr, &recurse)?;
+                }
+            }
+            GraphPattern::Group {
+                inner, aggregates, ..
+            } => {
+                recurse(inner)?;
+                for (_, aggregate) in aggregates {
+                    if let AggregateExpression::FunctionCall { expr, .. } = aggregate {
+                        visit_expression(expr, &recurse)?;
+                    }
+                }
             }
             GraphPattern::Graph { inner, .. }
-            | GraphPattern::Filter { inner, .. }
-            | GraphPattern::OrderBy { inner, .. }
+            | GraphPattern::Service { inner, .. }
             | GraphPattern::Distinct { inner }
             | GraphPattern::Reduced { inner }
-            | GraphPattern::Slice { inner, .. }
-            | GraphPattern::Group { inner, .. } => {
-                visit(inner, prebound, projection_prebound, seen_top_projection)?;
+            | GraphPattern::Slice { inner, .. } => {
+                recurse(inner)?;
             }
             GraphPattern::Bgp { .. } | GraphPattern::Path { .. } => {}
         }
@@ -1416,7 +1497,58 @@ fn validate_shacl_prebinding<'a>(
     // This preserves the existing aggregate-subquery extension for custom
     // component parameters. AS reassignment remains forbidden for every
     // declared parameter through the full `prebound` set.
-    visit(pattern, &prebound, &projection_prebound, false)
+    visit(pattern, &prebound, &projection_prebound, false, values_only)
+}
+
+/// EXISTS graph patterns may be nested inside FILTER, BIND, ordering, or
+/// aggregate expressions. Check them with the same pre-binding scope.
+fn visit_expression(
+    expr: &Expression,
+    visit_pattern: &impl Fn(&GraphPattern) -> Result<(), String>,
+) -> Result<(), String> {
+    let recurse = |expr: &Expression| visit_expression(expr, visit_pattern);
+    match expr {
+        Expression::Exists(pattern) => visit_pattern(pattern)?,
+        Expression::Not(expr) | Expression::UnaryPlus(expr) | Expression::UnaryMinus(expr) => {
+            recurse(expr)?
+        }
+        Expression::Or(a, b)
+        | Expression::And(a, b)
+        | Expression::Equal(a, b)
+        | Expression::SameTerm(a, b)
+        | Expression::Greater(a, b)
+        | Expression::GreaterOrEqual(a, b)
+        | Expression::Less(a, b)
+        | Expression::LessOrEqual(a, b)
+        | Expression::Add(a, b)
+        | Expression::Subtract(a, b)
+        | Expression::Multiply(a, b)
+        | Expression::Divide(a, b) => {
+            recurse(a)?;
+            recurse(b)?;
+        }
+        Expression::In(expr, items) => {
+            recurse(expr)?;
+            for item in items {
+                recurse(item)?;
+            }
+        }
+        Expression::If(a, b, c) => {
+            recurse(a)?;
+            recurse(b)?;
+            recurse(c)?;
+        }
+        Expression::Coalesce(items) | Expression::FunctionCall(_, items) => {
+            for item in items {
+                recurse(item)?;
+            }
+        }
+        Expression::NamedNode(_)
+        | Expression::Literal(_)
+        | Expression::Variable(_)
+        | Expression::Bound(_) => {}
+    }
+    Ok(())
 }
 
 /// Build the canonical, prefix-expanded form of a SHACL SPARQL query string.

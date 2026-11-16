@@ -692,6 +692,7 @@ def _infer(
     shapes_format: str = ...,
     on_unsupported: str = ...,
     base: Optional[str] = ...,
+    max_iterations: int = ...,
 ) -> InferResult: ...
 def expand_evidence_json(compact: str, catalog: Optional[str] = ...) -> str: ...
 

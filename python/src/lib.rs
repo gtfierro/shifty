@@ -701,6 +701,7 @@ fn parse_unsupported_policy(value: &str) -> Result<UnsupportedPolicy, String> {
 fn engine_options(on_unsupported: &str) -> Result<EngineOptions, String> {
     Ok(EngineOptions {
         unsupported: parse_unsupported_policy(on_unsupported)?,
+        ..Default::default()
     })
 }
 
@@ -1433,7 +1434,8 @@ pub fn _validate_w3c(
     shapes_path=None,
     shapes_format="auto",
     on_unsupported="error",
-    base=None
+    base=None,
+    max_iterations=1000
 ))]
 pub fn _infer(
     py: Python<'_>,
@@ -1445,7 +1447,13 @@ pub fn _infer(
     shapes_format: &str,
     on_unsupported: &str,
     base: Option<String>,
+    max_iterations: usize,
 ) -> PyResult<InferResult> {
+    if max_iterations == 0 {
+        return Err(py_value_error(
+            "max_iterations must be greater than zero".into(),
+        ));
+    }
     let data = InputSpec::new(data, data_path, data_format, "data").map_err(py_value_error)?;
     let shapes = match (shapes, shapes_path) {
         (None, None) => None,
@@ -1453,7 +1461,10 @@ pub fn _infer(
             Some(InputSpec::new(data, path, shapes_format, "shapes").map_err(py_value_error)?)
         }
     };
-    let engine = engine_options(on_unsupported).map_err(py_value_error)?;
+    let engine = EngineOptions {
+        max_inference_iterations: max_iterations,
+        ..engine_options(on_unsupported).map_err(py_value_error)?
+    };
     py.detach(move || {
         let data_loaded = data.load(base.as_deref()).map_err(py_value_error)?;
         let shapes_loaded = shapes

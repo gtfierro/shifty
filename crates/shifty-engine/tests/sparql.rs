@@ -257,7 +257,7 @@ mod complex_path_substitution {
 }
 
 #[test]
-fn construct_blank_nodes_are_rejected_to_preserve_termination() {
+fn nonterminating_construct_names_the_enclosing_shape() {
     let ttl = br#"
         @prefix sh: <http://www.w3.org/ns/shacl#> .
         @prefix ex: <http://ex/> .
@@ -275,12 +275,21 @@ fn construct_blank_nodes_are_rejected_to_preserve_termination() {
             SessionData::Embedded,
             SessionOptions {
                 inference: true,
+                engine: shifty_engine::EngineOptions {
+                    max_inference_iterations: 3,
+                    ..Default::default()
+                },
                 ..Default::default()
             },
         )
         .err()
-        .expect("strict inference rejects fresh blank nodes");
-    assert!(error.to_string().contains("blank nodes"));
+        .expect("nonterminating inference fails");
+    assert!(
+        error
+            .to_string()
+            .contains("did not converge within 3 iterations")
+    );
+    assert!(error.to_string().contains("on shape <http://ex/S>"));
 }
 
 /// A CONSTRUCT rule whose body has a `GROUP BY`/`COUNT` aggregate cannot lower to

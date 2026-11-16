@@ -907,14 +907,10 @@ impl SparqlExecutor {
                 }
             } else {
                 // Not batchable (template subject is not `?this`, or `?this` is
-                // unbound by the body). Named-node foci: pre-bind ?this via algebra
-                // substitution so Oxigraph can use subject–predicate index lookups.
-                for focus in foci.iter().filter(|f| !matches!(f, Term::BlankNode(_))) {
+                // unbound by the body). Execute per focus so nested template
+                // triples remain attached to the right focus node.
+                for focus in foci {
                     triples.extend(self.construct_one(query, focus)?);
-                }
-                if blank_foci().next().is_some() {
-                    let blank_set: HashSet<Term> = blank_foci().cloned().collect();
-                    self.construct_free_filtered(query, &blank_set, &mut triples)?;
                 }
             }
 
@@ -1003,8 +999,18 @@ impl SparqlExecutor {
 
     fn construct_one(&self, query: &str, focus: &Term) -> Result<Vec<Triple>, String> {
         let mut query = self.parse_construct(query)?;
-        substitute_query(&mut query, &variable("this"), focus);
-        let prepared = self.evaluator().for_query(query);
+        let this = variable("this");
+        let prepared = if matches!(focus, Term::BlankNode(_)) {
+            if let Query::Construct { pattern, .. } = &mut query {
+                project_variable(pattern, &this);
+            }
+            self.evaluator()
+                .for_query(query)
+                .substitute_variable(this, focus.clone())
+        } else {
+            substitute_query(&mut query, &this, focus);
+            self.evaluator().for_query(query)
+        };
         let results = if let Some(frozen) = &self.frozen {
             prepared
                 .on_queryable_dataset(frozen)

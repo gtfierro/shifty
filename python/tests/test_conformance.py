@@ -12,6 +12,7 @@ from conformance.runner import (
     DEFAULT_SUITE,
     EARL,
     MF,
+    SHACL12_VALUES_CASE,
     SHT,
     Case,
     Documents,
@@ -116,6 +117,26 @@ def test_missing_report_type_is_not_synthesized_into_a_pass():
     graph.remove((root, RDF.type, SH.ValidationReport))
     with pytest.raises(ValueError, match="Missing.*ValidationReport"):
         report_graph(graph, root, set())
+
+
+def test_shacl12_values_difference_is_reported_as_a_shacl10_failure(tmp_path):
+    documents = Documents(DEFAULT_SUITE / "tests")
+    case = next(
+        case
+        for case in discover(documents, DEFAULT_SUITE / "tests/manifest.ttl")
+        if case.identifier == SHACL12_VALUES_CASE
+    )
+    result = run_case(case, documents, tmp_path)
+    assert result.outcome == "failed"
+    assert result.info == "Expected validation failure, got a report"
+    baseline = json.loads((DEFAULT_SUITE / "baseline.json").read_text())
+    assert (
+        baseline_errors(
+            [result],
+            {**baseline, "results": {result.test: baseline["results"][result.test]}},
+        )
+        == []
+    )
 
 
 def test_manifest_actions_load_separate_documents_and_ignore_helper_booleans(tmp_path):

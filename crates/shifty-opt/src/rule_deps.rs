@@ -346,6 +346,7 @@ mod tests {
             qualifier: top,
         });
         let rule = Rule {
+            source: None,
             selector: Selector::HasOut(named("target")),
             conditions: vec![condition],
             head: RuleHead::Triple {
@@ -370,6 +371,7 @@ mod tests {
         let mut arena = ShapeArena::new();
         let top = arena.top();
         let rule = Rule {
+            source: None,
             selector: Selector::HasPath(Path::Id, top),
             conditions: Vec::new(),
             head: RuleHead::Sparql(shifty_algebra::SparqlConstruct {
@@ -385,6 +387,7 @@ mod tests {
 
     fn sparql_rule(query: &str) -> Rule {
         Rule {
+            source: None,
             selector: Selector::IsConst(Term::NamedNode(named("focus"))),
             conditions: Vec::new(),
             head: RuleHead::Sparql(shifty_algebra::SparqlConstruct {

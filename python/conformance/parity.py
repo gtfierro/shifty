@@ -23,6 +23,7 @@ from .runner import (
     MF,
     OPTIONS,
     ROOT,
+    SHACL12_VALUES_CASE,
     SHT,
     Documents,
     discover,
@@ -108,7 +109,10 @@ def compare_case(case, documents, cli: Path, timeout: float):
             )
         if completed.stderr.strip():
             raise RuntimeError(f"CLI diagnostic: {completed.stderr.strip()}")
-        if python_failure is not None or expected == SHT.Failure:
+        values_compatibility = case.identifier == SHACL12_VALUES_CASE
+        if python_failure is not None or (
+            expected == SHT.Failure and not values_compatibility
+        ):
             row.update(
                 outcome="failed",
                 info="Interfaces did not both reject the expected validation failure",
@@ -124,6 +128,25 @@ def compare_case(case, documents, cli: Path, timeout: float):
         cli_roots = list(cli_report.subjects(RDF.type, SH.ValidationReport))
         if len(python_roots) != 1 or len(cli_roots) != 1:
             raise ValueError("Each interface must emit exactly one validation report")
+        if values_compatibility:
+            # This case deliberately differs from the 1.0 oracle. It still
+            # checks CLI/Python parity and the single violation expected under
+            # the 1.2 VALUES rule; the main runner records it as a 1.0 failure.
+            python_normalized = normalize(python_report, python_roots[0], set())
+            cli_normalized = normalize(cli_report, cli_roots[0], set())
+            results = list(python_report.objects(python_roots[0], SH.result))
+            if (
+                conforms
+                or len(results) != 1
+                or not isomorphic(python_normalized, cli_normalized)
+            ):
+                row.update(outcome="failed", info="SHACL 1.2 VALUES reports differ")
+            else:
+                row.update(
+                    outcome="passed",
+                    info="Interfaces agree on SHACL 1.2 VALUES behavior; this differs from SHACL 1.0",
+                )
+            return row
         messages = {
             message
             for subject in (expected, *graph.objects(expected, SH.result))

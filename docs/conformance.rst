@@ -1,14 +1,19 @@
 SHACL conformance
 =================
 
-Shifty passes all 120 approved cases in the pinned W3C SHACL 1.0 Core/SPARQL
-suite. One proposed case also passes and is counted separately.
+The current implementation follows SHACL 1.2's narrower ``VALUES`` restriction:
+only collisions with potentially pre-bound variables are rejected. Consequently,
+the SHACL 1.0 case ``sparql/pre-binding/unsupported-sparql-002`` now reports a
+failure against that older specification. The CI baseline records this deliberate
+difference; the upstream fixture and the conformance oracle remain unchanged.
 
 Recorded results
 ----------------
 
 This report was produced on **2026-11-11** using **0.6.0-alpha.4** at commit
 `aaaea85 <https://github.com/gtfierro/shifty/commit/aaaea85bd406021f1fd9056a53d5dca7c3b9a53c>`_.
+That version passed all 120 approved cases and the one proposed case, before
+the change to ``VALUES`` handling.
 
 .. list-table::
    :header-rows: 1

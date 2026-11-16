@@ -26,6 +26,9 @@ pub enum RuleHead {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Rule {
+    /// Authored rule and enclosing shape, retained for execution diagnostics.
+    #[serde(default)]
+    pub source: Option<String>,
     /// Focus nodes the rule applies to (the owning shape's target).
     pub selector: Selector,
     /// `sh:condition` shapes that must hold before the rule fires.

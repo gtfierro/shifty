@@ -1141,6 +1141,7 @@ fn validate(args: ValidateArgs) -> Result<(), Box<dyn Error>> {
                 inference: !args.no_infer,
                 engine: shifty_engine::EngineOptions {
                     unsupported: args.on_unsupported.into(),
+                    ..Default::default()
                 },
             },
         )

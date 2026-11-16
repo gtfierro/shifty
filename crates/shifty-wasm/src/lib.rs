@@ -105,7 +105,10 @@ impl Options {
                 )));
             }
         };
-        Ok(EngineOptions { unsupported })
+        Ok(EngineOptions {
+            unsupported,
+            ..Default::default()
+        })
     }
 
     fn validation_options(&self) -> Result<ValidationOptions, JsError> {

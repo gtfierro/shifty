@@ -19,6 +19,7 @@ fn session(shape: &str, policy: UnsupportedPolicy) -> shifty_engine::EvaluationS
             SessionOptions {
                 engine: EngineOptions {
                     unsupported: policy,
+                    ..Default::default()
                 },
                 ..Default::default()
             },
@@ -191,6 +192,7 @@ fn inference_rejects_failed_targets_conditions_and_node_filters() {
                     inference: true,
                     engine: EngineOptions {
                         unsupported: UnsupportedPolicy::Ignore,
+                        ..Default::default()
                     },
                     ..Default::default()
                 },

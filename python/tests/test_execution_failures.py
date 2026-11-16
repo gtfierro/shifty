@@ -82,7 +82,8 @@ def test_strict_inference_is_the_default(call):
         PREFIXES
         + """
 ex:S a sh:NodeShape ; sh:targetNode ex:x ; sh:rule [ a sh:SPARQLRule ;
-    sh:construct "CONSTRUCT { $this <http://ex/p> [] } WHERE {}" ] .
+    sh:construct "CONSTRUCT { $this <http://ex/p> true } WHERE { FILTER (<http://ex/exists>()) }" ] .
+ex:exists a sh:SPARQLFunction ; sh:ask "ASK { ?s ex:p ?o }" .
 """
     )
     with pytest.raises(ValueError, match="strict inference failed"):

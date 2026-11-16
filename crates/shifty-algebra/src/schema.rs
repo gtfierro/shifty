@@ -165,6 +165,7 @@ impl Schema {
         }
         for rule in &other.rules {
             self.rules.push(Rule {
+                source: rule.source.clone(),
                 selector: rule.selector.remap(&f),
                 conditions: rule.conditions.iter().map(|c| f(*c)).collect(),
                 head: match &rule.head {

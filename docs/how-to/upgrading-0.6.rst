@@ -22,7 +22,7 @@ explicitly, use the policy for your interface:
    * - JavaScript
      - ``{ onUnsupported: "ignore" }``
    * - Rust
-     - ``EngineOptions { unsupported: UnsupportedPolicy::Ignore }``
+     - ``EngineOptions { unsupported: UnsupportedPolicy::Ignore, ..Default::default() }``
    * - C++ validation
      - ``options.on_unsupported = shifty::UnsupportedPolicy::Ignore``
 

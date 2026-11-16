@@ -8,8 +8,8 @@
 //! next pass. Predicate-level delta scheduling avoids rerunning rules whose
 //! graph reads cannot observe the newly added triples. Triple rules only
 //! combine existing terms. SPARQL `CONSTRUCT` may reuse blank nodes from the
-//! input data or shapes graph, but results containing fresh blank nodes are
-//! rejected.
+//! input data or shapes graph and create fresh blank nodes. An iteration limit
+//! bounds rules that keep generating new terms instead of reaching a fixpoint.
 //!
 //! Rule inference runs only through compiled sessions. This keeps graph roles,
 //! parsed queries, function definitions, and blank-node identities identical
@@ -80,8 +80,8 @@ pub(crate) fn infer_with_compiled_functions(
     // Capture input graph identities before the first inference commit. In a
     // compiled session, the indexed dataset may alias data blank nodes whose
     // labels collide with the shapes source, so use its internalized terms.
-    // This finite set permits CONSTRUCT rules to describe existing nodes while
-    // excluding fresh template and BNODE() nodes on every fixpoint pass.
+    // Fresh template and BNODE() nodes require another pass even if none of
+    // the rule's read predicates changed: another execution may create more.
     let input_blank_nodes: HashSet<BlankNode> = if rules
         .iter()
         .any(|scheduled| matches!(scheduled.rule.head, RuleHead::Sparql(_)))
@@ -101,7 +101,27 @@ pub(crate) fn infer_with_compiled_functions(
     // `delta_start` avoids cloning RDF terms into separate delta buffers.
     let mut delta_start = 0;
     let mut first_pass = true;
+    let mut iterations = 0;
+    let mut generative_rules = HashSet::new();
     loop {
+        if iterations >= options.max_inference_iterations {
+            return Err(EvaluationError::InferenceLimit {
+                iterations,
+                rules: rules
+                    .iter()
+                    .enumerate()
+                    .filter(|(position, _)| active.contains(position))
+                    .map(|(position, scheduled)| {
+                        scheduled
+                            .rule
+                            .source
+                            .clone()
+                            .unwrap_or_else(|| format!("rule[{position}]"))
+                    })
+                    .collect(),
+            });
+        }
+        iterations += 1;
         let mut changed_predicates = HashSet::new();
         let mut added = false;
         let mut start = 0;
@@ -158,6 +178,7 @@ pub(crate) fn infer_with_compiled_functions(
                 let execution_focus_nodes = match &scheduled.rule.head {
                     RuleHead::Sparql(construct)
                         if !first_pass
+                            && !generative_rules.contains(&(start + position))
                             && !focus_nodes.is_empty()
                             // Differential BGP execution visits the delta once
                             // per scan. Above this crossover, the existing
@@ -199,15 +220,18 @@ pub(crate) fn infer_with_compiled_functions(
                 // Conditions and filter expressions use boolean shape evaluation.
                 // Check its retained failures before committing any candidate
                 // triples, including results produced through negation.
-                sparql.checked(|| {
+                let generated = sparql.checked(|| {
                     fire_rule(
                         execution_focus_nodes,
                         scheduled.rule,
                         &runtime,
                         &mut candidates,
                         &mut diags,
-                    );
+                    )
                 })?;
+                if generated {
+                    generative_rules.insert(start + position);
+                }
                 crate::profile::record_shape(&rule_label, rule_t.elapsed().as_micros() as u64);
             }
             sparql.extend_triples(candidates.iter());
@@ -230,7 +254,9 @@ pub(crate) fn infer_with_compiled_functions(
         first_pass = false;
         active.clear();
         for (position, scheduled) in rules.iter().enumerate() {
-            if scheduled.dependencies.affected_by(&changed_predicates) {
+            if generative_rules.contains(&position)
+                || scheduled.dependencies.affected_by(&changed_predicates)
+            {
                 active.insert(position);
             }
         }
@@ -281,7 +307,8 @@ fn fire_rule(
     runtime: &RuleRuntime<'_>,
     out: &mut HashSet<Triple>,
     diags: &mut BTreeSet<String>,
-) {
+) -> bool {
+    let mut generated = false;
     let mut evaluator = ShapeEvaluator::new(
         runtime.backend,
         runtime.arena,
@@ -350,22 +377,24 @@ fn fire_rule(
                         if matches!(&triple.subject, NamedOrBlankNode::BlankNode(node) if !runtime.input_blank_nodes.contains(node))
                             || matches!(&triple.object, Term::BlankNode(node) if !runtime.input_blank_nodes.contains(node))
                         {
-                            diags.insert(
-                                "sh:SPARQLRule CONSTRUCT fresh blank nodes are not supported because \
-                                 they can prevent fixpoint termination"
-                                    .to_string(),
-                            );
-                        } else {
-                            out.insert(triple);
+                            generated = true;
                         }
+                        out.insert(triple);
                     }
                 }
                 Err(error) => {
-                    diags.insert(format!("sh:SPARQLRule evaluation failed: {error}"));
+                    diags.insert(format!(
+                        "sh:SPARQLRule evaluation failed{}: {error}",
+                        rule.source
+                            .as_ref()
+                            .map(|source| format!(" ({source})"))
+                            .unwrap_or_default()
+                    ));
                 }
             }
         }
     }
+    generated
 }
 
 /// Evaluate a node expression at focus node `v` to its set of result terms.

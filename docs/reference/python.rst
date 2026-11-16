@@ -253,10 +253,27 @@ distinguish them.
 .. code-block:: python
 
    shifty.infer(data_graph, shapes_graph=None, *,
-                in_place=False, on_unsupported="error", base=None) -> InferResult
+                in_place=False, on_unsupported="error", base=None,
+                max_iterations=1000) -> InferResult
 
 Runs SHACL-AF ``sh:rule`` entries to a fixed point. Note it takes no
 ``graph_mode``.
+
+``max_iterations`` is a positive limit on complete inference passes, including
+the final convergence check. Rules may construct fresh blank nodes. If they
+keep producing new triples, the limit raises ``ValidationFailure`` and no
+partial result is written back by ``in_place=True``. The error identifies the
+active rules and their enclosing shapes. Automatic inference during validation
+uses the default limit of 1000 passes. Rust callers configure it through
+``EngineOptions.max_inference_iterations``.
+
+``on_unsupported="error"`` (alias ``"strict"``) rejects unsupported features.
+``"ignore"`` (alias ``"lenient"``) allows best effort and retains diagnostics;
+results may be incomplete. This policy does not relax malformed shapes,
+pre-binding collisions, or iteration limits. Constraints and CONSTRUCT rules
+allow ``VALUES`` unless it mentions a potentially pre-bound variable, following
+the SHACL 1.2 rule. CONSTRUCT rules also support fresh blank nodes with the
+default policy.
 
 .. code-block:: python
 

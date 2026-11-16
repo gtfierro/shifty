@@ -66,7 +66,8 @@ SHACL-SPARQL
      - Notes
    * - SPARQL constraints — ``sh:sparql`` (``sh:select``)
      - ✅
-     - native execution with Spareval fallback
+     - native execution with Spareval fallback; ``VALUES`` uses SHACL 1.2's
+       collision check against potentially pre-bound variables
    * - Custom constraint components — ``sh:parameter`` + ``sh:validator`` / ``sh:nodeValidator`` / ``sh:propertyValidator``
      - ✅
      - optional params, simple and complex ``$PATH``, report path
@@ -83,7 +84,9 @@ SHACL-AF (Advanced Features)
      - Notes
    * - Rules — ``sh:TripleRule``, ``sh:SPARQLRule`` (CONSTRUCT)
      - ✅
-     - forward-chained to a fixed point, honouring ``sh:order`` / ``sh:condition``
+     - forward-chained to a fixed point, honouring ``sh:order`` / ``sh:condition``;
+       CONSTRUCT supports ``VALUES`` and fresh blank nodes; inference is bounded
+       by an iteration limit (1000 passes by default)
    * - Node expressions — ``sh:this``, constants, ``sh:path``, ``sh:filterShape``, ``sh:intersection``, ``sh:union``, function application
      - ✅
      -

@@ -1437,6 +1437,7 @@ def infer(
     in_place: bool = False,
     on_unsupported: str = "error",
     base: Optional[str] = None,
+    max_iterations: int = 1000,
 ) -> InferResult:
     """Run SHACL-AF forward-chaining rules to a fixed point.
 
@@ -1456,6 +1457,16 @@ def infer(
         a list/tuple of inputs); raises :class:`TypeError` otherwise, since
         there is no caller-owned graph to mutate. ``InferResult.graph()``
         then returns *data_graph* itself rather than a fresh copy.
+    on_unsupported:
+        ``"error"`` (default) rejects unsupported features. ``"ignore"``
+        runs supported parts and records skipped features in ``diagnostics``;
+        results may be incomplete. Aliases are ``"strict"`` and ``"lenient"``.
+        Invalid shapes and inference iteration limits always raise an error.
+        Fresh CONSTRUCT blank nodes are supported under either policy.
+    max_iterations:
+        Maximum inference passes, including the final convergence check.
+        Must be positive. If rules keep adding triples beyond this limit,
+        raise :class:`ValidationFailure` without writing back a partial result.
     base:
         Base IRI for resolving relative IRIs.
 
@@ -1482,6 +1493,7 @@ def infer(
         shapes.format,
         on_unsupported,
         base,
+        max_iterations,
     )
     _write_back_derived(target, lambda: inner._inferred_ntriples)
     return InferResult(inner, _target=target, _bnode_context=data.bnode_context)

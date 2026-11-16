@@ -15,6 +15,12 @@ This runs 120 approved SHACL 1.0 Core/SPARQL tests and one proposed test.
 The proposed test is reported separately. SHACL-AF, SHACL-JS, and SHACL 1.2
 are outside this suite.
 
+The current engine deliberately follows SHACL 1.2's narrower ``VALUES``
+restriction. The 1.0 case ``sparql/pre-binding/unsupported-sparql-002`` therefore
+reports ``failed``: it expects a blanket rejection of ``VALUES ?any``. The CI
+baseline records this difference without changing the upstream fixture or
+counting it as a SHACL 1.0 pass.
+
 The runner loads the data and shapes specified by each manifest and compares
 Shifty's report with the expected report using the `W3C test process
 <https://w3c.github.io/data-shapes/data-shapes-test-suite/>`_. Inference is

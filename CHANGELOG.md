@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- SHACL-AF CONSTRUCT rules now support fresh blank nodes, including guarded
+  defaults such as Brick's EVSE directionality rule. Inference has a limit of
+  1000 passes; Python `infer(max_iterations=...)` and Rust
+  `EngineOptions.max_inference_iterations` can change it. Exceeding the limit
+  fails under either unsupported-feature policy without partial writeback.
+- Rule execution errors identify the authored rule and enclosing shape. Invalid
+  SPARQL constraint and rule diagnostics also name the enclosing shape.
+- SHACL-SPARQL constraints, validators, and CONSTRUCT rules allow `VALUES`
+  unless a declared variable collides with a potentially pre-bound variable,
+  following SHACL 1.2. Collision errors name the variables. This deliberately
+  differs from SHACL 1.0's blanket prohibition on `VALUES`.
+- Documented `infer(on_unsupported=...)` values and their limits.
+
 ## 0.6.0
 
 Shifty 0.6.0 tightens validation defaults and failure handling, improves shape-map

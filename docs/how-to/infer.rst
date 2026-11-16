@@ -83,6 +83,39 @@ Passing an empty ``rdflib.Graph()`` as the second argument is *not* the same
 thing: it means "run with an explicitly empty rules graph", so no rules are
 found and nothing is derived.
 
+Rules that create blank nodes
+----------------------------
+
+SPARQL rules can create fresh blank nodes in CONSTRUCT templates or through
+``BNODE()``. Use a guard such as ``FILTER NOT EXISTS`` when a rule should add a
+default value only once per focus node. Each solution creates its own blank
+nodes, and triples describing the same template node stay connected.
+
+Rules that continually create new terms may never reach a fixed point.
+Inference stops with an execution failure after 1000 passes by default.
+``infer()`` accepts a positive ``max_iterations`` to change this limit:
+
+.. code-block:: python
+
+   result = shifty.infer(data, rules, max_iterations=2000)
+
+The limit includes the final pass that checks convergence. Exceeding it raises
+``shifty.ValidationFailure``, naming the active rules and their shapes. This
+also applies to ``on_unsupported="ignore"``. Failed inference leaves a graph
+passed with ``in_place=True`` untouched.
+
+Constraints and CONSTRUCT rules allow ``VALUES`` on unrelated variables, such
+as ``VALUES ?prop { brick:hasQuantity brick:hasSubstance }``. A clause mentioning
+a potentially pre-bound variable, such as ``this`` or a custom constraint
+parameter (including an optional parameter), is rejected before execution.
+ASK validators also pre-bind ``value``; SELECT validators may use it as an
+ordinary result variable. Both ``?this`` and ``$this`` denote the same variable.
+This follows the narrower restriction in
+`SHACL 1.2 Appendix A <https://www.w3.org/TR/2026/WD-shacl12-sparql-20261022/#pre-binding>`_
+instead of SHACL 1.0's blanket ban. ``on_unsupported`` does not override these
+collisions. See also
+`SHACL-AF SPARQL rules <https://www.w3.org/TR/shacl-af/#sparql-rules>`_.
+
 .. _inference-during-validation:
 
 Inference during validation

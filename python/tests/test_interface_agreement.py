@@ -146,8 +146,8 @@ SKIPPED_RULE_SHAPES = (
     PREFIX
     + """
 ex:S a sh:NodeShape ; sh:targetNode ex:x ;
-    sh:rule [ a sh:SPARQLRule ;
-        sh:construct "CONSTRUCT { $this ex:p [] } WHERE {}" ] .
+    sh:rule [ a sh:TripleRule ; sh:subject sh:this ;
+        sh:predicate ex:p ; sh:object [ ex:missing () ] ] .
 """
 )
 SKIPPED_RULE_DATA = PREFIX + "ex:x ex:q ex:y ."
@@ -158,12 +158,12 @@ def test_every_interface_reports_inference_diagnostics():
     algebra = shifty.validate_algebra(
         SKIPPED_RULE_DATA, SKIPPED_RULE_SHAPES, on_unsupported="ignore"
     )
-    assert any("blank nodes" in message for message in algebra.diagnostics)
+    assert any("has no sh:select" in message for message in algebra.diagnostics)
 
     inferred = shifty.infer(
         SKIPPED_RULE_DATA, SKIPPED_RULE_SHAPES, on_unsupported="ignore"
     )
-    assert any("blank nodes" in message for message in inferred.diagnostics)
+    assert any("has no sh:select" in message for message in inferred.diagnostics)
 
 
 def test_w3c_path_warns_because_its_tuple_cannot_carry_diagnostics():
@@ -172,14 +172,14 @@ def test_w3c_path_warns_because_its_tuple_cannot_carry_diagnostics():
     Without this the caller sees `conforms=True` and nothing at all about the
     rule that never ran.
     """
-    with pytest.warns(shifty.ShaclDiagnosticWarning, match="blank nodes"):
+    with pytest.warns(shifty.ShaclDiagnosticWarning, match="has no sh:select"):
         conforms, _, _ = shifty.validate(
             SKIPPED_RULE_DATA, SKIPPED_RULE_SHAPES, on_unsupported="ignore"
         )
     assert conforms is True
 
     prepared = shifty.PreparedValidator(SKIPPED_RULE_SHAPES)
-    with pytest.warns(shifty.ShaclDiagnosticWarning, match="blank nodes"):
+    with pytest.warns(shifty.ShaclDiagnosticWarning, match="has no sh:select"):
         prepared.validate(SKIPPED_RULE_DATA, on_unsupported="ignore")
 
 

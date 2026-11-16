@@ -1060,6 +1060,7 @@ mod tests {
             &ValidationOptions {
                 engine: EngineOptions {
                     unsupported: UnsupportedPolicy::Ignore,
+                    ..Default::default()
                 },
                 ..Default::default()
             },
@@ -1072,6 +1073,7 @@ mod tests {
         let strict_opts = ValidationOptions {
             engine: EngineOptions {
                 unsupported: UnsupportedPolicy::Error,
+                ..Default::default()
             },
             ..Default::default()
         };
@@ -1443,6 +1445,7 @@ mod tests {
             &ValidationOptions {
                 engine: EngineOptions {
                     unsupported: UnsupportedPolicy::Ignore,
+                    ..Default::default()
                 },
                 ..Default::default()
             },
@@ -1812,7 +1815,7 @@ mod tests {
     }
 
     #[test]
-    fn sparql_rules_still_reject_fresh_blank_nodes() {
+    fn nonterminating_blank_node_rules_hit_the_iteration_limit() {
         for construct in [
             "CONSTRUCT { $this ex:made [] } WHERE {}",
             "CONSTRUCT { $this ex:made ?node } WHERE { BIND(BNODE() AS ?node) }",
@@ -1831,12 +1834,20 @@ mod tests {
                     SessionData::Embedded,
                     SessionOptions {
                         inference: true,
+                        engine: EngineOptions {
+                            max_inference_iterations: 3,
+                            ..Default::default()
+                        },
                         ..Default::default()
                     },
                 )
                 .err()
-                .expect("strict inference must reject fresh blank nodes");
-            assert!(error.to_string().contains("fresh blank nodes"));
+                .expect("nonterminating inference must fail");
+            assert!(
+                error
+                    .to_string()
+                    .contains("did not converge within 3 iterations")
+            );
         }
     }
 

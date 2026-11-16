@@ -35,11 +35,12 @@ PROV = Namespace("http://www.w3.org/ns/prov#")
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_SUITE = ROOT / "testdata/w3c-shacl"
 TEST_BASE = "urn:x-shacl-test:/"
+SHACL12_VALUES_CASE = TEST_BASE + "sparql/pre-binding/unsupported-sparql-002"
 OPTIONS = dict(infer=False, graph_mode="data", on_unsupported="error")
 DATA_IDENTITY = URIRef("urn:shifty-test-data:identity")
 EXPECTED_FAILURES = (
     "SHACL-SPARQL queries must not contain MINUS",
-    "SHACL-SPARQL queries must not contain VALUES",
+    "SHACL-SPARQL VALUES must not bind potentially pre-bound variable(s): ",
     "SHACL-SPARQL queries must not contain SERVICE",
     "SHACL-SPARQL must not assign potentially pre-bound variable ",
     "SHACL-SPARQL subquery does not project potentially pre-bound variable(s): ",

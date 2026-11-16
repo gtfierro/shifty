@@ -578,7 +578,7 @@
     },
     "urn:x-shacl-test:/sparql/pre-binding/unsupported-sparql-002": {
       "status": "approved",
-      "outcome": "passed",
+      "outcome": "failed",
       "algebra": "not-run"
     },
     "urn:x-shacl-test:/sparql/pre-binding/unsupported-sparql-003": {
@@ -606,5 +606,8 @@
       "outcome": "passed",
       "algebra": "passed"
     }
+  },
+  "notes": {
+    "urn:x-shacl-test:/sparql/pre-binding/unsupported-sparql-002": "Deliberately follows SHACL 1.2: VALUES on an unrelated variable is allowed. Keep the SHACL 1.0 oracle and upstream fixture unchanged."
   }
 }

@@ -18,6 +18,10 @@ pub enum SparqlOperation {
 #[non_exhaustive]
 pub enum EvaluationError {
     ForeignPair,
+    InferenceLimit {
+        iterations: usize,
+        rules: Vec<String>,
+    },
     Sparql {
         operation: SparqlOperation,
         message: String,
@@ -27,6 +31,11 @@ pub enum EvaluationError {
 impl fmt::Display for EvaluationError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::InferenceLimit { iterations, rules } => write!(
+                f,
+                "inference did not converge within {iterations} iterations; active rules: {}",
+                rules.join("; ")
+            ),
             Self::ForeignPair => write!(f, "selected pair belongs to another session"),
             Self::Sparql { operation, message } => {
                 write!(f, "SPARQL {operation:?} evaluation failed: {message}")

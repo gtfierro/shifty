@@ -711,6 +711,7 @@ impl<'a> Interner<'a> {
 
     fn rule(&mut self, r: &Rule) -> Rule {
         Rule {
+            source: r.source.clone(),
             selector: self.selector(&r.selector),
             conditions: r.conditions.iter().map(|c| self.intern(*c)).collect(),
             head: self.head(&r.head),
