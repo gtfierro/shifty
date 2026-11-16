@@ -31,9 +31,10 @@ From the repository root:
    cargo test -p shifty-engine --test w3c_advanced -- --nocapture
 
 The locally adapted AF/DASH inventory covers 7 inference cases, 97 validation
-cases, and 2 function cases. Four additional project fixtures cover function
-expressions, value-node scope, optional arguments, path inputs, and fresh blank
-nodes. These regressions are separate from the pinned SHACL 1.0 implementation
+cases, and 2 function cases. Eight additional project fixtures cover function
+expressions, value-node scope, optional arguments, path inputs, fresh blank
+nodes, execution ordering, nested functions, reusable target types, and result
+annotations. These regressions are separate from the pinned SHACL 1.0 implementation
 report.
 
 The harness enforces its fixture inventory and category counts. Unexpected

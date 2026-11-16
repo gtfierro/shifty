@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+## 0.6.1
+
+Shifty 0.6.1 expands SHACL-AF support with hierarchical execution ordering,
+shared graph-aware functions, reusable target types, and result annotations.
+Install Python with `python -m pip install "pyshifty[rdflib]==0.6.1"` or the CLI
+with `cargo install shifty-cli --version 0.6.1`.
+
+Rust consumers constructing public IR and result types must update struct
+literals for the new fields. `Rule.order` now uses `Option<Order>` instead of
+`Option<i64>`, and serialized orders use decimal strings. See the 0.6 upgrade
+guide for migration details. Rule ordering can also change the inferred graph
+when guards depend on earlier additions.
+
 - Added SHACL-AF result annotations to SPARQL constraints and custom validators:
   explicit variable names, property-local-name fallback, and all constant
   defaults for unbound variables. Reports, algebra reasons and evidence retain
