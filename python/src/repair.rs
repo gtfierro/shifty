@@ -239,7 +239,7 @@ fn render_tree(
 /// Exact kind of a structured evidence node. Unlike `WitnessKind` and
 /// `SatKind`, which classify flattened driver summaries, this enum is a
 /// one-to-one projection of the Rust evidence grammar.
-#[pyclass(eq, eq_int, hash, frozen, name = "EvidenceKind", skip_from_py_object)]
+#[pyclass(eq, eq_int, hash, frozen, name = "EvidenceKind")]
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum PyEvidenceKind {
     Irrefutable,
@@ -340,7 +340,7 @@ impl PyEvidenceKind {
 /// The kind of a failing witness leaf — the enumerated discriminant of
 /// [`WitnessAtom`]. `Not` marks a `¬φ` that holds and must be falsified; the
 /// `Count*` variants an under-/over-satisfied cardinality.
-#[pyclass(eq, eq_int, hash, frozen, name = "WitnessKind", skip_from_py_object)]
+#[pyclass(eq, eq_int, hash, frozen, name = "WitnessKind")]
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum WitnessKind {
     Atom,
@@ -354,7 +354,7 @@ pub enum WitnessKind {
 
 /// One failing leaf of a witness, flattened. The AND/OR structure is preserved in
 /// `explain`; this is the bag of leaves a driver can scan.
-#[pyclass(get_all, name = "WitnessAtom", skip_from_py_object)]
+#[pyclass(get_all, name = "WitnessAtom")]
 #[derive(Clone)]
 pub struct WitnessAtom {
     /// The leaf kind (see [`WitnessKind`]).
@@ -525,7 +525,7 @@ fn witness_leaves(arena: &ShapeArena, px: &Prefixes, w: &Witness, out: &mut Vec<
 /// [`SatAtom`]. `Match` is a value that satisfied a counted path; `Blocked` a
 /// leaf that holds but exposes no enumerable value set (closed / relational /
 /// opaque SPARQL); `Coinductive` a gfp back-edge assumed true.
-#[pyclass(eq, eq_int, hash, frozen, name = "SatKind", skip_from_py_object)]
+#[pyclass(eq, eq_int, hash, frozen, name = "SatKind")]
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum SatKind {
     Atom,
@@ -537,7 +537,7 @@ pub enum SatKind {
 
 /// One holding leaf of a satisfaction trace, flattened — the satisfaction-side
 /// dual of [`WitnessAtom`]. The AND/OR structure is preserved in `explain`.
-#[pyclass(get_all, name = "SatAtom", skip_from_py_object)]
+#[pyclass(get_all, name = "SatAtom")]
 #[derive(Clone)]
 pub struct SatAtom {
     /// The leaf kind (see [`SatKind`]).
@@ -1124,7 +1124,7 @@ impl RepairSession {
 /// `SubjectsOf`/`ObjectsOf` are `sh:targetSubjectsOf`/`sh:targetObjectsOf`;
 /// `Node` an `sh:targetNode`; `Path` a generic path target; `Sparql` a
 /// SPARQL-based target.
-#[pyclass(eq, eq_int, hash, frozen, name = "TargetKind", skip_from_py_object)]
+#[pyclass(eq, eq_int, hash, frozen, name = "TargetKind")]
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum TargetKind {
     Class,
@@ -1138,7 +1138,7 @@ pub enum TargetKind {
 /// A statement's target selector, decomposed for inspection: a [`TargetKind`]
 /// discriminant plus the salient term(s), alongside the rendered string. The
 /// structured counterpart of `FocusWitness.target` / `FocusSatisfaction.target`.
-#[pyclass(get_all, name = "Target", skip_from_py_object)]
+#[pyclass(get_all, name = "Target")]
 #[derive(Clone)]
 pub struct Target {
     /// What the selector targets (see [`TargetKind`]).
@@ -3107,7 +3107,7 @@ pub struct RepairTree {
 }
 
 /// The evidence occurrence that justified one repair-tree node.
-#[pyclass(get_all, eq, frozen, name = "RepairOrigin", skip_from_py_object)]
+#[pyclass(get_all, eq, frozen, name = "RepairOrigin")]
 #[derive(Clone, PartialEq, Eq)]
 pub struct RepairOrigin {
     /// Authored statement id, absent for direct node/sub-shape repairs.
@@ -3373,7 +3373,7 @@ impl Hole {
 /// The kind of decision point in a [`RepairTree`] — the enumerated discriminant
 /// of [`Choice`]. `Any` is a disjunction (pick one branch); `Repeat` a bounded
 /// repetition (pick a count).
-#[pyclass(eq, eq_int, hash, frozen, name = "ChoiceKind", skip_from_py_object)]
+#[pyclass(eq, eq_int, hash, frozen, name = "ChoiceKind")]
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum ChoiceKind {
     Any,
@@ -3381,7 +3381,7 @@ pub enum ChoiceKind {
 }
 
 /// An `Any`/`Repeat` decision point in a [`RepairTree`].
-#[pyclass(get_all, name = "Choice", skip_from_py_object)]
+#[pyclass(get_all, name = "Choice")]
 #[derive(Clone)]
 pub struct Choice {
     pub node_id: u32,
@@ -3515,7 +3515,7 @@ impl Instantiated {
 }
 
 /// A set of triple additions and deletions — the `ΔG` a driver gates and applies.
-#[pyclass(name = "RepairDelta", skip_from_py_object)]
+#[pyclass(name = "RepairDelta")]
 #[derive(Clone)]
 pub struct RepairDelta {
     pub(crate) inner: shifty_repair::GraphDelta,

@@ -87,7 +87,7 @@ fn compiled_session_loaded(
 /// Debugging detail for a failed `sh:sparql`/custom SPARQL-based constraint
 /// component: what query ran, what it was bound to, and what it returned, so
 /// a SPARQL failure is never a dead end.
-#[pyclass(get_all, skip_from_py_object)]
+#[pyclass(get_all)]
 #[derive(Clone)]
 pub struct SparqlDiagnostic {
     /// The query actually executed, after every static SHACL substitution
@@ -222,7 +222,7 @@ fn sparql_diagnostic_to_py(
     )
 }
 
-#[pyclass(eq, eq_int, hash, frozen, name = "ConstraintKind", skip_from_py_object)]
+#[pyclass(eq, eq_int, hash, frozen, name = "ConstraintKind")]
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum ConstraintKind {
     Unknown,
@@ -268,7 +268,7 @@ pub(crate) fn constraint_kind_to_py(kind: shifty_algebra::ConstraintKind) -> Con
     }
 }
 
-#[pyclass(name = "Constraint", skip_from_py_object)]
+#[pyclass(name = "Constraint")]
 #[derive(Clone)]
 pub struct Constraint {
     /// Algebra arena id for this constraint.

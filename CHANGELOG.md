@@ -2,12 +2,12 @@
 
 ## Unreleased
 
-## 0.6.1
+## 0.7.0
 
-Shifty 0.6.1 expands SHACL-AF support with hierarchical execution ordering,
+Shifty 0.7.0 expands SHACL-AF support with hierarchical execution ordering,
 shared graph-aware functions, reusable target types, and result annotations.
-Install Python with `python -m pip install "pyshifty[rdflib]==0.6.1"` or the CLI
-with `cargo install shifty-cli --version 0.6.1`.
+Install Python with `python -m pip install "pyshifty[rdflib]==0.7.0"` or the CLI
+with `cargo install shifty-cli --version 0.7.0`.
 
 - Reduced inference snapshot overhead by sharing one read snapshot across tied
   shapes that have no intermediate rule-order groups, including runs inside
@@ -20,8 +20,8 @@ with `cargo install shifty-cli --version 0.6.1`.
 
 Rust consumers constructing public IR and result types must update struct
 literals for the new fields. `Rule.order` now uses `Option<Order>` instead of
-`Option<i64>`, and serialized orders use decimal strings. See the 0.6 upgrade
-guide for migration details. Rule ordering can also change the inferred graph
+`Option<i64>`, and serialized orders use decimal strings. See the [0.7 upgrade guide](https://shifty.gtf.fyi/how-to/upgrading-0.7.html)
+for migration details. Rule ordering can also change the inferred graph
 when guards depend on earlier additions.
 
 - Added SHACL-AF result annotations to SPARQL constraints and custom validators:
@@ -72,6 +72,7 @@ when guards depend on earlier additions.
   following SHACL 1.2. Collision errors name the variables. This deliberately
   differs from SHACL 1.0's blanket prohibition on `VALUES`.
 - Documented `infer(on_unsupported=...)` values and their limits.
+- Updated the Python extension to PyO3 0.30.
 
 ## 0.6.0
 

@@ -3,34 +3,6 @@ Upgrading to 0.6
 
 The changes below apply when upgrading from 0.5.x.
 
-Rust API changes in 0.6.1
---------------------------
-
-Version 0.6.1 includes source and serialized-IR compatibility changes for Rust
-consumers that construct or persist public engine types:
-
-* ``Rule.order`` is now ``Option<shifty_algebra::Order>`` instead of
-  ``Option<i64>``. Use ``Some(1_i64.into())`` for integer orders or
-  ``Order::try_from("0.5".to_owned())`` for decimal orders. Serialized orders
-  are decimal strings, so stored numeric orders must be converted to strings.
-* ``Rule`` adds ``owner`` and ``shape_order``. Use ``None`` when constructing
-  rules without an authored owning shape or shape order.
-* ``SparqlConstraint`` adds ``annotations``; ``SparqlTarget`` adds
-  ``extra_bindings``. Use empty vectors when these features are unused.
-* ``Reason`` and ``ValidationResult`` add ``annotations``. Evidence variants
-  ``Witness::Opaque`` and ``Failure::Opaque`` add ``result_annotations``;
-  their ``Not`` variants add ``annotations``. Update struct literals and
-  exhaustive variant patterns accordingly. New annotation fields default to
-  empty when deserializing older results.
-* ``SparqlOperation`` adds ``Function`` for function invocation failures.
-  Update exhaustive matches on this enum.
-
-Shapes execute by shape order, then by rule order within each shape. Equal
-orders share a snapshot. Guarded rules can therefore produce different
-inferred graphs than under the earlier global rule ordering. Function
-parameters also support decimal orders. Graph-reading functions now execute
-under either unsupported-feature policy; their failures remain execution errors.
-
 Unsupported features fail by default
 ------------------------------------
 

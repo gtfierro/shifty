@@ -8,6 +8,7 @@ behaviour is searchable alongside the rest of the documentation.
 .. toctree::
    :maxdepth: 1
 
+   how-to/upgrading-0.7
    how-to/upgrading-0.6
 
 .. include:: ../CHANGELOG.md
