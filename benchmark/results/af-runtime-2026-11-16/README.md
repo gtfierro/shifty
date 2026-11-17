@@ -12,8 +12,9 @@ The recordings before these fixes are [Brick](before-brick.json) and
 [ASHRAE 223P](before-s223.json), measured at clean commit
 `e72a1f739f0169a7263b18a5d48b4a6cc6180a2d`. The recordings after the fixes are
 the refreshed [HEAD Brick](../HEAD/brick.json) and
-[HEAD ASHRAE 223P](../HEAD/s223.json) files. Those record the same base commit
-with working-tree changes and identify the built binary by its hash.
+[HEAD ASHRAE 223P](../HEAD/s223.json) files. These were rerun after committing
+the fixes, at clean commit `6b56a89b8db0b32eff2605950632a815ed4ed1db`, and
+identify the built binary by its hash.
 Machine, Rust toolchain, input hashes, sample count, and policy match between
 the recordings. Timings remain subject to machine load and sampling noise.
 
@@ -21,14 +22,14 @@ the recordings. Timings remain subject to machine load and sampling noise.
 
 | Corpus | Command | Mean median before (ms) | Mean median after (ms) | Geometric-mean time change |
 | --- | --- | ---: | ---: | ---: |
-| Brick | Inference | 2,559.3 | 1,291.8 | -44.2% |
-| Brick | Inference + validation | 2,697.9 | 1,434.3 | -41.7% |
-| ASHRAE 223P | Inference | 1,074.4 | 612.8 | -31.0% |
-| ASHRAE 223P | Inference + validation | 1,350.4 | 873.4 | -24.5% |
+| Brick | Inference | 2,559.3 | 1,297.6 | -44.0% |
+| Brick | Inference + validation | 2,697.9 | 1,440.0 | -41.4% |
+| ASHRAE 223P | Inference | 1,074.4 | 611.0 | -31.4% |
+| ASHRAE 223P | Inference + validation | 1,350.4 | 872.8 | -24.5% |
 
 Relative to the preceding alpha HEAD recording, the final 223P recording is
-5.5% faster for inference and 4.3% faster for inference plus validation. Brick
-remains 14.1% and 12.4% slower, respectively. That comparison spans all intervening
+6.0% faster for inference and 4.4% faster for inference plus validation. Brick
+remains 14.6% and 12.8% slower, respectively. That comparison spans all intervening
 changes, including corrected ordering and dependency tracking; it does not
 isolate the overhead of any one feature.
 
@@ -37,6 +38,9 @@ the alpha infers 2,122 triples and the current build infers 2,693, a strict
 superset. The 571 additional triples comprise 190 `hasTag`, 190 `isTagOf`,
 169 `hasQuantity`, 20 `skos:narrower`, and two `skos:related` triples. Thus the
 remaining alpha timing gap compares different amounts of inference work.
+
+The committed-code rerun is within 0.5% of the initial post-fix recordings on
+both corpora and commands, using geometric means of per-model timing ratios.
 
 ## Causes and changes
 
