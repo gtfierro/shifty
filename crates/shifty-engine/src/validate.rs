@@ -1145,69 +1145,20 @@ fn eval_expr(
     state: &mut EvalState,
     cacheable: &mut bool,
 ) -> HashSet<Term> {
-    match expr {
-        NodeExpr::This => {
-            let mut s = HashSet::with_capacity(1);
-            s.insert(v.clone());
-            s
-        }
-        NodeExpr::Constant(t) => {
-            let mut s = HashSet::with_capacity(1);
-            s.insert(t.clone());
-            s
-        }
-        NodeExpr::Path(p) => succ(g, v, p),
-        NodeExpr::PathFrom { input, path } => {
-            eval_expr(g, arena, v, input, sparql, state, cacheable)
-                .iter()
-                .flat_map(|node| succ(g, node, path))
-                .collect()
-        }
-        NodeExpr::Filter { input, shape } => {
-            let inputs = eval_expr(g, arena, v, input, sparql, state, cacheable);
-            inputs
-                .into_iter()
-                .filter(|x| {
-                    let r = holds_memoized(g, arena, x, *shape, sparql, state);
-                    *cacheable &= r.cacheable;
-                    r.holds
-                })
-                .collect()
-        }
-        NodeExpr::Intersection(es) => {
-            let mut iter = es.iter();
-            match iter.next() {
-                Some(first) => {
-                    let mut acc = eval_expr(g, arena, v, first, sparql, state, cacheable);
-                    for e in iter {
-                        let s = eval_expr(g, arena, v, e, sparql, state, cacheable);
-                        acc.retain(|x| s.contains(x));
-                    }
-                    acc
-                }
-                None => HashSet::new(),
-            }
-        }
-        NodeExpr::Union(es) => {
-            let mut acc = HashSet::new();
-            for e in es {
-                acc.extend(eval_expr(g, arena, v, e, sparql, state, cacheable));
-            }
-            acc
-        }
-        NodeExpr::Function { iri, args } => {
-            let args: Vec<_> = args
-                .iter()
-                .map(|arg| eval_expr(g, arena, v, arg, sparql, state, cacheable))
-                .collect();
-            sparql
-                .record(
-                    crate::SparqlOperation::NodeExpression,
-                    sparql.node_function_values(iri, &args),
-                )
-                .unwrap_or_default()
-        }
-    }
+    let mut holds = |node: &Term, shape| {
+        let result = holds_memoized(g, arena, node, shape, sparql, state);
+        *cacheable &= result.cacheable;
+        result.holds
+    };
+    let mut function = |iri: &NamedNode, args: &[HashSet<Term>]| {
+        sparql
+            .record(
+                crate::SparqlOperation::NodeExpression,
+                sparql.node_function_values(iri, args),
+            )
+            .unwrap_or_default()
+    };
+    crate::node_expr::evaluate(g, v, expr, &mut holds, &mut function)
 }
 
 /// The boolean literal `true` (`"true"^^xsd:boolean`).

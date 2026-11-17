@@ -64,6 +64,7 @@ pub mod frozen;
 pub mod gate;
 mod infer;
 mod native_exec;
+mod node_expr;
 pub mod path;
 mod path_plan;
 pub mod profile;

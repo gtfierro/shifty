@@ -34,7 +34,7 @@ use crate::compiled::ParsedQueries;
 use crate::error::EvaluationError;
 use crate::focus::{FocusNodes, FocusScope, IndexedFocus};
 use crate::frozen::{FrozenIndexedDataset, SourceStorage};
-use crate::path::{node_of, succ};
+use crate::path::node_of;
 use crate::sparql::{FunctionDef, SparqlExecutor};
 use crate::validate::{EngineOptions, ShapeEvaluator, focus_nodes_with};
 use oxrdf::{BlankNode, NamedNode, NamedOrBlankNode, Term, Triple};
@@ -417,9 +417,24 @@ fn fire_rule(
             object,
         } => {
             for v in eligible {
-                let subjects = eval_node_expr(runtime.backend, v, subject, evaluator, diags);
-                let predicates = eval_node_expr(runtime.backend, v, predicate, evaluator, diags);
-                let objects = eval_node_expr(runtime.backend, v, object, evaluator, diags);
+                let subjects = eval_node_expr(
+                    runtime.backend,
+                    v,
+                    subject,
+                    evaluator,
+                    runtime.sparql,
+                    diags,
+                );
+                let predicates = eval_node_expr(
+                    runtime.backend,
+                    v,
+                    predicate,
+                    evaluator,
+                    runtime.sparql,
+                    diags,
+                );
+                let objects =
+                    eval_node_expr(runtime.backend, v, object, evaluator, runtime.sparql, diags);
                 for s in &subjects {
                     let Some(subj) = node_of(s) else { continue };
                     for p in &predicates {
@@ -472,59 +487,18 @@ fn eval_node_expr(
     v: &Term,
     expr: &NodeExpr,
     evaluator: &mut ShapeEvaluator<'_>,
+    sparql: &SparqlExecutor,
     diags: &mut BTreeSet<String>,
 ) -> HashSet<Term> {
-    match expr {
-        NodeExpr::This => once(v.clone()),
-        NodeExpr::Constant(t) => once(t.clone()),
-        NodeExpr::Path(p) => succ(backend, v, p),
-        NodeExpr::PathFrom { input, path } => eval_node_expr(backend, v, input, evaluator, diags)
-            .iter()
-            .flat_map(|node| succ(backend, node, path))
-            .collect(),
-        NodeExpr::Filter { input, shape } => eval_node_expr(backend, v, input, evaluator, diags)
-            .into_iter()
-            .filter(|x| evaluator.holds(x, *shape))
-            .collect(),
-        NodeExpr::Intersection(es) => {
-            let mut iter = es.iter();
-            match iter.next() {
-                Some(first) => {
-                    let mut acc = eval_node_expr(backend, v, first, evaluator, diags);
-                    for e in iter {
-                        let s = eval_node_expr(backend, v, e, evaluator, diags);
-                        acc.retain(|x| s.contains(x));
-                    }
-                    acc
-                }
-                None => HashSet::new(),
-            }
-        }
-        NodeExpr::Union(es) => {
-            let mut acc = HashSet::new();
-            for e in es {
-                acc.extend(eval_node_expr(backend, v, e, evaluator, diags));
-            }
-            acc
-        }
-        NodeExpr::Function { iri, args } => {
-            let args: Vec<_> = args
-                .iter()
-                .map(|arg| eval_node_expr(backend, v, arg, evaluator, diags))
-                .collect();
-            match evaluator.sparql().node_function_values(iri, &args) {
-                Ok(values) => values,
-                Err(error) => {
-                    diags.insert(error);
-                    HashSet::new()
-                }
-            }
-        }
-    }
-}
-
-fn once(t: Term) -> HashSet<Term> {
-    let mut values = HashSet::with_capacity(1);
-    values.insert(t);
-    values
+    // Function calls use the same immutable executor as shape evaluation.
+    let mut holds = |node: &Term, shape| evaluator.holds(node, shape);
+    let mut function = |iri: &NamedNode, args: &[HashSet<Term>]| {
+        sparql
+            .node_function_values(iri, args)
+            .unwrap_or_else(|error| {
+                diags.insert(error);
+                HashSet::new()
+            })
+    };
+    crate::node_expr::evaluate(backend, v, expr, &mut holds, &mut function)
 }
