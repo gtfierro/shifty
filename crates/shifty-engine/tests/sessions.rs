@@ -890,3 +890,85 @@ fn rule_queries_bind_the_authored_shapes_graph() {
             .is_empty()
     );
 }
+
+#[test]
+fn inference_conditions_share_only_their_read_snapshot() {
+    let shapes = loaded(
+        r#"
+        @prefix sh: <http://www.w3.org/ns/shacl#> .
+        @prefix ex: <http://ex/> .
+        ex:Absent sh:property [ sh:path ex:flag ; sh:maxCount 0 ] .
+        ex:S a sh:NodeShape ; sh:targetNode ex:a ;
+          sh:rule [ a sh:TripleRule ; sh:order 0 ; sh:condition ex:Absent ;
+                    sh:subject sh:this ; sh:predicate ex:first ; sh:object ex:value ],
+                  [ a sh:TripleRule ; sh:order 0 ; sh:condition ex:Absent ;
+                    sh:subject sh:this ; sh:predicate ex:second ; sh:object ex:value ],
+                  [ a sh:TripleRule ; sh:order 1 ;
+                    sh:subject sh:this ; sh:predicate ex:flag ; sh:object ex:value ],
+                  [ a sh:TripleRule ; sh:order 2 ; sh:condition ex:Absent ;
+                    sh:subject sh:this ; sh:predicate ex:stale ; sh:object ex:value ] .
+        "#,
+    );
+    profile::enable();
+    let session = CompiledShapes::compile(shapes)
+        .unwrap()
+        .session(
+            SessionData::Separate(loaded("<http://ex/a> <http://ex/seed> 1 .").graph),
+            SessionOptions {
+                inference: true,
+                ..SessionOptions::default()
+            },
+        )
+        .unwrap();
+    let telemetry = profile::take().unwrap();
+    assert!(telemetry.shape_cache().hits > 0);
+    let predicates: std::collections::HashSet<_> = session
+        .inferred()
+        .iter()
+        .map(|triple| triple.predicate.as_str())
+        .collect();
+    assert_eq!(
+        predicates,
+        ["http://ex/first", "http://ex/second", "http://ex/flag"].into()
+    );
+}
+
+#[test]
+fn cached_function_bodies_read_the_current_inference_snapshot() {
+    let shapes = loaded(
+        r#"
+        @prefix sh: <http://www.w3.org/ns/shacl#> .
+        @prefix ex: <http://ex/> .
+        ex:flag a sh:SPARQLFunction ; sh:ask "ASK { ex:a ex:flag ex:value }" .
+        ex:S a sh:NodeShape ; sh:targetNode ex:a ;
+          sh:rule [ a sh:SPARQLRule ; sh:order 0 ;
+                    sh:construct "CONSTRUCT { $this ex:before ?value } WHERE { BIND(ex:flag() AS ?value) }" ],
+                  [ a sh:TripleRule ; sh:order 1 ; sh:subject sh:this ;
+                    sh:predicate ex:flag ; sh:object ex:value ],
+                  [ a sh:SPARQLRule ; sh:order 2 ;
+                    sh:construct "CONSTRUCT { $this ex:after ?value } WHERE { BIND(ex:flag() AS ?value) }" ] .
+        "#,
+    );
+    let session = CompiledShapes::compile(shapes)
+        .unwrap()
+        .session(
+            SessionData::Separate(loaded("<http://ex/a> <http://ex/seed> 1 .").graph),
+            SessionOptions {
+                inference: true,
+                ..SessionOptions::default()
+            },
+        )
+        .unwrap();
+    let after: Vec<_> = session
+        .inferred()
+        .iter()
+        .filter(|triple| triple.predicate.as_str() == "http://ex/after")
+        .map(|triple| triple.object.clone())
+        .collect();
+    assert_eq!(after, vec![Term::Literal(true.into())]);
+    assert!(session.inferred().contains(&Triple::new(
+        NamedNode::new_unchecked("http://ex/a"),
+        NamedNode::new_unchecked("http://ex/before"),
+        oxrdf::Literal::from(false),
+    )));
+}

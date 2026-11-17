@@ -14,16 +14,13 @@ pub(super) struct FunctionRuntime {
 
 impl FunctionRuntime {
     pub(super) fn new(executor: &SparqlExecutor) -> Arc<Self> {
+        // Parsed bodies belong to the document; callbacks and their dataset
+        // snapshot are rebuilt after commits. Reuse the executor's static cache.
         Arc::new(Self {
             definitions: executor
                 .functions
                 .iter()
-                .map(|f| {
-                    (
-                        f.clone(),
-                        SparqlParser::new().parse_query(&f.query).map_err(err),
-                    )
-                })
+                .map(|f| (f.clone(), executor.parse(&f.query)))
                 .collect(),
             dataset: executor
                 .frozen

@@ -38,7 +38,7 @@ use crate::path::{node_of, succ};
 use crate::sparql::{FunctionDef, SparqlExecutor};
 use crate::validate::{EngineOptions, ShapeEvaluator, focus_nodes_with};
 use oxrdf::{BlankNode, NamedNode, NamedOrBlankNode, Term, Triple};
-use shifty_algebra::{NodeExpr, Rule, RuleHead, Schema, Selector, ShapeArena};
+use shifty_algebra::{NodeExpr, Rule, RuleHead, Schema, Selector};
 use shifty_opt::RuleDependencies;
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::sync::Arc;
@@ -215,6 +215,7 @@ pub(crate) fn infer_with_compiled_functions(
                     // HashSet deduplicates within the batch; fire_rule pre-filters
                     // against the context so only genuinely new triples reach here.
                     let mut candidates: HashSet<Triple> = HashSet::new();
+                    let mut evaluator = None;
                     for (position, scheduled) in rules[start..end].iter().enumerate() {
                         if !active.contains(&(start + position))
                             && !scheduled.dependencies.affected_by(&pass_changed)
@@ -274,11 +275,21 @@ pub(crate) fn infer_with_compiled_functions(
                             }
                             _ => focus_nodes.as_slice(),
                         };
+                        if execution_focus_nodes.is_empty() {
+                            continue;
+                        }
+                        let evaluator = evaluator.get_or_insert_with(|| {
+                            ShapeEvaluator::new(
+                                backend,
+                                &schema.arena,
+                                shifty_algebra::Prefixes::empty(),
+                                &sparql,
+                            )
+                        });
                         let rule_label = format!("rule[{}]", start + position);
                         let rule_t = web_time::Instant::now();
                         let runtime = RuleRuntime {
                             backend,
-                            arena: &schema.arena,
                             sparql: &sparql,
                             input_blank_nodes: &input_blank_nodes,
                         };
@@ -290,6 +301,7 @@ pub(crate) fn infer_with_compiled_functions(
                                 execution_focus_nodes,
                                 scheduled.rule,
                                 &runtime,
+                                evaluator,
                                 &mut candidates,
                                 &mut diags,
                             )
@@ -302,6 +314,7 @@ pub(crate) fn infer_with_compiled_functions(
                             rule_t.elapsed().as_micros() as u64,
                         );
                     }
+                    drop(evaluator);
                     sparql.extend_triples(candidates.iter());
                     for t in candidates {
                         pass_changed.insert(t.predicate.clone());
@@ -380,7 +393,6 @@ fn selector_stale(sel: &Selector, pass_changed: &HashSet<NamedNode>) -> bool {
 
 struct RuleRuntime<'a> {
     backend: &'a dyn crate::path::PathBackend,
-    arena: &'a ShapeArena,
     sparql: &'a SparqlExecutor,
     input_blank_nodes: &'a HashSet<BlankNode>,
 }
@@ -389,16 +401,11 @@ fn fire_rule(
     focus_nodes: &[Term],
     rule: &shifty_algebra::Rule,
     runtime: &RuleRuntime<'_>,
+    evaluator: &mut ShapeEvaluator<'_>,
     out: &mut HashSet<Triple>,
     diags: &mut BTreeSet<String>,
 ) -> bool {
     let mut generated = false;
-    let mut evaluator = ShapeEvaluator::new(
-        runtime.backend,
-        runtime.arena,
-        shifty_algebra::Prefixes::empty(),
-        runtime.sparql,
-    );
     let eligible: Vec<&Term> = focus_nodes
         .iter()
         .filter(|v| rule.conditions.iter().all(|c| evaluator.holds(v, *c)))
@@ -411,10 +418,9 @@ fn fire_rule(
             object,
         } => {
             for v in eligible {
-                let subjects = eval_node_expr(runtime.backend, v, subject, &mut evaluator, diags);
-                let predicates =
-                    eval_node_expr(runtime.backend, v, predicate, &mut evaluator, diags);
-                let objects = eval_node_expr(runtime.backend, v, object, &mut evaluator, diags);
+                let subjects = eval_node_expr(runtime.backend, v, subject, evaluator, diags);
+                let predicates = eval_node_expr(runtime.backend, v, predicate, evaluator, diags);
+                let objects = eval_node_expr(runtime.backend, v, object, evaluator, diags);
                 for s in &subjects {
                     let Some(subj) = node_of(s) else { continue };
                     for p in &predicates {
