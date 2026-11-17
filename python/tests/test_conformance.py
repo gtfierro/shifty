@@ -18,6 +18,7 @@ from conformance.runner import (
     Documents,
     Result,
     baseline_errors,
+    console_lines,
     discover,
     earl_report,
     main,
@@ -137,6 +138,47 @@ def test_shacl12_values_difference_is_reported_as_a_shacl10_failure(tmp_path):
         )
         == []
     )
+
+
+def test_console_labels_baseline_matches_without_changing_outcomes():
+    baseline = {
+        "results": {
+            "urn:known": {
+                "status": "approved",
+                "outcome": "failed",
+                "algebra": "not-run",
+            },
+            "urn:fixed": {
+                "status": "approved",
+                "outcome": "failed",
+                "algebra": "passed",
+            },
+            "urn:new": {"status": "approved", "outcome": "passed", "algebra": "passed"},
+            "urn:crash": {
+                "status": "approved",
+                "outcome": "error",
+                "algebra": "not-run",
+            },
+        },
+        "notes": {"urn:known": "Deliberate."},
+    }
+    known = Result("urn:known", "approved", "failed", "why", "not-run")
+    results = [
+        known,
+        Result("urn:fixed", "approved", "passed", algebra="passed"),
+        Result("urn:new", "approved", "failed", "why", "passed"),
+        Result("urn:crash", "approved", "error", "boom"),
+    ]
+    assert console_lines(results, baseline) == [
+        "EXPECTED-FAILED urn:known: why [algebra: not-run]",
+        "  baseline note: Deliberate.",
+        "UNEXPECTED-PASS urn:fixed: baseline records failed; "
+        "update baseline.json if this change is intended",
+        "FAILED urn:new: why [algebra: passed]",
+        "ERROR urn:crash: boom [algebra: not-run]",
+    ]
+    assert console_lines([known]) == ["FAILED urn:known: why [algebra: not-run]"]
+    assert known.outcome == "failed"
 
 
 def test_manifest_actions_load_separate_documents_and_ignore_helper_booleans(tmp_path):

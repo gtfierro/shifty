@@ -472,22 +472,87 @@ def baseline_errors(results: list[Result], baseline: dict) -> list[str]:
     return errors
 
 
+def console_lines(results: list[Result], baseline: dict | None = None) -> list[str]:
+    """Console summary of noteworthy rows, labelled relative to the baseline.
+
+    Only the console wording changes: results.json and EARL keep the outcome
+    judged against the official suite.
+    """
+    recorded = baseline["results"] if baseline else {}
+    notes = baseline.get("notes", {}) if baseline else {}
+    lines = []
+    for row in results:
+        old = recorded.get(row.test)
+        noteworthy = (
+            row.outcome not in ("passed", "untested")
+            or row.algebra == "failed"
+            or row.algebra.startswith("error")
+        )
+        if noteworthy:
+            crashed = row.outcome == "error" or row.algebra.startswith("error")
+            expected = (
+                not crashed
+                and old is not None
+                and (old["outcome"], old["algebra"]) == (row.outcome, row.algebra)
+            )
+            label = ("EXPECTED-" if expected else "") + row.outcome.upper()
+            lines.append(f"{label} {row.test}: {row.info} [algebra: {row.algebra}]")
+            if expected and row.test in notes:
+                lines.append(f"  baseline note: {notes[row.test]}")
+        elif row.outcome == "passed" and old is not None and old["outcome"] != "passed":
+            lines.append(
+                f"UNEXPECTED-PASS {row.test}: baseline records {old['outcome']}; "
+                "update baseline.json if this change is intended"
+            )
+    return lines
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--suite", type=Path, default=DEFAULT_SUITE)
-    parser.add_argument("--section", choices=["all", "core", "sparql"], default="all")
-    parser.add_argument("--test", help="Exact urn:x-shacl-test:/... identifier")
+    parser.add_argument(
+        "--suite",
+        type=Path,
+        default=DEFAULT_SUITE,
+        metavar="DIR",
+        help="Pinned fixture directory (default: testdata/w3c-shacl)",
+    )
+    parser.add_argument(
+        "--section",
+        choices=["all", "core", "sparql"],
+        default="all",
+        help="Suite section to run (default: all)",
+    )
+    parser.add_argument(
+        "--test", metavar="IRI", help="Exact urn:x-shacl-test:/... identifier"
+    )
     parser.add_argument(
         "--include-unlisted",
         action="store_true",
         help="Also execute test manifests not reachable from the root (reported by status)",
     )
-    parser.add_argument("--output", type=Path, default=ROOT / "target/conformance")
-    parser.add_argument("--assertor", default="https://github.com/gtfierro")
+    parser.add_argument(
+        "--output",
+        type=Path,
+        default=ROOT / "target/conformance",
+        metavar="DIR",
+        help="Where results.json, shifty-earl.ttl and reports go "
+        "(default: target/conformance)",
+    )
+    parser.add_argument(
+        "--assertor",
+        default="https://github.com/gtfierro",
+        metavar="IRI",
+        help="EARL assertor IRI (default: %(default)s)",
+    )
     parser.add_argument(
         "--baseline",
         type=Path,
-        help="Require full inventory and no regressions against this JSON",
+        nargs="?",
+        const=DEFAULT_SUITE / "baseline.json",
+        metavar="PATH",
+        help="Baseline JSON of recorded results; fail on any regression or "
+        "inventory change. Without PATH, uses the checked-in "
+        "testdata/w3c-shacl/baseline.json",
     )
     parser.add_argument(
         "--report-only",
@@ -526,23 +591,18 @@ def main(argv=None) -> int:
         for status in ("approved", "proposed", "rejected"):
             counts = Counter(row.outcome for row in results if row.status == status)
             print(f"{status}: {dict(sorted(counts.items()))}")
-        for row in results:
-            if (
-                row.outcome not in ("passed", "untested")
-                or row.algebra == "failed"
-                or row.algebra.startswith("error")
-            ):
-                print(
-                    f"{row.outcome.upper()} {row.test}: {row.info} [algebra: {row.algebra}]"
-                )
-        if any(
-            row.outcome == "error" or row.algebra.startswith("error") for row in results
-        ):
-            return 2
+        baseline = None
         if args.baseline:
             baseline = json.loads(args.baseline.read_text())
             if baseline["suite_revision"] != pin["revision"]:
                 raise ValueError("Baseline uses a different suite revision")
+        for line in console_lines(results, baseline):
+            print(line)
+        if any(
+            row.outcome == "error" or row.algebra.startswith("error") for row in results
+        ):
+            return 2
+        if baseline is not None:
             errors = baseline_errors(results, baseline)
             for error in errors:
                 print(error)
