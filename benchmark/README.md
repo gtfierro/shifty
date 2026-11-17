@@ -60,10 +60,3 @@ make html
 
 The docs build reads the recorded results and draws the chart. It never runs
 benchmarks. For a JSON summary instead, run `python3 benchmark/process_results.py`.
-
-## Other measurements
-
-- [AF runtime investigation](results/af-runtime-2026-11-16/README.md):
-  snapshot and string-rule optimizations, before and after.
-- [Evidence overhead](evidence.md): cost of building evidence in prepared sessions.
-- [Shared datasets](shared-dataset-results.md): storage experiments.

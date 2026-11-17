@@ -20,9 +20,8 @@ authored children in the raw schema's stable order.
 `PreparedEvidenceValidator::validate_conformance` runs the same snapshot,
 target selection, and evaluator, but decides each selected pair with one
 short-circuiting satisfaction test instead of materializing evidence. It exists
-so evidence-tracing cost can be measured against an otherwise identical
-execution (`benchmark/bench_evidence.sh`), and for callers that want only a
-verdict from an already-prepared snapshot. It reports counts over *normalized*
+for callers that want only a verdict from an already-prepared snapshot, and as
+an otherwise identical baseline for measuring evidence-tracing cost. It reports counts over *normalized*
 pairs, before authored fan-out, and does not honor `minimum_severity` — with no
 failure evidence there is no per-constraint severity to weigh, so any failing
 pair makes the run non-conforming.
