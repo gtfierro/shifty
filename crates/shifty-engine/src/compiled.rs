@@ -110,6 +110,14 @@ impl CompiledShapes {
         let functions = shifty_parse::collect_functions(&source);
         let access_started = crate::profile::is_enabled().then(web_time::Instant::now);
         let access = AccessCatalog::compile(&parsed.schema, &functions);
+        let rule_reads: HashMap<_, _> = access
+            .consumers
+            .iter()
+            .filter_map(|consumer| match consumer.consumer {
+                shifty_opt::Consumer::Rule(index) => Some((index, consumer)),
+                _ => None,
+            })
+            .collect();
         if let Some(access_started) = access_started {
             crate::profile::record_access_catalog_time(access_started.elapsed().as_micros() as u64);
         }
@@ -138,11 +146,7 @@ impl CompiledShapes {
                 owner: rule.owner.as_ref().map(ToString::to_string),
                 dependencies: {
                     let mut deps = rule_dependencies(rule, &normalized.schema.arena);
-                    if let Some(reads) = access
-                        .consumers
-                        .iter()
-                        .find(|c| c.consumer == shifty_opt::Consumer::Rule(index))
-                    {
+                    if let Some(reads) = rule_reads.get(&index) {
                         deps.predicates
                             .extend(reads.default.predicates.iter().cloned());
                         deps.wildcard |= reads.default.any_predicate
@@ -155,9 +159,7 @@ impl CompiledShapes {
                     let mut deps = rule_guard_dependencies(rule, &normalized.schema.arena);
                     // Custom calls can hide non-monotone reads; prevent delta-focus
                     // narrowing from treating them as a simple BGP.
-                    if access.consumers.iter().any(|c| {
-                        c.consumer == shifty_opt::Consumer::Rule(index) && !c.calls.is_empty()
-                    }) {
+                    if rule_reads.get(&index).is_some_and(|c| !c.calls.is_empty()) {
                         deps.wildcard = true;
                     }
                     deps

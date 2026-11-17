@@ -149,21 +149,49 @@ pub(crate) fn infer_with_compiled_functions(
             {
                 group_end += 1;
             }
+            // Shapes with only one rule-order group have no private intermediate
+            // additions. Evaluate all such tied shapes on the same executor and
+            // commit once, preserving isolation without cloning a session per shape.
+            let shared_snapshot = rules[start..group_end]
+                .windows(2)
+                .all(|pair| pair[0].owner != pair[1].owner || pair[0].order == pair[1].order);
             let mut shape_end = start + 1;
             while shape_end < group_end && rules[shape_end].owner == rules[start].owner {
                 shape_end += 1;
             }
             // The common single-shape case retains the original executor/caches.
-            let tied_shapes = shape_end < group_end;
+            let tied_shapes = !shared_snapshot && shape_end < group_end;
             let baseline = tied_shapes.then(|| sparql.fork());
             let baseline_len = inferred.len();
             let base_changed = pass_changed.clone();
             let base_visible = visible_changed.clone();
             let mut staged = HashSet::new();
             while start < group_end {
-                shape_end = start + 1;
+                shape_end = if shared_snapshot {
+                    group_end
+                } else {
+                    start + 1
+                };
                 while shape_end < group_end && rules[shape_end].owner == rules[start].owner {
                     shape_end += 1;
+                }
+                // A mixed tie group can still contain long runs of shapes with
+                // one rule order. Coalesce those runs into one read-only branch.
+                let single_order = rules[start].order == rules[shape_end - 1].order;
+                if single_order {
+                    while shape_end < group_end {
+                        let next_start = shape_end;
+                        let mut next_end = next_start + 1;
+                        while next_end < group_end
+                            && rules[next_end].owner == rules[next_start].owner
+                        {
+                            next_end += 1;
+                        }
+                        if rules[next_start].order != rules[next_end - 1].order {
+                            break;
+                        }
+                        shape_end = next_end;
+                    }
                 }
                 if let Some(base) = &baseline {
                     sparql = base.fork();
@@ -173,7 +201,11 @@ pub(crate) fn infer_with_compiled_functions(
                 }
                 while start < shape_end {
                     let order = rules[start].order.clone();
-                    let mut end = start + 1;
+                    let mut end = if shared_snapshot || single_order {
+                        shape_end
+                    } else {
+                        start + 1
+                    };
                     while end < shape_end && rules[end].order == order {
                         end += 1;
                     }

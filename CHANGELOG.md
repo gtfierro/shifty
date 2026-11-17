@@ -9,6 +9,15 @@ shared graph-aware functions, reusable target types, and result annotations.
 Install Python with `python -m pip install "pyshifty[rdflib]==0.6.1"` or the CLI
 with `cargo install shifty-cli --version 0.6.1`.
 
+- Reduced inference snapshot overhead by sharing one read snapshot across tied
+  shapes that have no intermediate rule-order groups, including runs inside
+  mixed groups. Rule access lookup during compilation now uses an index instead
+  of repeatedly scanning the full catalog. Snapshot isolation is preserved.
+  Deterministic string-expression CONSTRUCT rules batch named focus nodes so
+  repeated inference passes compile their regexes once per batch. Queries with
+  fresh blank nodes, custom or volatile functions, aggregation, or slicing keep
+  their existing execution path.
+
 Rust consumers constructing public IR and result types must update struct
 literals for the new fields. `Rule.order` now uses `Option<Order>` instead of
 `Option<i64>`, and serialized orders use decimal strings. See the 0.6 upgrade

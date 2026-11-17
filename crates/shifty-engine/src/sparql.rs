@@ -35,7 +35,8 @@ use serde::{Deserialize, Serialize};
 use shifty_algebra::{Path, SparqlConstraint, SparqlQueryKind, SparqlTarget};
 use shifty_opt::{NativeQueryPlan, QueryForm, lower_query_with_stats};
 use spargebra::algebra::{
-    AggregateExpression, Expression, GraphPattern, OrderExpression, PropertyPathExpression,
+    AggregateExpression, Expression, Function, GraphPattern, OrderExpression,
+    PropertyPathExpression,
 };
 use spargebra::term::{NamedNodePattern, TermPattern, TriplePattern};
 use spargebra::{Query, SparqlParser};
@@ -988,7 +989,46 @@ impl SparqlExecutor {
                 // Not batchable (template subject is not `?this`, or `?this` is
                 // unbound by the body). Execute per focus so nested template
                 // triples remain attached to the right focus node.
+                let named: Vec<_> = foci
+                    .iter()
+                    .filter(|focus| matches!(focus, Term::NamedNode(_)))
+                    .cloned()
+                    .collect();
+                let expression_batch = named.len() > 1
+                    && plan_expression_construct_batch(self.parse_construct(query)?, &named[..1])
+                        .is_some();
+                if expression_batch {
+                    // Bind focus values below BIND/FILTER so deterministic string
+                    // expressions and correlated guards retain per-focus semantics.
+                    // One evaluation compiles each regex once for the whole chunk.
+                    for chunk in named.chunks(BATCH_SIZE) {
+                        let batched =
+                            plan_expression_construct_batch(self.parse_construct(query)?, chunk)
+                                .expect("same expression-only query");
+                        let prepared = self.evaluator().for_query(batched);
+                        let results = if let Some(frozen) = &self.frozen {
+                            prepared
+                                .on_queryable_dataset(frozen)
+                                .execute()
+                                .map_err(err)?
+                        } else {
+                            prepared.on_store(self.store()?).execute().map_err(err)?
+                        };
+                        let QueryResults::Graph(rows) = results else {
+                            return Err(
+                                "SPARQL rule did not produce CONSTRUCT graph results".into()
+                            );
+                        };
+                        triples.extend(
+                            rows.map(|row| row.map_err(err))
+                                .collect::<Result<Vec<_>, _>>()?,
+                        );
+                    }
+                }
                 for focus in foci {
+                    if expression_batch && matches!(focus, Term::NamedNode(_)) {
+                        continue;
+                    }
                     triples.extend(self.construct_one(query, focus)?);
                 }
             }
@@ -1771,6 +1811,76 @@ fn plan_batch_query(query: &Query, foci: &[Term]) -> Option<(Query, Vec<Term>)> 
         }
     };
     Some((rewritten, covered))
+}
+
+/// Batch the expression-only string-rule subset. The focus table replaces the
+/// empty BGP below every expression, so EXISTS remains correlated per focus.
+/// Reject modifiers, joins, custom/volatile functions and fresh template nodes:
+/// their evaluation boundaries cannot be merged by this narrow rewrite.
+fn plan_expression_construct_batch(mut query: Query, foci: &[Term]) -> Option<Query> {
+    fn safe_expression(expression: &Expression) -> bool {
+        match expression {
+            Expression::Variable(_) | Expression::NamedNode(_) | Expression::Literal(_) => true,
+            Expression::Not(inner) => safe_expression(inner),
+            Expression::And(a, b) | Expression::Or(a, b) | Expression::Equal(a, b) => {
+                safe_expression(a) && safe_expression(b)
+            }
+            Expression::Exists(pattern) => matches!(pattern.as_ref(), GraphPattern::Bgp { .. }),
+            Expression::FunctionCall(Function::Str | Function::Replace, args) => {
+                args.iter().all(safe_expression)
+            }
+            _ => false,
+        }
+    }
+    fn bind(pattern: &mut GraphPattern, this: &Variable, foci: &[Term]) -> Option<()> {
+        match pattern {
+            GraphPattern::Project { inner, variables } if variables.contains(this) => {
+                bind(inner, this, foci)
+            }
+            GraphPattern::Extend {
+                inner,
+                variable,
+                expression,
+            } if variable != this && safe_expression(expression) => bind(inner, this, foci),
+            GraphPattern::Filter { inner, expr } if safe_expression(expr) => {
+                bind(inner, this, foci)
+            }
+            GraphPattern::Bgp { patterns } if patterns.is_empty() => {
+                let bindings = foci
+                    .iter()
+                    .map(|focus| match focus {
+                        Term::NamedNode(node) => Some(vec![Some(node.clone().into())]),
+                        _ => None,
+                    })
+                    .collect::<Option<Vec<_>>>()?;
+                *pattern = GraphPattern::Values {
+                    variables: vec![this.clone()],
+                    bindings,
+                };
+                Some(())
+            }
+            _ => None,
+        }
+    }
+    let Query::Construct {
+        template, pattern, ..
+    } = &mut query
+    else {
+        return None;
+    };
+    let this = variable("this");
+    if template.is_empty()
+        || template
+            .iter()
+            .any(|triple| triple_has_blank_node(triple) || !term_pattern_is(&triple.subject, &this))
+    {
+        return None;
+    }
+    // CONSTRUCT's implicit SELECT can omit a variable used only in expressions.
+    // Keep the injected focus binding available to the template as well.
+    project_variable(pattern, &this);
+    bind(pattern, &this, foci)?;
+    Some(query)
 }
 
 /// Whether `var` is positively bound by the *required* part of the pattern —
@@ -2851,5 +2961,69 @@ mod batch_tests {
             "per-focus oracle: only ex:a is inferred"
         );
         assert_eq!(got, want, "batched output must match per-focus exactly");
+    }
+
+    #[test]
+    fn expression_construct_batch_matches_per_focus_and_correlates_guards() {
+        let query = r#"CONSTRUCT { $this <http://ex/label> ?label } WHERE {
+            FILTER NOT EXISTS { $this <http://ex/label> ?old }
+            BIND(REPLACE(STR($this), "^.*/", "") AS ?label)
+        }"#;
+        let mut graph = Graph::new();
+        graph.insert(&Triple::new(
+            nn("http://ex/a"),
+            nn("http://ex/label"),
+            Literal::from("existing"),
+        ));
+        let named = vec![subject("a"), subject("b"), subject("c")];
+        assert!(
+            plan_expression_construct_batch(
+                SparqlParser::new().parse_query(query).unwrap(),
+                &named
+            )
+            .is_some(),
+            "{:?}",
+            SparqlParser::new().parse_query(query).unwrap()
+        );
+        let mut foci = named;
+        foci.push(Term::BlankNode(oxrdf::BlankNode::new("focus").unwrap()));
+        for executor in [
+            SparqlExecutor::new(&graph).unwrap(),
+            SparqlExecutor::from_frozen(FrozenIndexedDataset::from_graph(&graph), false),
+        ] {
+            let mut want: Vec<_> = foci
+                .iter()
+                .flat_map(|focus| executor.construct_one(query, focus).unwrap())
+                .collect();
+            let mut got = executor
+                .construct_many(query, &foci, executor.frozen())
+                .unwrap();
+            want.sort_by_key(ToString::to_string);
+            got.sort_by_key(ToString::to_string);
+            assert_eq!(got, want);
+            assert_eq!(got.len(), 2);
+        }
+    }
+
+    #[test]
+    fn expression_construct_batch_rejects_unsafe_evaluation_boundaries() {
+        let foci = vec![subject("a"), subject("b")];
+        for query in [
+            "CONSTRUCT { $this <http://ex/p> [] } WHERE {}",
+            "CONSTRUCT { $this <http://ex/p> ?x } WHERE { BIND(BNODE('same') AS ?x) }",
+            "CONSTRUCT { $this <http://ex/p> ?x } WHERE { BIND(RAND() AS ?x) }",
+            "CONSTRUCT { $this <http://ex/p> ?x } WHERE { BIND(<http://ex/custom>($this) AS ?x) }",
+            "CONSTRUCT { $this <http://ex/p> ?x } WHERE { BIND(STR($this) AS ?x) } LIMIT 1",
+            "CONSTRUCT { $this <http://ex/p> ?x } WHERE { { SELECT (COUNT(*) AS ?x) WHERE {} } }",
+        ] {
+            assert!(
+                plan_expression_construct_batch(
+                    SparqlParser::new().parse_query(query).unwrap(),
+                    &foci
+                )
+                .is_none(),
+                "{query}"
+            );
+        }
     }
 }

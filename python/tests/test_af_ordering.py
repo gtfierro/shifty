@@ -115,6 +115,25 @@ def test_tied_shapes_keep_their_own_earlier_rule_output():
     assert set(data.objects(EX.x, EX.chosen)) == {EX.A, EX.B}
 
 
+def test_single_order_shapes_isolate_a_tied_shape_with_intermediate_additions():
+    shapes = (
+        PREFIX
+        + f'''
+    ex:A a sh:NodeShape ; sh:targetNode ex:x ; sh:rule {rule(100, "A")} .
+    ex:M a sh:NodeShape ; sh:targetNode ex:x ;
+        sh:rule {rule(0, "M")}, [ a sh:SPARQLRule ; sh:order 1 ;
+          sh:construct """CONSTRUCT {{ ex:x ex:observed ?chosen }}
+            WHERE {{ ex:x ex:chosen ?chosen .
+              FILTER NOT EXISTS {{ ex:x ex:observed ?previous }} }}""" ] .
+    ex:Z a sh:NodeShape ; sh:targetNode ex:x ; sh:rule {rule(-100, "Z")} .
+    '''
+    )
+    data = Graph()
+    shifty.infer(data, shapes, in_place=True)
+    assert set(data.objects(EX.x, EX.chosen)) == {EX.A, EX.M, EX.Z}
+    assert set(data.objects(EX.x, EX.observed)) == {EX.M}
+
+
 def test_orders_are_not_rounded_to_machine_precision():
     shapes = (
         PREFIX

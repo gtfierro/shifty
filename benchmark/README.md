@@ -81,6 +81,9 @@ summary ratio.
 
 These serve separate implementation and research questions:
 
+- [AF runtime regression investigation](results/af-runtime-2026-11-16/README.md)
+  records the snapshot and string-rule optimizations, with measurements before
+  the fixes and the refreshed HEAD results.
 - [Evidence overhead](evidence.md) uses `bench_evidence.sh` and
   `summarize_evidence.py` to measure prepared-session conformance and evidence.
 - [Shared datasets](shared-dataset-results.md) records the storage experiments
