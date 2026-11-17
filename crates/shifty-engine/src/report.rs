@@ -431,6 +431,7 @@ fn build_reporter<'a>(
         needs_sparql,
         class_index,
         path_cache: RefCell::new(HashMap::new()),
+        target_cache: RefCell::new(HashMap::new()),
         components: build_components(shapes, options.engine.unsupported, sparql),
         entry_shape_names: &options.entry_shape_names,
     }
@@ -816,6 +817,8 @@ struct Reporter<'a> {
     /// Parsed `sh:path` per shape node, so `collect` does not re-parse the path
     /// RDF on every (shape, focus) visit. `None` = shape has no/invalid path.
     path_cache: RefCell<HashMap<NamedOrBlankNode, PathCacheEntry>>,
+    /// Resolved once per report; target discovery and focus selection share it.
+    target_cache: RefCell<HashMap<NamedOrBlankNode, ResolvedTargets>>,
     /// SPARQL-based custom constraint components declared in the shapes graph
     /// (empty for the common case of no custom components).
     components: Vec<CustomComponent>,
@@ -825,6 +828,7 @@ struct Reporter<'a> {
 }
 
 type Visited = HashSet<(NamedOrBlankNode, Term)>;
+type ResolvedTargets = Result<Option<Vec<shifty_algebra::SparqlTarget>>, String>;
 
 /// Cached parsed path and its term representation for sh:path expressions
 type PathCacheEntry = (Option<Term>, Option<Path>);
@@ -834,6 +838,14 @@ impl Reporter<'_> {
         self.sparql
             .frozen()
             .expect("report validation always has a frozen dataset")
+    }
+
+    fn sparql_targets(&self, target: &NamedOrBlankNode) -> ResolvedTargets {
+        self.target_cache
+            .borrow_mut()
+            .entry(target.clone())
+            .or_insert_with(|| shifty_parse::targets::sparql_targets(self.shapes, target))
+            .clone()
     }
 
     fn target_shapes(&self) -> Vec<NamedOrBlankNode> {
@@ -850,7 +862,8 @@ impl Reporter<'_> {
             // SPARQL-based target: sh:target [ sh:select "…" ]
             if p == vocab::SH_TARGET
                 && let Some(target) = term_to_node(&t.object.into_owned())
-                && shifty_parse::targets::sparql_targets(self.shapes, &target)
+                && self
+                    .sparql_targets(&target)
                     .is_ok_and(|resolved| resolved.is_some())
             {
                 found.insert(t.subject.into_owned());
@@ -920,7 +933,7 @@ impl Reporter<'_> {
                 };
                 let resolved = self.sparql.record(
                     crate::SparqlOperation::Target,
-                    shifty_parse::targets::sparql_targets(self.shapes, &target_node),
+                    self.sparql_targets(&target_node),
                 );
                 if let Ok(Some(targets)) = resolved {
                     for target in targets {
