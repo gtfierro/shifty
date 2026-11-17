@@ -216,7 +216,8 @@ jobs:
 
   smoke-wheel:
     name: Smoke-test wheel (Python ${{ matrix.python-version }})
-    runs-on: ubuntu-latest
+    # Python 3.9 is unavailable through setup-python on Ubuntu 26.04.
+    runs-on: ubuntu-22.04
     needs:
       - validate-release
       - wheels-linux
