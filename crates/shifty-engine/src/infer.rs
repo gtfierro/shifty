@@ -161,10 +161,9 @@ pub(crate) fn infer_with_compiled_functions(
             }
             // The common single-shape case retains the original executor/caches.
             let tied_shapes = !shared_snapshot && shape_end < group_end;
-            let baseline = tied_shapes.then(|| sparql.fork());
+            let baseline =
+                tied_shapes.then(|| (sparql.fork(), pass_changed.clone(), visible_changed.clone()));
             let baseline_len = inferred.len();
-            let base_changed = pass_changed.clone();
-            let base_visible = visible_changed.clone();
             let mut staged = HashSet::new();
             while start < group_end {
                 shape_end = if shared_snapshot {
@@ -193,11 +192,11 @@ pub(crate) fn infer_with_compiled_functions(
                         shape_end = next_end;
                     }
                 }
-                if let Some(base) = &baseline {
+                if let Some((base, base_changed, base_visible)) = &baseline {
                     sparql = base.fork();
                     focus_cache.clear();
-                    pass_changed.clone_from(&base_changed);
-                    visible_changed.clone_from(&base_visible);
+                    pass_changed.clone_from(base_changed);
+                    visible_changed.clone_from(base_visible);
                 }
                 while start < shape_end {
                     let order = rules[start].order.clone();
@@ -330,7 +329,7 @@ pub(crate) fn infer_with_compiled_functions(
                     staged.extend(inferred.drain(baseline_len..));
                 }
             }
-            if let Some(base) = baseline {
+            if let Some((base, _, _)) = baseline {
                 sparql = base;
                 sparql.extend_triples(staged.iter());
                 for triple in staged {
