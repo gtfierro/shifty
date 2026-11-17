@@ -2,12 +2,13 @@
 
 ## Unreleased
 
-## 0.7.0
+## 0.7.0-alpha.1
 
-Shifty 0.7.0 expands SHACL-AF support with hierarchical execution ordering,
-shared graph-aware functions, reusable target types, and result annotations.
-Install Python with `python -m pip install "pyshifty[rdflib]==0.7.0"` or the CLI
-with `cargo install shifty-cli --version 0.7.0`.
+This first 0.7.0 prerelease expands SHACL-AF support with hierarchical execution
+ordering, shared graph-aware functions, reusable target types, and result annotations.
+Install Python with `python -m pip install "pyshifty[rdflib]==0.7.0a1"`.
+CLI binaries are attached to the GitHub prerelease; crates.io publication is
+reserved for the stable release.
 
 - Reduced inference snapshot overhead by sharing one read snapshot across tied
   shapes that have no intermediate rule-order groups, including runs inside
