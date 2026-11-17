@@ -1,16 +1,15 @@
 Benchmarks
 ==========
 
-These results track Shifty's CLI on 45 Brick and 19 ASHRAE 223P building
-models. Lower times mean a faster complete run. Hover over a bar for its
-model count and recorded revision.
+How long the Shifty CLI takes on real building models: 45 Brick and 19
+ASHRAE 223P. Lower is faster.
 
 Release history
 ---------------
 
-Each bar averages the per-model medians. Inference and inference-plus-validation
-are timed as separate commands. Both include loading the inputs, preparing the
-shapes, and formatting output.
+Each bar is the average of the per-model medians. ``infer`` and ``validate``
+are timed separately. Both include loading inputs, preparing shapes, and
+writing output. Hover over a bar for details.
 
 .. raw:: html
 
@@ -20,9 +19,7 @@ shapes, and formatting output.
 Per-model results
 -----------------
 
-Choose two recorded versions to inspect individual models. Negative changes
-mean faster runs. The summary compares the geometric mean of ratios for models
-present in both recordings.
+Pick two versions to compare model by model. Negative changes are faster.
 
 .. raw:: html
 
@@ -33,60 +30,47 @@ present in both recordings.
    </div>
    <div id="bench-tables"></div>
 
-Methodology
------------
+How it's measured
+-----------------
 
-- Each model is measured three times by default, in a fresh process each time.
-  The recorded value is the median. The spread is the largest distance from
-  that median to a sample.
-- Shapes use the checked-in ontology closures. Every version runs against the
-  same model and shapes files from the current checkout. Build time is excluded.
-- ``infer`` measures rule inference. ``validate`` runs inference and validation
-  together. Their difference can include noise, so the chart shows both
-  measured totals independently.
-- New recordings include the revision, input and binary hashes, machine,
-  toolchain, sample count, and raw timings. Earlier text-only recordings have
-  their release revisions resolved from Git tags. ``HEAD`` includes tracked
-  working-tree changes.
-- Validation uses best-effort unsupported-feature handling to match older releases.
-  A nonconforming validation counts as a completed run. An execution error
-  stops collection.
+- Each model runs three times, each in a fresh process. The median is
+  recorded.
+- Every version runs on the same models and shapes from the current checkout.
+  Build time is not counted.
+- ``validate`` includes inference, so it is always at least as slow as
+  ``infer``.
+- A model that fails validation still counts as a completed run. A crash
+  stops the benchmark.
 
-Reading the results
--------------------
+Only compare results from the same machine and settings.
 
-Compare recordings made on the same machine with the same fixtures and
-settings. Changes to validation semantics can also change the amount of work.
-
-These are CLI costs, including setup on each call. Applications can reuse a
-``PreparedValidator`` across data graphs. See :ref:`evidence-cost` for choosing
-how much evidence to build.
+These numbers include setup on every call. An application that reuses a
+``PreparedValidator`` pays that cost once. See :ref:`evidence-cost` for
+how evidence settings affect cost.
 
 .. _run_history:
 
-Record and reproduce
---------------------
+Run the benchmarks
+------------------
 
-From the repository root, measure the current checkout or named releases:
-
-.. code-block:: bash
-
-   python3 benchmark/run.py
-   python3 benchmark/run.py v0.6.0-alpha.4
-   python3 benchmark/run.py --history --list
-
-Tagged recordings are reused when complete. ``--force`` replaces them.
-``--suite brick`` selects one corpus, and ``--iterations 5`` takes more samples.
-``--history`` measures all release tags from v0.1.1 onward, including alphas.
-It can take hours.
-
-A normal documentation build regenerates the chart from recorded results:
+From the repository root:
 
 .. code-block:: bash
 
-   cd docs
-   make html
+   python3 benchmark/run.py                   # current checkout
+   python3 benchmark/run.py v0.6.0-alpha.4    # a release
+   python3 benchmark/run.py --history --list  # preview every release
+
+Useful options:
+
+- ``--suite brick`` or ``--suite s223`` runs one corpus.
+- ``--iterations 5`` takes more samples.
+- ``--force`` re-measures a release that is already recorded.
+- ``--history`` measures every release since v0.1.1. This can take hours.
+
+``make html`` in ``docs/`` redraws the chart from the recorded results. It
+does not run any benchmarks.
 
 The `benchmark README
-<https://github.com/gtfierro/shifty/blob/main/benchmark/README.md>`_
-describes the scripts, result files, and separate evidence measurements.
+<https://github.com/gtfierro/shifty/blob/main/benchmark/README.md>`_ covers
+the result files and other measurements.

@@ -1,19 +1,14 @@
 SHACL conformance
 =================
 
-The current implementation follows SHACL 1.2's narrower ``VALUES`` restriction:
-only collisions with potentially pre-bound variables are rejected. Consequently,
-the SHACL 1.0 case ``sparql/pre-binding/unsupported-sparql-002`` now reports a
-failure against that older specification. The CI baseline records this deliberate
-difference; the upstream fixture and the conformance oracle remain unchanged.
+Shifty is tested against the official W3C SHACL 1.0 test suite.
 
 Recorded results
 ----------------
 
-This report was produced on **2026-11-11** using **0.6.0-alpha.4** at commit
-`aaaea85 <https://github.com/gtfierro/shifty/commit/aaaea85bd406021f1fd9056a53d5dca7c3b9a53c>`_.
-That version passed all 120 approved cases and the one proposed case, before
-the change to ``VALUES`` handling.
+Version **0.6.0-alpha.4**, commit
+`aaaea85 <https://github.com/gtfierro/shifty/commit/aaaea85bd406021f1fd9056a53d5dca7c3b9a53c>`_,
+run on **2026-11-11**:
 
 .. list-table::
    :header-rows: 1
@@ -36,35 +31,44 @@ the change to ``VALUES`` handling.
      - 0
      - 0
 
-Both the W3C reports and Shifty's structured validation results passed.
-The CLI and Python file-input reports also matched across all 121 cases,
-including seven tests that expect a validation failure diagnostic.
+The CLI and Python reports also matched on all 121 cases.
 
 - :download:`EARL implementation report <../conformance-results/aaaea85/shifty-earl.ttl>`
 - :download:`Per-test results and run metadata (JSON) <../conformance-results/aaaea85/results.json>`
 - :download:`CLI/Python parity results (JSON) <../conformance-results/aaaea85/parity.json>`
 - :download:`Report checksums <../conformance-results/aaaea85/SHA256SUMS>`
 
-The `CI run <https://github.com/gtfierro/shifty/actions/runs/43076972974>`_
-produced these files from a clean checkout. `Earlier report snapshots
-<https://github.com/gtfierro/shifty/tree/main/conformance-results>`_ are also
-retained.
+These files come from a `CI run
+<https://github.com/gtfierro/shifty/actions/runs/43076972974>`_ on a clean
+checkout. `Earlier snapshots
+<https://github.com/gtfierro/shifty/tree/main/conformance-results>`_ are kept
+too.
 
-What this checks
+One deliberate failure
+----------------------
+
+Since this run, one SHACL 1.0 test fails on purpose:
+``sparql/pre-binding/unsupported-sparql-002``.
+
+SHACL 1.0 rejects every ``VALUES`` clause in a SHACL-SPARQL query. SHACL 1.2
+rejects it only when it binds a variable that could be pre-bound, such as
+``$this``. Shifty follows 1.2, so it accepts this test's ``VALUES ?any``.
+
+CI records this as an expected failure. The upstream test is left unchanged.
+
+What this covers
 ----------------
 
-The runner uses W3C suite revision
-``40231dfb97c5b606d22ae733947c0d14b4f45c07``. It loads each case's declared
-shapes and data, disables inference, and treats unsupported features as
-errors. Actual and expected reports are compared using the suite's report
-comparison rules; process-local blank-node labels are compared by graph
-isomorphism.
+- Each test runs with its own shapes and data, with inference off.
+  Unsupported features count as errors.
+- Reports are compared using the suite's own rules.
+- The suite is pinned to W3C revision
+  ``40231dfb97c5b606d22ae733947c0d14b4f45c07``.
 
-Passing covers the cases in this suite, rather than every possible use of
-SHACL. The suite does not test SHACL-AF, SHACL-JS, or SHACL 1.2. See
-:doc:`reference/feature-support` for support and limitations beyond these
-tests. These are implementation results, not a W3C endorsement.
+It does not test SHACL-AF, SHACL-JS, or SHACL 1.2. See
+:doc:`reference/feature-support` for those. These are Shifty's own results,
+not a W3C endorsement.
 
-To reproduce the report, follow :doc:`how-to/conformance`. The
-`conformance workflow <https://github.com/gtfierro/shifty/actions/workflows/conformance.yml>`_
-runs on changes to ``main`` and on pull requests.
+To run the suite yourself, see :doc:`how-to/conformance`. The `conformance
+workflow <https://github.com/gtfierro/shifty/actions/workflows/conformance.yml>`_
+runs it on every pull request and every change to ``main``.

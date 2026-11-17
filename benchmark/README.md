@@ -1,90 +1,69 @@
 # Benchmarks
 
-The documentation's [benchmark page](../docs/benchmarks.rst) tracks fresh-process
-CLI inference and validation on the checked-in Brick and ASHRAE 223P corpora.
+Times the Shifty CLI on the checked-in Brick (45 models) and ASHRAE 223P
+(19 models) corpora. Results appear on the docs [benchmark page](../docs/benchmarks.rst).
 
-## Collect measurements
+## Run
 
-From the repository root with Python 3.10+ and Rust installed:
+From the repository root, with Python 3.10+ and Rust:
 
 ```sh
-python3 benchmark/run.py                               # current checkout, both corpora
-python3 benchmark/run.py v0.6.0-alpha.4                  # one tagged release
-python3 benchmark/run.py v0.5.0 v0.5.1                   # selected releases
-python3 benchmark/run.py --history --list                # preview the full history
-python3 benchmark/run.py --history                      # measure missing tags
+python3 benchmark/run.py                   # current checkout
+python3 benchmark/run.py v0.6.0-alpha.4    # one release
+python3 benchmark/run.py v0.5.0 v0.5.1     # several releases
+python3 benchmark/run.py --history --list  # preview every release
+python3 benchmark/run.py --history         # measure releases not yet recorded
 ```
 
-Use `--suite brick` or `--suite s223` for one corpus, `--iterations 5` for more
-samples, and `--force` to replace tagged results. Complete tagged recordings
-are reused before a build is started. `HEAD` is measured again on each run.
-`--binary PATH` uses an existing binary for one version. `--output PATH` writes
-to a separate results directory.
+| Option | Effect |
+| --- | --- |
+| `--suite brick` / `--suite s223` | Run one corpus |
+| `--iterations 5` | Take more samples (default 3) |
+| `--force` | Re-measure a release that is already recorded |
+| `--binary PATH` | Use an existing binary for a single version instead of building |
+| `--output PATH` | Write results somewhere else |
 
-Tagged releases are built in temporary Git worktrees. Inputs always come from
-the current checkout. There are 45 Brick models and 19 ASHRAE 223P models. Their
-`*-closure.ttl` files include ontology imports, so measurement needs no ontology
-network requests. Cargo may need to download dependencies while building.
+Releases are built in temporary Git worktrees. Recorded releases are skipped
+unless you pass `--force`. `HEAD` is always measured again.
 
-## Methodology and files
+## What is measured
 
-Each model runs `shifty infer` and `shifty validate` three times by default.
-Each sample uses a fresh process and includes parsing, preparation, computation,
-and output formatting. Build time is excluded. Medians and maximum deviations
-are retained. Validation includes inference, so the two measurements overlap.
-The OS file cache can stay warm across processes.
+- Each model runs `shifty infer` and `shifty validate`, each in a fresh process.
+- The time covers parsing, preparation, computation, and output. Build time is excluded.
+- The median of the samples is recorded.
+- `validate` includes inference, so the two times overlap.
+- Models use `*-closure.ttl` files with their ontology imports included, so
+  no network access is needed. Cargo may still download dependencies when
+  building a release.
 
-Use the same machine, inputs, sample count, and toolchain when comparing
-versions. New runs select `--on-unsupported ignore` where the CLI supports it,
-matching the best-effort behavior of older releases. A validation verdict of
-nonconformance is valid output. An execution error fails collection.
+Compare results only from the same machine, inputs, and toolchain.
 
-Results live under `benchmark/results/<version>/`:
+## Result files
 
-- `brick.json` and `s223.json` contain provenance, input and binary hashes,
-  per-model summaries, and every sample. A suite is published only after all
-  its models finish successfully.
-- `brick.txt` and `s223.txt` contain readable summaries. The reader also
-  accepts historical tables with extra report columns.
-- `revisions.json` maps release tags to their commit IDs, including annotated
-  tags. The collector refreshes it from Git so docs builds can resolve earlier
-  text recordings in a shallow checkout.
-- Older text-only recordings have no machine or sample metadata. Their source
-  revision is resolved from the release tag. An old `HEAD` capture needs to be
-  measured again to establish its revision.
+Each version gets a folder, `benchmark/results/<version>/`:
 
-The collector checks model coverage and input hashes before reusing a new
-recording. After changing fixtures, remeasure versions with `--force` so their
-results describe the same workload. Historical text-only recordings cannot
-verify their input hashes.
+- `brick.json`, `s223.json`: every sample, plus hashes and machine details.
+- `brick.txt`, `s223.txt`: readable summaries.
+- `revisions.json` (in `benchmark/results/`): maps release tags to commits.
 
-## Build the page
+Older recordings are text only, with no machine details.
+
+If you change the models or shapes, re-run with `--force`. Otherwise old and
+new results measure different work.
+
+## Build the chart
 
 ```sh
 cd docs
 make html
 ```
 
-Sphinx runs `process_results.py` to read recordings and generate the chart data
-inside `_build/`. It does not run measurements or change checked-in assets.
-For a standalone JSON summary:
-
-```sh
-python3 benchmark/process_results.py
-```
-
-The page includes every recorded version, including prereleases. Its per-model
-table can compare any two recordings and uses shared model names for the
-summary ratio.
+The docs build reads the recorded results and draws the chart. It never runs
+benchmarks. For a JSON summary instead, run `python3 benchmark/process_results.py`.
 
 ## Other measurements
 
-These serve separate implementation and research questions:
-
-- [AF runtime regression investigation](results/af-runtime-2026-11-16/README.md)
-  records the snapshot and string-rule optimizations, with measurements before
-  the fixes and the refreshed HEAD results.
-- [Evidence overhead](evidence.md) uses `bench_evidence.sh` and
-  `summarize_evidence.py` to measure prepared-session conformance and evidence.
-- [Shared datasets](shared-dataset-results.md) records the storage experiments
-  driven by `compare_shared_datasets.py` and `compare_shared_sessions.py`.
+- [AF runtime investigation](results/af-runtime-2026-11-16/README.md):
+  snapshot and string-rule optimizations, before and after.
+- [Evidence overhead](evidence.md): cost of building evidence in prepared sessions.
+- [Shared datasets](shared-dataset-results.md): storage experiments.

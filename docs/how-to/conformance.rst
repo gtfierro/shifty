@@ -1,9 +1,13 @@
 Run the W3C SHACL suite
 =======================
 
-See :doc:`../conformance` for the recorded results and downloadable reports.
+Check that a change hasn't broken conformance. Recorded results are on
+:doc:`../conformance`.
 
-From a checkout with Rust and uv installed:
+Run the suite
+-------------
+
+You need Rust and uv. From the repository root:
 
 .. code-block:: bash
 
@@ -11,47 +15,13 @@ From a checkout with Rust and uv installed:
    uv sync --dev --frozen --reinstall-package pyshifty
    uv run python -m conformance --include-unlisted
 
-This runs 120 approved SHACL 1.0 Core/SPARQL tests and one proposed test.
-The proposed test is reported separately. SHACL-AF, SHACL-JS, and SHACL 1.2
-are outside this suite.
+This runs the 120 approved SHACL 1.0 tests. ``--include-unlisted`` adds the
+one proposed test, which is reported separately.
 
-The current engine deliberately follows SHACL 1.2's narrower ``VALUES``
-restriction. The 1.0 case ``sparql/pre-binding/unsupported-sparql-002`` therefore
-reports ``failed``: it expects a blanket rejection of ``VALUES ?any``. The CI
-baseline records this difference without changing the upstream fixture or
-counting it as a SHACL 1.0 pass.
+RDFLib prints warnings about invalid literals. Some tests contain them on
+purpose.
 
-Run the SHACL-AF regressions
------------------------------
-
-From the repository root:
-
-.. code-block:: bash
-
-   cargo test -p shifty-engine --test w3c_advanced -- --nocapture
-
-The locally adapted AF/DASH inventory covers 7 inference cases, 97 validation
-cases, and 2 function cases. Eight additional project fixtures cover function
-expressions, value-node scope, optional arguments, path inputs, fresh blank
-nodes, execution ordering, nested functions, reusable target types, and result
-annotations. These regressions are separate from the pinned SHACL 1.0 implementation
-report.
-
-The harness enforces its fixture inventory and category counts. Unexpected
-diagnostics and execution failures fail the test, rather than reducing the
-number of cases executed. Inference compares the complete derived delta,
-including unexpected triples and blank-node structure. Validation checks
-severity, expected authored messages and source constraints as well as the
-usual result fields. SHACL-JS remains outside this profile.
-
-The runner loads the data and shapes specified by each manifest and compares
-Shifty's report with the expected report using the `W3C test process
-<https://w3c.github.io/data-shapes/data-shapes-test-suite/>`_. Inference is
-disabled and unsupported features are errors. Passing these tests covers the
-cases in this suite; it does not prove complete specification conformance.
-
-Run a section or one test
--------------------------
+To run part of the suite:
 
 .. code-block:: bash
 
@@ -62,43 +32,71 @@ Run a section or one test
 Read the results
 ----------------
 
-Output goes to ``target/conformance/`` at the repository root:
+Output goes to ``target/conformance/``. Use ``--output DIR`` to keep runs
+apart.
 
-* ``results.json`` — per-test results, diagnostics, versions, and run settings.
-* ``shifty-earl.ttl`` — the EARL implementation report. Use ``--assertor`` to
-  set the IRI of the person or organization making the report.
-* ``cases/`` — expected and actual reports, with differences, for mismatches.
+- ``results.json``: the result of each test, plus versions and settings.
+- ``shifty-earl.ttl``: the EARL report. ``--assertor`` sets who is making
+  the report.
+- ``cases/``: expected and actual reports for each mismatch.
 
-Use ``--output PATH`` to keep separate runs. Old diagnostic files are retained.
-RDFLib may warn about deliberately invalid literals in the test data.
+Each test gets one outcome:
 
-``passed`` means the report matched or Shifty diagnosed an expected
-SHACL-SPARQL failure. ``partial`` means only the conformance boolean matched.
-``failed`` means conformance differed or an expected failure was missing.
-Loading errors and unexpected exceptions are ``error``; rejected tests are
-``untested``.
+.. list-table::
+   :header-rows: 1
+   :widths: 20 80
 
-The exit code is 0 for passes, 1 for failed or partial results or an algebra
-mismatch, and 2 for runner or algebra exceptions. ``--report-only`` allows
-failed and partial results and algebra mismatches; exceptions still exit 2.
+   * - Outcome
+     - Meaning
+   * - ``passed``
+     - The report matched, or Shifty rejected a query the test expects to be
+       rejected.
+   * - ``partial``
+     - Only the ``sh:conforms`` value matched.
+   * - ``failed``
+     - The verdict was wrong, or an expected rejection didn't happen.
+   * - ``error``
+     - Loading or running the test crashed.
+   * - ``untested``
+     - The W3C rejected this test, so it isn't run.
 
-Run the CI check
-----------------
+Each test also reruns through ``shifty.validate_algebra``, the structured
+results API. Its verdict is shown as ``[algebra: passed]``, ``failed``, or
+``not-run``.
+
+The exit code is:
+
+- 0 if everything passed.
+- 1 for any failed or partial result, or an algebra mismatch.
+- 2 if anything crashed.
+
+``--report-only`` ignores failures but still exits 2 on a crash.
+
+Check against the baseline
+--------------------------
+
+CI uses this command:
 
 .. code-block:: bash
 
-   uv run python -m conformance --include-unlisted \
-     --baseline ../testdata/w3c-shacl/baseline.json
+   uv run python -m conformance --include-unlisted --baseline
 
-Use the baseline with the full suite. It checks the test inventory, upstream
-revision, and report and algebra results for regressions. Fixture sources and
-update instructions are in `testdata/README.md
-<https://github.com/gtfierro/shifty/blob/main/testdata/README.md>`_.
+``--baseline`` compares the run with ``testdata/w3c-shacl/baseline.json``,
+the checked-in record of expected results. You can pass a different file as
+``--baseline PATH``. The run fails if any test got worse or the set of tests
+changed.
 
-Compare CLI and Python reports
-------------------------------
+The console marks known failures as ``EXPECTED-FAILED``, with the reason
+from the baseline. If a test now passes but the baseline says it fails, you
+see ``UNEXPECTED-PASS``. Update the baseline if that change was intended.
 
-Build the CLI from the repository root, then run the parity check:
+These labels only appear in the console. ``results.json`` and the EARL report
+always record outcomes against the official suite.
+
+Compare the CLI and Python
+--------------------------
+
+The CLI and the Python package should produce the same reports. To check:
 
 .. code-block:: bash
 
@@ -106,12 +104,27 @@ Build the CLI from the repository root, then run the parity check:
    cd python
    uv run python -m conformance.parity --cli ../target/debug/shifty
 
-This checks all 121 cases through native file inputs on both interfaces.
-Reports are compared to the expected RDF by graph isomorphism; blank-node
-labels are local to each process. Both runs disable inference, use the data
-graph, and reject unsupported features. Results go to
-``target/interface-parity/parity.json``. Use ``--test`` for one case or
-``--output`` for another results directory. Timeouts and crashes fail the run.
+This runs all 121 tests through both. Results go to
+``target/interface-parity/parity.json``. ``--test`` and ``--output`` work as
+above. A timeout or crash fails the run.
 
-Verified report snapshots are kept in `conformance-results/
-<https://github.com/gtfierro/shifty/tree/main/conformance-results>`_.
+Run the SHACL-AF tests
+----------------------
+
+SHACL-AF (rules, functions, advanced targets) isn't part of the W3C suite. A
+separate Rust test covers it, using locally adapted fixtures. From the
+repository root:
+
+.. code-block:: bash
+
+   cargo test -p shifty-engine --test w3c_advanced -- --nocapture
+
+It runs 7 inference, 97 validation, and 2 function cases, plus 8 Shifty
+fixtures. It fails if the expected set of cases changes. Inference results
+must match exactly, including any extra triples.
+
+Update the fixtures
+-------------------
+
+Fixture sources and update steps are in `testdata/README.md
+<https://github.com/gtfierro/shifty/blob/main/testdata/README.md>`_.

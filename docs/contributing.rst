@@ -1,13 +1,13 @@
 Contributing
 ============
 
-Code contributions must pass the checks below. Documentation contributions
-follow the page conventions and include a Sphinx build.
+Every change has to pass the same checks CI runs. Documentation changes also
+need a clean Sphinx build.
 
-Develop Shifty
---------------
+Run the tests
+-------------
 
-Rust changes run the same gates CI does, from the repository root:
+**Rust**, from the repository root:
 
 .. code-block:: bash
 
@@ -15,8 +15,7 @@ Rust changes run the same gates CI does, from the repository root:
    cargo clippy --workspace --all-targets --all-features -- -D warnings
    cargo test --workspace
 
-Python changes work from ``python/`` against the locked development
-environment:
+**Python**, from ``python/``:
 
 .. code-block:: bash
 
@@ -26,29 +25,38 @@ environment:
    uv run ty check shifty
    uv run pytest -q
 
-Use ``--reinstall-package pyshifty`` whenever Rust sources have changed.
-The extension is an editable build, and a plain ``uv sync`` does not rebuild
-it. Without reinstalling, ``pytest`` tests the previously compiled ``_shifty``
-shared object, so its results may not reflect the current source. CI builds
-from a fresh checkout.
+Keep ``--reinstall-package pyshifty`` whenever you've changed Rust code.
+Without it, ``uv sync`` keeps the old compiled extension, and ``pytest`` tests
+stale code.
 
-Fix diagnostics rather than weakening or skipping a check, unless a documented
-compatibility constraint requires a narrow exception.
-
-Run the pinned W3C suite and compare CLI and Python reports with
-:doc:`how-to/conformance`. Recorded results are on :doc:`conformance`.
-
-Preserve upstream fixtures unchanged. Compiler and algorithm descriptions
-belong in the repository's ``development_docs/`` directory; public pages
-should explain behavior, usage, results, and support boundaries.
-
-The C++ SDK and the WebAssembly module have their own gates:
+**C++ SDK**:
 
 .. code-block:: bash
 
    cmake -S cpp -B build/cpp -DSHIFTY_CPP_BUILD_TESTS=ON
    cmake --build build/cpp
    ctest --test-dir build/cpp --output-on-failure
+
+**WebAssembly**. This needs ``wasm-bindgen-cli`` at the version pinned in
+``Cargo.lock``, and Node:
+
+.. code-block:: bash
+
+   cargo build -p shifty-wasm --target wasm32-unknown-unknown
+   wasm-bindgen target/wasm32-unknown-unknown/debug/shifty_wasm.wasm \
+     --out-dir crates/shifty-wasm/pkg-node --target nodejs
+   node crates/shifty-wasm/ci/smoke.mjs
+
+**Conformance**: see :doc:`how-to/conformance`.
+
+If a check fails, fix the code. Don't weaken or skip the check unless a
+documented compatibility constraint requires a narrow exception.
+
+A few rules:
+
+- Never edit upstream test fixtures.
+- Notes on the compiler and algorithms go in ``development_docs/``. Public
+  pages cover behavior, usage, and results.
 
 Prepare a Python source archive
 -------------------------------
@@ -74,7 +82,7 @@ changelog heading. Prefix that version with ``v`` for the Git tag. Maturin
 converts the version to Python's distribution format. ``shifty.version()``
 reports the Cargo version.
 
-Run the Rust, Python, SDK, documentation, and pinned conformance checks above,
+Run all the checks in `Run the tests`_ and build the documentation,
 then build and verify the Python source archive. Confirm that a wheel installed
 outside the checkout reports the expected version and can validate and infer.
 Keep generated release artifacts under ``target/``.
