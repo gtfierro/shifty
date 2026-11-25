@@ -31,6 +31,12 @@ Use ``:memory:`` for a temporary database, a filename for a local file, or a
 ``sqlite:////tmp/building.sqlite``. A file-backed database retains the shapes
 graphs and their selections, so it can be reopened and refreshed later.
 
+Run the self-contained VAV demo from the repository's ``python/`` directory.
+
+.. code-block:: console
+
+   uv run python examples/result_database.py
+
 Choose the tables
 -----------------
 
@@ -71,10 +77,15 @@ Read full and partial results
 -----------------------------
 
 Each shape table has one row per targeted ``focus`` and its ``conforms``
-flag. A field with a maximum of one in its extraction domain becomes a
-nullable column. Repeatable fields use a ``<table>_<field>`` child table with
-``focus`` and ``value`` columns. Focus and value terms are stored in N-Triples
-spelling. A failing focus still contributes its qualifying values.
+flag. ``focus`` is the primary key. The generated child, binding-status,
+and scalar-overflow tables reference that key, and SQLite enforces the
+reference on the result database connection. Deleting a focus row also
+deletes those dependent rows.
+
+A field with a maximum of one in its extraction domain becomes a nullable
+column. Repeatable fields use a ``<table>_<field>`` child table with ``focus``
+and ``value`` columns. Focus and value terms are stored in N-Triples spelling.
+A failing focus still contributes its qualifying values.
 
 Query ``<table>_slot_status`` by ``focus`` and ``field`` to see the binding
 ``status``, qualifying ``value_count``, and ``missing`` count. An empty set

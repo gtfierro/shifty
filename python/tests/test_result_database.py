@@ -58,6 +58,39 @@ def test_projects_full_and_partial_results():
         ).fetchall() == [("fail", 0, 1), ("pass", 1, 0)]
 
 
+def test_auxiliary_tables_require_an_owner_focus():
+    with ResultDatabase() as db:
+        db.add_shape_tables(VAV_SHAPES)
+        db.populate_shape_tables(VAV_DATA, infer=False)
+        orphan = "<https://example.org/unknown-vav>"
+        for sql, params in (
+            (
+                "INSERT INTO [ex:VavShape_airflow] VALUES (?, ?)",
+                (orphan, "<https://example.org/flow>"),
+            ),
+            (
+                "INSERT INTO [ex:VavShape_slot_status] VALUES (?, 'airflow', 'pass', 1, 0)",
+                (orphan,),
+            ),
+            (
+                "INSERT INTO [ex:VavShape_scalar_values] VALUES (?, 'supply_air_temperature', ?)",
+                (orphan, "<https://example.org/sat2>"),
+            ),
+        ):
+            with pytest.raises(sqlite3.IntegrityError, match="FOREIGN KEY"):
+                db.connection.execute(sql, params)
+
+        focus = "<https://example.org/vav2>"
+        db.connection.execute("DELETE FROM [ex:VavShape] WHERE focus = ?", (focus,))
+        assert (
+            db.connection.execute("SELECT * FROM [ex:VavShape_airflow]").fetchall()
+            == []
+        )
+        assert db.connection.execute(
+            "SELECT count(*) FROM [ex:VavShape_slot_status] WHERE focus = ?", (focus,)
+        ).fetchone() == (0,)
+
+
 def test_default_and_explicit_shape_selection():
     shapes = (
         PREFIXES

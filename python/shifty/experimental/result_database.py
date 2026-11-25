@@ -34,6 +34,7 @@ class ResultDatabase:
     def __init__(self, database: str | Path = ":memory:") -> None:
         self.connection = sqlite3.connect(_filename(database), isolation_level=None)
         try:
+            self.connection.execute("PRAGMA foreign_keys = ON")
             with self._transaction():
                 for statement in _REGISTRY:
                     self.connection.execute(statement)
@@ -221,23 +222,24 @@ class _Table:
             f"{_quote(field.name)} TEXT" for field in self.fields if field.scalar
         )
         db.execute(f"CREATE TABLE {_main_table(self.name)} ({', '.join(columns)})")
+        owner = f"focus TEXT NOT NULL REFERENCES {_quote(self.name)} (focus) ON DELETE CASCADE"
         db.execute(f"""CREATE TABLE {_main_table(self.status)} (
-            focus TEXT NOT NULL, field TEXT NOT NULL, status TEXT NOT NULL,
+            {owner}, field TEXT NOT NULL, status TEXT NOT NULL,
             value_count INTEGER, missing INTEGER, PRIMARY KEY (focus, field)
         )""")
         if any(field.scalar for field in self.fields):
             db.execute(f"""CREATE TABLE {_main_table(self.overflow)} (
-                focus TEXT NOT NULL, field TEXT NOT NULL, value TEXT NOT NULL,
+                {owner}, field TEXT NOT NULL, value TEXT NOT NULL,
                 PRIMARY KEY (focus, field, value)
             )""")
         for field in self.fields:
             if not field.scalar:
                 db.execute(f"""CREATE TABLE {_main_table(field.relation)} (
-                    focus TEXT NOT NULL, value TEXT NOT NULL, PRIMARY KEY (focus, value)
+                    {owner}, value TEXT NOT NULL, PRIMARY KEY (focus, value)
                 )""")
 
     def replace(self, db: sqlite3.Connection, mappings: Sequence[Mapping]) -> None:
-        for name in self.relations:
+        for name in reversed(self.relations):
             db.execute(f"DELETE FROM {_main_table(name)}")
 
         # A focus may be selected by multiple targets on the same node shape.
@@ -255,6 +257,7 @@ class _Table:
         }
         row: list[str | bool | None] = [focus, mapping.conforms]
         status_rows = []
+        child_values = []
         for field in self.fields:
             binding = bindings.get(field.source_id)
             values = binding.values if binding is not None else None
@@ -272,18 +275,22 @@ class _Table:
             )
             if field.scalar:
                 row.append(terms[0] if terms and len(terms) == 1 else None)
-                if terms and len(terms) > 1:
-                    db.executemany(
-                        f"INSERT INTO {_main_table(self.overflow)} VALUES (?, ?, ?)",
-                        ((focus, field.name, term) for term in terms),
-                    )
-            elif terms:
+            if terms:
+                child_values.append((field, terms))
+
+        placeholders = ", ".join("?" for _ in row)
+        db.execute(f"INSERT INTO {_main_table(self.name)} VALUES ({placeholders})", row)
+        for field, terms in child_values:
+            if not field.scalar:
                 db.executemany(
                     f"INSERT INTO {_main_table(field.relation)} VALUES (?, ?)",
                     ((focus, term) for term in terms),
                 )
-        placeholders = ", ".join("?" for _ in row)
-        db.execute(f"INSERT INTO {_main_table(self.name)} VALUES ({placeholders})", row)
+            elif len(terms) > 1:
+                db.executemany(
+                    f"INSERT INTO {_main_table(self.overflow)} VALUES (?, ?, ?)",
+                    ((focus, field.name, term) for term in terms),
+                )
         db.executemany(
             f"INSERT INTO {_main_table(self.status)} VALUES (?, ?, ?, ?, ?)",
             status_rows,
