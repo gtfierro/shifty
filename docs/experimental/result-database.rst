@@ -110,3 +110,17 @@ SQL table name and ``focus`` to find the corresponding validation results.
    SELECT focus
    FROM _shifty_result_validation
    WHERE table_name = 'ex:VavShape' AND conforms = 0;
+
+Find missing required values
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The ``_shifty_result_missing_required_values`` view shows each field with a
+positive missing count in the current snapshot. In the VAV demo it lists
+``vav1`` with one missing ``airflow`` value. Refreshing after adding the
+required value removes that entry from the view.
+
+.. code-block:: sql
+
+   SELECT table_name, focus, field_name, missing
+   FROM _shifty_result_missing_required_values
+   ORDER BY table_name, focus, field_name;

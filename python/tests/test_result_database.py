@@ -82,6 +82,19 @@ def test_projects_full_and_partial_results():
             ("<https://example.org/vav1>", "fail", 0, 1),
             ("<https://example.org/vav2>", "pass", 2, 0),
         ]
+        assert db.connection.execute(
+            "SELECT * FROM _shifty_result_missing_required_values"
+        ).fetchall() == [("ex:VavShape", "<https://example.org/vav1>", "airflow", 1)]
+
+        db.populate_shape_tables(
+            VAV_DATA + "ex:vav1 ex:hasPoint ex:flow .", infer=False
+        )
+        assert (
+            db.connection.execute(
+                "SELECT * FROM _shifty_result_missing_required_values"
+            ).fetchall()
+            == []
+        )
 
 
 def test_independent_repeatable_properties_share_one_shape_table():
@@ -293,6 +306,12 @@ def test_scalar_overflow_and_authored_aliases():
         assert db.connection.execute("""
             SELECT conforms FROM _shifty_result_validation WHERE table_name = 'Points'
         """).fetchall() == [(0,)]
+        assert (
+            db.connection.execute(
+                "SELECT * FROM _shifty_result_missing_required_values"
+            ).fetchall()
+            == []
+        )
 
         db.populate_shape_tables(PREFIXES + r'ex:focus ex:p "line\rbreak" .')
         assert db.connection.execute('SELECT "select" FROM "Points"').fetchall() == [

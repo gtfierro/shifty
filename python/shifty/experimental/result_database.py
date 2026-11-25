@@ -203,6 +203,11 @@ _REGISTRY = (
         FOREIGN KEY (table_name, focus) REFERENCES _shifty_result_validation (table_name, focus)
             ON DELETE CASCADE
     )""",
+    """CREATE VIEW IF NOT EXISTS main._shifty_result_missing_required_values AS
+        SELECT table_name, focus, field_name, missing
+        FROM main._shifty_result_binding_status
+        WHERE missing > 0
+    """,
 )
 
 
