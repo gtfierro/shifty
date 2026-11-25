@@ -15,7 +15,7 @@ results from the :doc:`shape map <../reference/shape-maps>`.
        db.populate_shape_tables("building.ttl")
 
        incomplete = db.connection.execute(
-           "SELECT focus FROM vav_shape WHERE conforms = 0"
+           "SELECT focus FROM [ex:VavShape] WHERE conforms = 0"
        ).fetchall()
 
 .. warning::
@@ -53,12 +53,18 @@ registration. Referenced helper shapes remain available during evaluation.
        """,
    )
 
-Table names default to the local name of the shape IRI in snake case. Each
-direct ``sh:property`` defines a field. Field names default to ``sh:name``,
-the property shape's local name, or the path predicate's local name, in that
-order. Complex paths without a name use ``field_N``. To choose exact SQL names
-or resolve name collisions, set ``sql:tableName`` on the node shape or
-``sql:columnName`` on the property shape, using the vocabulary
+Table names use the shape's IRI compacted with the shapes graph's prefix
+declarations, using the most specific matching namespace. ``ex:VavShape``
+becomes ``[ex:VavShape]`` in SQL. The local name keeps its original spelling,
+so ``ex:vav_shape`` becomes ``[ex:vav_shape]``. When no declaration applies,
+use the full IRI as the table name, for example
+``[https://example.org/VavShape]``. SQLite double quotes also work for these identifiers.
+
+Each direct ``sh:property`` defines a field. Field names default to
+``sh:name``, the property shape's local name, or the path predicate's local
+name, in that order. Complex paths without a name use ``field_N``. To choose
+exact SQL names or resolve name collisions, set ``sql:tableName`` on the node
+shape or ``sql:columnName`` on the property shape, using the vocabulary
 ``https://shifty.gtf.fyi/ns/sql#``.
 
 Read full and partial results

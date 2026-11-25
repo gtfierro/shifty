@@ -13,7 +13,7 @@ from urllib.parse import unquote, urlsplit
 
 from shifty import EvidenceSession, GraphInputs, _coalesce_graph_input, _to_rdf_input
 from shifty._shifty import _result_database_snapshot
-from shifty.shapemap import Mapping, ShapeMap, _local
+from shifty.shapemap import Mapping, ShapeMap
 
 __all__ = ["ResultDatabase"]
 
@@ -65,6 +65,8 @@ class ResultDatabase:
         ``shape_names`` or a SPARQL ``SELECT`` over the shapes graph binding
         ``?shape``. The two selectors are additive. An empty selection creates
         zero tables. Referenced helper shapes remain part of the shapes graph.
+        Table names use declared prefixes, such as ``ex:VavShape``, and keep
+        the original spelling. Use the full IRI when no prefix applies.
         """
         document = _snapshot(shapes_graph, base)
         session = EvidenceSession(document.encode(), b"", infer=False)
@@ -297,8 +299,9 @@ def _compile_tables(
         list(shape_names) if shape_names is not None else None, shape_query
     )
     tables = []
-    for iri, alias, slots in layout:
-        name = _sql_name(alias, _local(iri), "shape")
+    for iri, name, slots in layout:
+        if "\x00" in name:
+            raise ValueError("SQL names cannot contain a NUL character")
         if name.lower().startswith(("_shifty_", "sqlite_")):
             raise ValueError(f"reserved SQL table name {name!r}")
         fields = []

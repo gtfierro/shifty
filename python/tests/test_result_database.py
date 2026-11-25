@@ -40,20 +40,20 @@ ex:flow a ex:Airflow .
 def test_projects_full_and_partial_results():
     with ResultDatabase() as db:
         db.add_shape_tables(VAV_SHAPES)
-        assert db.connection.execute("SELECT * FROM vav_shape").fetchall() == []
+        assert db.connection.execute("SELECT * FROM [ex:VavShape]").fetchall() == []
 
         db.populate_shape_tables(VAV_DATA, infer=False)
         assert db.connection.execute(
-            "SELECT focus, supply_air_temperature, conforms FROM vav_shape ORDER BY focus"
+            "SELECT focus, supply_air_temperature, conforms FROM [ex:VavShape] ORDER BY focus"
         ).fetchall() == [
             ("<https://example.org/vav1>", "<https://example.org/sat1>", 0),
             ("<https://example.org/vav2>", "<https://example.org/sat2>", 1),
         ]
-        assert db.connection.execute("SELECT * FROM vav_shape_airflow").fetchall() == [
-            ("<https://example.org/vav2>", "<https://example.org/flow>")
-        ]
         assert db.connection.execute(
-            "SELECT status, value_count, missing FROM vav_shape_slot_status "
+            "SELECT * FROM [ex:VavShape_airflow]"
+        ).fetchall() == [("<https://example.org/vav2>", "<https://example.org/flow>")]
+        assert db.connection.execute(
+            "SELECT status, value_count, missing FROM [ex:VavShape_slot_status] "
             "WHERE field = 'airflow' ORDER BY focus"
         ).fetchall() == [("fail", 0, 1), ("pass", 1, 0)]
 
@@ -74,9 +74,14 @@ def test_default_and_explicit_shape_selection():
         db.add_shape_tables(shapes)
         assert db.connection.execute(
             "SELECT table_name FROM _shifty_result_tables ORDER BY table_name"
-        ).fetchall() == [("extra",), ("helper",), ("implicit",), ("marked",)]
+        ).fetchall() == [
+            ("ex:Extra",),
+            ("ex:Helper",),
+            ("ex:Implicit",),
+            ("ex:Marked",),
+        ]
         db.populate_shape_tables(PREFIXES)
-        assert db.connection.execute("SELECT * FROM helper").fetchall() == []
+        assert db.connection.execute("SELECT * FROM [ex:Helper]").fetchall() == []
 
     with ResultDatabase("sqlite:///:memory:") as db:
         db.add_shape_tables(shapes, shape_names=[])
@@ -94,12 +99,12 @@ def test_default_and_explicit_shape_selection():
         )
         assert db.connection.execute(
             "SELECT table_name FROM _shifty_result_tables ORDER BY table_name"
-        ).fetchall() == [("implicit",), ("marked",)]
+        ).fetchall() == [("ex:Implicit",), ("ex:Marked",)]
         db.populate_shape_tables(PREFIXES)
         # The unselected Helper still participates through sh:node.
-        assert db.connection.execute("SELECT conforms FROM implicit").fetchall() == [
-            (0,)
-        ]
+        assert db.connection.execute(
+            "SELECT conforms FROM [ex:Implicit]"
+        ).fetchall() == [(0,)]
 
 
 @pytest.mark.parametrize(
@@ -144,25 +149,27 @@ def test_reopen_and_refresh_replaces_only_managed_rows(tmp_path):
             VAV_DATA + 'ex:old a ex:Meter ; ex:label "original" ; ex:invalid ex:bad .'
         )
         assert db.connection.execute(
-            "SELECT label, conforms FROM meter_shape"
+            "SELECT label, conforms FROM [ex:MeterShape]"
         ).fetchall() == [('"original"', 0)]
-        db.connection.execute("UPDATE vav_shape SET supply_air_temperature = 'manual'")
-        db.connection.execute("DELETE FROM vav_shape_airflow")
-        db.connection.execute("INSERT INTO meter_shape VALUES ('manual', 1, NULL)")
+        db.connection.execute(
+            "UPDATE [ex:VavShape] SET supply_air_temperature = 'manual'"
+        )
+        db.connection.execute("DELETE FROM [ex:VavShape_airflow]")
+        db.connection.execute("INSERT INTO [ex:MeterShape] VALUES ('manual', 1, NULL)")
         db.connection.execute("CREATE TABLE notes (note TEXT)")
         db.connection.execute("INSERT INTO notes VALUES ('keep')")
 
     shapes_path.unlink()
     with ResultDatabase(f"sqlite:///{path}") as db:
         db.populate_shape_tables(VAV_DATA + 'ex:new a ex:Meter ; ex:label "fresh" .')
-        assert db.connection.execute("SELECT * FROM meter_shape").fetchall() == [
+        assert db.connection.execute("SELECT * FROM [ex:MeterShape]").fetchall() == [
             ("<https://example.org/new>", 1, '"fresh"')
         ]
         assert db.connection.execute(
-            "SELECT value FROM vav_shape_airflow"
+            "SELECT value FROM [ex:VavShape_airflow]"
         ).fetchall() == [("<https://example.org/flow>",)]
         assert db.connection.execute(
-            "SELECT supply_air_temperature FROM vav_shape ORDER BY focus"
+            "SELECT supply_air_temperature FROM [ex:VavShape] ORDER BY focus"
         ).fetchall() == [
             ("<https://example.org/sat1>",),
             ("<https://example.org/sat2>",),
@@ -176,7 +183,7 @@ def test_failed_refresh_rolls_back_every_registration():
         db.add_shape_tables(PREFIXES + "ex:Meter sh:targetClass ex:MeterClass .")
         db.populate_shape_tables(VAV_DATA + "ex:meter a ex:MeterClass .")
         db.connection.execute("""
-            CREATE TRIGGER reject_refresh BEFORE INSERT ON meter BEGIN
+            CREATE TRIGGER reject_refresh BEFORE INSERT ON [ex:Meter] BEGIN
                 SELECT RAISE(ABORT, 'test load failure');
             END
         """)
@@ -184,13 +191,13 @@ def test_failed_refresh_rolls_back_every_registration():
         with pytest.raises(sqlite3.IntegrityError, match="test load failure"):
             db.populate_shape_tables(PREFIXES + "ex:new a ex:MeterClass .")
 
-        assert db.connection.execute("SELECT count(*) FROM vav_shape").fetchone() == (
-            2,
-        )
         assert db.connection.execute(
-            "SELECT count(*) FROM vav_shape_slot_status"
+            "SELECT count(*) FROM [ex:VavShape]"
+        ).fetchone() == (2,)
+        assert db.connection.execute(
+            "SELECT count(*) FROM [ex:VavShape_slot_status]"
         ).fetchone() == (4,)
-        assert db.connection.execute("SELECT * FROM meter").fetchall() == [
+        assert db.connection.execute("SELECT * FROM [ex:Meter]").fetchall() == [
             ("<https://example.org/meter>", 1)
         ]
 
@@ -232,11 +239,37 @@ def test_scalar_overflow_and_authored_aliases():
         )
 
 
+def test_table_names_use_declared_prefixes_and_preserve_spelling():
+    shapes = (
+        PREFIXES
+        + """
+    @prefix zone: <https://example.org/zones/> .
+    @prefix : <https://default.example/> .
+    ex:VavShape sh:targetNode ex:vav .
+    <https://example.org/zones/VavShape> sh:targetNode ex:zone .
+    :vav_shape sh:targetNode ex:default .
+    <https://elsewhere.example/VavShape> sh:targetNode ex:elsewhere .
+    """
+    )
+    with ResultDatabase() as db:
+        db.add_shape_tables(shapes)
+        db.populate_shape_tables(PREFIXES, infer=False)
+        for table, local in (
+            ("ex:VavShape", "vav"),
+            ("zone:VavShape", "zone"),
+            (":vav_shape", "default"),
+            ("https://elsewhere.example/VavShape", "elsewhere"),
+        ):
+            assert db.connection.execute(f"SELECT focus FROM [{table}]").fetchall() == [
+                (f"<https://example.org/{local}>",)
+            ]
+
+
 def test_table_name_collision_during_registration():
     shapes = PREFIXES + "ex:Alpha a sh:NodeShape . ex:Zeta a sh:NodeShape ."
     with ResultDatabase() as db:
-        db.connection.execute("CREATE TABLE zeta (custom TEXT)")
-        with pytest.raises(ValueError, match="SQL name 'zeta'"):
+        db.connection.execute("CREATE TABLE [ex:zeta] (custom TEXT)")
+        with pytest.raises(ValueError, match="SQL name 'ex:Zeta'"):
             db.add_shape_tables(shapes)
         assert (
             db.connection.execute("SELECT * FROM _shifty_result_tables").fetchall()
@@ -244,7 +277,7 @@ def test_table_name_collision_during_registration():
         )
         assert (
             db.connection.execute(
-                "SELECT name FROM sqlite_master WHERE name = 'alpha'"
+                "SELECT name FROM sqlite_master WHERE name = 'ex:Alpha'"
             ).fetchall()
             == []
         )

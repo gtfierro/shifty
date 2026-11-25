@@ -16,7 +16,7 @@ const COLUMN_NAME: NamedNodeRef<'static> =
     NamedNodeRef::new_unchecked("https://shifty.gtf.fyi/ns/sql#columnName");
 
 type FieldLayout = (u32, String, Option<String>, Option<String>, bool);
-pub(super) type TableLayout = (String, Option<String>, Vec<FieldLayout>);
+pub(super) type TableLayout = (String, String, Vec<FieldLayout>);
 
 #[pyfunction]
 #[pyo3(signature = (data, path, format, base))]
@@ -82,7 +82,9 @@ impl super::EvidenceSession {
                 let node = nodes.get(&iri).ok_or_else(|| {
                     py_value_error(format!("expected a named node shape in this graph: {iri}"))
                 })?;
-                let alias = sql_alias(&self.shapes, node, TABLE_NAME)?;
+                let table_name = sql_alias(&self.shapes, node, TABLE_NAME)?
+                    .or_else(|| self.raw_schema.prefixes.compact_declared(&iri))
+                    .unwrap_or_else(|| iri.clone());
                 let mut fields = Vec::new();
                 for source in self.shapes.objects(node, vocab::SH_PROPERTY) {
                     let property = term_to_node(&source).ok_or_else(|| {
@@ -103,7 +105,7 @@ impl super::EvidenceSession {
                     fields.push((id, identity, alias, label, single));
                 }
                 fields.sort_by(|a, b| a.1.cmp(&b.1));
-                Ok((iri, alias, fields))
+                Ok((iri, table_name, fields))
             })
             .collect()
     }

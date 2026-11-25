@@ -531,7 +531,7 @@ class EvidenceSession:
     ) -> List[
         Tuple[
             str,
-            Optional[str],
+            str,
             List[Tuple[int, str, Optional[str], Optional[str], bool]],
         ]
     ]: ...
