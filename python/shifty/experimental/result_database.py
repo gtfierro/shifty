@@ -26,9 +26,10 @@ class ResultDatabase:
     slashes for an absolute path, for example ``sqlite:////tmp/results.sqlite``.
     Shape registrations persist in file-backed databases.
 
-    Each shape gets one table with ``focus``, ``conforms``, and a nullable
-    column per property. A focus gets one row per combination of qualifying
-    values. Fields with no qualifying values appear as NULL.
+    Each shape gets one table with ``focus`` and a nullable column per
+    property. A focus gets one row per combination of qualifying values.
+    Fields with no qualifying values appear as NULL. Shared validation tables
+    record conformance and binding status for the same snapshot.
 
     Read results through ``connection``. Every successful refresh replaces all
     rows in the managed result tables, discarding manual SQL inserts, updates,
@@ -134,6 +135,8 @@ class ResultDatabase:
             if not registrations:
                 return
             data = _snapshot(data_graph, base).encode()
+            self.connection.execute("DELETE FROM main._shifty_result_binding_status")
+            self.connection.execute("DELETE FROM main._shifty_result_validation")
             for registration, document in registrations:
                 selected = dict(
                     self.connection.execute(
@@ -188,6 +191,18 @@ _REGISTRY = (
         storage_table TEXT NOT NULL, scalar INTEGER NOT NULL,
         PRIMARY KEY (table_name, field_name)
     )""",
+    """CREATE TABLE IF NOT EXISTS main._shifty_result_validation (
+        table_name TEXT NOT NULL REFERENCES _shifty_result_tables (table_name) ON DELETE CASCADE,
+        focus TEXT NOT NULL, conforms INTEGER NOT NULL,
+        PRIMARY KEY (table_name, focus)
+    )""",
+    """CREATE TABLE IF NOT EXISTS main._shifty_result_binding_status (
+        table_name TEXT NOT NULL, focus TEXT NOT NULL, field_name TEXT NOT NULL,
+        status TEXT NOT NULL, value_count INTEGER, missing INTEGER,
+        PRIMARY KEY (table_name, focus, field_name),
+        FOREIGN KEY (table_name, focus) REFERENCES _shifty_result_validation (table_name, focus)
+            ON DELETE CASCADE
+    )""",
 )
 
 
@@ -207,7 +222,7 @@ class _Table:
 
     @property
     def columns(self) -> list[tuple[str, str]]:
-        columns = [("focus", "TEXT NOT NULL"), ("conforms", "INTEGER NOT NULL")]
+        columns = [("focus", "TEXT NOT NULL")]
         columns.extend((field.name, "TEXT") for field in self.fields)
         return columns
 
@@ -228,26 +243,45 @@ class _Table:
         for mapping in mappings:
             focus = mapping.focus.n3()
             if focus not in seen:
-                db.executemany(insert, self._rows(focus, mapping))
+                self._insert_focus(db, insert, focus, mapping)
                 seen.add(focus)
 
-    def _rows(
-        self, focus: str, mapping: Mapping
-    ) -> Iterator[tuple[str | int | None, ...]]:
+    def _insert_focus(
+        self, db: sqlite3.Connection, insert: str, focus: str, mapping: Mapping
+    ) -> None:
         bindings = {
             binding._property_source_id: binding
             for binding in mapping.bindings.values()
         }
         field_values: list[Sequence[str | None]] = []
+        binding_rows = []
         for field in self.fields:
             binding = bindings.get(field.source_id)
             values = binding.values if binding is not None else None
-            field_values.append(
-                sorted({value.n3() for value in values}) if values else (None,)
+            terms = (
+                sorted({value.n3() for value in values}) if values is not None else None
             )
+            field_values.append(terms or (None,))
+            binding_rows.append(
+                (
+                    self.name,
+                    focus,
+                    field.name,
+                    binding.status if binding is not None else "unavailable",
+                    len(terms) if terms is not None else None,
+                    binding.missing if binding is not None else None,
+                )
+            )
+        db.execute(
+            "INSERT INTO main._shifty_result_validation VALUES (?, ?, ?)",
+            (self.name, focus, mapping.conforms),
+        )
+        db.executemany(
+            "INSERT INTO main._shifty_result_binding_status VALUES (?, ?, ?, ?, ?, ?)",
+            binding_rows,
+        )
         # Property bindings are independent sets. Materialize combinations lazily.
-        for values in product(*field_values):
-            yield (focus, mapping.conforms, *values)
+        db.executemany(insert, ((focus, *values) for values in product(*field_values)))
 
 
 def _compile_tables(

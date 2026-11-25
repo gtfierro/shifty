@@ -14,9 +14,7 @@ results from the :doc:`shape map <../reference/shape-maps>`.
        db.add_shape_tables("meter-shapes.ttl")
        db.populate_shape_tables("building.ttl")
 
-       incomplete = db.connection.execute(
-           "SELECT DISTINCT focus FROM [ex:VavShape] WHERE conforms = 0"
-       ).fetchall()
+       vavs = db.connection.execute("SELECT * FROM [ex:VavShape]").fetchall()
 
 .. warning::
 
@@ -80,10 +78,10 @@ shape, using the vocabulary ``https://shifty.gtf.fyi/ns/sql#``.
 Read full and partial results
 -----------------------------
 
-Shifty creates one result table per selected shape. A row holds the
-``focus``, its ``conforms`` flag, and one RDF term per property column. A
-property with no recovered qualifying values shows ``NULL``. Focus and
-value terms use N-Triples spelling.
+Shifty creates one application table per selected shape. A row holds
+``focus`` and one RDF term per property column. A property with no
+recovered qualifying values shows ``NULL``. Focus and value terms use
+N-Triples spelling.
 
 A focus gets one row per combination of its qualifying values. Two airflow
 sensors and three dampers produce six rows for that focus. The same rule
@@ -95,3 +93,20 @@ Use ``COUNT(DISTINCT focus)`` when counting VAVs.
    SELECT *
    FROM [ex:VavShape]
    ORDER BY focus, airflow;
+
+Validation results
+------------------
+
+The same refresh records validation in two shared tables. Use the generated
+SQL table name and ``focus`` to find the corresponding validation results.
+
+- ``_shifty_result_validation`` has one row per shape and focus, with ``conforms``.
+- ``_shifty_result_binding_status`` has one row per shape, focus, and field,
+  with ``status``, ``value_count``, and ``missing``. ``value_count`` is zero
+  for a known empty set and ``NULL`` when values are unavailable.
+
+.. code-block:: sql
+
+   SELECT focus
+   FROM _shifty_result_validation
+   WHERE table_name = 'ex:VavShape' AND conforms = 0;

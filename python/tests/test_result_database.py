@@ -44,7 +44,6 @@ def test_projects_full_and_partial_results():
         assert empty.fetchall() == []
         assert {column[0] for column in empty.description} == {
             "focus",
-            "conforms",
             "supply_air_temperature",
             "airflow",
         }
@@ -54,22 +53,34 @@ def test_projects_full_and_partial_results():
             infer=False,
         )
         assert db.connection.execute("""
-            SELECT focus, conforms, supply_air_temperature, airflow
+            SELECT focus, supply_air_temperature, airflow
             FROM [ex:VavShape] ORDER BY focus, airflow
         """).fetchall() == [
-            ("<https://example.org/vav1>", 0, "<https://example.org/sat1>", None),
+            ("<https://example.org/vav1>", "<https://example.org/sat1>", None),
             (
                 "<https://example.org/vav2>",
-                1,
                 "<https://example.org/sat2>",
                 "<https://example.org/flow2>",
             ),
             (
                 "<https://example.org/vav2>",
-                1,
                 "<https://example.org/sat2>",
                 "<https://example.org/flow>",
             ),
+        ]
+        assert db.connection.execute("""
+            SELECT focus, conforms FROM _shifty_result_validation
+            WHERE table_name = 'ex:VavShape' ORDER BY focus
+        """).fetchall() == [
+            ("<https://example.org/vav1>", 0),
+            ("<https://example.org/vav2>", 1),
+        ]
+        assert db.connection.execute("""
+            SELECT focus, status, value_count, missing FROM _shifty_result_binding_status
+            WHERE table_name = 'ex:VavShape' AND field_name = 'airflow' ORDER BY focus
+        """).fetchall() == [
+            ("<https://example.org/vav1>", "fail", 0, 1),
+            ("<https://example.org/vav2>", "pass", 2, 0),
         ]
 
 
@@ -143,7 +154,7 @@ def test_default_and_explicit_shape_selection():
         db.populate_shape_tables(PREFIXES)
         # The unselected Helper still participates through sh:node.
         assert db.connection.execute(
-            "SELECT conforms FROM [ex:Implicit]"
+            "SELECT conforms FROM _shifty_result_validation WHERE table_name = 'ex:Implicit'"
         ).fetchall() == [(0,)]
 
 
@@ -189,15 +200,19 @@ def test_reopen_and_refresh_replaces_only_managed_rows(tmp_path):
             VAV_DATA + 'ex:old a ex:Meter ; ex:label "original" ; ex:invalid ex:bad .'
         )
         assert db.connection.execute(
-            "SELECT label, conforms FROM [ex:MeterShape]"
-        ).fetchall() == [('"original"', 0)]
+            "SELECT label FROM [ex:MeterShape]"
+        ).fetchall() == [('"original"',)]
+        assert db.connection.execute(
+            "SELECT conforms FROM _shifty_result_validation WHERE table_name = 'ex:MeterShape'"
+        ).fetchall() == [(0,)]
         db.connection.execute(
             "UPDATE [ex:VavShape] SET supply_air_temperature = 'manual'"
         )
         db.connection.execute("DELETE FROM [ex:VavShape] WHERE airflow IS NOT NULL")
+        db.connection.execute("INSERT INTO [ex:MeterShape] (focus) VALUES ('manual')")
         db.connection.execute("""
-            INSERT INTO [ex:MeterShape] (focus, conforms)
-            VALUES ('manual', 1)
+            UPDATE _shifty_result_binding_status SET missing = 100
+            WHERE table_name = 'ex:VavShape' AND field_name = 'airflow'
         """)
         db.connection.execute("CREATE TABLE notes (note TEXT)")
         db.connection.execute("INSERT INTO notes VALUES ('keep')")
@@ -206,8 +221,16 @@ def test_reopen_and_refresh_replaces_only_managed_rows(tmp_path):
     with ResultDatabase(f"sqlite:///{path}") as db:
         db.populate_shape_tables(VAV_DATA + 'ex:new a ex:Meter ; ex:label "fresh" .')
         assert db.connection.execute(
-            "SELECT focus, conforms, label FROM [ex:MeterShape]"
-        ).fetchall() == [("<https://example.org/new>", 1, '"fresh"')]
+            "SELECT focus, label FROM [ex:MeterShape]"
+        ).fetchall() == [("<https://example.org/new>", '"fresh"')]
+        assert db.connection.execute("""
+            SELECT focus, conforms FROM _shifty_result_validation
+            WHERE table_name = 'ex:MeterShape'
+        """).fetchall() == [("<https://example.org/new>", 1)]
+        assert db.connection.execute("""
+            SELECT missing FROM _shifty_result_binding_status
+            WHERE table_name = 'ex:VavShape' AND field_name = 'airflow' ORDER BY focus
+        """).fetchall() == [(1,), (0,)]
         assert db.connection.execute(
             "SELECT supply_air_temperature, airflow FROM [ex:VavShape] ORDER BY focus"
         ).fetchall() == [
@@ -235,8 +258,16 @@ def test_failed_refresh_rolls_back_every_registration():
             "SELECT count(*) FROM [ex:VavShape]"
         ).fetchone() == (2,)
         assert db.connection.execute("SELECT * FROM [ex:Meter]").fetchall() == [
-            ("<https://example.org/meter>", 1)
+            ("<https://example.org/meter>",)
         ]
+        assert db.connection.execute("""
+            SELECT focus, conforms FROM _shifty_result_validation
+            WHERE table_name = 'ex:Meter'
+        """).fetchall() == [("<https://example.org/meter>", 1)]
+        assert db.connection.execute("""
+            SELECT missing FROM _shifty_result_binding_status
+            WHERE table_name = 'ex:VavShape' AND field_name = 'airflow' ORDER BY focus
+        """).fetchall() == [(1,), (0,)]
 
 
 def test_scalar_overflow_and_authored_aliases():
@@ -254,16 +285,22 @@ def test_scalar_overflow_and_authored_aliases():
             PREFIXES + 'ex:focus ex:p ex:value, "https://example.org/value" .'
         )
         assert db.connection.execute(
-            'SELECT "select", conforms FROM "Points" ORDER BY "select"'
+            'SELECT "select" FROM "Points" ORDER BY "select"'
         ).fetchall() == [
-            ('"https://example.org/value"', 0),
-            ("<https://example.org/value>", 0),
+            ('"https://example.org/value"',),
+            ("<https://example.org/value>",),
         ]
+        assert db.connection.execute("""
+            SELECT conforms FROM _shifty_result_validation WHERE table_name = 'Points'
+        """).fetchall() == [(0,)]
 
         db.populate_shape_tables(PREFIXES + r'ex:focus ex:p "line\rbreak" .')
-        assert db.connection.execute(
-            'SELECT "select", conforms FROM "Points"'
-        ).fetchall() == [(r'"line\rbreak"', 1)]
+        assert db.connection.execute('SELECT "select" FROM "Points"').fetchall() == [
+            (r'"line\rbreak"',)
+        ]
+        assert db.connection.execute("""
+            SELECT conforms FROM _shifty_result_validation WHERE table_name = 'Points'
+        """).fetchall() == [(1,)]
 
 
 def test_table_names_use_declared_prefixes_and_preserve_spelling():

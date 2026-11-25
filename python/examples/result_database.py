@@ -53,15 +53,13 @@ def main() -> None:
 
         # Each airflow sensor gets a row. A VAV with no sensor still appears.
         rows = db.connection.execute("""
-            SELECT focus, conforms, supply_air_temperature, airflow
+            SELECT focus, supply_air_temperature, airflow
             FROM [ex:VavShape]
             ORDER BY focus, airflow
         """)
-        print("focus | conforms | supply_air_temperature | airflow")
-        for focus, conforms, temperature, airflow in rows:
-            print(
-                f"{focus} | {conforms} | {temperature or 'NULL'} | {airflow or 'NULL'}"
-            )
+        print("focus | supply_air_temperature | airflow")
+        for focus, temperature, airflow in rows:
+            print(f"{focus} | {temperature or 'NULL'} | {airflow or 'NULL'}")
 
 
 if __name__ == "__main__":
