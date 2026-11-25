@@ -32,14 +32,15 @@ Use ``:memory:`` for a temporary database, a filename for a local file, or a
 graphs, shape selections, and SPARQL queries for future refreshes.
 
 Run the self-contained VAV demo from the repository's ``python/`` directory.
-It creates a SQLite file and queries the VAVs and their airflow sensors.
-The first VAV has ``NULL`` for airflow and still has its supply-air temperature
-sensor. The second VAV appears twice, once per sensor. Pass a new output
-filename to run the demo again.
+It creates a SQLite file with the shape table ``[ex:VavShape]`` and a SPARQL
+table named ``vav_locations``. The shape table shows one row per airflow
+sensor and retains VAVs with missing airflow. The query table reads room
+assignments from the data and profile labels from the shapes graph. Pass a
+new output filename to run the demo again.
 
 .. code-block:: console
 
-   uv run python examples/result_database.py result-flat.db
+   uv run python examples/result_database.py result-with-queries.db
 
 Choose the tables
 -----------------
@@ -89,8 +90,11 @@ SQL ``NULL``. Declare any prefixes in the SPARQL query.
 
    db.add_query_table("vav_locations", """
        PREFIX ex: <https://example.org/>
-       SELECT ?focus ?room WHERE {
-           ?focus a ex:Vav .
+       PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+       PREFIX sh: <http://www.w3.org/ns/shacl#>
+       SELECT ?focus ?profile_label ?room WHERE {
+           ?focus a ?class .
+           ?profile sh:targetClass ?class ; rdfs:label ?profile_label .
            OPTIONAL { ?focus ex:locatedIn ?room }
        }
    """)
