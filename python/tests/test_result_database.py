@@ -40,22 +40,36 @@ ex:flow a ex:Airflow .
 def test_projects_full_and_partial_results():
     with ResultDatabase() as db:
         db.add_shape_tables(VAV_SHAPES)
-        assert db.connection.execute("SELECT * FROM [ex:VavShape]").fetchall() == []
+        assert (
+            db.connection.execute("SELECT airflow FROM [ex:VavShape]").fetchall() == []
+        )
 
-        db.populate_shape_tables(VAV_DATA, infer=False)
+        db.populate_shape_tables(
+            VAV_DATA + "ex:vav2 ex:hasPoint ex:flow2 . ex:flow2 a ex:Airflow .",
+            infer=False,
+        )
         assert db.connection.execute(
-            "SELECT focus, supply_air_temperature, conforms FROM [ex:VavShape] ORDER BY focus"
+            "SELECT focus, supply_air_temperature, conforms, airflow "
+            "FROM [ex:VavShape] ORDER BY focus"
         ).fetchall() == [
-            ("<https://example.org/vav1>", "<https://example.org/sat1>", 0),
-            ("<https://example.org/vav2>", "<https://example.org/sat2>", 1),
+            ("<https://example.org/vav1>", "<https://example.org/sat1>", 0, None),
+            (
+                "<https://example.org/vav2>",
+                "<https://example.org/sat2>",
+                1,
+                '["<https://example.org/flow2>", "<https://example.org/flow>"]',
+            ),
         ]
         assert db.connection.execute(
-            "SELECT * FROM [ex:VavShape_airflow]"
-        ).fetchall() == [("<https://example.org/vav2>", "<https://example.org/flow>")]
+            "SELECT * FROM [ex:VavShape_airflow] ORDER BY value"
+        ).fetchall() == [
+            ("<https://example.org/vav2>", "<https://example.org/flow2>"),
+            ("<https://example.org/vav2>", "<https://example.org/flow>"),
+        ]
         assert db.connection.execute(
             "SELECT status, value_count, missing FROM [ex:VavShape_slot_status] "
             "WHERE field = 'airflow' ORDER BY focus"
-        ).fetchall() == [("fail", 0, 1), ("pass", 1, 0)]
+        ).fetchall() == [("fail", 0, 1), ("pass", 2, 0)]
 
 
 def test_auxiliary_tables_require_an_owner_focus():
@@ -202,10 +216,10 @@ def test_reopen_and_refresh_replaces_only_managed_rows(tmp_path):
             "SELECT value FROM [ex:VavShape_airflow]"
         ).fetchall() == [("<https://example.org/flow>",)]
         assert db.connection.execute(
-            "SELECT supply_air_temperature FROM [ex:VavShape] ORDER BY focus"
+            "SELECT supply_air_temperature, airflow FROM [ex:VavShape] ORDER BY focus"
         ).fetchall() == [
-            ("<https://example.org/sat1>",),
-            ("<https://example.org/sat2>",),
+            ("<https://example.org/sat1>", None),
+            ("<https://example.org/sat2>", '["<https://example.org/flow>"]'),
         ]
         assert db.connection.execute("SELECT * FROM notes").fetchall() == [("keep",)]
 

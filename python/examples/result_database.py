@@ -21,8 +21,7 @@ ex:VavShape a sh:NodeShape ;
         sh:maxCount 1
     ], [
         sh:path ex:airflow ;
-        sh:minCount 1 ;
-        sh:maxCount 1
+        sh:minCount 1
     ] .
 """
 
@@ -53,7 +52,7 @@ def main() -> None:
         db.add_shape_tables(SHAPES)
         db.populate_shape_tables(DATA, infer=False)
 
-        # The nullable airflow column shows the result. The status explains a missing value.
+        # Repeatable airflow values appear as a JSON array. The status explains missing airflow.
         rows = db.connection.execute("""
             SELECT v.focus, v.conforms, v.supply_air_temperature, v.airflow, s.missing
             FROM [ex:VavShape] AS v
