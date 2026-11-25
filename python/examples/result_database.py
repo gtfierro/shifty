@@ -1,9 +1,11 @@
-"""Query full and partial VAV results in an in-memory SQLite database.
+"""Query full and partial VAV results in a new SQLite database.
 
 Run from ``python/`` with ``uv run python examples/result_database.py``.
 """
 
+import argparse
 import sqlite3
+from pathlib import Path
 
 from shifty.experimental.result_database import ResultDatabase
 
@@ -19,7 +21,8 @@ ex:VavShape a sh:NodeShape ;
         sh:maxCount 1
     ], [
         sh:path ex:airflow ;
-        sh:minCount 1
+        sh:minCount 1 ;
+        sh:maxCount 1
     ] .
 """
 
@@ -32,18 +35,31 @@ ex:vav2 a ex:Vav ; ex:supplyAirTemperature ex:sat2 ; ex:airflow ex:flow2 .
 
 
 def main() -> None:
-    with ResultDatabase() as db:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "database",
+        nargs="?",
+        type=Path,
+        default=Path("result.db"),
+        help="new database file (default: %(default)s)",
+    )
+    database = parser.parse_args().database
+    try:
+        database.touch(exist_ok=False)
+    except FileExistsError:
+        parser.error(f"{database} already exists. Choose a new output file.")
+
+    with ResultDatabase(database) as db:
         db.add_shape_tables(SHAPES)
         db.populate_shape_tables(DATA, infer=False)
 
-        # Join the repeatable airflow field and its status on the focus key.
+        # The nullable airflow column shows the result. The status explains a missing value.
         rows = db.connection.execute("""
-            SELECT v.focus, v.conforms, v.supply_air_temperature, a.value, s.missing
+            SELECT v.focus, v.conforms, v.supply_air_temperature, v.airflow, s.missing
             FROM [ex:VavShape] AS v
-            LEFT JOIN [ex:VavShape_airflow] AS a ON a.focus = v.focus
             JOIN [ex:VavShape_slot_status] AS s
                 ON s.focus = v.focus AND s.field = 'airflow'
-            ORDER BY v.focus, a.value
+            ORDER BY v.focus
         """)
         for focus, conforms, temperature, airflow, missing in rows:
             status = "conforms" if conforms else "partial"
@@ -53,13 +69,14 @@ def main() -> None:
 
         try:
             db.connection.execute(
-                "INSERT INTO [ex:VavShape_airflow] (focus, value) VALUES (?, ?)",
-                ("<https://example.org/unknown-vav>", "<https://example.org/flow2>"),
+                "INSERT INTO [ex:VavShape_slot_status] (focus, field, status) "
+                "VALUES (?, 'airflow', 'pass')",
+                ("<https://example.org/unknown-vav>",),
             )
         except sqlite3.IntegrityError:
-            print("\nSQLite rejected an airflow row with no matching VAV focus.")
+            print("\nSQLite rejected a status row with no matching VAV focus.")
         else:
-            raise RuntimeError("Expected SQLite to enforce the airflow foreign key")
+            raise RuntimeError("Expected SQLite to enforce the status foreign key")
 
 
 if __name__ == "__main__":

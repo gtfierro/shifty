@@ -32,10 +32,13 @@ Use ``:memory:`` for a temporary database, a filename for a local file, or a
 graphs and their selections, so it can be reopened and refreshed later.
 
 Run the self-contained VAV demo from the repository's ``python/`` directory.
+It creates a SQLite file with a nullable ``airflow`` column. The first VAV
+has ``NULL`` for airflow and still has its supply-air temperature sensor.
+Pass a new output filename to run the demo again.
 
 .. code-block:: console
 
-   uv run python examples/result_database.py
+   uv run python examples/result_database.py result-airflow.db
 
 Choose the tables
 -----------------
