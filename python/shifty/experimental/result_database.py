@@ -26,9 +26,9 @@ class ResultDatabase:
     slashes for an absolute path, for example ``sqlite:////tmp/results.sqlite``.
     Shape registrations persist in file-backed databases.
 
-    Each shape gets one table with a nullable column per property. A focus
-    gets one row per combination of qualifying values, with a primary key of
-    ``(focus, row_number)``. Fields with no qualifying values appear as NULL.
+    Each shape gets one table with ``focus``, ``conforms``, and a nullable
+    column per property. A focus gets one row per combination of qualifying
+    values. Fields with no qualifying values appear as NULL.
 
     Read results through ``connection``. Every successful refresh replaces all
     rows in the managed result tables, discarding manual SQL inserts, updates,
@@ -198,14 +198,6 @@ class _Field:
     name: str
     scalar: bool
 
-    @property
-    def status_columns(self) -> tuple[tuple[str, str], ...]:
-        return (
-            (f"{self.name}_status", "TEXT NOT NULL"),
-            (f"{self.name}_value_count", "INTEGER"),
-            (f"{self.name}_missing", "INTEGER"),
-        )
-
 
 @dataclass(frozen=True)
 class _Table:
@@ -215,19 +207,12 @@ class _Table:
 
     @property
     def columns(self) -> list[tuple[str, str]]:
-        columns = [
-            ("focus", "TEXT NOT NULL"),
-            ("conforms", "INTEGER NOT NULL"),
-            ("row_number", "INTEGER NOT NULL"),
-        ]
+        columns = [("focus", "TEXT NOT NULL"), ("conforms", "INTEGER NOT NULL")]
         columns.extend((field.name, "TEXT") for field in self.fields)
-        for field in self.fields:
-            columns.extend(field.status_columns)
         return columns
 
     def create(self, db: sqlite3.Connection) -> None:
         columns = [f"{_quote(name)} {type_}" for name, type_ in self.columns]
-        columns.append("PRIMARY KEY (focus, row_number)")
         db.execute(f"CREATE TABLE {_main_table(self.name)} ({', '.join(columns)})")
 
     def replace(self, db: sqlite3.Connection, mappings: Sequence[Mapping]) -> None:
@@ -254,24 +239,15 @@ class _Table:
             for binding in mapping.bindings.values()
         }
         field_values: list[Sequence[str | None]] = []
-        statuses: list[str | int | None] = []
         for field in self.fields:
             binding = bindings.get(field.source_id)
             values = binding.values if binding is not None else None
-            terms = (
-                sorted({value.n3() for value in values}) if values is not None else None
-            )
-            field_values.append(terms or (None,))
-            statuses.extend(
-                (
-                    binding.status if binding is not None else "unavailable",
-                    len(terms) if terms is not None else None,
-                    binding.missing if binding is not None else None,
-                )
+            field_values.append(
+                sorted({value.n3() for value in values}) if values else (None,)
             )
         # Property bindings are independent sets. Materialize combinations lazily.
-        for row_number, values in enumerate(product(*field_values), 1):
-            yield (focus, mapping.conforms, row_number, *values, *statuses)
+        for values in product(*field_values):
+            yield (focus, mapping.conforms, *values)
 
 
 def _compile_tables(

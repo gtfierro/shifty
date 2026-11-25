@@ -88,19 +88,10 @@ value terms use N-Triples spelling.
 A focus gets one row per combination of its qualifying values. Two airflow
 sensors and three dampers produce six rows for that focus. The same rule
 preserves recovered values when a property exceeds its declared maximum.
-The primary key is ``(focus, row_number)``. Row numbers start at one for each
-focus and are assigned during refresh. Use ``COUNT(DISTINCT focus)`` when
-counting VAVs.
+Use ``COUNT(DISTINCT focus)`` when counting VAVs.
 
 .. code-block:: sql
 
-   SELECT focus, row_number, conforms, supply_air_temperature, airflow, airflow_missing
+   SELECT *
    FROM [ex:VavShape]
-   ORDER BY focus, row_number;
-
-For each property, the table also has ``<field>_status``,
-``<field>_value_count``, and ``<field>_missing`` columns. These describe the
-binding for the focus and are repeated on each of its rows. An empty set has
-a value count of zero. An unavailable set has a ``NULL`` value count. The
-``_shifty_result_tables`` and ``_shifty_result_fields`` catalogs identify the
-source shapes.
+   ORDER BY focus, airflow;

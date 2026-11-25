@@ -40,41 +40,37 @@ ex:flow a ex:Airflow .
 def test_projects_full_and_partial_results():
     with ResultDatabase() as db:
         db.add_shape_tables(VAV_SHAPES)
-        assert db.connection.execute("SELECT * FROM [ex:VavShape]").fetchall() == []
+        empty = db.connection.execute("SELECT * FROM [ex:VavShape]")
+        assert empty.fetchall() == []
+        assert {column[0] for column in empty.description} == {
+            "focus",
+            "conforms",
+            "supply_air_temperature",
+            "airflow",
+        }
 
         db.populate_shape_tables(
             VAV_DATA + "ex:vav2 ex:hasPoint ex:flow2 . ex:flow2 a ex:Airflow .",
             infer=False,
         )
         assert db.connection.execute("""
-            SELECT focus, row_number, conforms, supply_air_temperature, airflow
-            FROM [ex:VavShape] ORDER BY focus, row_number
+            SELECT focus, conforms, supply_air_temperature, airflow
+            FROM [ex:VavShape] ORDER BY focus, airflow
         """).fetchall() == [
-            ("<https://example.org/vav1>", 1, 0, "<https://example.org/sat1>", None),
+            ("<https://example.org/vav1>", 0, "<https://example.org/sat1>", None),
             (
                 "<https://example.org/vav2>",
-                1,
                 1,
                 "<https://example.org/sat2>",
                 "<https://example.org/flow2>",
             ),
             (
                 "<https://example.org/vav2>",
-                2,
                 1,
                 "<https://example.org/sat2>",
                 "<https://example.org/flow>",
             ),
         ]
-        assert db.connection.execute("""
-            SELECT airflow_status, airflow_value_count, airflow_missing
-            FROM [ex:VavShape] ORDER BY focus, row_number
-        """).fetchall() == [("fail", 0, 1), ("pass", 2, 0), ("pass", 2, 0)]
-
-        with pytest.raises(sqlite3.IntegrityError, match="UNIQUE"):
-            db.connection.execute(
-                "INSERT INTO [ex:VavShape] SELECT * FROM [ex:VavShape] LIMIT 1"
-            )
 
 
 def test_independent_repeatable_properties_share_one_shape_table():
@@ -200,8 +196,8 @@ def test_reopen_and_refresh_replaces_only_managed_rows(tmp_path):
         )
         db.connection.execute("DELETE FROM [ex:VavShape] WHERE airflow IS NOT NULL")
         db.connection.execute("""
-            INSERT INTO [ex:MeterShape] (focus, conforms, row_number, label_status)
-            VALUES ('manual', 1, 1, 'pass')
+            INSERT INTO [ex:MeterShape] (focus, conforms)
+            VALUES ('manual', 1)
         """)
         db.connection.execute("CREATE TABLE notes (note TEXT)")
         db.connection.execute("INSERT INTO notes VALUES ('keep')")
@@ -210,8 +206,8 @@ def test_reopen_and_refresh_replaces_only_managed_rows(tmp_path):
     with ResultDatabase(f"sqlite:///{path}") as db:
         db.populate_shape_tables(VAV_DATA + 'ex:new a ex:Meter ; ex:label "fresh" .')
         assert db.connection.execute(
-            "SELECT focus, conforms, row_number, label FROM [ex:MeterShape]"
-        ).fetchall() == [("<https://example.org/new>", 1, 1, '"fresh"')]
+            "SELECT focus, conforms, label FROM [ex:MeterShape]"
+        ).fetchall() == [("<https://example.org/new>", 1, '"fresh"')]
         assert db.connection.execute(
             "SELECT supply_air_temperature, airflow FROM [ex:VavShape] ORDER BY focus"
         ).fetchall() == [
@@ -238,11 +234,8 @@ def test_failed_refresh_rolls_back_every_registration():
         assert db.connection.execute(
             "SELECT count(*) FROM [ex:VavShape]"
         ).fetchone() == (2,)
-        assert db.connection.execute(
-            "SELECT sum(airflow_missing) FROM [ex:VavShape]"
-        ).fetchone() == (1,)
         assert db.connection.execute("SELECT * FROM [ex:Meter]").fetchall() == [
-            ("<https://example.org/meter>", 1, 1)
+            ("<https://example.org/meter>", 1)
         ]
 
 
@@ -261,17 +254,16 @@ def test_scalar_overflow_and_authored_aliases():
             PREFIXES + 'ex:focus ex:p ex:value, "https://example.org/value" .'
         )
         assert db.connection.execute(
-            'SELECT "select", conforms, select_status, select_value_count '
-            'FROM "Points" ORDER BY row_number'
+            'SELECT "select", conforms FROM "Points" ORDER BY "select"'
         ).fetchall() == [
-            ('"https://example.org/value"', 0, "fail", 2),
-            ("<https://example.org/value>", 0, "fail", 2),
+            ('"https://example.org/value"', 0),
+            ("<https://example.org/value>", 0),
         ]
 
         db.populate_shape_tables(PREFIXES + r'ex:focus ex:p "line\rbreak" .')
         assert db.connection.execute(
-            'SELECT "select", conforms, row_number FROM "Points"'
-        ).fetchall() == [(r'"line\rbreak"', 1, 1)]
+            'SELECT "select", conforms FROM "Points"'
+        ).fetchall() == [(r'"line\rbreak"', 1)]
 
 
 def test_table_names_use_declared_prefixes_and_preserve_spelling():
@@ -316,10 +308,3 @@ def test_table_name_collision_during_registration():
             ).fetchall()
             == []
         )
-
-
-def test_property_name_collision_with_generated_status_column():
-    shapes = VAV_SHAPES + "ex:VavShape sh:property [ sh:path ex:airflow_status ] ."
-    with ResultDatabase() as db:
-        with pytest.raises(ValueError, match="SQL name 'airflow_status'"):
-            db.add_shape_tables(shapes)
