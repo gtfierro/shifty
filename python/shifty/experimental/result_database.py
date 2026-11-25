@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import re
 import sqlite3
 from collections.abc import Iterable, Iterator, Sequence
@@ -26,8 +25,8 @@ class ResultDatabase:
     slashes for an absolute path, for example ``sqlite:////tmp/results.sqlite``.
     Shape registrations persist in file-backed databases.
 
-    Every declared property field has a nullable column. Repeatable fields
-    store their values as a JSON array and also have a child table for joins.
+    Single-valued properties have nullable columns. Repeatable properties
+    have child tables with one row per value.
 
     Read results through ``connection``. Every successful refresh replaces all
     rows in the managed result tables, discarding manual SQL inserts, updates,
@@ -222,7 +221,9 @@ class _Table:
 
     def create(self, db: sqlite3.Connection) -> None:
         columns = ["focus TEXT PRIMARY KEY NOT NULL", "conforms INTEGER NOT NULL"]
-        columns.extend(f"{_quote(field.name)} TEXT" for field in self.fields)
+        columns.extend(
+            f"{_quote(field.name)} TEXT" for field in self.fields if field.scalar
+        )
         db.execute(f"CREATE TABLE {_main_table(self.name)} ({', '.join(columns)})")
         owner = f"focus TEXT NOT NULL REFERENCES {_quote(self.name)} (focus) ON DELETE CASCADE"
         db.execute(f"""CREATE TABLE {_main_table(self.status)} (
@@ -277,8 +278,6 @@ class _Table:
             )
             if field.scalar:
                 row.append(terms[0] if terms and len(terms) == 1 else None)
-            else:
-                row.append(json.dumps(terms, ensure_ascii=False) if terms else None)
             if terms:
                 child_values.append((field, terms))
 

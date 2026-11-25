@@ -29,7 +29,7 @@ DATA = """
 @prefix ex: <https://example.org/> .
 
 ex:vav1 a ex:Vav ; ex:supplyAirTemperature ex:sat1 .
-ex:vav2 a ex:Vav ; ex:supplyAirTemperature ex:sat2 ; ex:airflow ex:flow2 .
+ex:vav2 a ex:Vav ; ex:supplyAirTemperature ex:sat2 ; ex:airflow ex:flow2, ex:flow3 .
 """
 
 
@@ -52,13 +52,14 @@ def main() -> None:
         db.add_shape_tables(SHAPES)
         db.populate_shape_tables(DATA, infer=False)
 
-        # Repeatable airflow values appear as a JSON array. The status explains missing airflow.
+        # This query returns one row per airflow sensor and keeps VAVs with no sensor.
         rows = db.connection.execute("""
-            SELECT v.focus, v.conforms, v.supply_air_temperature, v.airflow, s.missing
+            SELECT v.focus, v.conforms, v.supply_air_temperature, a.value AS airflow, s.missing
             FROM [ex:VavShape] AS v
+            LEFT JOIN [ex:VavShape_airflow] AS a ON a.focus = v.focus
             JOIN [ex:VavShape_slot_status] AS s
                 ON s.focus = v.focus AND s.field = 'airflow'
-            ORDER BY v.focus
+            ORDER BY v.focus, a.value
         """)
         for focus, conforms, temperature, airflow, missing in rows:
             status = "conforms" if conforms else "partial"

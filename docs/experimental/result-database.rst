@@ -32,9 +32,9 @@ Use ``:memory:`` for a temporary database, a filename for a local file, or a
 graphs and their selections, so it can be reopened and refreshed later.
 
 Run the self-contained VAV demo from the repository's ``python/`` directory.
-It creates a SQLite file with a nullable ``airflow`` column. The first VAV
-has ``NULL`` for airflow and still has its supply-air temperature sensor.
-The second VAV has a JSON array of airflow sensors. Pass a new output
+It creates a SQLite file and queries the VAVs and their airflow sensors.
+The first VAV has ``NULL`` for airflow and still has its supply-air temperature
+sensor. The second VAV appears twice, once per sensor. Pass a new output
 filename to run the demo again.
 
 .. code-block:: console
@@ -70,7 +70,7 @@ so ``ex:vav_shape`` becomes ``[ex:vav_shape]``. When no declaration applies,
 use the full IRI as the table name, for example
 ``[https://example.org/VavShape]``. SQLite double quotes also work for these identifiers.
 
-Each direct ``sh:property`` defines a column on its shape's table. Field names
+Each direct ``sh:property`` defines a field in the database. Field names
 default to ``sh:name``, the property shape's local name, or the path
 predicate's local name, in that order. Complex paths without a name use
 ``field_N``. To choose
@@ -87,15 +87,22 @@ and scalar-overflow tables reference that key, and SQLite enforces the
 reference on the result database connection. Deleting a focus row also
 deletes those dependent rows.
 
-Every field has a nullable column. A field with a maximum of one in its
-extraction domain holds one RDF term. A repeatable field holds a JSON array
-of RDF terms and has a ``<table>_<field>`` child table with one row per value
-for SQL joins. Focus and value terms use N-Triples spelling. A focus that
-fails validation still contributes its qualifying values.
+A field with a maximum of one in its extraction domain has a nullable column
+on the shape table. A repeatable field has a ``<table>_<field>`` child table
+with one row per value and a primary key of ``(focus, value)``. Focus and
+value terms use N-Triples spelling. A focus that fails validation still
+contributes its qualifying values.
 
-When Shifty recovers no qualifying values, the field is ``NULL`` even if the
-shape requires a value. For a repeatable field with one qualifying value, the
-column contains a one-element array.
+Use a ``LEFT JOIN`` to return one row per airflow sensor and keep VAVs with
+no qualifying airflow. Joining two independent repeatable fields by focus
+returns every combination of their values for that focus.
+
+.. code-block:: sql
+
+   SELECT v.focus, v.supply_air_temperature, a.value AS airflow
+   FROM [ex:VavShape] AS v
+   LEFT JOIN [ex:VavShape_airflow] AS a ON a.focus = v.focus
+   ORDER BY v.focus, a.value;
 
 Query ``<table>_slot_status`` by ``focus`` and ``field`` to see the binding
 ``status``, qualifying ``value_count``, and ``missing`` count. An empty set
