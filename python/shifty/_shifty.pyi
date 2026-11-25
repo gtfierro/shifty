@@ -547,6 +547,13 @@ class EvidenceSession:
 def _result_database_snapshot(
     data: Optional[bytes], path: Optional[str], format: str, base: Optional[str]
 ) -> str: ...
+def _result_database_query_columns(query: str) -> List[str]: ...
+
+class _ResultDatabaseQueryDataset:
+    def __init__(self, data: bytes, shapes: List[str]) -> None: ...
+    def select(
+        self, query: str, graph_mode: str
+    ) -> Tuple[List[str], List[List[Optional[str]]]]: ...
 
 class RepairSession:
     def __init__(

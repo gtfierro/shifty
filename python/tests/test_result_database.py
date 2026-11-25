@@ -122,6 +122,138 @@ def test_independent_repeatable_properties_share_one_shape_table():
         ]
 
 
+def test_query_tables_use_the_registered_graph_scope():
+    labels = """
+        PREFIX ex: <https://example.org/>
+        SELECT ?item ?label WHERE { ?item ex:label ?label }
+    """
+    with ResultDatabase() as db:
+        db.add_shape_tables(
+            VAV_SHAPES + 'ex:VavShape ex:label "shape" . ex:shared ex:label "both" .'
+        )
+        db.add_shape_tables(
+            PREFIXES + 'ex:AdditionalProfile ex:label "additional" .', shape_names=[]
+        )
+        db.add_query_table("all_labels", labels)
+        db.add_query_table("data_labels", labels, graph_mode="data")
+        db.add_query_table("shape_labels", labels, graph_mode="shapes")
+        db.add_query_table(
+            "vav_profiles",
+            """
+            PREFIX ex: <https://example.org/>
+            SELECT ?focus ?label ?room WHERE {
+                ?focus ex:usesProfile/ex:label ?label .
+                OPTIONAL { ?focus ex:room ?room }
+            }
+            """,
+        )
+        empty = db.connection.execute("SELECT * FROM vav_profiles")
+        assert [column[0] for column in empty.description] == ["focus", "label", "room"]
+        assert empty.fetchall() == []
+
+        db.refresh(
+            VAV_DATA + 'ex:vav1 ex:usesProfile ex:VavShape ; ex:label "data" . '
+            'ex:shared ex:label "both" .',
+            infer=False,
+            graph_mode="data",
+        )
+        for table, expected in (
+            ("all_labels", ['"additional"', '"both"', '"data"', '"shape"']),
+            ("data_labels", ['"both"', '"data"']),
+            ("shape_labels", ['"additional"', '"both"', '"shape"']),
+        ):
+            assert db.connection.execute(
+                f"SELECT label FROM {table} ORDER BY label"
+            ).fetchall() == [(label,) for label in expected]
+        assert db.connection.execute("""
+            SELECT v.focus, q.label, q.room FROM [ex:VavShape] AS v
+            JOIN vav_profiles AS q USING (focus)
+        """).fetchall() == [("<https://example.org/vav1>", '"shape"', None)]
+
+
+def test_query_tables_preserve_rdf_identity_across_graphs():
+    shapes = (
+        PREFIXES
+        + """
+        ex:SensorShape sh:targetClass ex:Sensor ; sh:property [ sh:path ex:code ] .
+        _:shared ex:label "shape1" .
+    """
+    )
+    data = (
+        PREFIXES
+        + """
+        _:shared a ex:Sensor ; ex:label "data" ;
+            ex:code "01"^^<http://www.w3.org/2001/XMLSchema#integer> .
+    """
+    )
+    query = """
+        PREFIX ex: <https://example.org/>
+        SELECT ?focus ?label ?code WHERE {
+            ?focus ex:label ?label . OPTIONAL { ?focus ex:code ?code }
+        }
+    """
+    with ResultDatabase() as db:
+        db.add_shape_tables(shapes)
+        db.add_shape_tables(PREFIXES + '_:shared ex:label "shape2" .', shape_names=[])
+        db.add_query_table("combined", query)
+        db.add_query_table("shape_terms", query, graph_mode="shapes")
+        db.refresh(data, infer=False)
+
+        assert db.connection.execute(
+            "SELECT COUNT(*), COUNT(DISTINCT focus) FROM combined"
+        ).fetchone() == (3, 3)
+        assert db.connection.execute("""
+            SELECT label FROM combined JOIN shape_terms USING (focus, label) ORDER BY label
+        """).fetchall() == [('"shape1"',), ('"shape2"',)]
+        assert db.connection.execute("""
+            SELECT label, code FROM [ex:SensorShape] JOIN combined USING (focus, code)
+        """).fetchall() == [
+            ('"data"', '"01"^^<http://www.w3.org/2001/XMLSchema#integer>')
+        ]
+
+
+def test_query_tables_can_refresh_without_shape_tables_after_reopening(tmp_path):
+    path = tmp_path / "queries.db"
+    with ResultDatabase(path) as db:
+        db.add_query_table(
+            "vavs",
+            """
+            PREFIX ex: <https://example.org/>
+            SELECT DISTINCT (?vav AS ?focus) WHERE { ?vav a ex:Vav }
+            ORDER BY ?focus LIMIT 3
+            """,
+            graph_mode="data",
+        )
+        db.refresh(VAV_DATA)
+        assert db.connection.execute("SELECT COUNT(*) FROM vavs").fetchone() == (2,)
+        db.connection.execute("INSERT INTO vavs VALUES ('manual')")
+
+    with ResultDatabase(path) as db:
+        db.populate_shape_tables(PREFIXES + "ex:new a ex:Vav .")
+        assert db.connection.execute("SELECT * FROM vavs").fetchall() == [
+            ("<https://example.org/new>",)
+        ]
+
+
+def test_invalid_query_tables_leave_the_database_unchanged():
+    with ResultDatabase() as db:
+        db.add_shape_tables(VAV_SHAPES)
+        with pytest.raises(ValueError, match="graph_mode"):
+            db.add_query_table(
+                "example", "SELECT ?s WHERE { ?s ?p ?o }", graph_mode="unknown"
+            )
+        with pytest.raises(ValueError, match="requires a SPARQL SELECT"):
+            db.add_query_table("example", "ASK { ?s ?p ?o }")
+        with pytest.raises(ValueError, match="at least one projected variable"):
+            db.add_query_table("example", "SELECT * WHERE {}")
+        with pytest.raises(ValueError, match="SQL name 'ex:VavShape'"):
+            db.add_query_table("ex:VavShape", "SELECT ?s WHERE { ?s ?p ?o }")
+        assert (
+            db.connection.execute("SELECT * FROM _shifty_result_queries").fetchall()
+            == []
+        )
+
+
 def test_default_and_explicit_shape_selection():
     shapes = (
         PREFIXES
@@ -257,9 +389,13 @@ def test_failed_refresh_rolls_back_every_registration():
     with ResultDatabase() as db:
         db.add_shape_tables(VAV_SHAPES)
         db.add_shape_tables(PREFIXES + "ex:Meter sh:targetClass ex:MeterClass .")
-        db.populate_shape_tables(VAV_DATA + "ex:meter a ex:MeterClass .")
+        db.add_query_table(
+            "meters",
+            "SELECT ?meter WHERE { ?meter a <https://example.org/MeterClass> }",
+        )
+        db.refresh(VAV_DATA + "ex:meter a ex:MeterClass .")
         db.connection.execute("""
-            CREATE TRIGGER reject_refresh BEFORE INSERT ON [ex:Meter] BEGIN
+            CREATE TRIGGER reject_refresh BEFORE INSERT ON meters BEGIN
                 SELECT RAISE(ABORT, 'test load failure');
             END
         """)
@@ -271,6 +407,9 @@ def test_failed_refresh_rolls_back_every_registration():
             "SELECT count(*) FROM [ex:VavShape]"
         ).fetchone() == (2,)
         assert db.connection.execute("SELECT * FROM [ex:Meter]").fetchall() == [
+            ("<https://example.org/meter>",)
+        ]
+        assert db.connection.execute("SELECT * FROM meters").fetchall() == [
             ("<https://example.org/meter>",)
         ]
         assert db.connection.execute("""

@@ -3649,6 +3649,11 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
         result_database::_result_database_snapshot,
         m
     )?)?;
+    m.add_function(wrap_pyfunction!(
+        result_database::_result_database_query_columns,
+        m
+    )?)?;
+    m.add_class::<result_database::ResultDatabaseQueryDataset>()?;
     m.add_class::<EvidenceSession>()?;
     m.add_class::<EvidenceValidationOutcome>()?;
     m.add_class::<PyStatementEvaluation>()?;

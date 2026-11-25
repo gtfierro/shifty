@@ -1,13 +1,13 @@
-//! Authored shape catalogs for the experimental SQLite projection.
+//! Authored shape catalogs and SPARQL results for the experimental SQLite projection.
 
 use crate::{InputSpec, py_value_error};
-use oxigraph::{
-    sparql::{QueryResults, SparqlEvaluator},
-    store::Store,
-};
-use oxrdf::{GraphNameRef, NamedNodeRef, NamedOrBlankNode, Term};
+use oxigraph::io::{RdfFormat, RdfParser};
+use oxigraph::sparql::{QueryResults, SparqlEvaluator};
+use oxrdf::{Dataset, GraphNameRef, NamedNodeRef, NamedOrBlankNode, Term};
 use pyo3::{prelude::*, pybacked::PyBackedBytes};
 use shifty_parse::{Loaded, graph::term_to_node, vocab};
+use spargebra::{Query, SparqlParser, algebra::GraphPattern};
+use std::cell::OnceCell;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 const TABLE_NAME: NamedNodeRef<'static> =
@@ -43,6 +43,118 @@ pub(super) fn _result_database_snapshot(
         writer.serialize_triple(triple).map_err(value_error)?;
     }
     String::from_utf8(writer.finish().map_err(value_error)?).map_err(value_error)
+}
+
+#[pyfunction]
+pub(super) fn _result_database_query_columns(query: &str) -> PyResult<Vec<String>> {
+    let query = SparqlParser::new()
+        .parse_query(query)
+        .map_err(value_error)?;
+    query_columns(&query)
+}
+
+fn query_columns(query: &Query) -> PyResult<Vec<String>> {
+    let Query::Select { pattern, .. } = query else {
+        return Err(py_value_error(
+            "query table requires a SPARQL SELECT".into(),
+        ));
+    };
+    let mut pattern = pattern;
+    loop {
+        match pattern {
+            GraphPattern::Project { variables, .. } if !variables.is_empty() => {
+                return Ok(variables
+                    .iter()
+                    .map(|var| var.as_str().to_owned())
+                    .collect());
+            }
+            GraphPattern::Distinct { inner }
+            | GraphPattern::Reduced { inner }
+            | GraphPattern::Slice { inner, .. } => pattern = inner,
+            _ => {
+                return Err(py_value_error(
+                    "query table requires at least one projected variable".into(),
+                ));
+            }
+        }
+    }
+}
+
+type QueryRows = Vec<Vec<Option<String>>>;
+
+#[pyclass(unsendable, name = "_ResultDatabaseQueryDataset")]
+pub(super) struct ResultDatabaseQueryDataset {
+    data: Dataset,
+    shapes: Dataset,
+    union: OnceCell<Dataset>,
+}
+
+#[pymethods]
+impl ResultDatabaseQueryDataset {
+    #[new]
+    fn new(data: &[u8], shapes: Vec<String>) -> PyResult<Self> {
+        let parser = RdfParser::from_format(RdfFormat::Turtle).without_named_graphs();
+        let data = parser
+            .clone()
+            .for_slice(data)
+            .collect::<Result<Dataset, _>>()
+            .map_err(value_error)?;
+        let mut merged = Dataset::new();
+        // Keep data blank node labels for joins with shape maps. Each separately
+        // registered shapes graph has its own blank node scope.
+        let parser = parser.rename_blank_nodes();
+        for document in shapes {
+            for quad in parser.clone().for_slice(document.as_bytes()) {
+                merged.insert(&quad.map_err(value_error)?);
+            }
+        }
+        Ok(Self {
+            data,
+            shapes: merged,
+            union: OnceCell::new(),
+        })
+    }
+
+    fn select(&self, query: &str, graph_mode: &str) -> PyResult<(Vec<String>, QueryRows)> {
+        let query = SparqlParser::new()
+            .parse_query(query)
+            .map_err(value_error)?;
+        let columns = query_columns(&query)?;
+        let dataset = match graph_mode {
+            "data" => &self.data,
+            "shapes" => &self.shapes,
+            "union" => self.union.get_or_init(|| {
+                let mut merged = self.data.clone();
+                merged.extend(&self.shapes);
+                merged
+            }),
+            _ => {
+                return Err(py_value_error(format!(
+                    "unknown query graph mode {graph_mode:?}"
+                )));
+            }
+        };
+        let prepared = SparqlEvaluator::new().for_query(query);
+        let QueryResults::Solutions(solutions) = prepared
+            .on_queryable_dataset(dataset)
+            .execute()
+            .map_err(value_error)?
+        else {
+            return Err(py_value_error(
+                "query table requires a SPARQL SELECT".into(),
+            ));
+        };
+        let rows = solutions
+            .map(|row| {
+                let row = row.map_err(value_error)?;
+                Ok(columns
+                    .iter()
+                    .map(|column| row.get(column.as_str()).map(ToString::to_string))
+                    .collect())
+            })
+            .collect::<PyResult<_>>()?;
+        Ok((columns, rows))
+    }
 }
 
 impl super::EvidenceSession {
@@ -160,15 +272,11 @@ fn is_scalar(shapes: &Loaded, property: &NamedOrBlankNode) -> bool {
 }
 
 fn select_shapes(shapes: &Loaded, query: &str) -> PyResult<Vec<String>> {
-    let store = Store::new().map_err(value_error)?;
-    store
-        .extend(
-            shapes
-                .graph
-                .iter()
-                .map(|triple| triple.in_graph(GraphNameRef::DefaultGraph).into_owned()),
-        )
-        .map_err(value_error)?;
+    let dataset: Dataset = shapes
+        .graph
+        .iter()
+        .map(|triple| triple.in_graph(GraphNameRef::DefaultGraph))
+        .collect();
     let mut evaluator = SparqlEvaluator::new();
     if let Some(base) = &shapes.base {
         evaluator = evaluator.with_base_iri(base).map_err(value_error)?;
@@ -177,8 +285,10 @@ fn select_shapes(shapes: &Loaded, query: &str) -> PyResult<Vec<String>> {
         evaluator = evaluator.with_prefix(prefix, iri).map_err(value_error)?;
     }
     let prepared = evaluator.parse_query(query).map_err(value_error)?;
-    let QueryResults::Solutions(solutions) =
-        prepared.on_store(&store).execute().map_err(value_error)?
+    let QueryResults::Solutions(solutions) = prepared
+        .on_queryable_dataset(&dataset)
+        .execute()
+        .map_err(value_error)?
     else {
         return Err(py_value_error("shape_query must be a SPARQL SELECT".into()));
     };

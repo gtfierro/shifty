@@ -1,9 +1,10 @@
 SQLite result database
 ======================
 
-The experimental ``ResultDatabase`` projects RDF data into SQLite. The shapes
-graph defines the tables, and each refresh fills them with full and partial
-results from the :doc:`shape map <../reference/shape-maps>`.
+The experimental ``ResultDatabase`` projects RDF data into SQLite. Register
+shapes to populate tables with full and partial results from a
+:doc:`shape map <../reference/shape-maps>`. A SPARQL ``SELECT`` can define
+additional tables in the same database.
 
 .. code-block:: python
 
@@ -12,22 +13,23 @@ results from the :doc:`shape map <../reference/shape-maps>`.
    with ResultDatabase("sqlite:///building.sqlite") as db:
        db.add_shape_tables("hvac-shapes.ttl")
        db.add_shape_tables("meter-shapes.ttl")
-       db.populate_shape_tables("building.ttl")
+       db.refresh("building.ttl")
 
        vavs = db.connection.execute("SELECT * FROM [ex:VavShape]").fetchall()
 
 .. warning::
 
-   Every successful ``populate_shape_tables()`` call replaces **all rows** in
-   the Shifty-managed result tables. This discards manual SQL inserts,
-   updates, and deletes to those tables. SQL edits affect SQLite only. Edit
+   Every successful ``refresh()`` call replaces **all rows** in the
+   Shifty-managed result tables. ``populate_shape_tables()`` also refreshes
+   the database. Refresh discards manual SQL inserts, updates, and deletes
+   to those tables. SQL edits affect SQLite only. Edit
    the source RDF and refresh again to make a lasting change. An error during
    refresh preserves the previous snapshot.
 
 Use ``:memory:`` for a temporary database, a filename for a local file, or a
 ``sqlite:///`` URL. For an absolute path use four slashes, as in
 ``sqlite:////tmp/building.sqlite``. A file-backed database retains the shapes
-graphs and their selections, so it can be reopened and refreshed later.
+graphs, shape selections, and SPARQL queries for future refreshes.
 
 Run the self-contained VAV demo from the repository's ``python/`` directory.
 It creates a SQLite file and queries the VAVs and their airflow sensors.
@@ -74,6 +76,36 @@ predicate's local name, in that order. Complex paths without a name use
 ``field_N``. To choose exact SQL names or resolve name collisions, set
 ``sql:tableName`` on the node shape or ``sql:columnName`` on the property
 shape, using the vocabulary ``https://shifty.gtf.fyi/ns/sql#``.
+
+Define a table with SPARQL
+--------------------------
+
+``add_query_table()`` creates an empty table with the columns projected by
+the query. Each solution produces a row. Bound terms use N-Triples spelling,
+which also lets you join against a shape table. An unbound variable becomes
+SQL ``NULL``. Declare any prefixes in the SPARQL query.
+
+.. code-block:: python
+
+   db.add_query_table("vav_locations", """
+       PREFIX ex: <https://example.org/>
+       SELECT ?focus ?room WHERE {
+           ?focus a ex:Vav .
+           OPTIONAL { ?focus ex:locatedIn ?room }
+       }
+   """)
+   db.refresh("building.ttl")
+
+The query table's ``graph_mode`` is set at registration. The default
+``"union"`` queries the supplied data together with all registered shapes
+graphs. ``"data"`` uses only the supplied data. ``"shapes"`` uses only the
+union of the registered shapes graphs. A graph registered with
+``add_shape_tables(..., shape_names=[])`` contributes to the shapes union
+while creating zero shape tables.
+
+``refresh()`` updates both kinds of tables in one transaction. The ``infer``
+and ``graph_mode`` arguments to ``refresh()`` control SHACL evaluation. Query
+tables read the supplied data and shapes graphs according to their own mode.
 
 Read full and partial results
 -----------------------------

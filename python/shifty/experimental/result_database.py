@@ -1,4 +1,4 @@
-"""Project full and partial shape-map results into SQLite."""
+"""Project shape-map and SPARQL query results into SQLite."""
 
 from __future__ import annotations
 
@@ -13,18 +13,23 @@ from typing import Optional
 from urllib.parse import unquote, urlsplit
 
 from shifty import EvidenceSession, GraphInputs, _coalesce_graph_input, _to_rdf_input
-from shifty._shifty import _result_database_snapshot
+from shifty._shifty import (
+    _result_database_query_columns,
+    _result_database_snapshot,
+    _ResultDatabaseQueryDataset,
+)
 from shifty.shapemap import Mapping, ShapeMap
+from shifty.terms import parse as parse_term
 
 __all__ = ["ResultDatabase"]
 
 
 class ResultDatabase:
-    """A SQLite database whose result schema is authored in SHACL.
+    """A SQLite database whose result tables are defined by SHACL or SPARQL.
 
     Accepts a filename, ``:memory:``, or a local ``sqlite:///`` URL. Use four
     slashes for an absolute path, for example ``sqlite:////tmp/results.sqlite``.
-    Shape registrations persist in file-backed databases.
+    Shape and query registrations persist in file-backed databases.
 
     Each shape gets one table with ``focus`` and a nullable column per
     property. A focus gets one row per combination of qualifying values.
@@ -71,23 +76,17 @@ class ResultDatabase:
         The default includes all named node shapes. Pass full shape IRIs in
         ``shape_names`` or a SPARQL ``SELECT`` over the shapes graph binding
         ``?shape``. The two selectors are additive. An empty selection creates
-        zero tables. Referenced helper shapes remain part of the shapes graph.
+        zero tables. The entire shapes graph remains available to query tables
+        and to evaluation of referenced helper shapes.
         Table names use declared prefixes, such as ``ex:VavShape``, and keep
         the original spelling. Use the full IRI when no prefix applies.
         """
         document = _snapshot(shapes_graph, base)
         session = EvidenceSession(document.encode(), b"", infer=False)
         tables = _compile_tables(session, shape_names, shape_query)
-        if not tables:
-            return
 
         with self._transaction():
-            existing = self.connection.execute(
-                "SELECT name FROM sqlite_master UNION SELECT name FROM sqlite_temp_master"
-            )
-            _check_names(
-                (table.name for table in tables), (name for (name,) in existing)
-            )
+            self._check_table_names(table.name for table in tables)
             registration = self.connection.execute(
                 "INSERT INTO main._shifty_result_registrations (shapes) VALUES (?)",
                 (document,),
@@ -112,6 +111,29 @@ class ResultDatabase:
                 )
                 table.create(self.connection)
 
+    def add_query_table(
+        self, name: str, query: str, *, graph_mode: str = "union"
+    ) -> None:
+        """Create an empty table whose columns are the projected SELECT variables.
+
+        ``union`` queries the supplied data and all registered shapes together.
+        Choose ``data`` for the supplied data graph or ``shapes`` for the union
+        of the registered shapes graphs. Set any SPARQL prefixes in the query.
+        """
+        _validate_table_name(name)
+        if graph_mode not in ("union", "data", "shapes"):
+            raise ValueError("query graph_mode must be 'union', 'data', or 'shapes'")
+        columns = _result_database_query_columns(query)
+        _check_names(columns, ())
+        schema = ", ".join(f"{_quote(column)} TEXT" for column in columns)
+        with self._transaction():
+            self._check_table_names((name,))
+            self.connection.execute(f"CREATE TABLE {_main_table(name)} ({schema})")
+            self.connection.execute(
+                "INSERT INTO main._shifty_result_queries VALUES (?, ?, ?)",
+                (name, query, graph_mode),
+            )
+
     def populate_shape_tables(
         self,
         data_graph: GraphInputs,
@@ -121,18 +143,40 @@ class ResultDatabase:
         minimum_severity: str = "info",
         base: Optional[str] = None,
     ) -> None:
-        """Replace every managed result row with this graph's validation results.
+        """Refresh the managed tables from a graph, including registered queries."""
+        self.refresh(
+            data_graph,
+            infer=infer,
+            graph_mode=graph_mode,
+            minimum_severity=minimum_severity,
+            base=base,
+        )
+
+    def refresh(
+        self,
+        data_graph: GraphInputs,
+        *,
+        infer: bool = True,
+        graph_mode: str = "union",
+        minimum_severity: str = "info",
+        base: Optional[str] = None,
+    ) -> None:
+        """Replace the managed shape and query results in one transaction.
 
         A successful refresh discards all prior rows and manual SQL edits in
         the managed result tables. Failed SHACL checks still produce rows and
-        qualifying values. An error during validation or loading rolls back the
-        entire refresh.
+        qualifying values. An error during validation, SPARQL, or loading rolls
+        back the entire refresh. ``infer`` and ``graph_mode`` control SHACL
+        evaluation. Query tables use the graph mode saved at registration.
         """
         with self._transaction():
             registrations = self.connection.execute(
                 "SELECT id, shapes FROM main._shifty_result_registrations ORDER BY id"
             ).fetchall()
-            if not registrations:
+            queries = self.connection.execute(
+                "SELECT table_name, query, graph_mode FROM main._shifty_result_queries ORDER BY table_name"
+            ).fetchall()
+            if not registrations and not queries:
                 return
             data = _snapshot(data_graph, base).encode()
             self.connection.execute("DELETE FROM main._shifty_result_binding_status")
@@ -163,6 +207,40 @@ class ResultDatabase:
                     table.replace(
                         self.connection, shape_map.mappings.get(table.iri, [])
                     )
+            if queries:
+                shapes = (
+                    [document for _, document in registrations]
+                    if any(mode != "data" for _, _, mode in queries)
+                    else []
+                )
+                self._refresh_queries(data, shapes, queries)
+
+    def _refresh_queries(
+        self, data: bytes, shapes: list[str], queries: list[tuple[str, str, str]]
+    ) -> None:
+        dataset = _ResultDatabaseQueryDataset(data, shapes)
+        for name, query, graph_mode in queries:
+            columns, rows = dataset.select(query, graph_mode)
+            names = ", ".join(_quote(column) for column in columns)
+            placeholders = ", ".join("?" for _ in columns)
+            table = _main_table(name)
+            self.connection.execute(f"DELETE FROM {table}")
+            self.connection.executemany(
+                f"INSERT INTO {table} ({names}) VALUES ({placeholders})",
+                (
+                    tuple(
+                        parse_term(value).n3() if value is not None else None
+                        for value in row
+                    )
+                    for row in rows
+                ),
+            )
+
+    def _check_table_names(self, names: Iterable[str]) -> None:
+        existing = self.connection.execute(
+            "SELECT name FROM sqlite_master UNION SELECT name FROM sqlite_temp_master"
+        )
+        _check_names(names, (name for (name,) in existing))
 
     @contextmanager
     def _transaction(self) -> Iterator[None]:
@@ -185,6 +263,9 @@ _REGISTRY = (
     """CREATE TABLE IF NOT EXISTS main._shifty_result_tables (
         table_name TEXT PRIMARY KEY NOT NULL, shape_iri TEXT NOT NULL,
         registration INTEGER NOT NULL
+    )""",
+    """CREATE TABLE IF NOT EXISTS main._shifty_result_queries (
+        table_name TEXT PRIMARY KEY NOT NULL, query TEXT NOT NULL, graph_mode TEXT NOT NULL
     )""",
     """CREATE TABLE IF NOT EXISTS main._shifty_result_fields (
         table_name TEXT NOT NULL, field_name TEXT NOT NULL, source_shape TEXT NOT NULL,
@@ -299,10 +380,7 @@ def _compile_tables(
     )
     tables = []
     for iri, name, slots in layout:
-        if "\x00" in name:
-            raise ValueError("SQL names cannot contain a NUL character")
-        if name.lower().startswith(("_shifty_", "sqlite_")):
-            raise ValueError(f"reserved SQL table name {name!r}")
+        _validate_table_name(name)
         fields = []
         for index, (source_id, source, alias, label, scalar) in enumerate(slots, 1):
             field_name = _sql_name(alias, label or "", f"field_{index}")
@@ -311,6 +389,15 @@ def _compile_tables(
         _check_names((column for column, _ in table.columns), ())
         tables.append(table)
     return tables
+
+
+def _validate_table_name(name: str) -> None:
+    if not name.strip():
+        raise ValueError("SQL table name must be nonempty")
+    if "\x00" in name:
+        raise ValueError("SQL names cannot contain a NUL character")
+    if name.lower().startswith(("_shifty_", "sqlite_")):
+        raise ValueError(f"reserved SQL table name {name!r}")
 
 
 def _check_names(names: Iterable[str], reserved: Iterable[str]) -> None:
