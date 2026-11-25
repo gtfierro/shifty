@@ -31,6 +31,7 @@ use shifty_repair::{
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::{Arc, OnceLock};
 
+mod result_database;
 mod shapemap;
 
 // ── shared rendering (ports of the CLI renderers; kept local to the binding) ────
@@ -2642,6 +2643,15 @@ impl EvidenceSession {
         self.binding_source_ids_impl()
     }
 
+    #[pyo3(signature = (shape_names=None, shape_query=None))]
+    fn _result_database_layout(
+        &self,
+        shape_names: Option<Vec<String>>,
+        shape_query: Option<&str>,
+    ) -> PyResult<Vec<result_database::TableLayout>> {
+        self.result_database_layout(shape_names, shape_query)
+    }
+
     fn _binding_values(&self, focus: &str, constraint_id: u32) -> PyResult<Vec<String>> {
         self.binding_values_impl(focus, constraint_id)
     }
@@ -3635,6 +3645,10 @@ impl RepairOutcome {
 /// Register the repair classes on the `_shifty` module.
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(expand_evidence_json, m)?)?;
+    m.add_function(wrap_pyfunction!(
+        result_database::_result_database_snapshot,
+        m
+    )?)?;
     m.add_class::<EvidenceSession>()?;
     m.add_class::<EvidenceValidationOutcome>()?;
     m.add_class::<PyStatementEvaluation>()?;

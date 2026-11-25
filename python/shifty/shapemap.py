@@ -486,6 +486,7 @@ class _SlotLayout:
     constraint_components: Optional[tuple[str, ...]]
     vacuous_property: bool
     count_evidence: _CountEvidence
+    property_source_id: Optional[int]
 
 
 @dataclasses.dataclass
@@ -952,6 +953,7 @@ class Binding:
         vacuous_property: bool = False,
         algebra_kind: Optional[str] = None,
         count_evidence: Optional[_CountEvidence] = None,
+        property_source_id: Optional[int] = None,
     ) -> None:
         self.key = key
         self.status = status
@@ -968,6 +970,7 @@ class Binding:
         self._vacuous_property = vacuous_property
         self._rejected_count_high = rejected_count_high
         self._count_evidence = count_evidence
+        self._property_source_id = property_source_id
         self._evidence = evidence
         self._resolve = resolve
         self._resolve_observation = resolve_observation
@@ -1537,12 +1540,14 @@ def _build_mapping(
     def slot_layout(owner):
         source_id = groups[owner][0][2]
         metadata = layout.get(owner)
+        property_source_id = source_owners.get(owner)
         # Singleton NodeShapes can transparently wrap their property's source.
         seen = set()
         while source_id not in seen:
             seen.add(source_id)
             if source_owners.get(source_id) == source_id:
                 metadata = layout.get(source_id)
+                property_source_id = source_id
                 break
             constraint = source_catalog.get(source_id)
             if not (isinstance(constraint, dict) and "Annotated" in constraint):
@@ -1576,6 +1581,7 @@ def _build_mapping(
                 constraint_map,
                 owner if len(groups[owner]) > 1 else source_id,
             ),
+            property_source_id,
         )
 
     cache_key = tuple(sorted(groups))
@@ -1677,6 +1683,7 @@ def _build_mapping(
             ordered.slots[owner].vacuous_property,
             algebra_kind=info.kind,
             count_evidence=ordered.slots[owner].count_evidence,
+            property_source_id=ordered.slots[owner].property_source_id,
         )
 
     return Mapping(
