@@ -4,7 +4,6 @@ Run from ``python/`` with ``uv run python examples/result_database.py``.
 """
 
 import argparse
-import sqlite3
 from pathlib import Path
 
 from shifty.experimental.result_database import ResultDatabase
@@ -52,31 +51,17 @@ def main() -> None:
         db.add_shape_tables(SHAPES)
         db.populate_shape_tables(DATA, infer=False)
 
-        # This query returns one row per airflow sensor and keeps VAVs with no sensor.
+        # Each airflow sensor gets a row. A VAV with no sensor still appears.
         rows = db.connection.execute("""
-            SELECT v.focus, v.conforms, v.supply_air_temperature, a.value AS airflow, s.missing
-            FROM [ex:VavShape] AS v
-            LEFT JOIN [ex:VavShape_airflow] AS a ON a.focus = v.focus
-            JOIN [ex:VavShape_slot_status] AS s
-                ON s.focus = v.focus AND s.field = 'airflow'
-            ORDER BY v.focus, a.value
+            SELECT focus, row_number, conforms, supply_air_temperature, airflow, airflow_missing
+            FROM [ex:VavShape]
+            ORDER BY focus, row_number
         """)
-        for focus, conforms, temperature, airflow, missing in rows:
+        for focus, row_number, conforms, temperature, airflow, missing in rows:
             status = "conforms" if conforms else "partial"
-            print(f"{focus} ({status})")
+            print(f"{focus} row {row_number} ({status})")
             print(f"  Supply air temperature  {temperature}")
             print(f"  Airflow  {airflow or f'missing {missing}'}")
-
-        try:
-            db.connection.execute(
-                "INSERT INTO [ex:VavShape_slot_status] (focus, field, status) "
-                "VALUES (?, 'airflow', 'pass')",
-                ("<https://example.org/unknown-vav>",),
-            )
-        except sqlite3.IntegrityError:
-            print("\nSQLite rejected a status row with no matching VAV focus.")
-        else:
-            raise RuntimeError("Expected SQLite to enforce the status foreign key")
 
 
 if __name__ == "__main__":

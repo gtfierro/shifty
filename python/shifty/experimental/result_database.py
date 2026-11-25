@@ -7,6 +7,7 @@ import sqlite3
 from collections.abc import Iterable, Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
+from itertools import product
 from pathlib import Path
 from typing import Optional
 from urllib.parse import unquote, urlsplit
@@ -25,8 +26,9 @@ class ResultDatabase:
     slashes for an absolute path, for example ``sqlite:////tmp/results.sqlite``.
     Shape registrations persist in file-backed databases.
 
-    Single-valued properties have nullable columns. Repeatable properties
-    have child tables with one row per value.
+    Each shape gets one table with a nullable column per property. A focus
+    gets one row per combination of qualifying values, with a primary key of
+    ``(focus, row_number)``. Fields with no qualifying values appear as NULL.
 
     Read results through ``connection``. Every successful refresh replaces all
     rows in the managed result tables, discarding manual SQL inserts, updates,
@@ -79,11 +81,12 @@ class ResultDatabase:
             return
 
         with self._transaction():
-            relation_names = [name for table in tables for name in table.relations]
             existing = self.connection.execute(
                 "SELECT name FROM sqlite_master UNION SELECT name FROM sqlite_temp_master"
             )
-            _check_names(relation_names, (name for (name,) in existing))
+            _check_names(
+                (table.name for table in tables), (name for (name,) in existing)
+            )
             registration = self.connection.execute(
                 "INSERT INTO main._shifty_result_registrations (shapes) VALUES (?)",
                 (document,),
@@ -100,7 +103,7 @@ class ResultDatabase:
                             table.name,
                             field.name,
                             field.source,
-                            field.relation,
+                            table.name,
                             field.scalar,
                         )
                         for field in table.fields
@@ -193,8 +196,15 @@ class _Field:
     source_id: int
     source: str
     name: str
-    relation: str
     scalar: bool
+
+    @property
+    def status_columns(self) -> tuple[tuple[str, str], ...]:
+        return (
+            (f"{self.name}_status", "TEXT NOT NULL"),
+            (f"{self.name}_value_count", "INTEGER"),
+            (f"{self.name}_missing", "INTEGER"),
+        )
 
 
 @dataclass(frozen=True)
@@ -204,100 +214,64 @@ class _Table:
     fields: list[_Field]
 
     @property
-    def status(self) -> str:
-        return f"{self.name}_slot_status"
-
-    @property
-    def overflow(self) -> str:
-        return f"{self.name}_scalar_values"
-
-    @property
-    def relations(self) -> list[str]:
-        names = [self.name, self.status]
-        if any(field.scalar for field in self.fields):
-            names.append(self.overflow)
-        names.extend(field.relation for field in self.fields if not field.scalar)
-        return names
+    def columns(self) -> list[tuple[str, str]]:
+        columns = [
+            ("focus", "TEXT NOT NULL"),
+            ("conforms", "INTEGER NOT NULL"),
+            ("row_number", "INTEGER NOT NULL"),
+        ]
+        columns.extend((field.name, "TEXT") for field in self.fields)
+        for field in self.fields:
+            columns.extend(field.status_columns)
+        return columns
 
     def create(self, db: sqlite3.Connection) -> None:
-        columns = ["focus TEXT PRIMARY KEY NOT NULL", "conforms INTEGER NOT NULL"]
-        columns.extend(
-            f"{_quote(field.name)} TEXT" for field in self.fields if field.scalar
-        )
+        columns = [f"{_quote(name)} {type_}" for name, type_ in self.columns]
+        columns.append("PRIMARY KEY (focus, row_number)")
         db.execute(f"CREATE TABLE {_main_table(self.name)} ({', '.join(columns)})")
-        owner = f"focus TEXT NOT NULL REFERENCES {_quote(self.name)} (focus) ON DELETE CASCADE"
-        db.execute(f"""CREATE TABLE {_main_table(self.status)} (
-            {owner}, field TEXT NOT NULL, status TEXT NOT NULL,
-            value_count INTEGER, missing INTEGER, PRIMARY KEY (focus, field)
-        )""")
-        if any(field.scalar for field in self.fields):
-            db.execute(f"""CREATE TABLE {_main_table(self.overflow)} (
-                {owner}, field TEXT NOT NULL, value TEXT NOT NULL,
-                PRIMARY KEY (focus, field, value)
-            )""")
-        for field in self.fields:
-            if not field.scalar:
-                db.execute(f"""CREATE TABLE {_main_table(field.relation)} (
-                    {owner}, value TEXT NOT NULL, PRIMARY KEY (focus, value)
-                )""")
 
     def replace(self, db: sqlite3.Connection, mappings: Sequence[Mapping]) -> None:
-        for name in reversed(self.relations):
-            db.execute(f"DELETE FROM {_main_table(name)}")
+        name = _main_table(self.name)
+        columns = self.columns
+        names = ", ".join(_quote(column) for column, _ in columns)
+        placeholders = ", ".join("?" for _ in columns)
+        insert = f"INSERT INTO {name} ({names}) VALUES ({placeholders})"
+        db.execute(f"DELETE FROM {name}")
 
         # A focus may be selected by multiple targets on the same node shape.
         seen: set[str] = set()
         for mapping in mappings:
             focus = mapping.focus.n3()
             if focus not in seen:
-                self._insert(db, focus, mapping)
+                db.executemany(insert, self._rows(focus, mapping))
                 seen.add(focus)
 
-    def _insert(self, db: sqlite3.Connection, focus: str, mapping: Mapping) -> None:
+    def _rows(
+        self, focus: str, mapping: Mapping
+    ) -> Iterator[tuple[str | int | None, ...]]:
         bindings = {
             binding._property_source_id: binding
             for binding in mapping.bindings.values()
         }
-        row: list[str | bool | None] = [focus, mapping.conforms]
-        status_rows = []
-        child_values = []
+        field_values: list[Sequence[str | None]] = []
+        statuses: list[str | int | None] = []
         for field in self.fields:
             binding = bindings.get(field.source_id)
             values = binding.values if binding is not None else None
             terms = (
                 sorted({value.n3() for value in values}) if values is not None else None
             )
-            status_rows.append(
+            field_values.append(terms or (None,))
+            statuses.extend(
                 (
-                    focus,
-                    field.name,
                     binding.status if binding is not None else "unavailable",
                     len(terms) if terms is not None else None,
                     binding.missing if binding is not None else None,
                 )
             )
-            if field.scalar:
-                row.append(terms[0] if terms and len(terms) == 1 else None)
-            if terms:
-                child_values.append((field, terms))
-
-        placeholders = ", ".join("?" for _ in row)
-        db.execute(f"INSERT INTO {_main_table(self.name)} VALUES ({placeholders})", row)
-        for field, terms in child_values:
-            if not field.scalar:
-                db.executemany(
-                    f"INSERT INTO {_main_table(field.relation)} VALUES (?, ?)",
-                    ((focus, term) for term in terms),
-                )
-            elif len(terms) > 1:
-                db.executemany(
-                    f"INSERT INTO {_main_table(self.overflow)} VALUES (?, ?, ?)",
-                    ((focus, field.name, term) for term in terms),
-                )
-        db.executemany(
-            f"INSERT INTO {_main_table(self.status)} VALUES (?, ?, ?, ?, ?)",
-            status_rows,
-        )
+        # Property bindings are independent sets. Materialize combinations lazily.
+        for row_number, values in enumerate(product(*field_values), 1):
+            yield (focus, mapping.conforms, row_number, *values, *statuses)
 
 
 def _compile_tables(
@@ -317,10 +291,10 @@ def _compile_tables(
         fields = []
         for index, (source_id, source, alias, label, scalar) in enumerate(slots, 1):
             field_name = _sql_name(alias, label or "", f"field_{index}")
-            relation = name if scalar else f"{name}_{field_name}"
-            fields.append(_Field(source_id, source, field_name, relation, scalar))
-        _check_names([field.name for field in fields], ("focus", "conforms"))
-        tables.append(_Table(name, iri, fields))
+            fields.append(_Field(source_id, source, field_name, scalar))
+        table = _Table(name, iri, fields)
+        _check_names((column for column, _ in table.columns), ())
+        tables.append(table)
     return tables
 
 

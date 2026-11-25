@@ -15,7 +15,7 @@ results from the :doc:`shape map <../reference/shape-maps>`.
        db.populate_shape_tables("building.ttl")
 
        incomplete = db.connection.execute(
-           "SELECT focus FROM [ex:VavShape] WHERE conforms = 0"
+           "SELECT DISTINCT focus FROM [ex:VavShape] WHERE conforms = 0"
        ).fetchall()
 
 .. warning::
@@ -39,7 +39,7 @@ filename to run the demo again.
 
 .. code-block:: console
 
-   uv run python examples/result_database.py result-airflow.db
+   uv run python examples/result_database.py result-flat.db
 
 Choose the tables
 -----------------
@@ -70,44 +70,37 @@ so ``ex:vav_shape`` becomes ``[ex:vav_shape]``. When no declaration applies,
 use the full IRI as the table name, for example
 ``[https://example.org/VavShape]``. SQLite double quotes also work for these identifiers.
 
-Each direct ``sh:property`` defines a field in the database. Field names
-default to ``sh:name``, the property shape's local name, or the path
+Each direct ``sh:property`` defines a nullable column on its shape's table.
+Field names default to ``sh:name``, the property shape's local name, or the path
 predicate's local name, in that order. Complex paths without a name use
-``field_N``. To choose
-exact SQL names or resolve name collisions, set ``sql:tableName`` on the node
-shape or ``sql:columnName`` on the property shape, using the vocabulary
-``https://shifty.gtf.fyi/ns/sql#``.
+``field_N``. To choose exact SQL names or resolve name collisions, set
+``sql:tableName`` on the node shape or ``sql:columnName`` on the property
+shape, using the vocabulary ``https://shifty.gtf.fyi/ns/sql#``.
 
 Read full and partial results
 -----------------------------
 
-Each shape table has one row per targeted ``focus`` and its ``conforms``
-flag. ``focus`` is the primary key. The generated child, binding-status,
-and scalar-overflow tables reference that key, and SQLite enforces the
-reference on the result database connection. Deleting a focus row also
-deletes those dependent rows.
+Shifty creates one result table per selected shape. A row holds the
+``focus``, its ``conforms`` flag, and one RDF term per property column. A
+property with no recovered qualifying values shows ``NULL``. Focus and
+value terms use N-Triples spelling.
 
-A field with a maximum of one in its extraction domain has a nullable column
-on the shape table. A repeatable field has a ``<table>_<field>`` child table
-with one row per value and a primary key of ``(focus, value)``. Focus and
-value terms use N-Triples spelling. A focus that fails validation still
-contributes its qualifying values.
-
-Use a ``LEFT JOIN`` to return one row per airflow sensor and keep VAVs with
-no qualifying airflow. Joining two independent repeatable fields by focus
-returns every combination of their values for that focus.
+A focus gets one row per combination of its qualifying values. Two airflow
+sensors and three dampers produce six rows for that focus. The same rule
+preserves recovered values when a property exceeds its declared maximum.
+The primary key is ``(focus, row_number)``. Row numbers start at one for each
+focus and are assigned during refresh. Use ``COUNT(DISTINCT focus)`` when
+counting VAVs.
 
 .. code-block:: sql
 
-   SELECT v.focus, v.supply_air_temperature, a.value AS airflow
-   FROM [ex:VavShape] AS v
-   LEFT JOIN [ex:VavShape_airflow] AS a ON a.focus = v.focus
-   ORDER BY v.focus, a.value;
+   SELECT focus, row_number, conforms, supply_air_temperature, airflow, airflow_missing
+   FROM [ex:VavShape]
+   ORDER BY focus, row_number;
 
-Query ``<table>_slot_status`` by ``focus`` and ``field`` to see the binding
-``status``, qualifying ``value_count``, and ``missing`` count. An empty set
-has ``value_count = 0``. An unavailable set has ``value_count IS NULL``. When
-a scalar field has several qualifying values, its column contains ``NULL``
-and ``<table>_scalar_values`` records the values by ``focus`` and ``field``.
-The ``_shifty_result_tables`` and ``_shifty_result_fields`` catalogs identify
-the source shapes and where each field stores individual values.
+For each property, the table also has ``<field>_status``,
+``<field>_value_count``, and ``<field>_missing`` columns. These describe the
+binding for the focus and are repeated on each of its rows. An empty set has
+a value count of zero. An unavailable set has a ``NULL`` value count. The
+``_shifty_result_tables`` and ``_shifty_result_fields`` catalogs identify the
+source shapes.
