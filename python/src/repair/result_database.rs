@@ -3,12 +3,15 @@
 use crate::{InputSpec, py_value_error};
 use oxigraph::io::{RdfFormat, RdfParser};
 use oxigraph::sparql::{QueryResults, SparqlEvaluator};
-use oxrdf::{Dataset, GraphNameRef, NamedNodeRef, NamedOrBlankNode, Term};
+use oxrdf::{
+    BlankNode, Dataset, Graph, GraphNameRef, NamedNodeRef, NamedOrBlankNode, NamedOrBlankNodeRef,
+    Term, TermRef,
+};
 use pyo3::{prelude::*, pybacked::PyBackedBytes};
 use shifty_parse::{Loaded, graph::term_to_node, vocab};
 use spargebra::{Query, SparqlParser, algebra::GraphPattern};
 use std::cell::OnceCell;
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 const TABLE_NAME: NamedNodeRef<'static> =
     NamedNodeRef::new_unchecked("https://shifty.gtf.fyi/ns/sql#tableName");
@@ -29,6 +32,10 @@ pub(super) fn _result_database_snapshot(
     let graph = InputSpec::new(data, path, format, "graph")
         .and_then(|input| input.load(base))
         .map_err(py_value_error)?;
+    snapshot(graph)
+}
+
+fn snapshot(graph: Loaded) -> PyResult<String> {
     // Resolved RDF terms alone would lose the base and prefixes used by
     // authored SPARQL constraints when the database is reopened.
     let mut serializer = oxttl::TurtleSerializer::new();
@@ -43,6 +50,80 @@ pub(super) fn _result_database_snapshot(
         writer.serialize_triple(triple).map_err(value_error)?;
     }
     String::from_utf8(writer.finish().map_err(value_error)?).map_err(value_error)
+}
+
+/// Keep the data labels and give colliding shapes blank nodes fresh labels.
+/// Both projections read these same documents for the duration of a refresh.
+#[pyfunction]
+pub(super) fn _result_database_scope_shapes(
+    data: &[u8],
+    shapes: Vec<String>,
+) -> PyResult<Vec<String>> {
+    let data = shifty_parse::load_turtle(data, None).map_err(value_error)?;
+    let mut used: HashSet<_> = blank_nodes(&data.graph).collect();
+    let mut next = 0;
+    shapes
+        .into_iter()
+        .map(|document| {
+            let mut loaded =
+                shifty_parse::load_turtle(document.as_bytes(), None).map_err(value_error)?;
+            let mut replacements = HashMap::new();
+            let mut blanks: Vec<_> = blank_nodes(&loaded.graph)
+                .collect::<HashSet<_>>()
+                .into_iter()
+                .collect();
+            blanks.sort_unstable_by(|left, right| left.as_str().cmp(right.as_str()));
+            for blank in blanks {
+                if used.insert(blank.clone()) {
+                    continue;
+                }
+                loop {
+                    next += 1;
+                    let replacement = BlankNode::new_unchecked(format!("shifty_result_{next}"));
+                    if used.insert(replacement.clone()) {
+                        replacements.insert(blank, replacement);
+                        break;
+                    }
+                }
+            }
+            if replacements.is_empty() {
+                return Ok(document);
+            }
+            loaded.graph = loaded
+                .graph
+                .iter()
+                .map(|triple| {
+                    let mut triple = triple.into_owned();
+                    if let NamedOrBlankNode::BlankNode(node) = &mut triple.subject
+                        && let Some(replacement) = replacements.get(node)
+                    {
+                        *node = replacement.clone();
+                    }
+                    if let Term::BlankNode(node) = &mut triple.object
+                        && let Some(replacement) = replacements.get(node)
+                    {
+                        *node = replacement.clone();
+                    }
+                    triple
+                })
+                .collect();
+            snapshot(loaded)
+        })
+        .collect()
+}
+
+fn blank_nodes(graph: &Graph) -> impl Iterator<Item = BlankNode> + '_ {
+    graph.iter().flat_map(|triple| {
+        let subject = match triple.subject {
+            NamedOrBlankNodeRef::BlankNode(node) => Some(node.into_owned()),
+            _ => None,
+        };
+        let object = match triple.object {
+            TermRef::BlankNode(node) => Some(node.into_owned()),
+            _ => None,
+        };
+        [subject, object].into_iter().flatten()
+    })
 }
 
 #[pyfunction]
@@ -100,9 +181,6 @@ impl ResultDatabaseQueryDataset {
             .collect::<Result<Dataset, _>>()
             .map_err(value_error)?;
         let mut merged = Dataset::new();
-        // Keep data blank node labels for joins with shape maps. Each separately
-        // registered shapes graph has its own blank node scope.
-        let parser = parser.rename_blank_nodes();
         for document in shapes {
             for quad in parser.clone().for_slice(document.as_bytes()) {
                 merged.insert(&quad.map_err(value_error)?);

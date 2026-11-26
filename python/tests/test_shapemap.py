@@ -369,10 +369,15 @@ def test_key_and_term_match_statements():
         Literal('has "quotes" inside'),
         Literal("has\nnewlines\nhere"),
         Literal('mixed "quotes"\nand newlines'),
+        Literal("\b\f\t\u0001\\f"),
     ],
 )
 def test_term_parse_n3_round_trip(term):
     assert term_parse(term.n3()) == term
+
+
+def test_term_parse_unicode_escapes():
+    assert term_parse(r'"\u00E9\U0001F603"') == Literal("é😃")
 
 
 def test_literal_to_python_and_str():

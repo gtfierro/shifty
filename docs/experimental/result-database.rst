@@ -85,6 +85,9 @@ Define a table with SPARQL
 the query. Each solution produces a row. Bound terms use N-Triples spelling,
 which also lets you join against a shape table. An unbound variable becomes
 SQL ``NULL``. Declare any prefixes in the SPARQL query.
+Both kinds of tables share blank-node identities within a refresh. The data
+graph and each registered shapes graph keep distinct blank nodes even when
+their source labels match.
 
 .. code-block:: python
 
@@ -140,6 +143,10 @@ SQL table name and ``focus`` to find the corresponding validation results.
 - ``_shifty_result_binding_status`` has one row per shape, focus, and field,
   with ``status``, ``value_count``, and ``missing``. ``value_count`` is zero
   for a known empty set and ``NULL`` when values are unavailable.
+
+``refresh(minimum_severity=...)`` controls ``conforms``. For example,
+``minimum_severity="violation"`` allows a focus with only warnings to conform.
+The binding table still records those warnings as failed bindings.
 
 .. code-block:: sql
 

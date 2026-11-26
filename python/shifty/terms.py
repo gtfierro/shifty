@@ -48,38 +48,48 @@ _XSD_INT_LOCALS = {
 }
 
 
+_ESCAPED_CHARACTERS = {
+    "b": "\b",
+    "f": "\f",
+    "t": "\t",
+    "n": "\n",
+    "r": "\r",
+    '"': '"',
+    "'": "'",
+    "\\": "\\",
+}
+_LITERAL_ESCAPE = str.maketrans(
+    {
+        **{
+            chr(code): f"\\u{code:04X}" for code in (*range(0x20), 0x7F, 0xFFFE, 0xFFFF)
+        },
+        **{
+            character: "\\" + escape
+            for escape, character in _ESCAPED_CHARACTERS.items()
+            if escape != "'"
+        },
+    }
+)
+_LITERAL_ESCAPE_RE = re.compile(
+    r"""\\(?:[bfnrt"'\\]|u[0-9a-fA-F]{4}|U[0-9a-fA-F]{8})"""
+)
+
+
 def _escape(value: str) -> str:
-    return (
-        value.replace("\\", "\\\\")
-        .replace('"', '\\"')
-        .replace("\n", "\\n")
-        .replace("\r", "\\r")
-    )
+    return value.translate(_LITERAL_ESCAPE)
 
 
 def _unescape(value: str) -> str:
-    out: list[str] = []
-    i = 0
-    n = len(value)
-    while i < n:
-        c = value[i]
-        if c == "\\" and i + 1 < n:
-            nxt = value[i + 1]
-            mapped = {
-                "n": "\n",
-                "t": "\t",
-                "r": "\r",
-                '"': '"',
-                "\\": "\\",
-                "'": "'",
-            }.get(nxt)
-            if mapped is not None:
-                out.append(mapped)
-                i += 2
-                continue
-        out.append(c)
-        i += 1
-    return "".join(out)
+    def decode(match: re.Match[str]) -> str:
+        escape = match[0]
+        if len(escape) == 2:
+            return _ESCAPED_CHARACTERS[escape[1]]
+        code = int(escape[2:], 16)
+        if code <= 0x10FFFF and not 0xD800 <= code <= 0xDFFF:
+            return chr(code)
+        return escape
+
+    return _LITERAL_ESCAPE_RE.sub(decode, value)
 
 
 @dataclass(frozen=True)

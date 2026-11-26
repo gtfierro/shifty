@@ -9,12 +9,14 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from itertools import product
 from pathlib import Path
+from string import ascii_lowercase, ascii_uppercase
 from typing import Optional
 from urllib.parse import unquote, urlsplit
 
 from shifty import EvidenceSession, GraphInputs, _coalesce_graph_input, _to_rdf_input
 from shifty._shifty import (
     _result_database_query_columns,
+    _result_database_scope_shapes,
     _result_database_snapshot,
     _ResultDatabaseQueryDataset,
 )
@@ -22,6 +24,8 @@ from shifty.shapemap import Mapping, ShapeMap
 from shifty.terms import parse as parse_term
 
 __all__ = ["ResultDatabase"]
+
+_SQLITE_IDENTIFIER_FOLD = str.maketrans(ascii_uppercase, ascii_lowercase)
 
 
 class ResultDatabase:
@@ -167,7 +171,8 @@ class ResultDatabase:
         the managed result tables. Failed SHACL checks still produce rows and
         qualifying values. An error during validation, SPARQL, or loading rolls
         back the entire refresh. ``infer`` and ``graph_mode`` control SHACL
-        evaluation. Query tables use the graph mode saved at registration.
+        evaluation. ``minimum_severity`` determines which failures make a
+        focus nonconforming. Query tables use the saved graph mode.
         """
         with self._transaction():
             registrations = self.connection.execute(
@@ -179,9 +184,16 @@ class ResultDatabase:
             if not registrations and not queries:
                 return
             data = _snapshot(data_graph, base).encode()
+            shapes = (
+                _result_database_scope_shapes(
+                    data, [document for _, document in registrations]
+                )
+                if registrations
+                else []
+            )
             self.connection.execute("DELETE FROM main._shifty_result_binding_status")
             self.connection.execute("DELETE FROM main._shifty_result_validation")
-            for registration, document in registrations:
+            for (registration, _), document in zip(registrations, shapes):
                 selected = dict(
                     self.connection.execute(
                         "SELECT shape_iri, table_name FROM main._shifty_result_tables "
@@ -205,14 +217,13 @@ class ResultDatabase:
                 shape_map = ShapeMap.from_run(run, session, name_path=None)
                 for table in tables:
                     table.replace(
-                        self.connection, shape_map.mappings.get(table.iri, [])
+                        self.connection,
+                        shape_map.mappings.get(table.iri, []),
+                        minimum_severity,
                     )
             if queries:
-                shapes = (
-                    [document for _, document in registrations]
-                    if any(mode != "data" for _, _, mode in queries)
-                    else []
-                )
+                if all(mode == "data" for _, _, mode in queries):
+                    shapes = []
                 self._refresh_queries(data, shapes, queries)
 
     def _refresh_queries(
@@ -316,7 +327,9 @@ class _Table:
         columns = [f"{_quote(name)} {type_}" for name, type_ in self.columns]
         db.execute(f"CREATE TABLE {_main_table(self.name)} ({', '.join(columns)})")
 
-    def replace(self, db: sqlite3.Connection, mappings: Sequence[Mapping]) -> None:
+    def replace(
+        self, db: sqlite3.Connection, mappings: Sequence[Mapping], minimum_severity: str
+    ) -> None:
         name = _main_table(self.name)
         columns = self.columns
         names = ", ".join(_quote(column) for column, _ in columns)
@@ -329,11 +342,20 @@ class _Table:
         for mapping in mappings:
             focus = mapping.focus.n3()
             if focus not in seen:
-                self._insert_focus(db, insert, focus, mapping)
+                failure = mapping.evaluation.failure
+                conforms = failure is None or not failure._meets_threshold(
+                    minimum_severity
+                )
+                self._insert_focus(db, insert, focus, mapping, conforms)
                 seen.add(focus)
 
     def _insert_focus(
-        self, db: sqlite3.Connection, insert: str, focus: str, mapping: Mapping
+        self,
+        db: sqlite3.Connection,
+        insert: str,
+        focus: str,
+        mapping: Mapping,
+        conforms: bool,
     ) -> None:
         bindings = {
             binding._property_source_id: binding
@@ -360,7 +382,7 @@ class _Table:
             )
         db.execute(
             "INSERT INTO main._shifty_result_validation VALUES (?, ?, ?)",
-            (self.name, focus, mapping.conforms),
+            (self.name, focus, conforms),
         )
         db.executemany(
             "INSERT INTO main._shifty_result_binding_status VALUES (?, ?, ?, ?, ?, ?)",
@@ -396,18 +418,19 @@ def _validate_table_name(name: str) -> None:
         raise ValueError("SQL table name must be nonempty")
     if "\x00" in name:
         raise ValueError("SQL names cannot contain a NUL character")
-    if name.lower().startswith(("_shifty_", "sqlite_")):
+    if name.translate(_SQLITE_IDENTIFIER_FOLD).startswith(("_shifty_", "sqlite_")):
         raise ValueError(f"reserved SQL table name {name!r}")
 
 
 def _check_names(names: Iterable[str], reserved: Iterable[str]) -> None:
-    seen = {name.casefold() for name in reserved}
+    seen = {name.translate(_SQLITE_IDENTIFIER_FOLD) for name in reserved}
     for name in names:
-        if name.casefold() in seen:
+        folded = name.translate(_SQLITE_IDENTIFIER_FOLD)
+        if folded in seen:
             raise ValueError(
                 f"SQL name {name!r} is used more than once or already exists"
             )
-        seen.add(name.casefold())
+        seen.add(folded)
 
 
 def _sql_name(alias: Optional[str], label: str, fallback: str) -> str:

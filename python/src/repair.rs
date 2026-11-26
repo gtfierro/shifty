@@ -1478,6 +1478,16 @@ impl FocusWitness {
         out
     }
 
+    fn _meets_threshold(&self, minimum_severity: &str) -> PyResult<bool> {
+        let minimum = parse_minimum_severity(minimum_severity).map_err(py_value_error)?;
+        Ok(shifty_engine::evidence::failure_meets_threshold(
+            &self.schema.arena,
+            ShapeId(self.constraint_id),
+            &self.inner.failure,
+            &minimum,
+        ))
+    }
+
     /// The full witness tree, rendered as indented text.
     fn explain(&self) -> String {
         let mut out = Vec::new();
@@ -3647,6 +3657,10 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(expand_evidence_json, m)?)?;
     m.add_function(wrap_pyfunction!(
         result_database::_result_database_snapshot,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
+        result_database::_result_database_scope_shapes,
         m
     )?)?;
     m.add_function(wrap_pyfunction!(

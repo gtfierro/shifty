@@ -1122,7 +1122,8 @@ fn witness_shape_ids(witness: &Witness, out: &mut HashSet<ShapeId>) {
     }
 }
 
-fn failure_meets_threshold(
+/// Whether a failure contains a reason at or above the requested severity.
+pub fn failure_meets_threshold(
     arena: &ShapeArena,
     root: ShapeId,
     witness: &Witness,

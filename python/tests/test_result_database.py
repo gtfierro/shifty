@@ -212,6 +212,139 @@ def test_query_tables_preserve_rdf_identity_across_graphs():
         ]
 
 
+def test_shape_blank_nodes_join_to_query_tables():
+    first = (
+        PREFIXES
+        + """
+        ex:FirstShape sh:targetNode ex:node ; sh:property [ sh:path ex:first ] .
+        ex:node ex:first _:shared .
+        _:shared ex:label "first" .
+    """
+    )
+    second = (
+        PREFIXES
+        + """
+        ex:SecondShape sh:targetNode ex:node ; sh:property [ sh:path ex:second ] .
+        ex:node ex:second _:shared .
+        _:shared ex:label "second" .
+    """
+    )
+    with ResultDatabase() as db:
+        db.add_shape_tables(first)
+        db.add_shape_tables(second)
+        db.add_query_table(
+            "labels",
+            "SELECT ?node ?label WHERE { ?node <https://example.org/label> ?label }",
+        )
+        db.refresh(PREFIXES + '_:shared ex:label "data" . ex:node a ex:Example .')
+
+        assert db.connection.execute("""
+            SELECT label FROM [ex:FirstShape] JOIN labels ON first = node
+            UNION ALL
+            SELECT label FROM [ex:SecondShape] JOIN labels ON second = node
+            ORDER BY label
+        """).fetchall() == [('"first"',), ('"second"',)]
+        assert db.connection.execute(
+            "SELECT first != second FROM [ex:FirstShape] JOIN [ex:SecondShape] USING (focus)"
+        ).fetchall() == [(1,)]
+
+
+def test_result_tables_preserve_escaped_literal_values():
+    shapes = (
+        PREFIXES + "ex:Shape sh:targetNode ex:item ; sh:property [ sh:path ex:p ] ."
+    )
+    literals = (
+        r'"\b"',
+        r'"\\b"',
+        r'"\f"',
+        r'"\\f"',
+        r'"\t"',
+        r'"\\t"',
+        r'"\u0001"',
+        r'"\\u0001"',
+    )
+    data = PREFIXES + f"ex:item ex:p {', '.join(literals)} ."
+    with ResultDatabase() as db:
+        db.add_shape_tables(shapes)
+        db.add_query_table(
+            "projected",
+            "SELECT ?p WHERE { <https://example.org/item> <https://example.org/p> ?p }",
+        )
+        db.refresh(data, infer=False)
+        expected = [(literal,) for literal in sorted(literals)]
+        assert (
+            db.connection.execute("SELECT p FROM [ex:Shape] ORDER BY p").fetchall()
+            == expected
+        )
+        assert (
+            db.connection.execute("SELECT p FROM projected ORDER BY p").fetchall()
+            == expected
+        )
+
+
+def test_refresh_applies_the_severity_threshold_per_focus():
+    shapes = (
+        PREFIXES
+        + """
+        ex:DeviceShape sh:targetClass ex:Device ; sh:property [
+            sh:path ex:label ; sh:minCount 1 ; sh:severity sh:Warning
+        ], [sh:path ex:code ; sh:minCount 1] .
+    """
+    )
+    data = (
+        PREFIXES
+        + 'ex:warn a ex:Device ; ex:code "code" . ex:error a ex:Device ; ex:label "label" .'
+    )
+    select = "SELECT focus, conforms FROM _shifty_result_validation ORDER BY focus"
+    with ResultDatabase() as db:
+        db.add_shape_tables(shapes)
+        db.refresh(data, minimum_severity="violation")
+        assert db.connection.execute(select).fetchall() == [
+            ("<https://example.org/error>", 0),
+            ("<https://example.org/warn>", 1),
+        ]
+        assert db.connection.execute("""
+            SELECT status, missing FROM _shifty_result_binding_status
+            WHERE focus = '<https://example.org/warn>' AND field_name = 'label'
+        """).fetchall() == [("fail", 1)]
+
+        db.refresh(data, minimum_severity="warning")
+        assert db.connection.execute(select).fetchall() == [
+            ("<https://example.org/error>", 0),
+            ("<https://example.org/warn>", 0),
+        ]
+
+
+def test_table_and_column_names_use_sqlite_ascii_case_folding():
+    shapes = (
+        PREFIXES
+        + """
+        ex:Shape sh:targetNode ex:item ; sh:property [
+            sh:path ex:p ; sql:columnName "straße"
+        ], [sh:path ex:q ; sql:columnName "strasse"] .
+    """
+    )
+    with ResultDatabase() as db:
+        db.add_shape_tables(shapes)
+        db.add_query_table(
+            "straße", 'SELECT ("a" AS ?straße) ("b" AS ?strasse) WHERE {}'
+        )
+        db.add_query_table("strasse", 'SELECT ("c" AS ?value) WHERE {}')
+        with pytest.raises(ValueError, match="SQL name 'STRASSE'"):
+            db.add_query_table("STRASSE", 'SELECT ("d" AS ?value) WHERE {}')
+        db.refresh(PREFIXES + 'ex:item ex:p "a" ; ex:q "b" .')
+
+        assert db.connection.execute(
+            'SELECT "straße", strasse FROM [ex:Shape]'
+        ).fetchall() == [('"a"', '"b"')]
+        assert db.connection.execute(
+            'SELECT "straße", strasse FROM "straße"'
+        ).fetchall() == [('"a"', '"b"')]
+        assert db.connection.execute("SELECT value FROM strasse").fetchall() == [
+            ('"c"',)
+        ]
+
+
 def test_query_tables_can_refresh_without_shape_tables_after_reopening(tmp_path):
     path = tmp_path / "queries.db"
     with ResultDatabase(path) as db:
