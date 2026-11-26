@@ -25,6 +25,7 @@ from shifty.terms import parse as parse_term
 
 __all__ = ["ResultDatabase"]
 
+# SQLite folds ASCII identifier characters even when the name is quoted.
 _SQLITE_IDENTIFIER_FOLD = str.maketrans(ascii_uppercase, ascii_lowercase)
 
 
@@ -91,6 +92,7 @@ class ResultDatabase:
 
         with self._transaction():
             self._check_table_names(table.name for table in tables)
+            # A registration with no tables still supplies RDF to SPARQL queries.
             registration = self.connection.execute(
                 "INSERT INTO main._shifty_result_registrations (shapes) VALUES (?)",
                 (document,),
@@ -184,6 +186,7 @@ class ResultDatabase:
             if not registrations and not queries:
                 return
             data = _snapshot(data_graph, base).encode()
+            # Both projections must see the same labels for shared blank nodes.
             shapes = (
                 _result_database_scope_shapes(
                     data, [document for _, document in registrations]
@@ -214,6 +217,8 @@ class ResultDatabase:
                 run = session.validate(
                     shape_names=list(selected), minimum_severity=minimum_severity
                 )
+                # The run's session can recover qualifying values omitted by
+                # failure evidence, including values from passing siblings.
                 shape_map = ShapeMap.from_run(run, session, name_path=None)
                 for table in tables:
                     table.replace(
@@ -236,6 +241,7 @@ class ResultDatabase:
             placeholders = ", ".join("?" for _ in columns)
             table = _main_table(name)
             self.connection.execute(f"DELETE FROM {table}")
+            # Use the same RDF term rendering as the shape-map columns.
             self.connection.executemany(
                 f"INSERT INTO {table} ({names}) VALUES ({placeholders})",
                 (
@@ -342,6 +348,7 @@ class _Table:
         for mapping in mappings:
             focus = mapping.focus.n3()
             if focus not in seen:
+                # Apply the threshold to conformance while saving raw binding status.
                 failure = mapping.evaluation.failure
                 conforms = failure is None or not failure._meets_threshold(
                     minimum_severity
@@ -357,6 +364,7 @@ class _Table:
         mapping: Mapping,
         conforms: bool,
     ) -> None:
+        # Distinct property shapes can share a path but bind different values.
         bindings = {
             binding._property_source_id: binding
             for binding in mapping.bindings.values()
@@ -369,6 +377,8 @@ class _Table:
             terms = (
                 sorted({value.n3() for value in values}) if values is not None else None
             )
+            # A NULL keeps this focus in the product when a field has no values.
+            # The diagnostic count still distinguishes empty from unavailable.
             field_values.append(terms or (None,))
             binding_rows.append(
                 (

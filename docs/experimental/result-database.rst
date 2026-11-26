@@ -6,6 +6,17 @@ shapes to populate tables with full and partial results from a
 :doc:`shape map <../reference/shape-maps>`. A SPARQL ``SELECT`` can define
 additional tables in the same database.
 
+See :doc:`result-database-transformations` for the steps Shifty uses to
+derive the tables and fill them on refresh.
+
+.. toctree::
+   :hidden:
+
+   result-database-transformations
+
+Create and refresh a database
+-----------------------------
+
 .. code-block:: python
 
    from shifty.experimental.result_database import ResultDatabase
@@ -31,16 +42,31 @@ Use ``:memory:`` for a temporary database, a filename for a local file, or a
 ``sqlite:////tmp/building.sqlite``. A file-backed database retains the shapes
 graphs, shape selections, and SPARQL queries for future refreshes.
 
+Try the VAV demo
+----------------
+
 Run the self-contained VAV demo from the repository's ``python/`` directory.
 It creates a SQLite file with the shape table ``[ex:VavShape]`` and a SPARQL
-table named ``vav_locations``. The shape table shows one row per airflow
-sensor and retains VAVs with missing airflow. The query table reads room
-assignments from the data and profile labels from the shapes graph. Pass a
-new output filename to run the demo again.
+table named ``vav_locations``. Pass a new output filename to run the demo
+again.
 
-.. code-block:: console
+.. code-block:: bash
 
    uv run python examples/result_database.py result-with-queries.db
+   sqlite3 -readonly result-with-queries.db
+
+Join the tables on ``focus`` to see airflow sensors and room assignments
+alongside the profile labels from the shapes graph.
+
+.. code-block:: sql
+
+   SELECT vav.focus, vav.airflow, locations.room, locations.profile_label
+   FROM [ex:VavShape] AS vav
+   JOIN vav_locations AS locations USING (focus)
+   ORDER BY vav.focus, vav.airflow;
+
+The demo returns one row for ``vav1`` with ``NULL`` for airflow and room,
+and two rows for ``vav2`` in room 101, one per airflow sensor.
 
 Choose the tables
 -----------------
@@ -50,8 +76,9 @@ shape, including shapes with no targets. Use ``shape_names`` for an explicit
 list of full shape IRIs and ``shape_query`` for a SPARQL ``SELECT`` that binds
 ``?shape`` to a node shape IRI in the shapes graph. When supplied together,
 both selectors contribute shapes. An explicit empty selection creates zero
-tables. Shifty's bundled SPARQL evaluator runs the selector once at
-registration. Referenced helper shapes remain available during evaluation.
+tables. Shifty runs the selector once at registration, with the shapes
+graph's prefix declarations available to the query. Referenced helper
+shapes remain available during evaluation.
 
 .. code-block:: python
 
@@ -68,15 +95,17 @@ Table names use the shape's IRI compacted with the shapes graph's prefix
 declarations, using the most specific matching namespace. ``ex:VavShape``
 becomes ``[ex:VavShape]`` in SQL. The local name keeps its original spelling,
 so ``ex:vav_shape`` becomes ``[ex:vav_shape]``. When no declaration applies,
-use the full IRI as the table name, for example
-``[https://example.org/VavShape]``. SQLite double quotes also work for these identifiers.
+Shifty uses the full IRI, as in ``[https://example.org/VavShape]``. SQLite
+double quotes also work for these identifiers.
 
 Each direct ``sh:property`` defines a nullable column on its shape's table.
 Field names default to ``sh:name``, the property shape's local name, or the path
-predicate's local name, in that order. Complex paths without a name use
-``field_N``. To choose exact SQL names or resolve name collisions, set
-``sql:tableName`` on the node shape or ``sql:columnName`` on the property
-shape, using the vocabulary ``https://shifty.gtf.fyi/ns/sql#``.
+predicate's local name, in that order. Shifty converts the chosen label to
+snake case for columns, as in ``supply_air_temperature``, and uses
+``field_N`` when there is no usable label. To choose exact SQL names or
+resolve name collisions, set ``sql:tableName`` on the node shape or
+``sql:columnName`` on the property shape, using the vocabulary
+``https://shifty.gtf.fyi/ns/sql#``.
 
 Define a table with SPARQL
 --------------------------
@@ -85,9 +114,6 @@ Define a table with SPARQL
 the query. Each solution produces a row. Bound terms use N-Triples spelling,
 which also lets you join against a shape table. An unbound variable becomes
 SQL ``NULL``. Declare any prefixes in the SPARQL query.
-Both kinds of tables share blank-node identities within a refresh. The data
-graph and each registered shapes graph keep distinct blank nodes even when
-their source labels match.
 
 .. code-block:: python
 
@@ -125,7 +151,8 @@ N-Triples spelling.
 A focus gets one row per combination of its qualifying values. Two airflow
 sensors and three dampers produce six rows for that focus. The same rule
 preserves recovered values when a property exceeds its declared maximum.
-Use ``COUNT(DISTINCT focus)`` when counting VAVs.
+Because ``focus`` can repeat, use ``COUNT(DISTINCT focus)`` when counting
+VAVs.
 
 .. code-block:: sql
 

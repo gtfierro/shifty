@@ -89,6 +89,7 @@ pub(super) fn _result_database_scope_shapes(
             if replacements.is_empty() {
                 return Ok(document);
             }
+            // Rewrite both ends of each triple with one map for this graph.
             loaded.graph = loaded
                 .graph
                 .iter()
@@ -141,6 +142,7 @@ fn query_columns(query: &Query) -> PyResult<Vec<String>> {
         ));
     };
     let mut pattern = pattern;
+    // The parser wraps projection in row modifiers such as DISTINCT and LIMIT.
     loop {
         match pattern {
             GraphPattern::Project { variables, .. } if !variables.is_empty() => {
@@ -201,6 +203,7 @@ impl ResultDatabaseQueryDataset {
         let dataset = match graph_mode {
             "data" => &self.data,
             "shapes" => &self.shapes,
+            // Build the combined dataset once, only when a query needs it.
             "union" => self.union.get_or_init(|| {
                 let mut merged = self.data.clone();
                 merged.extend(&self.shapes);
@@ -241,6 +244,8 @@ impl super::EvidenceSession {
         shape_names: Option<Vec<String>>,
         shape_query: Option<&str>,
     ) -> PyResult<Vec<TableLayout>> {
+        // Index authored sources so SQL fields and shape-map bindings use the
+        // same property identifiers, even when their labels or paths overlap.
         let mut nodes = BTreeMap::new();
         let mut source_ids = HashMap::new();
         for (id, source) in &self.raw_schema.sources {
