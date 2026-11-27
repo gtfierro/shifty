@@ -1026,3 +1026,12 @@ def test_blank_name_path_literals_do_not_shadow_fallbacks():
     with ResultDatabase() as db:
         db.add_shape_tables(shapes)
         assert _columns(db, "[ex:S]") == ["result_id", "focus", "temperature", "q"]
+
+
+def test_refresh_rejects_invalid_options_even_without_shape_tables():
+    with ResultDatabase() as db:
+        db.add_query_table("items", "SELECT ?s WHERE { ?s ?p ?o }", graph_mode="data")
+        with pytest.raises(ValueError, match="graph_mode"):
+            db.refresh(PREFIXES, graph_mode="unknown")
+        with pytest.raises(ValueError, match="minimum_severity"):
+            db.refresh(PREFIXES, minimum_severity="unknown")

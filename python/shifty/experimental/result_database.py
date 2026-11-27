@@ -223,6 +223,15 @@ class ResultDatabase:
         evaluation. ``minimum_severity`` determines which failures make a
         focus nonconforming. Query tables use the saved graph mode.
         """
+        if graph_mode not in ("data", "union", "union-all"):
+            raise ValueError(
+                f"unknown graph_mode {graph_mode!r}; expected 'data', 'union', or 'union-all'"
+            )
+        if minimum_severity.lower() not in ("info", "warning", "violation"):
+            raise ValueError(
+                f"unknown minimum_severity {minimum_severity!r}; "
+                "expected 'info', 'warning', or 'violation'"
+            )
         with self._transaction():
             registrations = self.connection.execute(
                 "SELECT id, shapes FROM main._shifty_result_registrations ORDER BY id"
