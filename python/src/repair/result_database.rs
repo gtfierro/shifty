@@ -442,8 +442,8 @@ fn sql_alias(
 }
 
 /// A field is named like its shape-map binding: by the first authored name
-/// that can label a column, a literal's text or an IRI's local name. Without
-/// one, the property shape's IRI or its path supplies a local name.
+/// that can label a column, a nonempty literal's text or an IRI's local name.
+/// Without one, the property shape's IRI or its path supplies a local name.
 fn field_label(
     shapes: &Loaded,
     name_paths: &[Path],
@@ -458,22 +458,21 @@ fn field_label(
     names
         .iter()
         .find_map(|name| match name {
-            Term::Literal(name) => Some(name.value().to_owned()),
-            Term::NamedNode(iri) => local_name(iri.as_str()),
+            Term::Literal(name) => {
+                let text = name.value().trim();
+                (!text.is_empty()).then(|| text.to_owned())
+            }
+            Term::NamedNode(iri) => {
+                shifty_engine::names::local_name(iri.as_str()).map(str::to_owned)
+            }
             _ => None,
         })
         .or_else(|| match (property, path) {
             (NamedOrBlankNode::NamedNode(iri), _) | (_, Term::NamedNode(iri)) => {
-                local_name(iri.as_str())
+                shifty_engine::names::local_name(iri.as_str()).map(str::to_owned)
             }
             _ => None,
         })
-}
-
-fn local_name(iri: &str) -> Option<String> {
-    iri.rsplit(['#', '/', ':'])
-        .find(|part| !part.is_empty())
-        .map(str::to_owned)
 }
 
 fn select_shapes(shapes: &Loaded, query: &str) -> PyResult<Vec<String>> {

@@ -1102,6 +1102,8 @@ def test_local_name_compaction():
     assert _local("http://ex/hasPoint") == "hasPoint"
     assert _local("http://ex#hasPoint") == "hasPoint"
     assert _local("urn:zonepac-app/zonepac-zone") == "zonepac-zone"
+    assert _local("http://ex/a#b/c") == "c"
+    assert _local("http://ex/a#") == "a"
 
 
 def test_mapping_conformance_follows_minimum_severity():

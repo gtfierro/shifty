@@ -50,6 +50,11 @@ pub fn name_text(term: &Term) -> String {
     }
 }
 
+/// The local name of an IRI: the last non-empty segment after `#`, `/`, or `:`.
+pub fn local_name(iri: &str) -> Option<&str> {
+    iri.rsplit(['#', '/', ':']).find(|part| !part.is_empty())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -76,5 +81,18 @@ mod tests {
         let shapes = shifty_parse::load_turtle(b"", None).unwrap();
         assert!(parse_name_paths(&DEFAULT_NAME_PATHS, &shapes).is_ok());
         assert!(parse_name_paths(&["ex:undeclared"], &shapes).is_err());
+    }
+
+    #[test]
+    fn local_name_uses_last_nonempty_segment() {
+        assert_eq!(local_name("http://ex/hasPoint"), Some("hasPoint"));
+        assert_eq!(local_name("http://ex#hasPoint"), Some("hasPoint"));
+        assert_eq!(
+            local_name("urn:zonepac-app/zonepac-zone"),
+            Some("zonepac-zone")
+        );
+        assert_eq!(local_name("http://ex/a#b/c"), Some("c"));
+        assert_eq!(local_name("http://ex/a#"), Some("a"));
+        assert_eq!(local_name("#/"), None);
     }
 }

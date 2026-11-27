@@ -165,13 +165,13 @@ def _component_label(component: str) -> str:
     return re.sub(r"(?<=[a-z])(?=[A-Z])", " ", name).lower()
 
 
+_LOCAL_RE = re.compile(r"([^#/:]+)[#/:]*$")
+
+
 def _local(iri: str) -> str:
     """The local name of an IRI: the segment after the last '#', '/', or ':'."""
-    for sep in ("#", "/", ":"):
-        head, found, tail = iri.rpartition(sep)
-        if found and tail:
-            return tail
-    return iri
+    match = _LOCAL_RE.search(iri)
+    return match.group(1) if match else iri
 
 
 # ── paths (mirror shifty_algebra::Path) ─────────────────────────────────────────

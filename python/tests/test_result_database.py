@@ -1011,3 +1011,18 @@ def test_same_graph_registered_with_different_name_paths_is_stored_once():
         assert db.connection.execute("SELECT note FROM notes").fetchall() == [
             ('"profile"',)
         ]
+
+
+def test_blank_name_path_literals_do_not_shadow_fallbacks():
+    shapes = (
+        PREFIXES
+        + """
+    @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+    ex:S a sh:NodeShape ; sh:targetNode ex:x ;
+        sh:property [ sh:path ex:p ; sh:name "   " ; rdfs:label "temperature" ; sh:order 1 ] ,
+                    [ sh:path ex:q ; sh:name "" ; sh:order 2 ] .
+    """
+    )
+    with ResultDatabase() as db:
+        db.add_shape_tables(shapes)
+        assert _columns(db, "[ex:S]") == ["result_id", "focus", "temperature", "q"]
