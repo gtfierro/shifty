@@ -970,3 +970,44 @@ def test_column_names_follow_binding_names():
         db.refresh(data, infer=False)
         columns = db.connection.execute("SELECT * FROM [ex:S]").description
         assert [column[0] for column in columns][2:] == ["supply_temperature"]
+
+
+def test_same_graph_registered_with_different_name_paths_is_stored_once():
+    shapes = (
+        PREFIXES
+        + """
+    @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+    ex:FirstShape a sh:NodeShape ; sh:targetClass ex:First ;
+        sh:property [ sh:path ex:p ; sh:name "first_name" ; rdfs:label "first_label" ] .
+    ex:SecondShape a sh:NodeShape ; sh:targetClass ex:Second ;
+        sh:property [ sh:path ex:q ; sh:name "second_name" ; rdfs:label "second_label" ] .
+    _:note ex:note "profile" .
+    """
+    )
+    data = PREFIXES + "ex:a a ex:First ; ex:p 1 . ex:b a ex:Second ; ex:q 2 ."
+    with ResultDatabase() as db:
+        db.add_shape_tables(shapes, shape_names=[], name_path="sh:name")
+        db.add_shape_tables(
+            shapes, shape_names=["https://example.org/FirstShape"], name_path="sh:name"
+        )
+        db.add_shape_tables(
+            shapes,
+            shape_names=["https://example.org/SecondShape"],
+            name_path="rdfs:label",
+        )
+        db.add_query_table(
+            "notes",
+            "SELECT ?note WHERE { ?s <https://example.org/note> ?note }",
+        )
+        assert _registry_counts(db) == (1, 2)
+        db.refresh(data, infer=False)
+
+        assert _columns(db, "[ex:FirstShape]") == ["result_id", "focus", "first_name"]
+        assert _columns(db, "[ex:SecondShape]") == [
+            "result_id",
+            "focus",
+            "second_label",
+        ]
+        assert db.connection.execute("SELECT note FROM notes").fetchall() == [
+            ('"profile"',)
+        ]

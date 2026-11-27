@@ -121,7 +121,7 @@ class ResultDatabase:
             new_tables = []
             for table in tables:
                 existing = self.connection.execute(
-                    "SELECT t.table_name, r.shapes_digest, r.name_paths "
+                    "SELECT t.table_name, r.shapes_digest, t.name_paths "
                     "FROM main._shifty_result_tables AS t "
                     "JOIN main._shifty_result_registrations AS r "
                     "ON r.id = t.registration WHERE t.shape_iri = ?",
@@ -150,21 +150,22 @@ class ResultDatabase:
             # supplies RDF to SPARQL queries.
             existing = self.connection.execute(
                 "SELECT id FROM main._shifty_result_registrations "
-                "WHERE shapes_digest = ? AND name_paths = ? ORDER BY id",
-                (digest, json.dumps(name_paths)),
+                "WHERE shapes_digest = ? ORDER BY id",
+                (digest,),
             ).fetchone()
             if existing is not None:
                 registration = existing[0]
             else:
                 registration = self.connection.execute(
                     "INSERT INTO main._shifty_result_registrations "
-                    "(shapes, shapes_digest, name_paths) VALUES (?, ?, ?)",
-                    (document, digest, json.dumps(name_paths)),
+                    "(shapes, shapes_digest) VALUES (?, ?)",
+                    (document, digest),
                 ).lastrowid
+            encoded_paths = json.dumps(name_paths)
             for table in tables:
                 self.connection.execute(
-                    "INSERT INTO main._shifty_result_tables VALUES (?, ?, ?)",
-                    (table.name, table.iri, registration),
+                    "INSERT INTO main._shifty_result_tables VALUES (?, ?, ?, ?)",
+                    (table.name, table.iri, registration, encoded_paths),
                 )
                 table.create(self.connection)
 
@@ -224,8 +225,7 @@ class ResultDatabase:
         """
         with self._transaction():
             registrations = self.connection.execute(
-                "SELECT id, shapes, name_paths FROM main._shifty_result_registrations "
-                "ORDER BY id"
+                "SELECT id, shapes FROM main._shifty_result_registrations ORDER BY id"
             ).fetchall()
             queries = self.connection.execute(
                 "SELECT table_name, query, graph_mode FROM main._shifty_result_queries ORDER BY table_name"
@@ -239,7 +239,7 @@ class ResultDatabase:
                 source.path,
                 source.format,
                 base,
-                [document for _, document, _ in registrations],
+                [document for _, document in registrations],
             )
             # Clear the rows that reference validation results before the
             # results themselves, so the delete does not cascade row by row.
@@ -249,25 +249,31 @@ class ResultDatabase:
                 self.connection.execute(f"DELETE FROM {_main_table(name)}")
             self.connection.execute("DELETE FROM main._shifty_result_binding_status")
             self.connection.execute("DELETE FROM main._shifty_result_validation")
-            for index, (registration, _, name_paths) in enumerate(registrations):
-                selected = dict(
-                    self.connection.execute(
-                        "SELECT shape_iri, table_name FROM main._shifty_result_tables "
-                        "WHERE registration = ?",
-                        (registration,),
-                    )
-                )
-                if not selected:
+            for index, (registration, _) in enumerate(registrations):
+                rows = self.connection.execute(
+                    "SELECT shape_iri, table_name, name_paths "
+                    "FROM main._shifty_result_tables WHERE registration = ?",
+                    (registration,),
+                ).fetchall()
+                if not rows:
                     continue
+                by_paths: dict[str, dict[str, str]] = {}
+                selected: list[str] = []
+                for shape_iri, table_name, paths_json in rows:
+                    selected.append(shape_iri)
+                    by_paths.setdefault(paths_json, {})[shape_iri] = table_name
                 session = snapshot.session(index, infer, graph_mode)
-                tables = _compile_tables(
-                    session, json.loads(name_paths), list(selected)
-                )
-                if {table.iri: table.name for table in tables} != selected:
-                    raise ValueError(
-                        "registered result tables do not match the stored shapes"
+                tables = []
+                for paths_json, group in by_paths.items():
+                    compiled = _compile_tables(
+                        session, json.loads(paths_json), list(group)
                     )
-                run = session.validate(list(selected), minimum_severity)
+                    if {table.iri: table.name for table in compiled} != group:
+                        raise ValueError(
+                            "registered result tables do not match the stored shapes"
+                        )
+                    tables.extend(compiled)
+                run = session.validate(selected, minimum_severity)
                 # The run's session can recover qualifying values omitted by
                 # failure evidence, including values from passing siblings.
                 shape_map = ShapeMap.from_run(run, session, name_path=None)
@@ -326,12 +332,11 @@ class ResultDatabase:
 
 _REGISTRY = (
     """CREATE TABLE IF NOT EXISTS main._shifty_result_registrations (
-        id INTEGER PRIMARY KEY, shapes TEXT NOT NULL, shapes_digest TEXT NOT NULL,
-        name_paths TEXT NOT NULL
+        id INTEGER PRIMARY KEY, shapes TEXT NOT NULL, shapes_digest TEXT NOT NULL UNIQUE
     )""",
     """CREATE TABLE IF NOT EXISTS main._shifty_result_tables (
         table_name TEXT PRIMARY KEY NOT NULL, shape_iri TEXT NOT NULL UNIQUE,
-        registration INTEGER NOT NULL
+        registration INTEGER NOT NULL, name_paths TEXT NOT NULL
     )""",
     """CREATE TABLE IF NOT EXISTS main._shifty_result_queries (
         table_name TEXT PRIMARY KEY NOT NULL, query TEXT NOT NULL, graph_mode TEXT NOT NULL
