@@ -3051,39 +3051,52 @@ impl EvidenceSession {
     /// reaches anything, are omitted. Literal values render as their bare
     /// lexical form; IRIs/blank nodes render as `<…>`/`_:…`.
     fn binding_names_impl(&self, name_paths: &[String]) -> PyResult<HashMap<u32, Vec<String>>> {
-        let paths = name_paths
-            .iter()
-            .map(|expr| {
-                shifty_parse::parse_property_path(expr, &self.shapes)
-                    .map_err(|e| py_value_error(format!("invalid name_path {expr:?}: {e}")))
-            })
-            .collect::<PyResult<Vec<_>>>()?;
-        let mut out = HashMap::new();
+        let paths = self.parse_name_paths(name_paths)?;
         let owners = self.binding_source_ids_impl();
+        // Many lowered slots share one authored owner; resolve each owner once.
+        let mut by_owner: HashMap<ShapeId, Vec<String>> = HashMap::new();
+        let mut out = HashMap::new();
         for id in 0..self.raw_schema.arena.len() as u32 {
             let owner = ShapeId(*owners.get(&id).unwrap_or(&id));
             let Some(source) = self.raw_schema.sources.get(&owner) else {
                 continue;
             };
-            let mut names: Vec<String> = Vec::new();
-            for path in &paths {
-                let mut matches: Vec<String> =
-                    shifty_engine::path::succ(&self.shapes.graph, source, path)
-                        .into_iter()
-                        .map(|t| term_text(&t))
-                        .collect();
-                matches.sort();
-                for name in matches {
-                    if !names.contains(&name) {
-                        names.push(name);
+            let names = by_owner.entry(owner).or_insert_with(|| {
+                let mut names: Vec<String> = Vec::new();
+                for path in &paths {
+                    let mut matches: Vec<String> =
+                        shifty_engine::path::succ(&self.shapes.graph, source, path)
+                            .into_iter()
+                            .map(|t| term_text(&t))
+                            .collect();
+                    matches.sort();
+                    for name in matches {
+                        if !names.contains(&name) {
+                            names.push(name);
+                        }
                     }
                 }
-            }
+                names
+            });
             if !names.is_empty() {
-                out.insert(id, names);
+                out.insert(id, names.clone());
             }
         }
         Ok(out)
+    }
+
+    /// Parse `name_path` entries against the shapes graph's prefixes.
+    pub(super) fn parse_name_paths(
+        &self,
+        name_paths: &[String],
+    ) -> PyResult<Vec<shifty_algebra::Path>> {
+        name_paths
+            .iter()
+            .map(|expr| {
+                shifty_parse::parse_property_path(expr, &self.shapes)
+                    .map_err(|e| py_value_error(format!("invalid name_path {expr:?}: {e}")))
+            })
+            .collect()
     }
 
     /// Backward-compatible internal extraction helper.

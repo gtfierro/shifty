@@ -20,7 +20,7 @@ const TABLE_NAME: NamedNodeRef<'static> =
 const COLUMN_NAME: NamedNodeRef<'static> =
     NamedNodeRef::new_unchecked("https://shifty.gtf.fyi/ns/sql#columnName");
 
-type FieldLayout = (u32, String, Option<String>, Option<String>, bool);
+type FieldLayout = (u32, Option<String>, Option<String>);
 pub(super) type TableLayout = (String, String, Vec<FieldLayout>);
 
 #[pyfunction]
@@ -275,13 +275,7 @@ impl super::EvidenceSession {
         shape_names: Option<Vec<String>>,
         shape_query: Option<&str>,
     ) -> PyResult<Vec<TableLayout>> {
-        let name_paths = name_paths
-            .iter()
-            .map(|expr| {
-                shifty_parse::parse_property_path(expr, &self.shapes)
-                    .map_err(|e| py_value_error(format!("invalid name_path {expr:?}: {e}")))
-            })
-            .collect::<PyResult<Vec<_>>>()?;
+        let name_paths = self.parse_name_paths(name_paths)?;
         // Index authored sources so SQL fields and shape-map bindings use the
         // same property identifiers, even when their labels or paths overlap.
         let mut nodes = BTreeMap::new();
@@ -334,10 +328,12 @@ impl super::EvidenceSession {
                     let identity = identities[&id].1.clone();
                     let alias = sql_alias(&self.shapes, &property, COLUMN_NAME)?;
                     let label = field_label(&self.shapes, &name_paths, &property, &path);
-                    let single = is_scalar(&self.shapes, &property);
-                    fields.push((id, identity, alias, label, single));
+                    fields.push((identity, (id, alias, label)));
                 }
-                fields.sort_by(|a, b| a.1.cmp(&b.1));
+                // Order columns by the canonical property identity, not by the
+                // authored triple order.
+                fields.sort_by(|a, b| a.0.cmp(&b.0));
+                let fields = fields.into_iter().map(|(_, field)| field).collect();
                 Ok((iri, table_name, fields))
             })
             .collect()
@@ -389,19 +385,6 @@ fn field_label(
                 .map(str::to_owned),
             _ => None,
         })
-}
-
-fn is_scalar(shapes: &Loaded, property: &NamedOrBlankNode) -> bool {
-    let maximum = if shapes
-        .object(property, vocab::SH_QUALIFIED_VALUE_SHAPE)
-        .is_some()
-    {
-        vocab::SH_QUALIFIED_MAX_COUNT
-    } else {
-        vocab::SH_MAX_COUNT
-    };
-    matches!(shapes.object(property, maximum), Some(Term::Literal(value))
-        if value.value().parse::<u64>().is_ok_and(|limit| limit <= 1))
 }
 
 fn select_shapes(shapes: &Loaded, query: &str) -> PyResult<Vec<String>> {

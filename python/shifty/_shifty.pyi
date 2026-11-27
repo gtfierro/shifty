@@ -532,7 +532,7 @@ class EvidenceSession:
         Tuple[
             str,
             str,
-            List[Tuple[int, str, Optional[str], Optional[str], bool]],
+            List[Tuple[int, Optional[str], Optional[str]]],
         ]
     ]: ...
     def _binding_values(self, focus: str, constraint_id: int) -> List[str]: ...

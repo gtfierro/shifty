@@ -9,7 +9,7 @@ import sqlite3
 from collections.abc import Iterable, Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
-from itertools import product
+from itertools import chain, product
 from pathlib import Path
 from string import ascii_lowercase, ascii_uppercase
 from typing import Optional
@@ -165,19 +165,6 @@ class ResultDatabase:
                     "INSERT INTO main._shifty_result_tables VALUES (?, ?, ?)",
                     (table.name, table.iri, registration),
                 )
-                self.connection.executemany(
-                    "INSERT INTO main._shifty_result_fields VALUES (?, ?, ?, ?, ?)",
-                    (
-                        (
-                            table.name,
-                            field.name,
-                            field.source,
-                            table.name,
-                            field.scalar,
-                        )
-                        for field in table.fields
-                    ),
-                )
                 table.create(self.connection)
 
     def add_query_table(
@@ -215,24 +202,6 @@ class ResultDatabase:
                 "INSERT INTO main._shifty_result_queries VALUES (?, ?, ?)",
                 (name, query, graph_mode),
             )
-
-    def populate_shape_tables(
-        self,
-        data_graph: GraphInputs,
-        *,
-        infer: bool = True,
-        graph_mode: str = "union",
-        minimum_severity: str = "info",
-        base: Optional[str] = None,
-    ) -> None:
-        """Refresh the managed tables from a graph, including registered queries."""
-        self.refresh(
-            data_graph,
-            infer=infer,
-            graph_mode=graph_mode,
-            minimum_severity=minimum_severity,
-            base=base,
-        )
 
     def refresh(
         self,
@@ -370,11 +339,6 @@ _REGISTRY = (
     """CREATE TABLE IF NOT EXISTS main._shifty_result_queries (
         table_name TEXT PRIMARY KEY NOT NULL, query TEXT NOT NULL, graph_mode TEXT NOT NULL
     )""",
-    """CREATE TABLE IF NOT EXISTS main._shifty_result_fields (
-        table_name TEXT NOT NULL, field_name TEXT NOT NULL, source_shape TEXT NOT NULL,
-        storage_table TEXT NOT NULL, scalar INTEGER NOT NULL,
-        PRIMARY KEY (table_name, field_name)
-    )""",
     """CREATE TABLE IF NOT EXISTS main._shifty_result_validation (
         result_id TEXT PRIMARY KEY NOT NULL,
         table_name TEXT NOT NULL REFERENCES _shifty_result_tables (table_name) ON DELETE CASCADE,
@@ -399,9 +363,7 @@ _REGISTRY = (
 @dataclass(frozen=True)
 class _Field:
     source_id: int
-    source: str
     name: str
-    scalar: bool
 
 
 @dataclass(frozen=True)
@@ -440,76 +402,71 @@ class _Table:
     def replace(
         self, db: sqlite3.Connection, mappings: Sequence[Mapping], minimum_severity: str
     ) -> None:
-        name = _main_table(self.name)
-        columns = self.columns
-        names = ", ".join(_quote(column) for column, _ in columns)
-        placeholders = ", ".join("?" for _ in columns)
-        insert = f"INSERT INTO {name} ({names}) VALUES ({placeholders})"
-        db.execute(f"DELETE FROM {name}")
-
+        validation_rows = []
+        binding_rows = []
+        shape_rows: list[Iterable[tuple[str | None, ...]]] = []
         # A focus may be selected by multiple targets on the same node shape.
         seen: set[str] = set()
         for mapping in mappings:
             focus = mapping.focus.n3()
-            if focus not in seen:
-                # Apply the threshold to conformance while saving raw binding status.
-                failure = mapping.evaluation.failure
-                conforms = failure is None or not failure._meets_threshold(
-                    minimum_severity
+            if focus in seen:
+                continue
+            seen.add(focus)
+            result_id = _result_id(self.iri, focus)
+            # Apply the threshold to conformance while saving raw binding status.
+            failure = mapping.evaluation.failure
+            conforms = failure is None or not failure._meets_threshold(minimum_severity)
+            validation_rows.append((result_id, self.name, focus, conforms))
+            # Distinct property shapes can share a path but bind different values.
+            bindings = {
+                binding._property_source_id: binding
+                for binding in mapping.bindings.values()
+            }
+            field_values: list[Sequence[str | None]] = []
+            for field in self.fields:
+                binding = bindings.get(field.source_id)
+                values = binding.values if binding is not None else None
+                terms = sorted({v.n3() for v in values}) if values is not None else None
+                # A NULL keeps this focus in the product when a field has no
+                # values. The count still distinguishes empty from unavailable.
+                field_values.append(terms or (None,))
+                binding_rows.append(
+                    (
+                        result_id,
+                        self.name,
+                        focus,
+                        field.name,
+                        binding.status if binding is not None else "unavailable",
+                        len(terms) if terms is not None else None,
+                        binding.missing if binding is not None else None,
+                    )
                 )
-                self._insert_focus(db, insert, focus, mapping, conforms)
-                seen.add(focus)
+            shape_rows.append(_shape_rows(result_id, focus, field_values))
 
-    def _insert_focus(
-        self,
-        db: sqlite3.Connection,
-        insert: str,
-        focus: str,
-        mapping: Mapping,
-        conforms: bool,
-    ) -> None:
-        # Distinct property shapes can share a path but bind different values.
-        bindings = {
-            binding._property_source_id: binding
-            for binding in mapping.bindings.values()
-        }
-        result_id = _result_id(self.iri, focus)
-        field_values: list[Sequence[str | None]] = []
-        binding_rows = []
-        for field in self.fields:
-            binding = bindings.get(field.source_id)
-            values = binding.values if binding is not None else None
-            terms = (
-                sorted({value.n3() for value in values}) if values is not None else None
-            )
-            # A NULL keeps this focus in the product when a field has no values.
-            # The diagnostic count still distinguishes empty from unavailable.
-            field_values.append(terms or (None,))
-            binding_rows.append(
-                (
-                    result_id,
-                    self.name,
-                    focus,
-                    field.name,
-                    binding.status if binding is not None else "unavailable",
-                    len(terms) if terms is not None else None,
-                    binding.missing if binding is not None else None,
-                )
-            )
-        db.execute(
+        columns = self.columns
+        names = ", ".join(_quote(column) for column, _ in columns)
+        placeholders = ", ".join("?" for _ in columns)
+        db.executemany(
             "INSERT INTO main._shifty_result_validation "
             "(result_id, table_name, focus, conforms) VALUES (?, ?, ?, ?)",
-            (result_id, self.name, focus, conforms),
+            validation_rows,
         )
         db.executemany(
             "INSERT INTO main._shifty_result_binding_status VALUES (?, ?, ?, ?, ?, ?, ?)",
             binding_rows,
         )
-        # Property bindings are independent sets. Materialize combinations lazily.
         db.executemany(
-            insert,
-            ((result_id, focus, *values) for values in product(*field_values)),
+            f"INSERT INTO {_main_table(self.name)} ({names}) VALUES ({placeholders})",
+            chain.from_iterable(shape_rows),
         )
+
+
+def _shape_rows(
+    result_id: str, focus: str, field_values: list[Sequence[str | None]]
+) -> Iterator[tuple[str | None, ...]]:
+    # Property bindings are independent sets. Materialize combinations lazily.
+    for values in product(*field_values):
+        yield (result_id, focus, *values)
 
 
 def _compile_tables(
@@ -525,9 +482,9 @@ def _compile_tables(
     for iri, name, slots in layout:
         _validate_table_name(name)
         fields = []
-        for index, (source_id, source, alias, label, scalar) in enumerate(slots, 1):
+        for index, (source_id, alias, label) in enumerate(slots, 1):
             field_name = _sql_name(alias, label or "", f"field_{index}")
-            fields.append(_Field(source_id, source, field_name, scalar))
+            fields.append(_Field(source_id, field_name))
         table = _Table(name, iri, fields)
         _check_names((column for column, _ in table.columns), ())
         tables.append(table)

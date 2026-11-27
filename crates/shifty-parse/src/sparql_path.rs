@@ -279,8 +279,8 @@ fn resolve_prefixed_name(token: &str, prefixes: &[(String, String)]) -> Result<N
         // These are standard fallbacks, not overrides: an explicit document
         // declaration retains its normal SPARQL meaning.
         .or_else(|| match prefix {
-            "sh" => Some("http://www.w3.org/ns/shacl#"),
-            "rdfs" => Some("http://www.w3.org/2000/01/rdf-schema#"),
+            "sh" => Some(vocab::SH),
+            "rdfs" => Some(vocab::RDFS),
             _ => None,
         })
         .ok_or_else(|| format!("undeclared prefix {prefix:?} in property path {token:?}"))?;

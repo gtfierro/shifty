@@ -50,7 +50,7 @@ def test_projects_full_and_partial_results():
             "airflow",
         }
 
-        db.populate_shape_tables(
+        db.refresh(
             VAV_DATA + "ex:vav2 ex:hasPoint ex:flow2 . ex:flow2 a ex:Airflow .",
             infer=False,
         )
@@ -89,9 +89,7 @@ def test_projects_full_and_partial_results():
             "FROM _shifty_result_missing_required_values"
         ).fetchall() == [("ex:VavShape", "<https://example.org/vav1>", "airflow", 1)]
 
-        db.populate_shape_tables(
-            VAV_DATA + "ex:vav1 ex:hasPoint ex:flow .", infer=False
-        )
+        db.refresh(VAV_DATA + "ex:vav1 ex:hasPoint ex:flow .", infer=False)
         assert (
             db.connection.execute(
                 "SELECT * FROM _shifty_result_missing_required_values"
@@ -111,7 +109,7 @@ def test_independent_repeatable_properties_share_one_shape_table():
     )
     with ResultDatabase() as db:
         db.add_shape_tables(shapes)
-        db.populate_shape_tables(data, infer=False)
+        db.refresh(data, infer=False)
         assert db.connection.execute(
             "SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'ex:%'"
         ).fetchall() == [("ex:VavShape",)]
@@ -365,7 +363,7 @@ def test_query_tables_can_refresh_without_shape_tables_after_reopening(tmp_path)
         db.connection.execute("INSERT INTO vavs VALUES ('manual')")
 
     with ResultDatabase(path) as db:
-        db.populate_shape_tables(PREFIXES + "ex:new a ex:Vav .")
+        db.refresh(PREFIXES + "ex:new a ex:Vav .")
         assert db.connection.execute("SELECT * FROM vavs").fetchall() == [
             ("<https://example.org/new>",)
         ]
@@ -412,7 +410,7 @@ def test_default_and_explicit_shape_selection():
             ("ex:Implicit",),
             ("ex:Marked",),
         ]
-        db.populate_shape_tables(PREFIXES)
+        db.refresh(PREFIXES)
         assert db.connection.execute("SELECT * FROM [ex:Helper]").fetchall() == []
 
     with ResultDatabase("sqlite:///:memory:") as db:
@@ -432,7 +430,7 @@ def test_default_and_explicit_shape_selection():
         assert db.connection.execute(
             "SELECT table_name FROM _shifty_result_tables ORDER BY table_name"
         ).fetchall() == [("ex:Implicit",), ("ex:Marked",)]
-        db.populate_shape_tables(PREFIXES)
+        db.refresh(PREFIXES)
         # The unselected Helper still participates through sh:node.
         assert db.connection.execute(
             "SELECT conforms FROM _shifty_result_validation WHERE table_name = 'ex:Implicit'"
@@ -477,7 +475,7 @@ def test_reopen_and_refresh_replaces_only_managed_rows(tmp_path):
     with ResultDatabase(path) as db:
         db.add_shape_tables(VAV_SHAPES)
         db.add_shape_tables(shapes_path)
-        db.populate_shape_tables(
+        db.refresh(
             VAV_DATA + 'ex:old a ex:Meter ; ex:label "original" ; ex:invalid ex:bad .'
         )
         assert db.connection.execute(
@@ -503,7 +501,7 @@ def test_reopen_and_refresh_replaces_only_managed_rows(tmp_path):
 
     shapes_path.unlink()
     with ResultDatabase(f"sqlite:///{path}") as db:
-        db.populate_shape_tables(VAV_DATA + 'ex:new a ex:Meter ; ex:label "fresh" .')
+        db.refresh(VAV_DATA + 'ex:new a ex:Meter ; ex:label "fresh" .')
         assert db.connection.execute(
             "SELECT focus, label FROM [ex:MeterShape]"
         ).fetchall() == [("<https://example.org/new>", '"fresh"')]
@@ -540,7 +538,7 @@ def test_failed_refresh_rolls_back_every_registration():
         """)
 
         with pytest.raises(sqlite3.IntegrityError, match="test load failure"):
-            db.populate_shape_tables(PREFIXES + "ex:new a ex:MeterClass .")
+            db.refresh(PREFIXES + "ex:new a ex:MeterClass .")
 
         assert db.connection.execute(
             "SELECT count(*) FROM [ex:VavShape]"
@@ -561,7 +559,7 @@ def test_failed_refresh_rolls_back_every_registration():
         """).fetchall() == [(1,), (0,)]
 
 
-def test_scalar_overflow_and_authored_aliases():
+def test_extra_values_and_authored_sql_names():
     shapes = (
         PREFIXES
         + """
@@ -572,9 +570,7 @@ def test_scalar_overflow_and_authored_aliases():
     )
     with ResultDatabase() as db:
         db.add_shape_tables(shapes)
-        db.populate_shape_tables(
-            PREFIXES + 'ex:focus ex:p ex:value, "https://example.org/value" .'
-        )
+        db.refresh(PREFIXES + 'ex:focus ex:p ex:value, "https://example.org/value" .')
         assert db.connection.execute(
             'SELECT "select" FROM "Points" ORDER BY "select"'
         ).fetchall() == [
@@ -591,7 +587,7 @@ def test_scalar_overflow_and_authored_aliases():
             == []
         )
 
-        db.populate_shape_tables(PREFIXES + r'ex:focus ex:p "line\rbreak" .')
+        db.refresh(PREFIXES + r'ex:focus ex:p "line\rbreak" .')
         assert db.connection.execute('SELECT "select" FROM "Points"').fetchall() == [
             (r'"line\rbreak"',)
         ]
@@ -614,7 +610,7 @@ def test_table_names_use_declared_prefixes_and_preserve_spelling():
     )
     with ResultDatabase() as db:
         db.add_shape_tables(shapes)
-        db.populate_shape_tables(PREFIXES, infer=False)
+        db.refresh(PREFIXES, infer=False)
         for table, local in (
             ("ex:VavShape", "vav"),
             ("zone:VavShape", "zone"),
@@ -812,7 +808,6 @@ def _registry_counts(db):
         for table in (
             "_shifty_result_registrations",
             "_shifty_result_tables",
-            "_shifty_result_fields",
         )
     )
 
