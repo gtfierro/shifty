@@ -1,14 +1,14 @@
 //! Authored shape catalogs and SPARQL results for the experimental SQLite projection.
 
+use super::shapemap::default_graph;
 use crate::{InputSpec, py_value_error};
 use oxigraph::sparql::{QueryResults, SparqlEvaluator};
 use oxrdf::dataset::{CanonicalizationAlgorithm, CanonicalizationHashAlgorithm};
 use oxrdf::{
-    BlankNode, Dataset, Graph, GraphNameRef, NamedNodeRef, NamedOrBlankNode, NamedOrBlankNodeRef,
-    Term, TermRef,
+    BlankNode, Dataset, Graph, NamedNodeRef, NamedOrBlankNode, NamedOrBlankNodeRef, Term, TermRef,
 };
 use pyo3::{prelude::*, pybacked::PyBackedBytes};
-use shifty_algebra::{Path, Shape, ShapeId};
+use shifty_algebra::{Path, ShapeId};
 use shifty_parse::{Loaded, graph::term_to_node, vocab};
 use spargebra::{Query, SparqlParser, algebra::GraphPattern};
 use std::cell::OnceCell;
@@ -158,13 +158,6 @@ impl ResultDatabaseRefresh {
             union: OnceCell::new(),
         }
     }
-}
-
-fn default_graph(graph: &Graph) -> Dataset {
-    graph
-        .iter()
-        .map(|triple| triple.in_graph(GraphNameRef::DefaultGraph))
-        .collect()
 }
 
 /// Give this graph's blank nodes that are already `used` fresh labels.
@@ -345,8 +338,6 @@ impl super::EvidenceSession {
             }
         };
 
-        let owners = self.binding_source_ids_impl();
-        let entries = self.binding_layout.entries();
         selected
             .into_iter()
             .map(|iri| {
@@ -358,7 +349,7 @@ impl super::EvidenceSession {
                     .or_else(|| self.raw_schema.prefixes.compact_declared(&iri))
                     .unwrap_or_else(|| iri.clone());
                 let mut fields = Vec::new();
-                for property_id in self.property_slots(*id, &owners) {
+                for property_id in self.binding_layout.property_slots(*id) {
                     let source = &self.raw_schema.sources[&ShapeId(property_id)];
                     let property = term_to_node(source).ok_or_else(|| {
                         py_value_error(format!("invalid property shape for {iri}: {source}"))
@@ -367,61 +358,13 @@ impl super::EvidenceSession {
                         .shapes
                         .object(&property, vocab::SH_PATH)
                         .expect("binding owners are property shapes");
-                    let (order, identity, _) = &entries[&property_id];
                     let alias = sql_alias(&self.shapes, &property, COLUMN_NAME)?;
                     let label = field_label(&self.shapes, &name_paths, &property, &path);
-                    let order = order
-                        .as_deref()
-                        .and_then(|order| order.parse::<f64>().ok())
-                        .filter(|order| order.is_finite());
-                    fields.push(((order, identity.clone()), (property_id, alias, label)));
+                    fields.push((property_id, alias, label));
                 }
-                // Match the shape map's binding order: sh:order, then identity.
-                fields.sort_by(|(a, _), (b, _)| {
-                    (a.0.is_none(), a.0.unwrap_or(0.0), &a.1)
-                        .partial_cmp(&(b.0.is_none(), b.0.unwrap_or(0.0), &b.1))
-                        .expect("orders are finite")
-                });
-                let fields = fields.into_iter().map(|(_, field)| field).collect();
                 Ok((iri, table_name, fields))
             })
             .collect()
-    }
-
-    /// The authored property shapes a node shape's shape-map bindings come
-    /// from, independent of any data. Shape maps bind each member of the node
-    /// shape's conjunction, grouped under its property shape. A member that is
-    /// not inside one, such as a single-property `sh:node` or `sh:and`, binds
-    /// the property shape it wraps. Keep this in step with `slot_layout` in
-    /// `shifty/shapemap.py`.
-    fn property_slots(&self, node: ShapeId, owners: &HashMap<u32, u32>) -> Vec<u32> {
-        let arena = &self.raw_schema.arena;
-        let mut children = shifty_engine::evidence::source_children(arena, node);
-        // Without a conjunction to report, the node shape is its own member.
-        if children.is_empty() {
-            children.push(node);
-        }
-        let mut slots = Vec::new();
-        for child in children {
-            let mut property = owners.get(&child.0).copied();
-            let mut current = child;
-            let mut seen = HashSet::new();
-            while property.is_none() && seen.insert(current) {
-                if owners.get(&current.0) == Some(&current.0) {
-                    property = Some(current.0);
-                } else if let Shape::Annotated { shape, .. } = arena.get(current) {
-                    current = *shape;
-                } else {
-                    break;
-                }
-            }
-            if let Some(property) = property
-                && !slots.contains(&property)
-            {
-                slots.push(property);
-            }
-        }
-        slots
     }
 }
 
@@ -476,11 +419,7 @@ fn field_label(
 }
 
 fn select_shapes(shapes: &Loaded, query: &str) -> PyResult<Vec<String>> {
-    let dataset: Dataset = shapes
-        .graph
-        .iter()
-        .map(|triple| triple.in_graph(GraphNameRef::DefaultGraph))
-        .collect();
+    let dataset = default_graph(&shapes.graph);
     let mut evaluator = SparqlEvaluator::new();
     if let Some(base) = &shapes.base {
         evaluator = evaluator.with_base_iri(base).map_err(value_error)?;

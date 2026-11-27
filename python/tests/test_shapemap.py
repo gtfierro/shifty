@@ -1120,3 +1120,19 @@ def test_mapping_conformance_follows_minimum_severity():
     # The binding still records the warning.
     (mapping,) = list(lenient)
     assert [b.status for b in mapping.bindings.values()] == ["fail"]
+
+
+def test_singleton_node_shape_label_does_not_shadow_property_name():
+    prefixes = (
+        "@prefix ex: <urn:ex:> . @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> . "
+        "@prefix sh: <http://www.w3.org/ns/shacl#> .\n"
+    )
+    shapes = prefixes + (
+        'ex:S a sh:NodeShape ; rdfs:label "Shape label" ; sh:targetClass ex:T ; '
+        'sh:property [ sh:path ex:p ; sh:minCount 1 ; rdfs:label "Property label" ] .'
+    )
+    (mapping,) = list(
+        shape_map(prefixes + "ex:x a ex:T ; ex:p 1 .", shapes, infer=False)
+    )
+    (binding,) = mapping.bindings.values()
+    assert binding.name == "Property label"

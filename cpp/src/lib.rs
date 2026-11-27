@@ -19,7 +19,7 @@ use sparesults::{QueryResultsFormat, QueryResultsSerializer};
 use spareval::{QueryEvaluator, QueryResults};
 use spargebra::SparqlParser;
 use std::cell::RefCell;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::ffi::{CString, c_char};
 use std::fmt::Write as _;
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -905,25 +905,12 @@ impl ShapeMapSession {
         constraint_id: u32,
     ) -> Result<Vec<shapemap::TermInfo>, ApiError> {
         let focus = parse_term(focus)?;
-        let mut current = ShapeId(constraint_id);
-        let mut seen = HashSet::new();
-        let property = loop {
-            if !seen.insert(current) {
-                return Ok(Vec::new());
-            }
-            if let Some(source) = self.raw_schema.sources.get(&current)
-                && let Some(node) = shifty_parse::graph::term_to_node(source)
-                && self
-                    .shapes
-                    .object(&node, shifty_parse::vocab::SH_PATH)
-                    .is_some()
-            {
-                break node;
-            }
-            match self.raw_schema.arena.get(current) {
-                shifty_algebra::Shape::Annotated { shape, .. } => current = *shape,
-                _ => return Ok(Vec::new()),
-            }
+        let Some((_, property)) = shifty_engine::names::unwrap_property_shape(
+            &self.raw_schema,
+            &self.shapes,
+            ShapeId(constraint_id),
+        ) else {
+            return Ok(Vec::new());
         };
 
         let Some(path_term) = self.shapes.object(&property, shifty_parse::vocab::SH_PATH) else {

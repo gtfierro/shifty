@@ -1684,11 +1684,14 @@ def _build_mapping(
         severity = _severity_of(
             normalized_catalog, normalized_ref, statement_py.normalized_constraint_id
         )
-        # A singleton node shape has no progress children: its outer
-        # `Annotated` slot directly wraps the property shape's own annotated
-        # slot. Follow that transparent chain so a `sh:name` on the authored
-        # property shape survives conjunction elision.
-        name_source_id = source_id
+        # A singleton node shape wraps its property shape directly: prefer
+        # `property_source_id` so the node shape's own label does not shadow
+        # its property's name, otherwise follow transparent `Annotated` wrappers.
+        name_source_id = (
+            ordered.slots[owner].property_source_id
+            if ordered.slots[owner].property_source_id is not None
+            else source_id
+        )
         seen = set()
         names = None
         while name_source_id not in seen:

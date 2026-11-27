@@ -3002,52 +3002,8 @@ impl EvidenceSession {
             .ok_or_else(|| py_value_error("constraint evaluation returned no evidence".to_string()))
     }
 
-    /// The authored property-shape owner for each raw constraint nested in
-    /// that property shape. Lowering expands one property shape into several
-    /// internal constraints (for example a universal datatype check plus a
-    /// `minCount`); this table restores that boundary for shape-map consumers.
     fn binding_source_ids_impl(&self) -> HashMap<u32, u32> {
-        let property_sources: Vec<ShapeId> = self
-            .raw_schema
-            .sources
-            .iter()
-            .filter_map(|(id, source)| {
-                shifty_parse::graph::term_to_node(source)
-                    .filter(|node| {
-                        self.shapes
-                            .object(node, shifty_parse::vocab::SH_PATH)
-                            .is_some()
-                    })
-                    .map(|_| *id)
-            })
-            .collect();
-        let source_ids: HashSet<ShapeId> = self.raw_schema.sources.keys().copied().collect();
-        let mut owners = HashMap::new();
-
-        for owner in property_sources {
-            let mut pending = vec![owner];
-            let mut seen = HashSet::new();
-            while let Some(id) = pending.pop() {
-                if !seen.insert(id) {
-                    continue;
-                }
-                // A nested authored shape starts a distinct binding. Do not
-                // let its internals become siblings of the enclosing property.
-                if id != owner && source_ids.contains(&id) {
-                    continue;
-                }
-                owners.entry(id.0).or_insert(owner.0);
-                match self.raw_schema.arena.get(id) {
-                    Shape::Annotated { shape, .. } | Shape::Not(shape) => pending.push(*shape),
-                    Shape::And(children) | Shape::Or(children) => {
-                        pending.extend(children.iter().copied())
-                    }
-                    Shape::Count { qualifier, .. } => pending.push(*qualifier),
-                    _ => {}
-                }
-            }
-        }
-        owners
+        self.binding_layout.source_owners().clone()
     }
 
     /// For every *raw* (source) constraint with shapes-graph provenance, and

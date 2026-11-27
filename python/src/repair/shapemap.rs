@@ -1,7 +1,7 @@
 //! Shapes-side metadata for the Python shape-map projection.
 
 use oxrdf::dataset::CanonicalizationAlgorithm;
-use oxrdf::{Dataset, GraphNameRef, NamedNode, NamedNodeRef, NamedOrBlankNode, Term};
+use oxrdf::{Dataset, Graph, GraphNameRef, NamedNode, NamedNodeRef, NamedOrBlankNode, Term};
 use pyo3::prelude::*;
 use shifty_algebra::{Schema, Shape, ShapeId};
 use shifty_parse::{Loaded, vocab};
@@ -114,7 +114,15 @@ pub(super) struct BindingLayout {
     schema: Arc<Schema>,
     shapes: Arc<Loaded>,
     entries: OnceLock<LayoutEntries>,
+    source_owners: OnceLock<HashMap<u32, u32>>,
     constraint_map: HashMap<u32, u32>,
+}
+
+pub(super) fn default_graph(graph: &Graph) -> Dataset {
+    graph
+        .iter()
+        .map(|triple| triple.in_graph(GraphNameRef::DefaultGraph))
+        .collect()
 }
 
 pub(super) type Observation = (Vec<String>, Vec<String>, Option<u64>);
@@ -129,23 +137,14 @@ impl super::EvidenceSession {
         constraint_id: u32,
     ) -> PyResult<Option<Observation>> {
         let focus = super::parse_term(focus).map_err(super::py_value_error)?;
-        let mut current = ShapeId(constraint_id);
-        let mut seen = HashSet::new();
-        let property = loop {
-            if !seen.insert(current) {
-                return Ok(None);
-            }
-            if let Some(source) = self.raw_schema.sources.get(&current)
-                && let Some(node) = shifty_parse::graph::term_to_node(source)
-                && self.shapes.object(&node, vocab::SH_PATH).is_some()
-            {
-                break node;
-            }
-            match self.raw_schema.arena.get(current) {
-                Shape::Annotated { shape, .. } => current = *shape,
-                _ => return Ok(None),
-            }
+        let Some((current, property)) = shifty_engine::names::unwrap_property_shape(
+            &self.raw_schema,
+            &self.shapes,
+            ShapeId(constraint_id),
+        ) else {
+            return Ok(None);
         };
+        let mut seen = HashSet::new();
         let path_term = self
             .shapes
             .object(&property, vocab::SH_PATH)
@@ -317,6 +316,7 @@ impl BindingLayout {
             schema,
             shapes,
             entries: OnceLock::new(),
+            source_owners: OnceLock::new(),
             constraint_map,
         }
     }
@@ -325,18 +325,100 @@ impl BindingLayout {
         self.constraint_map.clone()
     }
 
+    /// The authored property-shape owner for each raw constraint nested in
+    /// that property shape. Lowering expands one property shape into several
+    /// internal constraints (for example a universal datatype check plus a
+    /// `minCount`); this table restores that boundary for shape-map consumers.
+    pub(super) fn source_owners(&self) -> &HashMap<u32, u32> {
+        self.source_owners.get_or_init(|| {
+            let property_sources: Vec<ShapeId> = self
+                .schema
+                .sources
+                .iter()
+                .filter_map(|(id, source)| {
+                    shifty_parse::graph::term_to_node(source)
+                        .filter(|node| self.shapes.object(node, vocab::SH_PATH).is_some())
+                        .map(|_| *id)
+                })
+                .collect();
+            let source_ids: HashSet<ShapeId> = self.schema.sources.keys().copied().collect();
+            let mut owners = HashMap::new();
+
+            for owner in property_sources {
+                let mut pending = vec![owner];
+                let mut seen = HashSet::new();
+                while let Some(id) = pending.pop() {
+                    if !seen.insert(id) {
+                        continue;
+                    }
+                    // A nested authored shape starts a distinct binding. Do not
+                    // let its internals become siblings of the enclosing property.
+                    if id != owner && source_ids.contains(&id) {
+                        continue;
+                    }
+                    owners.entry(id.0).or_insert(owner.0);
+                    match self.schema.arena.get(id) {
+                        Shape::Annotated { shape, .. } | Shape::Not(shape) => pending.push(*shape),
+                        Shape::And(children) | Shape::Or(children) => {
+                            pending.extend(children.iter().copied())
+                        }
+                        Shape::Count { qualifier, .. } => pending.push(*qualifier),
+                        _ => {}
+                    }
+                }
+            }
+            owners
+        })
+    }
+
+    /// The authored property shapes a node shape's shape-map bindings come
+    /// from, in binding order (`sh:order`, then canonical identity),
+    /// independent of any data. Shape maps bind each member of the node
+    /// shape's conjunction, grouped under its property shape; a member not
+    /// inside one (such as a single-property `sh:node` or `sh:and`) binds
+    /// the property shape it wraps.
+    pub(super) fn property_slots(&self, node: ShapeId) -> Vec<u32> {
+        let arena = &self.schema.arena;
+        let owners = self.source_owners();
+        let entries = self.entries();
+        let mut children = shifty_engine::evidence::source_children(arena, node);
+        // Without a conjunction to report, the node shape is its own member.
+        if children.is_empty() {
+            children.push(node);
+        }
+        let mut slots: Vec<(Option<f64>, String, u32)> = Vec::new();
+        let mut seen_slots = HashSet::new();
+        for child in children {
+            let property = owners.get(&child.0).copied().or_else(|| {
+                shifty_engine::names::unwrap_property_shape(&self.schema, &self.shapes, child)
+                    .map(|(id, _)| id.0)
+            });
+            if let Some(property) = property
+                && seen_slots.insert(property)
+            {
+                let (order, identity, _) = &entries[&property];
+                let order = order
+                    .as_deref()
+                    .and_then(|order| order.parse::<f64>().ok())
+                    .filter(|order| order.is_finite());
+                slots.push((order, identity.clone(), property));
+            }
+        }
+        slots.sort_by(|a, b| {
+            (a.0.is_none(), a.0.unwrap_or(0.0), &a.1)
+                .partial_cmp(&(b.0.is_none(), b.0.unwrap_or(0.0), &b.1))
+                .expect("orders are finite")
+        });
+        slots.into_iter().map(|(_, _, id)| id).collect()
+    }
+
     pub(super) fn entries(&self) -> &LayoutEntries {
         self.entries.get_or_init(|| {
             // Canonicalization supplies identities independent of parser-created
             // blank-node labels and graph interning order. OxRDF's algorithm is
             // deterministic within a library version; these are display-order
             // identities, not persistent public identifiers.
-            let dataset: Dataset = self
-                .shapes
-                .graph
-                .iter()
-                .map(|triple| triple.in_graph(GraphNameRef::DefaultGraph))
-                .collect();
+            let dataset = default_graph(&self.shapes.graph);
             let blanks = dataset.canonicalize_blank_nodes(CanonicalizationAlgorithm::Unstable);
             let custom = custom_components(&self.shapes);
             self.schema

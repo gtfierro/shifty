@@ -6,9 +6,9 @@
 
 use std::collections::HashSet;
 
-use oxrdf::{Graph, Term};
-use shifty_algebra::Path;
-use shifty_parse::Loaded;
+use oxrdf::{Graph, NamedOrBlankNode, Term};
+use shifty_algebra::{Path, Schema, Shape, ShapeId};
+use shifty_parse::{Loaded, graph::term_to_node, vocab};
 
 /// The `name_path` used when a caller does not choose one.
 pub const DEFAULT_NAME_PATHS: [&str; 2] = ["sh:name", "rdfs:label"];
@@ -53,6 +53,29 @@ pub fn name_text(term: &Term) -> String {
 /// The local name of an IRI: the last non-empty segment after `#`, `/`, or `:`.
 pub fn local_name(iri: &str) -> Option<&str> {
     iri.rsplit(['#', '/', ':']).find(|part| !part.is_empty())
+}
+
+/// Follow transparent `Annotated` wrappers from `id` to an authored property
+/// shape (`sh:path` present in `shapes`).
+pub fn unwrap_property_shape(
+    schema: &Schema,
+    shapes: &Loaded,
+    mut id: ShapeId,
+) -> Option<(ShapeId, NamedOrBlankNode)> {
+    let mut seen = HashSet::new();
+    while seen.insert(id) {
+        if let Some(source) = schema.sources.get(&id)
+            && let Some(node) = term_to_node(source)
+            && shapes.object(&node, vocab::SH_PATH).is_some()
+        {
+            return Some((id, node));
+        }
+        match schema.arena.get(id) {
+            Shape::Annotated { shape, .. } => id = *shape,
+            _ => break,
+        }
+    }
+    None
 }
 
 #[cfg(test)]
