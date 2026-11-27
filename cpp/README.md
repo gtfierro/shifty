@@ -83,8 +83,8 @@ effort explicitly. A query execution failure throws `shifty::Error` with
 `SHIFTY_STATUS_VALIDATION_ERROR`; it supplies no conformance verdict. Constraint
 violations from completed runs remain ordinary validation results.
 
-The C ABI version is 7. Rebuild C++ consumers against the matching header and
-library. Existing C validation signatures use the strict default; the new
+The C ABI version is 8. Rebuild C and C++ consumers with matching headers and
+library. Existing C validation signatures use the strict default. The
 `shifty_prepared_validator_validate_with_policy` and
 `shifty_prepared_validator_validate_algebra_with_policy` functions accept an
 explicit policy and named shape selection.

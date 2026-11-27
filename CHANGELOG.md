@@ -10,8 +10,9 @@
   property paths without a prefix declaration, like `sh:`. Pass
   `name_path="sh:name"` to keep the previous behavior. The C++ API follows:
   `ShapeMapOptions::name_path` (a string) is now `name_paths` (a list) with the
-  same default, and the C function takes an array of string views. Python,
-  C++, and result database column names share one resolver.
+  same default, and the C function takes an array of string views. The C ABI
+  is now version 8. Rebuild C and C++ consumers with matching headers and
+  library. Python, C++, and result database column names share one resolver.
 - `Mapping.conforms` now honours `minimum_severity`, in Python and C++. A focus
   whose only failures fall below the threshold conforms, matching
   `ShapeMap.conforms`. Its bindings still report the failure. Each

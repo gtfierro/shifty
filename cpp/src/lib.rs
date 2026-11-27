@@ -1385,7 +1385,7 @@ fn string_view(value: &str) -> ShiftyStringView {
 /// no explanation.
 #[unsafe(no_mangle)]
 pub extern "C" fn shifty_abi_version() -> u32 {
-    7
+    8
 }
 
 #[unsafe(no_mangle)]
