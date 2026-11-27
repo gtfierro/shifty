@@ -8,6 +8,7 @@ use oxrdf::{
     Term, TermRef,
 };
 use pyo3::{prelude::*, pybacked::PyBackedBytes};
+use shifty_algebra::Path;
 use shifty_parse::{Loaded, graph::term_to_node, vocab};
 use spargebra::{Query, SparqlParser, algebra::GraphPattern};
 use std::cell::OnceCell;
@@ -241,9 +242,17 @@ impl ResultDatabaseQueryDataset {
 impl super::EvidenceSession {
     pub(super) fn result_database_layout(
         &self,
+        name_paths: &[String],
         shape_names: Option<Vec<String>>,
         shape_query: Option<&str>,
     ) -> PyResult<Vec<TableLayout>> {
+        let name_paths = name_paths
+            .iter()
+            .map(|expr| {
+                shifty_parse::parse_property_path(expr, &self.shapes)
+                    .map_err(|e| py_value_error(format!("invalid name_path {expr:?}: {e}")))
+            })
+            .collect::<PyResult<Vec<_>>>()?;
         // Index authored sources so SQL fields and shape-map bindings use the
         // same property identifiers, even when their labels or paths overlap.
         let mut nodes = BTreeMap::new();
@@ -295,7 +304,7 @@ impl super::EvidenceSession {
                     })?;
                     let identity = identities[&id].1.clone();
                     let alias = sql_alias(&self.shapes, &property, COLUMN_NAME)?;
-                    let label = field_label(&self.shapes, &property, &path);
+                    let label = field_label(&self.shapes, &name_paths, &property, &path);
                     let single = is_scalar(&self.shapes, &property);
                     fields.push((id, identity, alias, label, single));
                 }
@@ -322,15 +331,27 @@ fn sql_alias(
     }
 }
 
-fn field_label(shapes: &Loaded, property: &NamedOrBlankNode, path: &Term) -> Option<String> {
-    shapes
-        .objects(property, vocab::SH_NAME)
-        .into_iter()
-        .filter_map(|name| match name {
-            Term::Literal(name) => Some(name.value().to_owned()),
-            _ => None,
+/// The first `name_paths` entry that reaches a literal from the property shape
+/// names the field, using its smallest literal. Without one, the property
+/// shape's IRI or its path supplies a local name.
+fn field_label(
+    shapes: &Loaded,
+    name_paths: &[Path],
+    property: &NamedOrBlankNode,
+    path: &Term,
+) -> Option<String> {
+    let start = Term::from(property.clone());
+    name_paths
+        .iter()
+        .find_map(|name_path| {
+            shifty_engine::path::succ(&shapes.graph, &start, name_path)
+                .into_iter()
+                .filter_map(|name| match name {
+                    Term::Literal(name) => Some(name.value().to_owned()),
+                    _ => None,
+                })
+                .min()
         })
-        .min()
         .or_else(|| match (property, path) {
             (NamedOrBlankNode::NamedNode(iri), _) | (_, Term::NamedNode(iri)) => iri
                 .as_str()

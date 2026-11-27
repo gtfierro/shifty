@@ -2644,22 +2644,22 @@ impl EvidenceSession {
         self.evidence_for_impl(focus, constraint_id)
     }
 
-    #[pyo3(signature = (name_path=None))]
-    fn _binding_names(&self, name_path: Option<&str>) -> PyResult<HashMap<u32, Vec<String>>> {
-        self.binding_names_impl(name_path)
+    fn _binding_names(&self, name_paths: Vec<String>) -> PyResult<HashMap<u32, Vec<String>>> {
+        self.binding_names_impl(&name_paths)
     }
 
     fn _binding_source_ids(&self) -> HashMap<u32, u32> {
         self.binding_source_ids_impl()
     }
 
-    #[pyo3(signature = (shape_names=None, shape_query=None))]
+    #[pyo3(signature = (name_paths, shape_names=None, shape_query=None))]
     fn _result_database_layout(
         &self,
+        name_paths: Vec<String>,
         shape_names: Option<Vec<String>>,
         shape_query: Option<&str>,
     ) -> PyResult<Vec<result_database::TableLayout>> {
-        self.result_database_layout(shape_names, shape_query)
+        self.result_database_layout(&name_paths, shape_names, shape_query)
     }
 
     fn _binding_values(&self, focus: &str, constraint_id: u32) -> PyResult<Vec<String>> {
@@ -3043,15 +3043,21 @@ impl EvidenceSession {
 
     /// For every *raw* (source) constraint with shapes-graph provenance, and
     /// every lowered child of an authored property shape, the values
-    /// `name_path` reaches from that originating property/source node,
-    /// evaluated over the shapes graph. `name_path=None` means `sh:name`.
-    /// Constraints with no source-node provenance, or where `name_path`
-    /// resolves to nothing, are omitted. Literal values render as their bare
+    /// values `name_paths` reach from that originating property/source node,
+    /// evaluated over the shapes graph. Paths are tried in order: each path's
+    /// values are sorted and appended after those of earlier paths, skipping
+    /// duplicates, so the first name comes from the first path that reaches
+    /// anything. Constraints with no source-node provenance, or where no path
+    /// reaches anything, are omitted. Literal values render as their bare
     /// lexical form; IRIs/blank nodes render as `<…>`/`_:…`.
-    fn binding_names_impl(&self, name_path: Option<&str>) -> PyResult<HashMap<u32, Vec<String>>> {
-        let expr = name_path.unwrap_or("sh:name");
-        let path = shifty_parse::parse_property_path(expr, &self.shapes)
-            .map_err(|e| py_value_error(format!("invalid name_path: {e}")))?;
+    fn binding_names_impl(&self, name_paths: &[String]) -> PyResult<HashMap<u32, Vec<String>>> {
+        let paths = name_paths
+            .iter()
+            .map(|expr| {
+                shifty_parse::parse_property_path(expr, &self.shapes)
+                    .map_err(|e| py_value_error(format!("invalid name_path {expr:?}: {e}")))
+            })
+            .collect::<PyResult<Vec<_>>>()?;
         let mut out = HashMap::new();
         let owners = self.binding_source_ids_impl();
         for id in 0..self.raw_schema.arena.len() as u32 {
@@ -3059,16 +3065,23 @@ impl EvidenceSession {
             let Some(source) = self.raw_schema.sources.get(&owner) else {
                 continue;
             };
-            let mut matches: Vec<String> =
-                shifty_engine::path::succ(&self.shapes.graph, source, &path)
-                    .into_iter()
-                    .map(|t| term_text(&t))
-                    .collect();
-            if matches.is_empty() {
-                continue;
+            let mut names: Vec<String> = Vec::new();
+            for path in &paths {
+                let mut matches: Vec<String> =
+                    shifty_engine::path::succ(&self.shapes.graph, source, path)
+                        .into_iter()
+                        .map(|t| term_text(&t))
+                        .collect();
+                matches.sort();
+                for name in matches {
+                    if !names.contains(&name) {
+                        names.push(name);
+                    }
+                }
             }
-            matches.sort();
-            out.insert(id, matches);
+            if !names.is_empty() {
+                out.insert(id, names);
+            }
         }
         Ok(out)
     }

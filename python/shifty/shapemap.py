@@ -11,7 +11,7 @@ unbound.
 
 ::
 
-    smap = shifty.shape_map(data, shapes, name_path="sh:name",
+    smap = shifty.shape_map(data, shapes, name_path=["sh:name", "rdfs:label"],
                              value_paths={"ts": "ref:hasTimeseriesId"})
     smap.shape_names
     for mapping in smap["urn:zonepac-app/zonepac-zone"]:
@@ -36,9 +36,9 @@ Keys (:class:`Key`) are typed and hashable: a compact rendering of the
 property shape's path plus its qualifier class when one is declared
 (``str(key)`` reads ``hasPoint->Supply_Air_Flow_Sensor``), disambiguated by
 ``ordinal`` when several bindings share a ``(path, qualifier)`` pair. Keys are
-constant per shape (shapes-graph side); pass ``name_path`` to also carry the
-*author's* name for the slot (evaluated from the property shape's own node
-over the shapes graph) and ``value_paths`` to annotate each bound *value*
+constant per shape (shapes-graph side). ``name_path`` carries the *author's*
+name for the slot (evaluated from the property shape's own node over the
+shapes graph, by default ``sh:name`` then ``rdfs:label``) and ``value_paths`` to annotate each bound *value*
 (evaluated from the value node over the data graph) — the two are independent
 features and are not conflated.
 """
@@ -78,7 +78,28 @@ __all__ = [
     "Mapping",
     "ShapeMap",
     "shape_map",
+    "DEFAULT_NAME_PATHS",
 ]
+
+#: The property paths that name each slot when ``name_path`` is not given,
+#: tried in order. ``sh:`` and ``rdfs:`` resolve even when the shapes graph
+#: does not declare them.
+DEFAULT_NAME_PATHS: tuple[str, ...] = ("sh:name", "rdfs:label")
+
+NamePaths = Union[str, Sequence[str], None]
+
+
+def _name_paths(name_path: NamePaths) -> list[str]:
+    """Normalize ``name_path`` to an ordered list of property paths."""
+    if name_path is None:
+        return []
+    if isinstance(name_path, str):
+        return [name_path]
+    paths = list(name_path)
+    if not all(isinstance(path, str) for path in paths):
+        raise TypeError("name_path must be a property path or a sequence of them")
+    return paths
+
 
 _RDF_TYPE = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type"
 _RDFS_SUBCLASS = "http://www.w3.org/2000/01/rdf-schema#subClassOf"
@@ -1391,7 +1412,7 @@ class ShapeMap:
         run: "EvidenceRun",
         session: "Optional[EvidenceSession]" = None,
         *,
-        name_path: Optional[str] = "sh:name",
+        name_path: NamePaths = DEFAULT_NAME_PATHS,
         value_paths: "Optional[dict[str, str]]" = None,
     ) -> "ShapeMap":
         """Build the shape map from an evidence run.
@@ -1402,8 +1423,13 @@ class ShapeMap:
         ``values = None``, and neither ``name_path`` nor ``value_paths`` can
         resolve (both need the shapes/data graphs the session holds).
 
-        ``name_path`` (a SPARQL 1.1 property path, default ``sh:name``)
-        carries the author's name for each slot; pass ``None`` to skip name
+        ``name_path`` carries the author's name for each slot. It takes a
+        SPARQL 1.1 property path or an ordered sequence of them, evaluated
+        from the property shape over the shapes graph. The default,
+        :data:`DEFAULT_NAME_PATHS`, is ``("sh:name", "rdfs:label")``. Earlier
+        paths take priority: :attr:`Binding.name` comes from the first path
+        that reaches a value, and :attr:`Binding.names` lists every value in
+        path order. Pass ``None`` or an empty sequence to skip name
         resolution. ``value_paths`` (``{label: path}``) annotates each bound
         *value*, evaluated from the value node over the data graph; resolved
         lazily and in one batched call per label on first access.
@@ -1427,8 +1453,9 @@ class ShapeMap:
         if inner is not None:
             shape_name_of = inner._shape_name_of
             source_owners = inner._binding_source_ids()
-            if name_path is not None:
-                names_table = inner._binding_names(name_path)
+            name_paths = _name_paths(name_path)
+            if name_paths:
+                names_table = inner._binding_names(name_paths)
         else:
             source_owners = run._binding_source_ids()
 
@@ -1700,7 +1727,7 @@ def shape_map(
     data_graph,
     shacl_graph=None,
     *,
-    name_path: Optional[str] = "sh:name",
+    name_path: NamePaths = DEFAULT_NAME_PATHS,
     value_paths: "Optional[dict[str, str]]" = None,
     shape_names: Optional[Sequence[str]] = None,
     minimum_severity: str = "info",
@@ -1717,9 +1744,9 @@ def shape_map(
     :class:`~shifty.EvidenceSession` yourself and call :meth:`ShapeMap.from_run`
     to reuse the prepared snapshot across calls.
 
-    ``name_path`` is evaluated from each authored property shape. Its default,
-    ``"sh:name"``, remains available even when the shapes input has no prefix
-    declarations. Optional
+    ``name_path`` is evaluated from each authored property shape; see
+    :meth:`ShapeMap.from_run`. Its default, ``("sh:name", "rdfs:label")``,
+    resolves even when the shapes input has no prefix declarations. Optional
     ``sh:qualifiedValueShape`` slots remain extractable: ``Binding.values``
     contains the values satisfying the qualified shape even though the
     unbounded validation constraint normalizes to ``Top``.

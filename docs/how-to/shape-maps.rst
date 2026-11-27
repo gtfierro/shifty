@@ -48,8 +48,9 @@ Build a configuration dictionary
 
 ``value_map()`` keeps successful bindings with known values, including ``[]``
 for empty slots. Failed bindings and unknown values (``None``) are omitted.
-``by="name"`` uses the authored ``sh:name`` as the key instead of the structured
-``Key``, falling back to ``str(key)`` when no name was authored. ``python=True``
+``by="name"`` uses the slot's authored name as the key instead of the structured
+``Key``: its ``sh:name``, or its ``rdfs:label`` by default (see `Annotate slots
+and values`_). It falls back to ``str(key)`` when no name was authored. ``python=True``
 converts terms to plain Python — IRIs and blank nodes become strings, literals
 convert where the datatype allows.
 
@@ -156,7 +157,8 @@ Slot names and value annotations use separate paths:
 
 ``name_path`` names the **slot**. It starts at the authored property-shape node
 and runs over the *shapes* graph, so its result is the same for every focus
-node. The default is ``sh:name``.
+node. It takes one path or an ordered list of paths. The default is
+``sh:name``, then ``rdfs:label``.
 
 ``value_paths`` annotates each **bound value**. It starts at the value node and
 runs over the graph validation read, so its result differs row by row.
@@ -165,13 +167,13 @@ runs over the graph validation read, so its result differs row by row.
 
    smap = shifty.shape_map(
        data, shapes, infer=False,
-       name_path="sh:name",
+       name_path=["sh:name", "rdfs:label"],
        value_paths={"timeseries": "ex:hasReference/ex:hasId"},
    )
 
    binding = smap["http://example.org/VavShape"][0].successful[0][1]
    binding.name       # "supply air temperature"
-   binding.names      # every value name_path reached
+   binding.names      # every name the paths reached, in path order
 
    for bound in binding.annotated_values:
        print(bound.term, bound.annotations["timeseries"])
@@ -187,9 +189,22 @@ For an optional extraction slot, an unbounded ``sh:qualifiedValueShape``
 exposes matching values through ``Binding.values`` without imposing a minimum
 count.
 
-The default ``name_path="sh:name"`` works for Turtle, paths, bytes, and
-``rdflib.Graph`` inputs. The standard ``sh:`` prefix is available for this
-default even when a graph serialization has no prefix declarations.
+Earlier paths take priority. ``binding.name`` comes from the first path that
+reaches anything, and ``binding.names`` lists every name in path order. To add
+a path to the defaults rather than replace them, extend
+``shifty.shapemap.DEFAULT_NAME_PATHS``:
+
+.. code-block:: python
+
+   from shifty.shapemap import DEFAULT_NAME_PATHS
+
+   smap = shifty.shape_map(data, shapes,
+                           name_path=[*DEFAULT_NAME_PATHS, "skos:prefLabel"])
+
+The default works for Turtle, paths, bytes, and ``rdflib.Graph`` inputs. The
+``sh:`` and ``rdfs:`` prefixes resolve even when a graph serialization has no
+prefix declarations. Other prefixes, such as ``skos:``, must be declared in
+the shapes graph.
 
 Use the partial bindings of a failing node
 ------------------------------------------

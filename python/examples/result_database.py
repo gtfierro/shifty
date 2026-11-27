@@ -9,42 +9,53 @@ from pathlib import Path
 from shifty.experimental.result_database import ResultDatabase
 
 SHAPES = """
+@prefix brick: <https://brickschema.org/schema/Brick#> .
 @prefix ex: <https://example.org/> .
 @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
 @prefix sh: <http://www.w3.org/ns/shacl#> .
 
 ex:VavShape a sh:NodeShape ;
     rdfs:label "VAV commissioning profile" ;
-    sh:targetClass ex:Vav ;
+    sh:targetClass brick:VAV ;
     sh:property [
-        sh:path ex:supplyAirTemperature ;
-        sh:minCount 1 ;
-        sh:maxCount 1
+        rdfs:label "supply air temperature" ;
+        sh:path brick:hasPoint ;
+        sh:qualifiedValueShape [ sh:class brick:Supply_Air_Temperature_Sensor ] ;
+        sh:qualifiedMinCount 1 ;
+        sh:qualifiedMaxCount 1
     ], [
-        sh:path ex:airflow ;
-        sh:minCount 1
+        rdfs:label "airflow" ;
+        sh:path brick:hasPoint ;
+        sh:qualifiedValueShape [ sh:class brick:Air_Flow_Sensor ] ;
+        sh:qualifiedMinCount 1
     ] .
 """
 
 DATA = """
+@prefix brick: <https://brickschema.org/schema/Brick#> .
 @prefix ex: <https://example.org/> .
 
-ex:vav1 a ex:Vav ; ex:supplyAirTemperature ex:sat1 .
-ex:vav2 a ex:Vav ;
-    ex:supplyAirTemperature ex:sat2 ;
-    ex:airflow ex:flow2, ex:flow3 ;
-    ex:locatedIn ex:room101 .
+ex:vav1 a brick:VAV ; brick:hasPoint ex:sat1 .
+ex:vav2 a brick:VAV ;
+    brick:hasPoint ex:sat2, ex:flow2, ex:flow3 ;
+    brick:hasLocation ex:room101 .
+
+ex:sat1 a brick:Supply_Air_Temperature_Sensor .
+ex:sat2 a brick:Supply_Air_Temperature_Sensor .
+ex:flow2 a brick:Air_Flow_Sensor .
+ex:flow3 a brick:Air_Flow_Sensor .
+ex:room101 a brick:Room .
 """
 
 VAV_LOCATIONS = """
-PREFIX ex: <https://example.org/>
+PREFIX brick: <https://brickschema.org/schema/Brick#>
 PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
 PREFIX sh: <http://www.w3.org/ns/shacl#>
 
 SELECT ?focus ?profile_label ?room WHERE {
     ?focus a ?class .
     ?profile sh:targetClass ?class ; rdfs:label ?profile_label .
-    OPTIONAL { ?focus ex:locatedIn ?room }
+    OPTIONAL { ?focus brick:hasLocation ?room }
 }
 """
 

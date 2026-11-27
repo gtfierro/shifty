@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Shape-map `name_path` now accepts an ordered list of property paths as well
+  as a single path. The default changed from `"sh:name"` to
+  `("sh:name", "rdfs:label")`, exported as `shifty.shapemap.DEFAULT_NAME_PATHS`,
+  so property shapes with only an `rdfs:label` now get a `Binding.name`.
+  `Binding.names` lists the names in path order. `rdfs:` now resolves in
+  property paths without a prefix declaration, like `sh:`. Pass
+  `name_path="sh:name"` to keep the previous behavior. The C++ API still takes
+  a single path, defaulting to `sh:name`.
+
 ## 0.7.0-alpha.1
 
 This first 0.7.0 prerelease expands SHACL-AF support with hierarchical execution

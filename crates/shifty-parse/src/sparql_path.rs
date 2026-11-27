@@ -268,16 +268,21 @@ fn resolve_prefixed_name(token: &str, prefixes: &[(String, String)]) -> Result<N
     let (prefix, local) = token
         .split_once(':')
         .expect("PrefixedName tokens always contain ':'");
-    // `sh:` is part of the public shape-map API: its default `name_path` is
-    // `sh:name`. Shapes may be supplied without prefix declarations (for
-    // example, as N-Triples), where the public default must still resolve.
+    // `sh:` and `rdfs:` are part of the public shape-map API: the default
+    // `name_path` is `sh:name`, then `rdfs:label`. Shapes may be supplied
+    // without prefix declarations (for example, as N-Triples), where the
+    // public default must still resolve.
     let namespace = prefixes
         .iter()
         .find(|(p, _)| p == prefix)
         .map(|(_, namespace)| namespace.as_str())
-        // `sh:` is a standard fallback, not an override: an explicit
-        // document declaration retains its normal SPARQL meaning.
-        .or_else(|| (prefix == "sh").then_some("http://www.w3.org/ns/shacl#"))
+        // These are standard fallbacks, not overrides: an explicit document
+        // declaration retains its normal SPARQL meaning.
+        .or_else(|| match prefix {
+            "sh" => Some("http://www.w3.org/ns/shacl#"),
+            "rdfs" => Some("http://www.w3.org/2000/01/rdf-schema#"),
+            _ => None,
+        })
         .ok_or_else(|| format!("undeclared prefix {prefix:?} in property path {token:?}"))?;
     NamedNode::new(format!("{namespace}{local}"))
         .map_err(|e| format!("invalid IRI from {token:?}: {e}"))
@@ -406,6 +411,20 @@ mod tests {
         assert_eq!(
             parse_property_path("a", &shapes).unwrap(),
             pred("http://www.w3.org/1999/02/22-rdf-syntax-ns#type")
+        );
+    }
+
+    #[test]
+    fn default_name_prefixes_resolve_without_declarations() {
+        let shapes =
+            Loaded::from_turtle(b"<http://ex/s> <http://ex/p> <http://ex/o> .", None).unwrap();
+        assert_eq!(
+            parse_property_path("sh:name", &shapes).unwrap(),
+            pred("http://www.w3.org/ns/shacl#name")
+        );
+        assert_eq!(
+            parse_property_path("rdfs:label", &shapes).unwrap(),
+            pred("http://www.w3.org/2000/01/rdf-schema#label")
         );
     }
 

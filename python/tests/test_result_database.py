@@ -1,3 +1,4 @@
+import re
 import sqlite3
 
 import pytest
@@ -43,6 +44,7 @@ def test_projects_full_and_partial_results():
         empty = db.connection.execute("SELECT * FROM [ex:VavShape]")
         assert empty.fetchall() == []
         assert {column[0] for column in empty.description} == {
+            "result_id",
             "focus",
             "supply_air_temperature",
             "airflow",
@@ -83,7 +85,8 @@ def test_projects_full_and_partial_results():
             ("<https://example.org/vav2>", "pass", 2, 0),
         ]
         assert db.connection.execute(
-            "SELECT * FROM _shifty_result_missing_required_values"
+            "SELECT table_name, focus, field_name, missing "
+            "FROM _shifty_result_missing_required_values"
         ).fetchall() == [("ex:VavShape", "<https://example.org/vav1>", "airflow", 1)]
 
         db.populate_shape_tables(
@@ -487,7 +490,10 @@ def test_reopen_and_refresh_replaces_only_managed_rows(tmp_path):
             "UPDATE [ex:VavShape] SET supply_air_temperature = 'manual'"
         )
         db.connection.execute("DELETE FROM [ex:VavShape] WHERE airflow IS NOT NULL")
-        db.connection.execute("INSERT INTO [ex:MeterShape] (focus) VALUES ('manual')")
+        db.connection.execute("""
+            INSERT INTO [ex:MeterShape] (result_id, focus)
+            SELECT result_id, 'manual' FROM [ex:MeterShape]
+        """)
         db.connection.execute("""
             UPDATE _shifty_result_binding_status SET missing = 100
             WHERE table_name = 'ex:VavShape' AND field_name = 'airflow'
@@ -539,7 +545,7 @@ def test_failed_refresh_rolls_back_every_registration():
         assert db.connection.execute(
             "SELECT count(*) FROM [ex:VavShape]"
         ).fetchone() == (2,)
-        assert db.connection.execute("SELECT * FROM [ex:Meter]").fetchall() == [
+        assert db.connection.execute("SELECT focus FROM [ex:Meter]").fetchall() == [
             ("<https://example.org/meter>",)
         ]
         assert db.connection.execute("SELECT * FROM meters").fetchall() == [
@@ -636,3 +642,147 @@ def test_table_name_collision_during_registration():
             ).fetchall()
             == []
         )
+
+
+LABELLED_VAV_SHAPES = (
+    PREFIXES
+    + """
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+ex:VavShape sh:targetClass ex:Vav ;
+    sh:property [
+        sh:path ex:hasPoint ; rdfs:label "supply air temperature" ;
+        skos:prefLabel "sat" ;
+        sh:qualifiedValueShape [ sh:class ex:Temperature ] ; sh:qualifiedMinCount 1
+    ], [
+        sh:path ex:hasPoint ; rdfs:label "airflow" ;
+        skos:prefLabel "flow" ;
+        sh:qualifiedValueShape [ sh:class ex:Airflow ] ; sh:qualifiedMinCount 1
+    ] .
+"""
+)
+
+
+def _columns(db, table):
+    return [row[1] for row in db.connection.execute(f"PRAGMA table_info({table})")]
+
+
+def test_column_names_default_to_rdfs_label_after_sh_name():
+    with ResultDatabase() as db:
+        db.add_shape_tables(LABELLED_VAV_SHAPES)
+        assert _columns(db, "[ex:VavShape]") == [
+            "result_id",
+            "focus",
+            "airflow",
+            "supply_air_temperature",
+        ]
+
+
+def test_column_name_paths_are_configurable_and_persist(tmp_path):
+    path = tmp_path / "labels.sqlite"
+    with ResultDatabase(path) as db:
+        db.add_shape_tables(
+            LABELLED_VAV_SHAPES, name_path=["skos:prefLabel", "rdfs:label"]
+        )
+        assert _columns(db, "[ex:VavShape]") == ["result_id", "focus", "flow", "sat"]
+
+    with ResultDatabase(path) as db:
+        db.refresh(VAV_DATA, infer=False)
+        rows = db.connection.execute(
+            "SELECT focus, flow, sat FROM [ex:VavShape] ORDER BY focus"
+        ).fetchall()
+    assert rows == [
+        ("<https://example.org/vav1>", None, "<https://example.org/sat1>"),
+        (
+            "<https://example.org/vav2>",
+            "<https://example.org/flow>",
+            "<https://example.org/sat2>",
+        ),
+    ]
+
+
+def test_column_name_paths_none_uses_local_names():
+    with ResultDatabase() as db:
+        with pytest.raises(ValueError, match="has_point"):
+            db.add_shape_tables(LABELLED_VAV_SHAPES, name_path=None)
+
+
+def test_shape_rows_reference_their_validation_result():
+    data = VAV_DATA + "ex:vav2 ex:hasPoint ex:flow2 . ex:flow2 a ex:Airflow ."
+    with ResultDatabase() as db:
+        db.add_shape_tables(VAV_SHAPES)
+        db.refresh(data, infer=False)
+        failing = db.connection.execute("""
+            SELECT vav.focus, vav.supply_air_temperature
+            FROM [ex:VavShape] AS vav
+            JOIN _shifty_result_validation USING (result_id)
+            WHERE conforms = 0
+        """).fetchall()
+        assert failing == [("<https://example.org/vav1>", "<https://example.org/sat1>")]
+
+        # Every row for one focus shares its result's identifier.
+        per_focus = db.connection.execute("""
+            SELECT focus, COUNT(*), COUNT(DISTINCT result_id)
+            FROM [ex:VavShape] GROUP BY focus ORDER BY focus
+        """).fetchall()
+        assert per_focus == [
+            ("<https://example.org/vav1>", 1, 1),
+            ("<https://example.org/vav2>", 2, 1),
+        ]
+
+        ids = "SELECT focus, result_id FROM _shifty_result_validation ORDER BY focus"
+        before = db.connection.execute(ids).fetchall()
+        assert all(re.fullmatch("[0-9a-f]{16}", result_id) for _, result_id in before)
+        db.refresh(data, infer=False)
+        assert db.connection.execute(ids).fetchall() == before
+
+        with pytest.raises(sqlite3.IntegrityError, match="FOREIGN KEY"):
+            db.connection.execute(
+                "INSERT INTO [ex:VavShape] (result_id, focus) VALUES ('0000000000000000', 'manual')"
+            )
+
+
+def test_shape_tables_index_result_id_and_reserve_the_index_name():
+    with ResultDatabase() as db:
+        db.add_shape_tables(VAV_SHAPES)
+        plan = db.connection.execute("""
+            EXPLAIN QUERY PLAN
+            SELECT * FROM [ex:VavShape] WHERE result_id = '0000000000000000'
+        """).fetchall()
+        assert any("_shifty_result_index:ex:VavShape" in row[-1] for row in plan)
+        with pytest.raises(ValueError, match="_shifty_result_index:ex:VavShape"):
+            db.add_query_table(
+                "_shifty_result_index:ex:VavShape", 'SELECT ("x" AS ?x) WHERE {}'
+            )
+
+
+def test_result_ids_follow_the_shape_iri_not_the_table_name():
+    renamed = VAV_SHAPES.replace(
+        "ex:VavShape sh:targetClass",
+        'ex:VavShape sql:tableName "vavs" ; sh:targetClass',
+    )
+    select = "SELECT focus, result_id FROM _shifty_result_validation ORDER BY focus"
+    with ResultDatabase() as original, ResultDatabase() as other:
+        original.add_shape_tables(VAV_SHAPES)
+        original.refresh(VAV_DATA, infer=False)
+        other.add_shape_tables(renamed)
+        other.refresh(VAV_DATA, infer=False)
+        assert other.connection.execute("SELECT COUNT(*) FROM vavs").fetchone() == (2,)
+        assert (
+            original.connection.execute(select).fetchall()
+            == other.connection.execute(select).fetchall()
+        )
+
+
+def test_each_shape_feeds_one_table():
+    renamed = VAV_SHAPES.replace(
+        "ex:VavShape sh:targetClass",
+        'ex:VavShape sql:tableName "vavs" ; sh:targetClass',
+    )
+    with ResultDatabase() as db:
+        db.add_shape_tables(VAV_SHAPES)
+        with pytest.raises(ValueError, match="already has a result table: ex:VavShape"):
+            db.add_shape_tables(renamed)
+        assert db.connection.execute(
+            "SELECT table_name FROM _shifty_result_tables"
+        ).fetchall() == [("ex:VavShape",)]

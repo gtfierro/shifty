@@ -38,8 +38,9 @@ Add this after the loop to build a dictionary for the conforming VAV:
    airflow ['http://example.org/flow-2']
    supply air temperature ['http://example.org/sat-2']
 
-The keys come from ``sh:name``. Each value is a list because a property may
-match several nodes. ``python=True`` converts RDF terms to Python values.
+The keys come from ``sh:name``. A property shape without one would use its
+``rdfs:label``. Each value is a list because a property may match several
+nodes. ``python=True`` converts RDF terms to Python values.
 Failed bindings are omitted from this dictionary.
 
 Continue with :doc:`../how-to/shape-maps` to inspect missing values, annotate

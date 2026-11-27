@@ -64,8 +64,8 @@ ex:temp2 a ex:TempSensor ;
 
 
 smap = shifty.shape_map(
-    SHAPES,
     DATA,
+    SHAPES,
     infer=True,
     minimum_severity="warning",
     name_path="sh:name",  # carry the author's name for each slot

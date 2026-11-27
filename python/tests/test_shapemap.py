@@ -17,7 +17,7 @@ from shifty import (
     Star,
     Term,
 )
-from shifty.shapemap import _local, _path_from_json
+from shifty.shapemap import DEFAULT_NAME_PATHS, _local, _path_from_json
 from shifty.terms import parse as term_parse
 
 PREFIXES = """
@@ -510,6 +510,75 @@ def test_name_path_none_skips_resolution():
     assert m["hasPoint→FlowSensor"].name is None
 
 
+LABELLED_SHAPES = (
+    PREFIXES
+    + """
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+ex:VavShape a sh:NodeShape ;
+    sh:targetClass ex:Vav ;
+    sh:property [
+        sh:path ex:hasPoint ;
+        sh:name "flow name" ;
+        rdfs:label "flow label" ;
+        sh:qualifiedValueShape [ sh:class ex:FlowSensor ] ;
+        sh:qualifiedMinCount 1
+    ] ;
+    sh:property [
+        sh:path ex:hasPoint ;
+        rdfs:label "temp label" ;
+        skos:prefLabel "temp pref" ;
+        sh:qualifiedValueShape [ sh:class ex:TempSensor ] ;
+        sh:qualifiedMinCount 1
+    ] .
+"""
+)
+
+
+def test_default_name_paths_prefer_sh_name_then_rdfs_label():
+    assert DEFAULT_NAME_PATHS == ("sh:name", "rdfs:label")
+    smap = shifty.shape_map(NAME_DATA, LABELLED_SHAPES, infer=False)
+    (m,) = list(smap)
+    flow = m["hasPoint→FlowSensor"]
+    assert flow.name == "flow name"
+    assert flow.names == ["flow name", "flow label"]
+    assert m["hasPoint→TempSensor"].name == "temp label"
+
+
+def test_name_path_sequence_sets_priority():
+    smap = shifty.shape_map(
+        NAME_DATA,
+        LABELLED_SHAPES,
+        infer=False,
+        name_path=["skos:prefLabel", "rdfs:label"],
+    )
+    (m,) = list(smap)
+    assert m["hasPoint→TempSensor"].names == ["temp pref", "temp label"]
+    assert m["hasPoint→FlowSensor"].names == ["flow label"]
+
+
+def test_name_path_empty_sequence_skips_resolution():
+    smap = shifty.shape_map(NAME_DATA, LABELLED_SHAPES, infer=False, name_path=[])
+    (m,) = list(smap)
+    assert m["hasPoint→FlowSensor"].name is None
+
+
+def test_default_name_paths_resolve_without_prefix_declarations():
+    shapes = """
+<http://ex/S> a <http://www.w3.org/ns/shacl#NodeShape> ;
+    <http://www.w3.org/ns/shacl#targetClass> <http://ex/T> ;
+    <http://www.w3.org/ns/shacl#property> [
+        <http://www.w3.org/ns/shacl#path> <http://ex/p> ;
+        <http://www.w3.org/2000/01/rdf-schema#label> "labelled"
+    ] .
+"""
+    smap = shifty.shape_map("<http://ex/a> a <http://ex/T> .", shapes, infer=False)
+    (m,) = list(smap)
+    (key,) = list(m)
+    binding = m[key]
+    assert binding.name == "labelled"
+
+
 def test_shape_map_uses_embedded_shapes_when_second_argument_is_omitted():
     smap = shifty.shape_map(NAME_SHAPES + NAME_DATA, infer=False)
     (mapping,) = list(smap)
@@ -521,12 +590,12 @@ def test_shape_map_uses_embedded_shapes_when_second_argument_is_omitted():
 
 def test_binding_names_resolves_named_and_blank_property_shapes():
     session = shifty.EvidenceSession(NAME_SHAPES, NAME_DATA, infer=False)
-    names = session._inner._binding_names()
+    names = session._inner._binding_names(["sh:name"])
     assert "the flow point" in {v for values in names.values() for v in values}
 
     # Deterministic across two parses of the same document.
     session2 = shifty.EvidenceSession(NAME_SHAPES, NAME_DATA, infer=False)
-    names2 = session2._inner._binding_names()
+    names2 = session2._inner._binding_names(["sh:name"])
     assert sorted(v for values in names.values() for v in values) == sorted(
         v for values in names2.values() for v in values
     )

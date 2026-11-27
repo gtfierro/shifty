@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 import sqlite3
 from collections.abc import Iterable, Iterator, Sequence
@@ -20,7 +22,13 @@ from shifty._shifty import (
     _result_database_snapshot,
     _ResultDatabaseQueryDataset,
 )
-from shifty.shapemap import Mapping, ShapeMap
+from shifty.shapemap import (
+    DEFAULT_NAME_PATHS,
+    Mapping,
+    NamePaths,
+    ShapeMap,
+    _name_paths,
+)
 from shifty.terms import parse as parse_term
 
 __all__ = ["ResultDatabase"]
@@ -36,10 +44,12 @@ class ResultDatabase:
     slashes for an absolute path, for example ``sqlite:////tmp/results.sqlite``.
     Shape and query registrations persist in file-backed databases.
 
-    Each shape gets one table with ``focus`` and a nullable column per
-    property. A focus gets one row per combination of qualifying values.
-    Fields with no qualifying values appear as NULL. Shared validation tables
-    record conformance and binding status for the same snapshot.
+    Each shape gets one table with ``result_id``, ``focus``, and a nullable
+    column per property. A focus gets one row per combination of qualifying
+    values. Fields with no qualifying values appear as NULL. Shared validation
+    tables record conformance and binding status for the same snapshot, keyed
+    by the same ``result_id``, which identifies one focus for one shape and
+    stays the same across refreshes.
 
     Read results through ``connection``. Every successful refresh replaces all
     rows in the managed result tables, discarding manual SQL inserts, updates,
@@ -74,6 +84,7 @@ class ResultDatabase:
         *,
         shape_names: Optional[Sequence[str]] = None,
         shape_query: Optional[str] = None,
+        name_path: NamePaths = DEFAULT_NAME_PATHS,
         base: Optional[str] = None,
     ) -> None:
         """Register a shapes graph and create empty tables for its node shapes.
@@ -85,17 +96,40 @@ class ResultDatabase:
         and to evaluation of referenced helper shapes.
         Table names use declared prefixes, such as ``ex:VavShape``, and keep
         the original spelling. Use the full IRI when no prefix applies.
+
+        ``name_path`` names the columns. It takes a SPARQL property path or an
+        ordered sequence of them, evaluated from each property shape over the
+        shapes graph. The first path that reaches a literal names the column.
+        The default is ``("sh:name", "rdfs:label")``. When no path reaches a
+        literal, the property shape's IRI or path supplies a local name.
+        ``sql:columnName`` overrides all of these. The paths are stored with
+        the registration so refreshes keep the same columns.
         """
         document = _snapshot(shapes_graph, base)
         session = EvidenceSession(document.encode(), b"", infer=False)
-        tables = _compile_tables(session, shape_names, shape_query)
+        name_paths = _name_paths(name_path)
+        tables = _compile_tables(session, name_paths, shape_names, shape_query)
 
         with self._transaction():
-            self._check_table_names(table.name for table in tables)
+            self._check_table_names(
+                name for table in tables for name in (table.name, table.index_name)
+            )
+            # Result identifiers hash the shape IRI, so each shape feeds one table.
+            for table in tables:
+                existing = self.connection.execute(
+                    "SELECT table_name FROM main._shifty_result_tables "
+                    "WHERE shape_iri = ?",
+                    (table.iri,),
+                ).fetchone()
+                if existing is not None:
+                    raise ValueError(
+                        f"shape {table.iri} already has a result table: {existing[0]}"
+                    )
             # A registration with no tables still supplies RDF to SPARQL queries.
             registration = self.connection.execute(
-                "INSERT INTO main._shifty_result_registrations (shapes) VALUES (?)",
-                (document,),
+                "INSERT INTO main._shifty_result_registrations (shapes, name_paths) "
+                "VALUES (?, ?)",
+                (document, json.dumps(name_paths)),
             ).lastrowid
             for table in tables:
                 self.connection.execute(
@@ -178,7 +212,8 @@ class ResultDatabase:
         """
         with self._transaction():
             registrations = self.connection.execute(
-                "SELECT id, shapes FROM main._shifty_result_registrations ORDER BY id"
+                "SELECT id, shapes, name_paths FROM main._shifty_result_registrations "
+                "ORDER BY id"
             ).fetchall()
             queries = self.connection.execute(
                 "SELECT table_name, query, graph_mode FROM main._shifty_result_queries ORDER BY table_name"
@@ -189,14 +224,20 @@ class ResultDatabase:
             # Both projections must see the same labels for shared blank nodes.
             shapes = (
                 _result_database_scope_shapes(
-                    data, [document for _, document in registrations]
+                    data, [document for _, document, _ in registrations]
                 )
                 if registrations
                 else []
             )
+            # Clear the rows that reference validation results before the
+            # results themselves, so the delete does not cascade row by row.
+            for (name,) in self.connection.execute(
+                "SELECT table_name FROM main._shifty_result_tables"
+            ).fetchall():
+                self.connection.execute(f"DELETE FROM {_main_table(name)}")
             self.connection.execute("DELETE FROM main._shifty_result_binding_status")
             self.connection.execute("DELETE FROM main._shifty_result_validation")
-            for (registration, _), document in zip(registrations, shapes):
+            for (registration, _, name_paths), document in zip(registrations, shapes):
                 selected = dict(
                     self.connection.execute(
                         "SELECT shape_iri, table_name FROM main._shifty_result_tables "
@@ -209,7 +250,9 @@ class ResultDatabase:
                 session = EvidenceSession(
                     document.encode(), data, infer=infer, graph_mode=graph_mode
                 )
-                tables = _compile_tables(session, list(selected))
+                tables = _compile_tables(
+                    session, json.loads(name_paths), list(selected)
+                )
                 if {table.iri: table.name for table in tables} != selected:
                     raise ValueError(
                         "registered result tables do not match the stored shapes"
@@ -275,10 +318,10 @@ class ResultDatabase:
 
 _REGISTRY = (
     """CREATE TABLE IF NOT EXISTS main._shifty_result_registrations (
-        id INTEGER PRIMARY KEY, shapes TEXT NOT NULL
+        id INTEGER PRIMARY KEY, shapes TEXT NOT NULL, name_paths TEXT NOT NULL
     )""",
     """CREATE TABLE IF NOT EXISTS main._shifty_result_tables (
-        table_name TEXT PRIMARY KEY NOT NULL, shape_iri TEXT NOT NULL,
+        table_name TEXT PRIMARY KEY NOT NULL, shape_iri TEXT NOT NULL UNIQUE,
         registration INTEGER NOT NULL
     )""",
     """CREATE TABLE IF NOT EXISTS main._shifty_result_queries (
@@ -290,19 +333,20 @@ _REGISTRY = (
         PRIMARY KEY (table_name, field_name)
     )""",
     """CREATE TABLE IF NOT EXISTS main._shifty_result_validation (
+        result_id TEXT PRIMARY KEY NOT NULL,
         table_name TEXT NOT NULL REFERENCES _shifty_result_tables (table_name) ON DELETE CASCADE,
         focus TEXT NOT NULL, conforms INTEGER NOT NULL,
-        PRIMARY KEY (table_name, focus)
+        UNIQUE (table_name, focus)
     )""",
     """CREATE TABLE IF NOT EXISTS main._shifty_result_binding_status (
+        result_id TEXT NOT NULL
+            REFERENCES _shifty_result_validation (result_id) ON DELETE CASCADE,
         table_name TEXT NOT NULL, focus TEXT NOT NULL, field_name TEXT NOT NULL,
         status TEXT NOT NULL, value_count INTEGER, missing INTEGER,
-        PRIMARY KEY (table_name, focus, field_name),
-        FOREIGN KEY (table_name, focus) REFERENCES _shifty_result_validation (table_name, focus)
-            ON DELETE CASCADE
+        PRIMARY KEY (result_id, field_name)
     )""",
     """CREATE VIEW IF NOT EXISTS main._shifty_result_missing_required_values AS
-        SELECT table_name, focus, field_name, missing
+        SELECT result_id, table_name, focus, field_name, missing
         FROM main._shifty_result_binding_status
         WHERE missing > 0
     """,
@@ -325,13 +369,30 @@ class _Table:
 
     @property
     def columns(self) -> list[tuple[str, str]]:
-        columns = [("focus", "TEXT NOT NULL")]
+        columns = [
+            (
+                "result_id",
+                "TEXT NOT NULL REFERENCES _shifty_result_validation (result_id) "
+                "ON DELETE CASCADE",
+            ),
+            ("focus", "TEXT NOT NULL"),
+        ]
         columns.extend((field.name, "TEXT") for field in self.fields)
         return columns
+
+    @property
+    def index_name(self) -> str:
+        return f"_shifty_result_index:{self.name}"
 
     def create(self, db: sqlite3.Connection) -> None:
         columns = [f"{_quote(name)} {type_}" for name, type_ in self.columns]
         db.execute(f"CREATE TABLE {_main_table(self.name)} ({', '.join(columns)})")
+        # Joins from validation results, and their cascading deletes, look up
+        # shape rows by result_id.
+        db.execute(
+            f"CREATE INDEX {_main_table(self.index_name)} "
+            f"ON {_quote(self.name)} (result_id)"
+        )
 
     def replace(
         self, db: sqlite3.Connection, mappings: Sequence[Mapping], minimum_severity: str
@@ -369,6 +430,7 @@ class _Table:
             binding._property_source_id: binding
             for binding in mapping.bindings.values()
         }
+        result_id = _result_id(self.iri, focus)
         field_values: list[Sequence[str | None]] = []
         binding_rows = []
         for field in self.fields:
@@ -382,6 +444,7 @@ class _Table:
             field_values.append(terms or (None,))
             binding_rows.append(
                 (
+                    result_id,
                     self.name,
                     focus,
                     field.name,
@@ -391,24 +454,29 @@ class _Table:
                 )
             )
         db.execute(
-            "INSERT INTO main._shifty_result_validation VALUES (?, ?, ?)",
-            (self.name, focus, conforms),
+            "INSERT INTO main._shifty_result_validation "
+            "(result_id, table_name, focus, conforms) VALUES (?, ?, ?, ?)",
+            (result_id, self.name, focus, conforms),
         )
         db.executemany(
-            "INSERT INTO main._shifty_result_binding_status VALUES (?, ?, ?, ?, ?, ?)",
+            "INSERT INTO main._shifty_result_binding_status VALUES (?, ?, ?, ?, ?, ?, ?)",
             binding_rows,
         )
         # Property bindings are independent sets. Materialize combinations lazily.
-        db.executemany(insert, ((focus, *values) for values in product(*field_values)))
+        db.executemany(
+            insert,
+            ((result_id, focus, *values) for values in product(*field_values)),
+        )
 
 
 def _compile_tables(
     session: EvidenceSession,
+    name_paths: list[str],
     shape_names: Optional[Sequence[str]],
     shape_query: Optional[str] = None,
 ) -> list[_Table]:
     layout = session._inner._result_database_layout(
-        list(shape_names) if shape_names is not None else None, shape_query
+        name_paths, list(shape_names) if shape_names is not None else None, shape_query
     )
     tables = []
     for iri, name, slots in layout:
@@ -421,6 +489,21 @@ def _compile_tables(
         _check_names((column for column, _ in table.columns), ())
         tables.append(table)
     return tables
+
+
+def _result_id(shape_iri: str, focus: str) -> str:
+    """A stable 64-bit identifier for one focus node's result for one shape.
+
+    The same shape and focus get the same identifier on every refresh and
+    under any table name, so applications can keep it between refreshes. Each
+    shape feeds one table, which keeps identifiers unique. Blank-node foci are
+    relabelled per snapshot, so their identifiers are only stable within one
+    refresh.
+    """
+    digest = hashlib.sha256(f"{shape_iri}\0{focus}".encode()).digest()
+    # Sixteen hex digits keep all 64 bits, survive JSON and JavaScript, and
+    # select as one word when copied.
+    return digest[:8].hex()
 
 
 def _validate_table_name(name: str) -> None:
