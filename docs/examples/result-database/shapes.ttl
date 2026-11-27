@@ -1,0 +1,20 @@
+@prefix brick: <https://brickschema.org/schema/Brick#> .
+@prefix ex: <urn:ex:> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+
+ex:VavShape a sh:NodeShape ;
+    rdfs:label "VAV commissioning profile" ;
+    sh:targetClass brick:VAV ;
+    sh:property [
+        rdfs:label "supply air temperature" ;
+        sh:path brick:hasPoint ;
+        sh:qualifiedValueShape [ sh:class brick:Supply_Air_Temperature_Sensor ] ;
+        sh:qualifiedMinCount 1 ;
+        sh:qualifiedMaxCount 1
+    ] , [
+        rdfs:label "airflow" ;
+        sh:path brick:hasPoint ;
+        sh:qualifiedValueShape [ sh:class brick:Air_Flow_Sensor ] ;
+        sh:qualifiedMinCount 1
+    ] .

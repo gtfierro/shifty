@@ -15,52 +15,30 @@ Here is a shape, written against the `Brick <https://brickschema.org>`_
 ontology, that requires every VAV to have exactly one supply-air temperature
 sensor and at least one airflow sensor:
 
-.. code-block:: turtle
-
-   ex:VavShape a sh:NodeShape ;
-       sh:targetClass brick:VAV ;
-       sh:property [
-           rdfs:label "supply air temperature" ;
-           sh:path brick:hasPoint ;
-           sh:qualifiedValueShape [ sh:class brick:Supply_Air_Temperature_Sensor ] ;
-           sh:qualifiedMinCount 1 ; sh:qualifiedMaxCount 1
-       ] , [
-           rdfs:label "airflow" ;
-           sh:path brick:hasPoint ;
-           sh:qualifiedValueShape [ sh:class brick:Air_Flow_Sensor ] ;
-           sh:qualifiedMinCount 1
-       ] .
+.. literalinclude:: ../../examples/result-database/shapes.ttl
+   :language: turtle
 
 And here is data for two VAVs, where ``vav1`` has no airflow sensor and
 ``vav2`` has two:
 
-.. code-block:: turtle
+.. literalinclude:: ../../examples/result-database/data.ttl
+   :language: turtle
 
-   ex:vav1 a brick:VAV ; brick:hasPoint ex:sat1 .
-   ex:vav2 a brick:VAV ; brick:hasPoint ex:sat2, ex:flow2, ex:flow3 .
+Creating the database
+---------------------
 
-   ex:sat1 a brick:Supply_Air_Temperature_Sensor .
-   ex:sat2 a brick:Supply_Air_Temperature_Sensor .
-   ex:flow2 a brick:Air_Flow_Sensor .
-   ex:flow3 a brick:Air_Flow_Sensor .
+This script registers the shapes with ``add_shape_tables()``, which creates an
+empty table for each node shape. It then calls ``refresh()``, which validates
+the data and fills the tables, and prints the ``[ex:VavShape]`` table:
 
-Validating that data produces this ``[ex:VavShape]`` table:
+.. literalinclude:: ../../examples/result-database/vav-table.py
+   :language: python
 
-.. list-table::
-   :header-rows: 1
+.. program-output:: python vav-table.py
+   :cwd: ../../examples/result-database
 
-   * - focus
-     - airflow
-     - supply_air_temperature
-   * - ``<https://example.org/vav1>``
-     - ``NULL``
-     - ``<https://example.org/sat1>``
-   * - ``<https://example.org/vav2>``
-     - ``<https://example.org/flow2>``
-     - ``<https://example.org/sat2>``
-   * - ``<https://example.org/vav2>``
-     - ``<https://example.org/flow3>``
-     - ``<https://example.org/sat2>``
+The columns are ``result_id``, ``focus``, ``supply_air_temperature``, and
+``airflow``. Python prints SQL ``NULL`` as ``None``.
 
 ``vav1`` fails the shape because it has no airflow sensor, but its
 temperature sensor still matched, so it gets a row with ``airflow`` left
@@ -71,33 +49,12 @@ Both properties follow ``brick:hasPoint``, so each column holds only the
 points that match its qualified value shape. Column names come from each
 property shape's ``rdfs:label`` in snake case, and values are RDF terms
 written in N-Triples form. See :doc:`advanced` to name columns from other
-predicates.
+predicates. The ``result_id`` column links each row to the validation result
+for its focus node, as described in `Running queries`_.
 
-Every shape table also has a ``result_id`` column, left out above. It links
-each row to the validation result for its focus node, as described in
-`Running queries`_.
-
-Creating the database
----------------------
-
-Register the shapes with ``add_shape_tables()``, which creates an empty table
-for each node shape, then call ``refresh()`` to validate the data and fill
-the tables:
-
-.. code-block:: python
-
-   from shifty.experimental.result_database import ResultDatabase
-
-   with ResultDatabase("building.sqlite") as db:
-       db.add_shape_tables("shapes.ttl")
-       db.refresh("building.ttl")
-
-The repository includes this example as ``python/examples/result_database.py``.
-Run it from ``python/``, giving it a new filename each time:
-
-.. code-block:: bash
-
-   uv run python examples/result_database.py demo.sqlite
+``ResultDatabase()`` keeps the database in memory. To save it to a file you
+can open with any SQLite tool, pass a filename, such as
+``ResultDatabase("building.sqlite")``.
 
 Running queries
 ---------------
@@ -109,46 +66,60 @@ rows has a ``result_id``, and every row of the shape table carries the
 ``result_id`` of its focus as a foreign key. Both of ``vav2``'s rows share one
 ``result_id``.
 
+Each query below comes from a complete script in
+``docs/examples/result-database``, which builds the database the same way as
+``vav-table.py``.
+
 To find the VAVs that fail, join the shape table to the validation results:
 
-.. code-block:: sql
+.. literalinclude:: ../../examples/result-database/failing.py
+   :language: sql
+   :start-after: query = """
+   :end-before: """
 
-   SELECT vav.*
-   FROM [ex:VavShape] AS vav
-   JOIN _shifty_result_validation USING (result_id)
-   WHERE conforms = 0;
+.. program-output:: python failing.py
+   :cwd: ../../examples/result-database
 
-This returns ``vav1``'s row, with its temperature sensor and a ``NULL``
-airflow. To see what each failing focus is missing, query the
+To see what each failing focus is missing, query the
 ``_shifty_result_missing_required_values`` view:
 
-.. code-block:: sql
+.. literalinclude:: ../../examples/result-database/missing.py
+   :language: sql
+   :start-after: query = """
+   :end-before: """
 
-   SELECT focus, field_name, missing
-   FROM _shifty_result_missing_required_values;
+.. program-output:: python missing.py
+   :cwd: ../../examples/result-database
 
-This returns a single row saying ``vav1`` is missing one ``airflow`` value.
 For the full picture, ``_shifty_result_binding_status`` records every field
 of every result: whether it passed, how many values matched, and how many are
 missing. It has ``table_name`` and ``focus`` as well as ``result_id``, so you
-can filter it directly or join it on ``result_id``.
+can filter it directly or join it on ``result_id``:
 
-A ``result_id`` is a 16-character hex string, such as ``9f1f032621117e5b``,
-hashed from the shape IRI and focus node. The same VAV keeps the same
-``result_id`` across refreshes, even if you rename the table. You can store it
-outside the database and look the VAV up again later. Blank-node foci are the
-exception: their labels change between refreshes, and so do their IDs.
+.. literalinclude:: ../../examples/result-database/binding-status.py
+   :language: sql
+   :start-after: query = """
+   :end-before: """
+
+.. program-output:: python binding-status.py
+   :cwd: ../../examples/result-database
+
+A ``result_id`` is a 16-character hex string hashed from the shape IRI and
+focus node. The same VAV keeps the same ``result_id`` across refreshes, even
+if you rename the table. You can store it outside the database and look the
+VAV up again later. Blank-node foci are the exception: their labels change
+between refreshes, and so do their IDs.
 
 Keeping tables up to date
 -------------------------
 
-Call ``refresh()`` again whenever the RDF changes. The database file stores
-its shapes, so you can reopen it later and refresh with just the new data:
+Call ``refresh()`` again whenever the RDF changes. A database file stores its
+shapes, so you can reopen it later and refresh with just the new data:
 
 .. code-block:: python
 
-   with ResultDatabase("building.sqlite") as db:
-       db.refresh("building-v2.ttl")
+   db = ResultDatabase("building.sqlite")
+   db.refresh("data-v2.ttl")
 
 .. warning::
 

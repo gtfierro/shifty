@@ -18,8 +18,8 @@ its own column, even when two property shapes share a path.
    SHACL                                          SQLite
    ex:VavShape                                 →  [ex:VavShape]
        focus node                              →     focus
-       brick:hasPoint "airflow"                →     airflow
        brick:hasPoint "supply air temperature" →     supply_air_temperature
+       brick:hasPoint "airflow"                →     airflow
 
 Shape maps fill the rows
 ------------------------
@@ -39,17 +39,17 @@ passing properties on a failing VAV. See :doc:`../../reference/shape-maps`.
    :header-rows: 1
 
    * - focus
-     - airflow
      - supply_air_temperature
+     - airflow
    * - ``vav1``
-     - ``NULL``
      - ``sat1``
+     - ``NULL``
    * - ``vav2``
+     - ``sat2``
      - ``flow2``
-     - ``sat2``
    * - ``vav2``
-     - ``flow3``
      - ``sat2``
+     - ``flow3``
 
 Shifty removes duplicate values within each field, then writes every
 combination across fields. An empty field contributes one ``NULL``, keeping
@@ -59,8 +59,8 @@ Use ``COUNT(DISTINCT focus)`` to count VAVs.
 SPARQL adds another table
 -------------------------
 
-The demo query combines room assignments from the data graph with profile
-labels from the shapes graph.
+The :doc:`advanced` example query combines room assignments from the data
+graph with profile labels from the shapes graph.
 
 .. code-block:: text
 
@@ -82,28 +82,23 @@ Validation counts each focus once
 ---------------------------------
 
 ``vav2`` has two shape rows and one validation row. Shifty gives each
-validation row a ``result_id``, a 64-bit hash of the shape IRI and focus
-node written as 16 hex characters, and writes that ID into every shape row for the focus. Binding status
-is recorded once per ``result_id`` and field. Both tables reference the
-validation row through a foreign key.
+validation row a ``result_id``, a 64-bit hash of the shape IRI and focus node
+written as 16 hex characters, and writes that ID into every shape row for the
+focus. Binding status is recorded once per ``result_id`` and field. Both
+tables reference the validation row through a foreign key.
 
-.. list-table:: Validation rows for ``[ex:VavShape]``
-   :header-rows: 1
+.. literalinclude:: ../../examples/result-database/validation.py
+   :language: sql
+   :start-after: query = """
+   :end-before: """
 
-   * - result_id
-     - focus
-     - conforms
-   * - ``9f1f032621117e5b``
-     - ``vav1``
-     - 0
-   * - ``b09a808bae25fc88``
-     - ``vav2``
-     - 1
+.. program-output:: python validation.py
+   :cwd: ../../examples/result-database
 
-Both of ``vav2``'s shape rows carry ``b09a808bae25fc88``. Because the ID depends only on
-the shape and focus, a refresh gives the same focus the same ID, and renaming
-the table with ``sql:tableName`` doesn't change it. This is also why each
-shape can feed only one table.
+Both of ``vav2``'s shape rows carry ``vav2``'s ``result_id``. Because the ID
+depends only on the shape and focus, a refresh gives the same focus the same
+ID, and renaming the table with ``sql:tableName`` doesn't change it. This is
+also why each shape can feed only one table.
 
 ``minimum_severity`` controls the conformance flag. Shifty replaces the
 result rows in one transaction. A refresh error preserves the previous

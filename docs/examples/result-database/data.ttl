@@ -1,0 +1,14 @@
+@prefix brick: <https://brickschema.org/schema/Brick#> .
+@prefix ex: <urn:ex:> .
+
+ex:vav1 a brick:VAV ;
+    brick:hasPoint ex:sat1 .
+
+ex:vav2 a brick:VAV ;
+    brick:hasPoint ex:sat2, ex:flow2, ex:flow3 ;
+    brick:hasLocation ex:room101 .
+
+ex:sat1 a brick:Supply_Air_Temperature_Sensor .
+ex:sat2 a brick:Supply_Air_Temperature_Sensor .
+ex:flow2 a brick:Air_Flow_Sensor .
+ex:flow3 a brick:Air_Flow_Sensor .

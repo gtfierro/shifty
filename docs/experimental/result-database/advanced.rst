@@ -13,32 +13,22 @@ Add tables from SPARQL
 Some useful facts are not part of any shape. In the VAV example, the shape
 says nothing about which room a VAV serves. ``add_query_table()`` turns a
 SPARQL ``SELECT`` into a table. Each variable becomes a column and each
-solution becomes a row:
+solution becomes a row. This script adds a ``vav_locations`` table that finds
+each VAV's room in the data, and the label of the shape that checks it in the
+shapes graph. It then joins that table to the shape table on ``focus``:
 
-.. code-block:: python
+.. literalinclude:: ../../examples/result-database/locations.py
+   :language: python
 
-   db.add_query_table("vav_rooms", """
-       PREFIX brick: <https://brickschema.org/schema/Brick#>
-       SELECT ?focus ?room WHERE {
-           ?focus a brick:VAV .
-           OPTIONAL { ?focus brick:hasLocation ?room }
-       }
-   """)
-   db.refresh("building.ttl")
+.. program-output:: python locations.py
+   :cwd: ../../examples/result-database
 
-A variable with no value becomes ``NULL``. Declare the prefixes in the query
-itself.
+A variable with no value becomes ``NULL``, which Python prints as ``None``.
+Declare the prefixes in the query itself. Query tables write RDF terms the
+same way shape tables do, which is why the join on ``focus`` works.
 
-Query tables write RDF terms the same way shape tables do, so you can join
-the two kinds of table on ``focus``:
-
-.. code-block:: sql
-
-   SELECT vav.focus, vav.airflow, rooms.room
-   FROM [ex:VavShape] AS vav
-   JOIN vav_rooms AS rooms USING (focus);
-
-Each refresh updates both kinds of table together.
+``vav1`` has no room, so its ``room`` is ``NULL``. Each refresh updates both
+kinds of table together.
 
 By default, a query sees your data and all registered shapes graphs at once.
 This lets a query read details from the shapes, such as a shape's label. To
