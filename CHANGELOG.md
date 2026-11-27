@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+- Shape-map `name_path` now accepts an ordered list of property paths as well
+  as a single path. The default changed from `"sh:name"` to
+  `("sh:name", "rdfs:label")`, exported as `shifty.shapemap.DEFAULT_NAME_PATHS`,
+  so property shapes with only an `rdfs:label` now get a `Binding.name`.
+  `Binding.names` lists the names in path order. `rdfs:` now resolves in
+  property paths without a prefix declaration, like `sh:`. Pass
+  `name_path="sh:name"` to keep the previous behavior. The C++ API follows:
+  `ShapeMapOptions::name_path` (a string) is now `name_paths` (a list) with the
+  same default, and the C function takes an array of string views. The C ABI
+  is now version 8. Rebuild C and C++ consumers with matching headers and
+  library. Python, C++, and result database column names share one resolver.
+- `Mapping.conforms` now honours `minimum_severity`, in Python and C++. A focus
+  whose only failures fall below the threshold conforms, matching
+  `ShapeMap.conforms`. Its bindings still report the failure. Each
+  `FocusEvaluation` in an evidence run has a new `conforms` flag carrying the
+  same verdict.
+
 ## 0.7.0-alpha.1
 
 This first 0.7.0 prerelease expands SHACL-AF support with hierarchical execution

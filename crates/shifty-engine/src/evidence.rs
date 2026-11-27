@@ -725,8 +725,10 @@ impl PreparedEvidenceValidator {
                     raw_statement,
                     pair.normalized_statement,
                 );
+                // An explanation has no run threshold, so any failure counts.
                 evaluation.selected_foci.push(FocusEvaluation {
                     focus: pair.focus.clone(),
+                    conforms: !matches!(evidence, Evidence::Failure(_)),
                     evidence: evidence.clone(),
                     progress,
                 });
@@ -909,16 +911,16 @@ impl PreparedEvidenceValidator {
                         crate::profile::evidence_visits().saturating_sub(visits_before),
                     );
                 }
-                if let Evidence::Failure(failure) = &evidence
-                    && failure_meets_threshold(
+                let focus_conforms = match &evidence {
+                    Evidence::Failure(failure) => !failure_meets_threshold(
                         &self.schema.arena,
                         statement.shape,
                         failure,
                         &options.minimum_severity,
-                    )
-                {
-                    conforms = false;
-                }
+                    ),
+                    _ => true,
+                };
+                conforms &= focus_conforms;
 
                 for &raw_statement in &self.raw_by_normalized[statement_id] {
                     if !self.source_statement_selected(raw_statement, &options.entry_shape_names) {
@@ -949,6 +951,7 @@ impl PreparedEvidenceValidator {
                         .push(FocusEvaluation {
                             focus: focus.clone(),
                             evidence: evidence.clone(),
+                            conforms: focus_conforms,
                             progress,
                         });
                 }
@@ -1032,7 +1035,8 @@ fn statement_evaluation(
     }
 }
 
-fn source_children(arena: &ShapeArena, mut id: ShapeId) -> Vec<ShapeId> {
+/// The authored members a statement's progress reports, in order.
+pub fn source_children(arena: &ShapeArena, mut id: ShapeId) -> Vec<ShapeId> {
     while let Shape::Annotated { shape, .. } = arena.get(id) {
         id = *shape;
     }
@@ -1122,6 +1126,7 @@ fn witness_shape_ids(witness: &Witness, out: &mut HashSet<ShapeId>) {
     }
 }
 
+/// Whether a failure contains a reason at or above the requested severity.
 fn failure_meets_threshold(
     arena: &ShapeArena,
     root: ShapeId,

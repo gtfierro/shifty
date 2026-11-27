@@ -72,6 +72,13 @@ impl Prefixes {
         &self.decls
     }
 
+    /// Compact against the document's declarations only.
+    pub fn compact_declared(&self, iri: &str) -> Option<String> {
+        self.decls.iter().find_map(|(prefix, namespace)| {
+            local_name(iri, namespace).map(|local| format!("{prefix}:{local}"))
+        })
+    }
+
     /// Compact `iri` to `prefix:local`, or return it as `<iri>` when no
     /// declaration applies.
     ///
@@ -81,10 +88,8 @@ impl Prefixes {
     /// back as one — a report a reader can copy into a query is worth more than a
     /// few saved characters.
     pub fn compact(&self, iri: &str) -> String {
-        for (prefix, ns) in self.decls.iter().map(|(p, n)| (p.as_str(), n.as_str())) {
-            if let Some(local) = local_name(iri, ns) {
-                return format!("{prefix}:{local}");
-            }
+        if let Some(name) = self.compact_declared(iri) {
+            return name;
         }
         for (prefix, ns) in WELL_KNOWN {
             if let Some(local) = local_name(iri, ns) {

@@ -9,13 +9,12 @@
 
 use crate::{
     Constraint, ConstraintKind, InputSpec, Violation, constraint_kind_to_py, constraint_to_py,
-    graph_to_ntriples, parse_minimum_severity, parse_mode, py_value_error, term_text,
-    violation_to_py,
+    graph_to_ntriples, parse_minimum_severity, parse_mode, py_value_error, violation_to_py,
 };
 use oxrdf::{Graph, Term};
 use pyo3::prelude::*;
 use pyo3::pybacked::PyBackedBytes;
-use shifty_algebra::{Prefixes, Schema, Selector, Shape, ShapeArena, ShapeId};
+use shifty_algebra::{Prefixes, Schema, Selector, ShapeArena, ShapeId};
 use shifty_engine::{
     CompiledShapes, ConformanceOptions, EvaluationSession, Evidence as IrEvidence,
     EvidenceKind as IrEvidenceKind, EvidenceOrigin as IrEvidenceOrigin, FocusSat as IrSat,
@@ -31,6 +30,7 @@ use shifty_repair::{
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::{Arc, OnceLock};
 
+mod result_database;
 mod shapemap;
 
 // ── shared rendering (ports of the CLI renderers; kept local to the binding) ────
@@ -1763,6 +1763,9 @@ pub struct FocusEvidence {
     focus: String,
     #[pyo3(get)]
     status: String,
+    /// Whether the focus conforms at the run's `minimum_severity`.
+    #[pyo3(get)]
+    conforms: bool,
     satisfaction: Option<Py<FocusSatisfaction>>,
     failure: Option<Py<FocusWitness>>,
     progress: Option<Py<PyEvaluationProgress>>,
@@ -2116,6 +2119,10 @@ impl EvidenceValidationOutcome {
         self.binding_layout.entries().clone()
     }
 
+    fn _binding_property_sources(&self) -> HashMap<u32, u32> {
+        self.binding_layout.property_sources().clone()
+    }
+
     fn _binding_constraint_map(&self) -> HashMap<u32, u32> {
         self.binding_layout.constraint_map()
     }
@@ -2350,6 +2357,71 @@ pub struct EvidenceSession {
 }
 
 impl EvidenceSession {
+    /// Prepare a session from graphs that are already parsed.
+    pub(super) fn from_loaded(
+        shapes: shifty_parse::Loaded,
+        data: Option<Graph>,
+        run_infer: bool,
+        mode: shifty_engine::ValidationGraphMode,
+        engine: shifty_engine::EngineOptions,
+    ) -> PyResult<Self> {
+        let compiled =
+            CompiledShapes::compile(shapes).map_err(|error| py_value_error(error.to_string()))?;
+        let session_data = data.map_or(SessionData::Embedded, SessionData::Separate);
+        let session = compiled
+            .session(
+                session_data,
+                SessionOptions {
+                    graph_mode: mode,
+                    inference: run_infer,
+                    engine,
+                },
+            )
+            .map_err(crate::py_session_error)?;
+        let diagnostics = compiled
+            .diagnostics()
+            .iter()
+            .map(ToString::to_string)
+            .chain(
+                session
+                    .diagnostics()
+                    .iter()
+                    .map(|diagnostic| diagnostic.message.clone()),
+            )
+            .collect();
+        let normalized_schema = compiled.normalized_schema_shared();
+        let raw_schema = compiled.authored_schema_shared();
+        let data = session.data_shared();
+        let mapped_shapes = session.public_shapes_graph_if_relabelled();
+        let shapes = compiled.source_shared();
+        let binding_layout = Arc::new(shapemap::BindingLayout::new(
+            Arc::clone(&raw_schema),
+            Arc::clone(&shapes),
+            (0..raw_schema.arena.len())
+                .filter_map(|id| {
+                    session
+                        .prepared_evidence()
+                        .normalized_constraint(ShapeId(id as u32))
+                        .map(|normalized| (id as u32, normalized.0))
+                })
+                .collect(),
+        ));
+
+        Ok(Self {
+            session,
+            raw_schema,
+            normalized_schema,
+            data,
+            run_infer,
+            shapes,
+            mapped_shapes,
+            path_graph: OnceLock::new(),
+            graph_mode: mode,
+            diagnostics,
+            binding_layout,
+        })
+    }
+
     fn path_graph(&self) -> &Graph {
         match self.graph_mode {
             shifty_engine::ValidationGraphMode::Data => &self.data,
@@ -2403,67 +2475,17 @@ impl EvidenceSession {
         let mode = parse_mode(graph_mode).map_err(py_value_error)?;
         let engine = crate::engine_options(on_unsupported).map_err(py_value_error)?;
         let shapes_loaded = shapes_spec.load(base.as_deref()).map_err(py_value_error)?;
-        let compiled = CompiledShapes::compile(shapes_loaded)
-            .map_err(|error| py_value_error(error.to_string()))?;
         let data_loaded = data_spec
             .map(|spec| spec.load(base.as_deref()))
             .transpose()
             .map_err(py_value_error)?;
-        let session_data = data_loaded.map_or(SessionData::Embedded, |loaded| {
-            SessionData::Separate(loaded.graph)
-        });
-        let session = compiled
-            .session(
-                session_data,
-                SessionOptions {
-                    graph_mode: mode,
-                    inference: run_infer,
-                    engine,
-                },
-            )
-            .map_err(crate::py_session_error)?;
-        let diagnostics = compiled
-            .diagnostics()
-            .iter()
-            .map(ToString::to_string)
-            .chain(
-                session
-                    .diagnostics()
-                    .iter()
-                    .map(|diagnostic| diagnostic.message.clone()),
-            )
-            .collect();
-        let normalized_schema = compiled.normalized_schema_shared();
-        let raw_schema = compiled.authored_schema_shared();
-        let data = session.data_shared();
-        let mapped_shapes = session.public_shapes_graph_if_relabelled();
-        let shapes = compiled.source_shared();
-        let binding_layout = Arc::new(shapemap::BindingLayout::new(
-            Arc::clone(&raw_schema),
-            Arc::clone(&shapes),
-            (0..raw_schema.arena.len())
-                .filter_map(|id| {
-                    session
-                        .prepared_evidence()
-                        .normalized_constraint(ShapeId(id as u32))
-                        .map(|normalized| (id as u32, normalized.0))
-                })
-                .collect(),
-        ));
-
-        Ok(Self {
-            session,
-            raw_schema,
-            normalized_schema,
-            data,
+        Self::from_loaded(
+            shapes_loaded,
+            data_loaded.map(|loaded| loaded.graph),
             run_infer,
-            shapes,
-            mapped_shapes,
-            path_graph: OnceLock::new(),
-            graph_mode: mode,
-            diagnostics,
-            binding_layout,
-        })
+            mode,
+            engine,
+        )
     }
 
     #[getter]
@@ -2633,13 +2655,22 @@ impl EvidenceSession {
         self.evidence_for_impl(focus, constraint_id)
     }
 
-    #[pyo3(signature = (name_path=None))]
-    fn _binding_names(&self, name_path: Option<&str>) -> PyResult<HashMap<u32, Vec<String>>> {
-        self.binding_names_impl(name_path)
+    fn _binding_names(&self, name_paths: Vec<String>) -> PyResult<HashMap<u32, Vec<String>>> {
+        self.binding_names_impl(&name_paths)
     }
 
     fn _binding_source_ids(&self) -> HashMap<u32, u32> {
         self.binding_source_ids_impl()
+    }
+
+    #[pyo3(signature = (name_paths, shape_names=None, shape_query=None))]
+    fn _result_database_layout(
+        &self,
+        name_paths: Vec<String>,
+        shape_names: Option<Vec<String>>,
+        shape_query: Option<&str>,
+    ) -> PyResult<Vec<result_database::TableLayout>> {
+        self.result_database_layout(&name_paths, shape_names, shape_query)
     }
 
     fn _binding_values(&self, focus: &str, constraint_id: u32) -> PyResult<Vec<String>> {
@@ -2800,6 +2831,7 @@ impl EvidenceSession {
 
             for result in statement.selected_foci {
                 let focus = result.focus.to_string();
+                let focus_conforms = result.conforms;
                 let progress = result
                     .progress
                     .map(|progress| {
@@ -2887,6 +2919,7 @@ impl EvidenceSession {
                     FocusEvidence {
                         focus,
                         status,
+                        conforms: focus_conforms,
                         satisfaction,
                         failure,
                         progress,
@@ -2973,84 +3006,35 @@ impl EvidenceSession {
             .ok_or_else(|| py_value_error("constraint evaluation returned no evidence".to_string()))
     }
 
-    /// The authored property-shape owner for each raw constraint nested in
-    /// that property shape. Lowering expands one property shape into several
-    /// internal constraints (for example a universal datatype check plus a
-    /// `minCount`); this table restores that boundary for shape-map consumers.
     fn binding_source_ids_impl(&self) -> HashMap<u32, u32> {
-        let property_sources: Vec<ShapeId> = self
-            .raw_schema
-            .sources
-            .iter()
-            .filter_map(|(id, source)| {
-                shifty_parse::graph::term_to_node(source)
-                    .filter(|node| {
-                        self.shapes
-                            .object(node, shifty_parse::vocab::SH_PATH)
-                            .is_some()
-                    })
-                    .map(|_| *id)
-            })
-            .collect();
-        let source_ids: HashSet<ShapeId> = self.raw_schema.sources.keys().copied().collect();
-        let mut owners = HashMap::new();
-
-        for owner in property_sources {
-            let mut pending = vec![owner];
-            let mut seen = HashSet::new();
-            while let Some(id) = pending.pop() {
-                if !seen.insert(id) {
-                    continue;
-                }
-                // A nested authored shape starts a distinct binding. Do not
-                // let its internals become siblings of the enclosing property.
-                if id != owner && source_ids.contains(&id) {
-                    continue;
-                }
-                owners.entry(id.0).or_insert(owner.0);
-                match self.raw_schema.arena.get(id) {
-                    Shape::Annotated { shape, .. } | Shape::Not(shape) => pending.push(*shape),
-                    Shape::And(children) | Shape::Or(children) => {
-                        pending.extend(children.iter().copied())
-                    }
-                    Shape::Count { qualifier, .. } => pending.push(*qualifier),
-                    _ => {}
-                }
-            }
-        }
-        owners
+        self.binding_layout.source_owners().clone()
     }
 
     /// For every *raw* (source) constraint with shapes-graph provenance, and
     /// every lowered child of an authored property shape, the values
-    /// `name_path` reaches from that originating property/source node,
-    /// evaluated over the shapes graph. `name_path=None` means `sh:name`.
-    /// Constraints with no source-node provenance, or where `name_path`
-    /// resolves to nothing, are omitted. Literal values render as their bare
+    /// `name_paths` reach from that originating property/source node,
+    /// evaluated over the shapes graph. Paths are tried in order: each path's
+    /// values are sorted and appended after those of earlier paths, skipping
+    /// duplicates, so the first name comes from the first path that reaches
+    /// anything. Constraints with no source-node provenance, or where no path
+    /// reaches anything, are omitted. Literal values render as their bare
     /// lexical form; IRIs/blank nodes render as `<…>`/`_:…`.
-    fn binding_names_impl(&self, name_path: Option<&str>) -> PyResult<HashMap<u32, Vec<String>>> {
-        let expr = name_path.unwrap_or("sh:name");
-        let path = shifty_parse::parse_property_path(expr, &self.shapes)
-            .map_err(|e| py_value_error(format!("invalid name_path: {e}")))?;
-        let mut out = HashMap::new();
-        let owners = self.binding_source_ids_impl();
-        for id in 0..self.raw_schema.arena.len() as u32 {
-            let owner = ShapeId(*owners.get(&id).unwrap_or(&id));
-            let Some(source) = self.raw_schema.sources.get(&owner) else {
-                continue;
-            };
-            let mut matches: Vec<String> =
-                shifty_engine::path::succ(&self.shapes.graph, source, &path)
-                    .into_iter()
-                    .map(|t| term_text(&t))
-                    .collect();
-            if matches.is_empty() {
-                continue;
-            }
-            matches.sort();
-            out.insert(id, matches);
-        }
-        Ok(out)
+    fn binding_names_impl(&self, name_paths: &[String]) -> PyResult<HashMap<u32, Vec<String>>> {
+        let paths = self.parse_name_paths(name_paths)?;
+        Ok(shifty_engine::names::binding_names(
+            &self.raw_schema,
+            &self.shapes.graph,
+            &paths,
+            self.binding_layout.source_owners(),
+        ))
+    }
+
+    /// Parse `name_path` entries against the shapes graph's prefixes.
+    pub(super) fn parse_name_paths(
+        &self,
+        name_paths: &[String],
+    ) -> PyResult<Vec<shifty_algebra::Path>> {
+        shifty_engine::names::parse_name_paths(name_paths, &self.shapes).map_err(py_value_error)
     }
 
     /// Backward-compatible internal extraction helper.
@@ -3632,9 +3616,25 @@ impl RepairOutcome {
     }
 }
 
+#[pyfunction]
+fn _iri_local_name(iri: &str) -> &str {
+    shifty_engine::names::local_name(iri)
+}
+
 /// Register the repair classes on the `_shifty` module.
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(expand_evidence_json, m)?)?;
+    m.add_function(wrap_pyfunction!(_iri_local_name, m)?)?;
+    m.add_function(wrap_pyfunction!(
+        result_database::_result_database_prepare_shapes,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
+        result_database::_result_database_query_columns,
+        m
+    )?)?;
+    m.add_class::<result_database::ResultDatabaseQueryDataset>()?;
+    m.add_class::<result_database::ResultDatabaseRefresh>()?;
     m.add_class::<EvidenceSession>()?;
     m.add_class::<EvidenceValidationOutcome>()?;
     m.add_class::<PyStatementEvaluation>()?;

@@ -24,6 +24,8 @@ settling.
    * - :doc:`Violation generation <violation-generation/index>`
      - Break a valid graph on purpose, to test repair tools against a known
        answer.
+   * - :doc:`SQLite result database <result-database/index>`
+     - Query full and partial shape-map results in SQLite.
 
 .. toctree::
    :hidden:
@@ -31,3 +33,4 @@ settling.
    repair/index
    shapeshift/index
    violation-generation/index
+   result-database/index

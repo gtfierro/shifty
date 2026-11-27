@@ -11,7 +11,7 @@ unbound.
 
 ::
 
-    smap = shifty.shape_map(data, shapes, name_path="sh:name",
+    smap = shifty.shape_map(data, shapes, name_path=["sh:name", "rdfs:label"],
                              value_paths={"ts": "ref:hasTimeseriesId"})
     smap.shape_names
     for mapping in smap["urn:zonepac-app/zonepac-zone"]:
@@ -36,9 +36,9 @@ Keys (:class:`Key`) are typed and hashable: a compact rendering of the
 property shape's path plus its qualifier class when one is declared
 (``str(key)`` reads ``hasPoint->Supply_Air_Flow_Sensor``), disambiguated by
 ``ordinal`` when several bindings share a ``(path, qualifier)`` pair. Keys are
-constant per shape (shapes-graph side); pass ``name_path`` to also carry the
-*author's* name for the slot (evaluated from the property shape's own node
-over the shapes graph) and ``value_paths`` to annotate each bound *value*
+constant per shape (shapes-graph side). ``name_path`` carries the *author's*
+name for the slot (evaluated from the property shape's own node over the
+shapes graph, by default ``sh:name`` then ``rdfs:label``) and ``value_paths`` to annotate each bound *value*
 (evaluated from the value node over the data graph) — the two are independent
 features and are not conflated.
 """
@@ -52,12 +52,14 @@ import re
 from decimal import Decimal, InvalidOperation
 from typing import TYPE_CHECKING, Any, Callable, Iterator, Optional, Sequence, Union
 
+from ._shifty import _iri_local_name as _local
 from .terms import BNode, Iri, Literal, Term
 from .terms import from_json as _term_from_json
 from .terms import parse as _term_parse
 
 if TYPE_CHECKING:  # pragma: no cover
     from . import EvidenceRun, EvidenceSession
+    from ._shifty import EvidenceSession as _NativeSession
 
 __all__ = [
     "Id",
@@ -78,7 +80,28 @@ __all__ = [
     "Mapping",
     "ShapeMap",
     "shape_map",
+    "DEFAULT_NAME_PATHS",
 ]
+
+#: The property paths that name each slot when ``name_path`` is not given,
+#: tried in order. ``sh:`` and ``rdfs:`` resolve even when the shapes graph
+#: does not declare them.
+DEFAULT_NAME_PATHS: tuple[str, ...] = ("sh:name", "rdfs:label")
+
+NamePaths = Union[str, Sequence[str], None]
+
+
+def _name_paths(name_path: NamePaths) -> list[str]:
+    """Normalize ``name_path`` to an ordered list of property paths."""
+    if name_path is None:
+        return []
+    if isinstance(name_path, str):
+        return [name_path]
+    paths = list(name_path)
+    if not all(isinstance(path, str) for path in paths):
+        raise TypeError("name_path must be a property path or a sequence of them")
+    return paths
+
 
 _RDF_TYPE = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type"
 _RDFS_SUBCLASS = "http://www.w3.org/2000/01/rdf-schema#subClassOf"
@@ -143,13 +166,21 @@ def _component_label(component: str) -> str:
     return re.sub(r"(?<=[a-z])(?=[A-Z])", " ", name).lower()
 
 
-def _local(iri: str) -> str:
-    """The local name of an IRI: the segment after the last '#', '/', or ':'."""
-    for sep in ("#", "/", ":"):
-        head, found, tail = iri.rpartition(sep)
-        if found and tail:
-            return tail
-    return iri
+def _binding_order_value(raw_order: Optional[str]) -> Optional[Decimal]:
+    if raw_order is not None:
+        try:
+            order = Decimal(raw_order)
+            if order.is_finite():
+                return order
+        except InvalidOperation:
+            pass
+    return None
+
+
+def _binding_order_key(
+    order: Optional[Decimal], identity: str
+) -> tuple[bool, Decimal, str]:
+    return order is None, order or Decimal(0), identity
 
 
 # ── paths (mirror shifty_algebra::Path) ─────────────────────────────────────────
@@ -347,6 +378,9 @@ class _Catalog:
 
     def __init__(self, records: list[dict]) -> None:
         self._by_id = {record["id"]: record["constraint"] for record in records}
+        # Both depend only on the constraint, but are asked once per focus.
+        self._signatures: dict[int, str] = {}
+        self.count_domains: dict[int, frozenset[tuple[str, str]]] = {}
 
     def get(self, constraint_id: Optional[int]):
         return self._by_id.get(constraint_id)
@@ -368,6 +402,16 @@ class _Catalog:
 
     def signature(self, constraint_id: int, stack: tuple[int, ...] = ()) -> str:
         """Structural fallback for synthetic constraints with no RDF source."""
+        if not stack:
+            cached = self._signatures.get(constraint_id)
+            if cached is None:
+                cached = self._signatures[constraint_id] = self._signature(
+                    constraint_id, ()
+                )
+            return cached
+        return self._signature(constraint_id, stack)
+
+    def _signature(self, constraint_id: int, stack: tuple[int, ...]) -> str:
         if constraint_id in stack:
             return json.dumps(["cycle", stack.index(constraint_id)])
         constraint = self.get(constraint_id)
@@ -486,6 +530,7 @@ class _SlotLayout:
     constraint_components: Optional[tuple[str, ...]]
     vacuous_property: bool
     count_evidence: _CountEvidence
+    property_source_id: Optional[int]
 
 
 @dataclasses.dataclass
@@ -567,8 +612,19 @@ def _has_universal_value_constraint(
     return False
 
 
-def _count_domains(catalog: _Catalog, constraint_id: int) -> set[tuple[str, str]]:
+def _count_domains(catalog: _Catalog, constraint_id: int) -> frozenset[tuple[str, str]]:
     """Distinct authored count domains, excluding synthetic universal counts."""
+    cached = catalog.count_domains.get(constraint_id)
+    if cached is None:
+        cached = catalog.count_domains[constraint_id] = frozenset(
+            _uncached_count_domains(catalog, constraint_id)
+        )
+    return cached
+
+
+def _uncached_count_domains(
+    catalog: _Catalog, constraint_id: int
+) -> set[tuple[str, str]]:
     constraint = catalog.logical(constraint_id)
     if isinstance(constraint, dict) and "Count" in constraint:
         count = constraint["Count"]
@@ -952,6 +1008,7 @@ class Binding:
         vacuous_property: bool = False,
         algebra_kind: Optional[str] = None,
         count_evidence: Optional[_CountEvidence] = None,
+        property_source_id: Optional[int] = None,
     ) -> None:
         self.key = key
         self.status = status
@@ -968,6 +1025,7 @@ class Binding:
         self._vacuous_property = vacuous_property
         self._rejected_count_high = rejected_count_high
         self._count_evidence = count_evidence
+        self._property_source_id = property_source_id
         self._evidence = evidence
         self._resolve = resolve
         self._resolve_observation = resolve_observation
@@ -1386,9 +1444,9 @@ class ShapeMap:
     def from_run(
         cls,
         run: "EvidenceRun",
-        session: "Optional[EvidenceSession]" = None,
+        session: "Optional[EvidenceSession | _NativeSession]" = None,
         *,
-        name_path: Optional[str] = "sh:name",
+        name_path: NamePaths = DEFAULT_NAME_PATHS,
         value_paths: "Optional[dict[str, str]]" = None,
     ) -> "ShapeMap":
         """Build the shape map from an evidence run.
@@ -1399,8 +1457,13 @@ class ShapeMap:
         ``values = None``, and neither ``name_path`` nor ``value_paths`` can
         resolve (both need the shapes/data graphs the session holds).
 
-        ``name_path`` (a SPARQL 1.1 property path, default ``sh:name``)
-        carries the author's name for each slot; pass ``None`` to skip name
+        ``name_path`` carries the author's name for each slot. It takes a
+        SPARQL 1.1 property path or an ordered sequence of them, evaluated
+        from the property shape over the shapes graph. The default,
+        :data:`DEFAULT_NAME_PATHS`, is ``("sh:name", "rdfs:label")``. Earlier
+        paths take priority: :attr:`Binding.name` comes from the first path
+        that reaches a value, and :attr:`Binding.names` lists every value in
+        path order. Pass ``None`` or an empty sequence to skip name
         resolution. ``value_paths`` (``{label: path}``) annotates each bound
         *value*, evaluated from the value node over the data graph; resolved
         lazily and in one batched call per label on first access.
@@ -1409,6 +1472,7 @@ class ShapeMap:
         source_catalog = _Catalog(data["constraints"]["source"])
         normalized_catalog = _Catalog(data["constraints"]["normalized"])
         layout = run._binding_layout()
+        property_sources = run._binding_property_sources()
         constraint_map = run._binding_constraint_map()
         # Accept the public wrapper, the native session, and lightweight
         # session proxies used by instrumentation callers.
@@ -1424,8 +1488,9 @@ class ShapeMap:
         if inner is not None:
             shape_name_of = inner._shape_name_of
             source_owners = inner._binding_source_ids()
-            if name_path is not None:
-                names_table = inner._binding_names(name_path)
+            name_paths = _name_paths(name_path)
+            if name_paths:
+                names_table = inner._binding_names(name_paths)
         else:
             source_owners = run._binding_source_ids()
 
@@ -1451,6 +1516,7 @@ class ShapeMap:
                     names_table,
                     shape_name_of,
                     source_owners,
+                    property_sources,
                     layout,
                     order_cache,
                 )
@@ -1478,10 +1544,11 @@ def _build_mapping(
     names_table: "dict[int, list[str]]",
     shape_name_of: "Optional[Callable[[int], Optional[str]]]",
     source_owners: "dict[int, int]",
+    property_sources: "dict[int, int]",
     layout: "dict[int, tuple[Optional[str], str, list[str]]]",
     order_cache: dict[tuple[int, ...], _BindingOrder],
 ) -> Mapping:
-    conforms = focus["evidence"]["status"] == "pass"
+    conforms = focus["conforms"]
     root = focus["evidence"]["evidence"]
     progress = (focus.get("progress") or {}).get("evaluated_children", [])
 
@@ -1536,37 +1603,23 @@ def _build_mapping(
 
     def slot_layout(owner):
         source_id = groups[owner][0][2]
-        metadata = layout.get(owner)
-        # Singleton NodeShapes can transparently wrap their property's source.
-        seen = set()
-        while source_id not in seen:
-            seen.add(source_id)
-            if source_owners.get(source_id) == source_id:
-                metadata = layout.get(source_id)
-                break
-            constraint = source_catalog.get(source_id)
-            if not (isinstance(constraint, dict) and "Annotated" in constraint):
-                break
-            source_id = constraint["Annotated"]["shape"]
+        property_source_id = property_sources.get(source_id)
+        if property_source_id is not None:
+            source_id = property_source_id
+        metadata = layout.get(
+            owner if property_source_id is None else property_source_id
+        )
         raw_order, identity, components = metadata or (
             None,
             source_catalog.signature(owner),
             None,
         )
         vacuous_property = (
-            source_owners.get(source_id) == source_id
+            property_source_id is not None
             and source_catalog.logical(source_id) == "Top"
         )
-        order = None
-        if raw_order is not None:
-            try:
-                value = Decimal(raw_order)
-                if value.is_finite():
-                    order = value
-            except InvalidOperation:
-                pass
         return _SlotLayout(
-            order,
+            _binding_order_value(raw_order),
             identity,
             (tuple(components) if components is not None else None),
             vacuous_property,
@@ -1576,16 +1629,15 @@ def _build_mapping(
                 constraint_map,
                 owner if len(groups[owner]) > 1 else source_id,
             ),
+            property_source_id,
         )
 
     cache_key = tuple(sorted(groups))
     if cache_key not in order_cache:
         slots = {owner: slot_layout(owner) for owner in group_order}
         group_order.sort(
-            key=lambda owner: (
-                slots[owner].order is None,
-                slots[owner].order or Decimal(0),
-                slots[owner].identity,
+            key=lambda owner: _binding_order_key(
+                slots[owner].order, slots[owner].identity
             )
         )
         order_cache[cache_key] = _BindingOrder(group_order, slots)
@@ -1626,22 +1678,15 @@ def _build_mapping(
         severity = _severity_of(
             normalized_catalog, normalized_ref, statement_py.normalized_constraint_id
         )
-        # A singleton node shape has no progress children: its outer
-        # `Annotated` slot directly wraps the property shape's own annotated
-        # slot. Follow that transparent chain so a `sh:name` on the authored
-        # property shape survives conjunction elision.
-        name_source_id = source_id
-        seen = set()
-        names = None
-        while name_source_id not in seen:
-            seen.add(name_source_id)
-            names = names_table.get(name_source_id)
-            if names:
-                break
-            constraint = source_catalog.get(name_source_id)
-            if not (isinstance(constraint, dict) and "Annotated" in constraint):
-                break
-            name_source_id = constraint["Annotated"]["shape"]
+        # A singleton node shape wraps its property shape directly: prefer
+        # `property_source_id` so the node shape's own label does not shadow
+        # its property's name. The native names table resolves transparent wrappers.
+        name_source_id = (
+            ordered.slots[owner].property_source_id
+            if ordered.slots[owner].property_source_id is not None
+            else source_id
+        )
+        names = names_table.get(name_source_id)
 
         resolve_observation = None
         if inner is not None:
@@ -1677,6 +1722,7 @@ def _build_mapping(
             ordered.slots[owner].vacuous_property,
             algebra_kind=info.kind,
             count_evidence=ordered.slots[owner].count_evidence,
+            property_source_id=ordered.slots[owner].property_source_id,
         )
 
     return Mapping(
@@ -1693,7 +1739,7 @@ def shape_map(
     data_graph,
     shacl_graph=None,
     *,
-    name_path: Optional[str] = "sh:name",
+    name_path: NamePaths = DEFAULT_NAME_PATHS,
     value_paths: "Optional[dict[str, str]]" = None,
     shape_names: Optional[Sequence[str]] = None,
     minimum_severity: str = "info",
@@ -1710,9 +1756,9 @@ def shape_map(
     :class:`~shifty.EvidenceSession` yourself and call :meth:`ShapeMap.from_run`
     to reuse the prepared snapshot across calls.
 
-    ``name_path`` is evaluated from each authored property shape. Its default,
-    ``"sh:name"``, remains available even when the shapes input has no prefix
-    declarations. Optional
+    ``name_path`` is evaluated from each authored property shape; see
+    :meth:`ShapeMap.from_run`. Its default, ``("sh:name", "rdfs:label")``,
+    resolves even when the shapes input has no prefix declarations. Optional
     ``sh:qualifiedValueShape`` slots remain extractable: ``Binding.values``
     contains the values satisfying the qualified shape even though the
     unbounded validation constraint normalizes to ``Top``.

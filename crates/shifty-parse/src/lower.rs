@@ -173,10 +173,6 @@ struct ValidatorDef {
 
 /// The local name of an IRI (after the last `#` or `/`) — the SHACL rule for a
 /// parameter's pre-bound variable name (SHACL §6.2.1).
-fn local_name(iri: &str) -> &str {
-    iri.rsplit(['#', '/']).next().unwrap_or(iri)
-}
-
 impl Lowerer<'_> {
     fn diag(&mut self, level: DiagLevel, msg: impl Into<String>, subj: &NamedOrBlankNode) {
         let mut msg = msg.into();
@@ -851,7 +847,7 @@ impl Lowerer<'_> {
                 let Some(Term::NamedNode(path)) = self.g.object(&pn, vocab::SH_PATH) else {
                     continue;
                 };
-                let var = local_name(path.as_str()).to_string();
+                let var = crate::functions::parameter_name(path.as_str()).to_string();
                 let optional = matches!(
                     self.g.object(&pn, vocab::SH_OPTIONAL),
                     Some(Term::Literal(ref l)) if l.value() == "true"

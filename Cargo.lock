@@ -967,6 +967,7 @@ dependencies = [
 name = "pyshifty"
 version = "0.7.0-alpha.1"
 dependencies = [
+ "oxigraph",
  "oxrdf",
  "oxttl",
  "pyo3",
@@ -977,6 +978,7 @@ dependencies = [
  "shifty-opt",
  "shifty-parse",
  "shifty-repair",
+ "spargebra",
 ]
 
 [[package]]

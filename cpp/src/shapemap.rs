@@ -772,7 +772,7 @@ fn irrefutable_node() -> Value {
 }
 
 /// The session-backed pieces the builder cannot derive from the run alone.
-type BindingNamesFn<'a> = dyn Fn(Option<&str>) -> Result<HashMap<u32, Vec<String>>, String> + 'a;
+type BindingNamesFn<'a> = dyn Fn(&[String]) -> Result<HashMap<u32, Vec<String>>, String> + 'a;
 type BindingValuesFn<'a> = dyn Fn(&str, u32) -> Result<Vec<TermInfo>, String> + 'a;
 type MaterializeConstraintFn<'a> = dyn Fn(&str, u32) -> Result<Option<Value>, String> + 'a;
 type ResolvePathFn<'a> =
@@ -781,7 +781,7 @@ type ResolvePathFn<'a> =
 pub struct ShapeMapBuildInputs<'a> {
     /// The raw schema's shape name for a source constraint id.
     pub shape_name_of: &'a dyn Fn(u32) -> Option<String>,
-    /// `name_path` -> constraint id -> reached names over the shapes graph.
+    /// `name_paths` -> constraint id -> reached names over the shapes graph.
     pub binding_names: &'a BindingNamesFn<'a>,
     /// Values for an authored property constraint normalized away as `Top`.
     pub binding_values: &'a BindingValuesFn<'a>,
@@ -808,12 +808,12 @@ pub struct StatementMeta {
     pub foci: Vec<FocusMeta>,
 }
 
-/// Build the shape map from a parsed run. `name_path` (`None` to skip) names
+/// Build the shape map from a parsed run. `name_paths` (empty to skip) names
 /// each slot from the shapes graph; `value_paths` annotates each bound value
 /// from the data graph, resolved in one batched call per label.
 pub fn build(
     run: &Value,
-    name_path: Option<&str>,
+    name_paths: &[String],
     value_paths: &[(String, String)],
     statements: &[StatementMeta],
     inputs: &ShapeMapBuildInputs,
@@ -828,8 +828,8 @@ pub fn build(
             .unwrap_or(&Value::Null),
     );
 
-    let names_table = if name_path.is_some() {
-        (inputs.binding_names)(name_path)?
+    let names_table = if !name_paths.is_empty() {
+        (inputs.binding_names)(name_paths)?
     } else {
         HashMap::new()
     };
@@ -931,7 +931,10 @@ fn build_mapping(
     inputs: &ShapeMapBuildInputs,
     names_table: &HashMap<u32, Vec<String>>,
 ) -> Result<ShapeMapMapping, String> {
-    let conforms = focus.pointer("/evidence/status").and_then(Value::as_str) == Some("pass");
+    let conforms = focus
+        .get("conforms")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
     let root = focus.pointer("/evidence/evidence").unwrap_or(&Value::Null);
     let progress = focus
         .get("progress")
@@ -1022,7 +1025,7 @@ fn build_mapping(
         };
 
         let (min, max) = collect_bounds(source_catalog, Some(source_id));
-        let names = binding_names(source_catalog, names_table, source_id);
+        let names = names_table.get(&source_id).cloned().unwrap_or_default();
         let values = if status == "pass"
             && source_catalog.logical(Some(source_id)) == Some(&Value::String("Top".to_string()))
         {
@@ -1068,34 +1071,6 @@ fn build_mapping(
         conforms,
         bindings,
     })
-}
-
-/// Names from a property's own source node, following transparent authored
-/// wrappers left when a singleton conjunction is normalized away.
-fn binding_names(
-    catalog: &Catalog,
-    names_table: &HashMap<u32, Vec<String>>,
-    source_id: u32,
-) -> Vec<String> {
-    let mut current = Some(source_id);
-    let mut seen = HashSet::new();
-    while let Some(id) = current {
-        if !seen.insert(id) {
-            break;
-        }
-        if let Some(names) = names_table.get(&id)
-            && !names.is_empty()
-        {
-            return names.clone();
-        }
-        current = catalog
-            .get(Some(id))
-            .and_then(|constraint| constraint.get("Annotated"))
-            .and_then(|annotated| annotated.get("shape"))
-            .and_then(Value::as_u64)
-            .map(|id| id as u32);
-    }
-    Vec::new()
 }
 
 /// One batched `resolve_path` call per label, over every distinct bound value

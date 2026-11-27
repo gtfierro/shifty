@@ -9,6 +9,7 @@ mod shapemap;
 use oxrdf::{Dataset as OxDataset, Graph, GraphName, Quad, Term};
 use oxttl::{NTriplesSerializer, TurtleSerializer};
 use shifty_algebra::{Schema, Severity, ShapeId};
+use shifty_engine::names::local_name;
 use shifty_engine::{
     CompiledShapes, EngineOptions, EvidenceRun, FindingOptions, SessionData, SessionOptions,
     UnsupportedPolicy, ValidationGraphMode, ValidationOptions as EngineValidationOptions,
@@ -19,7 +20,7 @@ use sparesults::{QueryResultsFormat, QueryResultsSerializer};
 use spareval::{QueryEvaluator, QueryResults};
 use spargebra::SparqlParser;
 use std::cell::RefCell;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::ffi::{CString, c_char};
 use std::fmt::Write as _;
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -687,16 +688,6 @@ fn term_string(term: &Term) -> String {
     term.to_string()
 }
 
-/// A term rendered for a `name_path` value: literals as their bare lexical
-/// form (so `sh:name "zone temperature point"` joins cleanly), IRIs and
-/// blank nodes in full.
-fn term_text(term: &Term) -> String {
-    match term {
-        Term::Literal(literal) => literal.value().to_string(),
-        other => other.to_string(),
-    }
-}
-
 /// Looks up the named-shape IRI a violated statement belongs to, if the
 /// shape was declared with an IRI/blank-node id (rather than inlined).
 fn shape_name_for(violation: &Violation, schema: &Schema) -> Option<String> {
@@ -886,33 +877,17 @@ impl ShapeMapSession {
     /// For every *raw* (source) constraint with shapes-graph provenance
     /// (`Schema::sources`), the values `name_path` reaches from that
     /// constraint's originating node, evaluated over the shapes graph.
-    /// `name_path = None` means `sh:name`. Constraints with no source-node
-    /// provenance, or where `name_path` resolves to nothing, are omitted.
-    fn binding_names(
-        &self,
-        name_path: Option<&str>,
-    ) -> Result<HashMap<u32, Vec<String>>, ApiError> {
-        let expr = name_path.unwrap_or("sh:name");
-        let path = parse_property_path(expr, &self.shapes).map_err(|error| {
-            ApiError::new(
-                ShiftyStatus::InvalidArgument,
-                format!("invalid name_path: {error}"),
-            )
-        })?;
-        let mut out = HashMap::new();
-        for (id, source) in &self.raw_schema.sources {
-            let mut matches: Vec<String> =
-                shifty_engine::path::succ(&self.shapes.graph, source, &path)
-                    .into_iter()
-                    .map(|term| term_text(&term))
-                    .collect();
-            if matches.is_empty() {
-                continue;
-            }
-            matches.sort();
-            out.insert(id.0, matches);
-        }
-        Ok(out)
+    /// Paths are tried in order, as in Python. Constraints with no
+    /// source-node provenance, or where no path reaches anything, are omitted.
+    fn binding_names(&self, name_paths: &[String]) -> Result<HashMap<u32, Vec<String>>, ApiError> {
+        let paths = shifty_engine::names::parse_name_paths(name_paths, &self.shapes)
+            .map_err(|error| ApiError::new(ShiftyStatus::InvalidArgument, error))?;
+        Ok(shifty_engine::names::binding_names(
+            &self.raw_schema,
+            &self.shapes.graph,
+            &paths,
+            &HashMap::new(),
+        ))
     }
 
     /// Recover values for a property constraint that lowered to `Top`.
@@ -925,30 +900,14 @@ impl ShapeMapSession {
         constraint_id: u32,
     ) -> Result<Vec<shapemap::TermInfo>, ApiError> {
         let focus = parse_term(focus)?;
-        let mut current = ShapeId(constraint_id);
-        let mut seen = HashSet::new();
-        let property = loop {
-            if !seen.insert(current) {
-                return Ok(Vec::new());
-            }
-            if let Some(source) = self.raw_schema.sources.get(&current)
-                && let Some(node) = shifty_parse::graph::term_to_node(source)
-                && self
-                    .shapes
-                    .object(&node, shifty_parse::vocab::SH_PATH)
-                    .is_some()
-            {
-                break node;
-            }
-            match self.raw_schema.arena.get(current) {
-                shifty_algebra::Shape::Annotated { shape, .. } => current = *shape,
-                _ => return Ok(Vec::new()),
-            }
-        };
-
-        let Some(path_term) = self.shapes.object(&property, shifty_parse::vocab::SH_PATH) else {
+        let Some((_, property, path_term)) = shifty_engine::names::unwrap_property_shape(
+            &self.raw_schema,
+            &self.shapes,
+            ShapeId(constraint_id),
+        ) else {
             return Ok(Vec::new());
         };
+
         let path = shifty_parse::path::parse_path(&self.shapes, &path_term)
             .map_err(|error| ApiError::new(ShiftyStatus::InvalidArgument, error))?;
 
@@ -1035,7 +994,7 @@ impl ShapeMapSession {
     fn shape_map(
         &self,
         run: &ShapeMapRun,
-        name_path: Option<&str>,
+        name_paths: &[String],
         value_paths: &[(String, String)],
     ) -> Result<ShiftyShapeMap, ApiError> {
         let parsed: serde_json::Value = serde_json::from_str(&run.json).map_err(internal_error)?;
@@ -1070,7 +1029,7 @@ impl ShapeMapSession {
         };
         let inputs = shapemap::ShapeMapBuildInputs {
             shape_name_of: &|id| self.shape_name_of(id),
-            binding_names: &|name_path| self.binding_names(name_path).map_err(record_error),
+            binding_names: &|name_paths| self.binding_names(name_paths).map_err(record_error),
             binding_values: &|focus, constraint_id| {
                 self.binding_values(focus, constraint_id)
                     .map_err(record_error)
@@ -1100,14 +1059,13 @@ impl ShapeMapSession {
             },
             resolve_path: &|nodes, path| self.resolve_path(nodes, path).map_err(record_error),
         };
-        let data = shapemap::build(&parsed, name_path, value_paths, &statements, &inputs).map_err(
-            |message| {
+        let data = shapemap::build(&parsed, name_paths, value_paths, &statements, &inputs)
+            .map_err(|message| {
                 callback_error
                     .borrow_mut()
                     .take()
                     .unwrap_or_else(|| ApiError::new(ShiftyStatus::InternalError, message))
-            },
-        )?;
+            })?;
         Ok(ShiftyShapeMap::from_data(data))
     }
 }
@@ -1231,12 +1189,6 @@ fn format_report_text(report: &ValidationReport) -> String {
         let _ = writeln!(output);
     }
     output
-}
-
-fn local_name(iri: &str) -> &str {
-    iri.rsplit_once('#')
-        .or_else(|| iri.rsplit_once('/'))
-        .map_or(iri, |(_, local)| local)
 }
 
 fn utf8(bytes: Vec<u8>) -> Result<String, ApiError> {
@@ -1378,13 +1330,22 @@ unsafe fn shape_names_from_raw(
     data: *const ShiftyStringView,
     len: usize,
 ) -> Result<Vec<String>, ApiError> {
+    unsafe { strings_from_raw(data, len, "shape name") }
+}
+
+/// Read `len` UTF-8 string views; `what` names one entry in errors.
+unsafe fn strings_from_raw(
+    data: *const ShiftyStringView,
+    len: usize,
+    what: &str,
+) -> Result<Vec<String>, ApiError> {
     if len == 0 {
         return Ok(Vec::new());
     }
     if data.is_null() {
         return Err(ApiError::new(
             ShiftyStatus::InvalidArgument,
-            "shape names pointer is null",
+            format!("{what}s pointer is null"),
         ));
     }
     unsafe { slice::from_raw_parts(data, len) }
@@ -1394,7 +1355,7 @@ unsafe fn shape_names_from_raw(
             if view.len != 0 && view.data.is_null() {
                 return Err(ApiError::new(
                     ShiftyStatus::InvalidArgument,
-                    format!("shape name {index} pointer is null"),
+                    format!("{what} {index} pointer is null"),
                 ));
             }
             let bytes = unsafe { bytes_from_raw(view.data.cast(), view.len) }?;
@@ -1403,7 +1364,7 @@ unsafe fn shape_names_from_raw(
                 .map_err(|error| {
                     ApiError::new(
                         ShiftyStatus::InvalidArgument,
-                        format!("shape name {index} is not valid UTF-8: {error}"),
+                        format!("{what} {index} is not valid UTF-8: {error}"),
                     )
                 })
         })
@@ -1424,7 +1385,7 @@ fn string_view(value: &str) -> ShiftyStringView {
 /// no explanation.
 #[unsafe(no_mangle)]
 pub extern "C" fn shifty_abi_version() -> u32 {
-    7
+    8
 }
 
 #[unsafe(no_mangle)]
@@ -2145,8 +2106,8 @@ pub unsafe extern "C" fn shifty_prepared_validator_shape_map(
     minimum_severity: u32,
     shape_names: *const ShiftyStringView,
     shape_names_len: usize,
-    name_path: *const c_char,
-    name_path_len: usize,
+    name_paths: *const ShiftyStringView,
+    name_paths_len: usize,
     value_paths: *const ShiftyStringPair,
     value_paths_len: usize,
     out: *mut *mut ShiftyShapeMap,
@@ -2166,18 +2127,7 @@ pub unsafe extern "C" fn shifty_prepared_validator_shape_map(
 
         let shape_names = unsafe { shape_names_from_raw(shape_names, shape_names_len) }?;
         let minimum_severity = severity(minimum_severity)?;
-        let name_path = if name_path.is_null() {
-            if name_path_len != 0 {
-                return Err(ApiError::new(
-                    ShiftyStatus::InvalidArgument,
-                    "name path pointer is null but length is non-zero",
-                ));
-            }
-            None
-        } else {
-            let path = unsafe { str_from_raw(name_path, name_path_len, "name path") }?;
-            Some(if path.is_empty() { "sh:name" } else { path })
-        };
+        let name_paths = unsafe { strings_from_raw(name_paths, name_paths_len, "name path") }?;
 
         let mut value_paths_vec = Vec::with_capacity(value_paths_len);
         if value_paths_len != 0 {
@@ -2208,7 +2158,7 @@ pub unsafe extern "C" fn shifty_prepared_validator_shape_map(
                 .map_err(|error| ApiError::new(ShiftyStatus::ValidationError, error.to_string()))?,
             &session.raw_schema,
         )?;
-        let map = session.shape_map(&run, name_path, &value_paths_vec)?;
+        let map = session.shape_map(&run, &name_paths, &value_paths_vec)?;
         unsafe { out.write(Box::into_raw(Box::new(map))) };
         Ok(())
     })

@@ -931,6 +931,9 @@ pub struct EvaluationProgress {
 pub struct FocusEvaluation {
     pub focus: Term,
     pub evidence: Evidence,
+    /// Whether this focus conforms at the run's `minimum_severity`: a failure
+    /// whose reasons all fall below the threshold still conforms.
+    pub conforms: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub progress: Option<EvaluationProgress>,
 }

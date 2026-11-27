@@ -60,7 +60,7 @@ shifty-vio = { path = "crates/experimental/shifty-vio", version = "0.7.0-alpha.1
 # back to whatever our oldest pin allows. Bump them together, never singly, and
 # check https://crates.io/crates/oxigraph for the set that belongs with the
 # oxigraph release you are moving to; `cargo update` alone cannot do it.
-oxrdf = { version = "=0.3.4", features = ["serde", "oxsdatatypes"] }
+oxrdf = { version = "=0.3.4", features = ["serde", "oxsdatatypes", "rdfc-10"] }
 oxrdfio = "=0.2.6"
 oxsdatatypes = "0.2.3"
 bigdecimal = "0.4"

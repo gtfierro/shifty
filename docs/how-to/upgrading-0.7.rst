@@ -52,3 +52,9 @@ C++ and other bindings
 The C API adds annotation accessors. The C++ ``AlgebraReason`` type gains an
 ``annotations`` member; rebuild C++ consumers and update aggregate initializers
 if used. Python reasons and WASM result objects expose annotation values.
+
+The C ABI is now version 8. Rebuild C and C++ consumers with matching headers
+and library. ``shifty_prepared_validator_shape_map()`` takes an array of
+``ShiftyStringView`` and a count of paths. In C++, replace
+``options.name_path = "sh:name"`` with ``options.name_paths = {"sh:name"}``
+to keep using that path alone.

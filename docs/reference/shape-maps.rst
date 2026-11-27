@@ -19,7 +19,7 @@ identify constraints that need repair. :doc:`../how-to/shape-maps` shows it in u
        data_graph,
        shacl_graph=None,
        *,
-       name_path="sh:name",
+       name_path=("sh:name", "rdfs:label"),
        value_paths=None,
        shape_names=None,
        minimum_severity="info",
@@ -40,11 +40,13 @@ A convenience over ``EvidenceSession(...).validate()`` followed by
    * - Argument
      - Meaning
    * - ``name_path``
-     - Property path naming the *slot*, evaluated from the authored
-       property-shape node over the **shapes** graph. Constant per property
-       shape. ``None`` skips slot naming. The standard ``sh:`` prefix remains
-       available for the default ``"sh:name"`` even when the shapes input has
-       no prefix declarations.
+     - Property paths naming the *slot*, evaluated from the authored
+       property-shape node over the **shapes** graph. Pass one path or an
+       ordered sequence; earlier paths take priority. The default,
+       ``shifty.shapemap.DEFAULT_NAME_PATHS``, is
+       ``("sh:name", "rdfs:label")``. ``None`` or ``[]`` skips slot naming.
+       The ``sh:`` and ``rdfs:`` prefixes resolve even when the shapes input
+       has no prefix declarations.
    * - ``value_paths``
      - ``{label: path}`` annotating each *bound value*, evaluated from the
        value node over the graph validation read. Varies per row. Resolved
@@ -59,7 +61,8 @@ A convenience over ``EvidenceSession(...).validate()`` followed by
 
    session = shifty.EvidenceSession(shapes, data, infer=False)
    run = session.validate()
-   smap = shifty.ShapeMap.from_run(run, session, name_path="sh:name",
+   smap = shifty.ShapeMap.from_run(run, session,
+                                   name_path=("sh:name", "rdfs:label"),
                                    value_paths=None)
 
 Pass the session used to produce the run. The map uses it to recover values
@@ -169,7 +172,8 @@ Duplicate-key ordinals are assigned in this order, consistently for every focus.
      - Lowered algebra tag, such as ``"count"``. Intended for compiler and
        evidence inspection; ``key.kind`` describes the authored SHACL family.
    * - ``name`` / ``names``
-     - The resolved slot name, and every value ``name_path`` reached.
+     - The resolved slot name, and every value the ``name_path`` paths
+       reached, in path order. ``name`` is the first of ``names``.
    * - ``values``
      - The bound values as ``Term`` objects. ``None`` means *unknown* — a
        passing sibling elided from canonical evidence with no session to
