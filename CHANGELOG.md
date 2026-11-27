@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## 0.7.0-alpha.2
+
+Install Python with `python -m pip install "pyshifty[rdflib]==0.7.0a2"`.
+CLI binaries are attached to the GitHub prerelease. Crates.io publication
+is reserved for the stable release.
+
+- Added the experimental SQLite result database. It projects SHACL shape
+  maps and SPARQL queries into tables and refreshes results atomically.
+  Shape tables include conformance and binding status for each focus node.
 - Shape-map `name_path` now accepts an ordered list of property paths as well
   as a single path. The default changed from `"sh:name"` to
   `("sh:name", "rdfs:label")`, exported as `shifty.shapemap.DEFAULT_NAME_PATHS`,
@@ -18,6 +27,8 @@
   `ShapeMap.conforms`. Its bindings still report the failure. Each
   `FocusEvaluation` in an evidence run has a new `conforms` flag carrying the
   same verdict.
+- Restored the engine comparison benchmark and recorded timings for
+  pyshifty, pySHACL, and TopQuadrant on the Brick and 223P suites.
 
 ## 0.7.0-alpha.1
 
