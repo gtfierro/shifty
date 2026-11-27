@@ -87,12 +87,10 @@ written as 16 hex characters, and writes that ID into every shape row for the
 focus. Binding status is recorded once per ``result_id`` and field. Both
 tables reference the validation row through a foreign key.
 
-.. literalinclude:: ../../examples/result-database/validation.py
+.. literalinclude:: ../../examples/result-database/validation.sql
    :language: sql
-   :start-after: query = """
-   :end-before: """
 
-.. program-output:: python validation.py
+.. program-output:: python ../../_ext/result_database_table.py validation.sql
    :cwd: ../../examples/result-database
 
 Both of ``vav2``'s shape rows carry ``vav2``'s ``result_id``. Because the ID

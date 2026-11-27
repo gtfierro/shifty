@@ -781,8 +781,138 @@ def test_each_shape_feeds_one_table():
     )
     with ResultDatabase() as db:
         db.add_shape_tables(VAV_SHAPES)
-        with pytest.raises(ValueError, match="already has a result table: ex:VavShape"):
+        with pytest.raises(
+            ValueError, match="already has a result table, ex:VavShape, registered from"
+        ):
             db.add_shape_tables(renamed)
         assert db.connection.execute(
             "SELECT table_name FROM _shifty_result_tables"
         ).fetchall() == [("ex:VavShape",)]
+
+
+REORDERED_VAV_SHAPES = (
+    PREFIXES
+    + """
+ex:VavShape sh:property [
+        sh:qualifiedMinCount 1 ; sh:qualifiedValueShape [ sh:class ex:Airflow ] ;
+        sh:name "airflow" ; sh:path ex:hasPoint
+    ], [
+        sh:qualifiedMaxCount 1 ; sh:qualifiedMinCount 1 ;
+        sh:qualifiedValueShape [ sh:class ex:Temperature ] ;
+        sh:name "supply air temperature" ; sh:path ex:hasPoint
+    ] ;
+    sh:targetNode ex:vav1 ; sh:targetClass ex:Vav .
+"""
+)
+
+
+def _registry_counts(db):
+    return tuple(
+        db.connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+        for table in (
+            "_shifty_result_registrations",
+            "_shifty_result_tables",
+            "_shifty_result_fields",
+        )
+    )
+
+
+def test_registering_the_same_shapes_again_changes_nothing(tmp_path):
+    shapes_path = tmp_path / "shapes.ttl"
+    shapes_path.write_text(VAV_SHAPES)
+    path = tmp_path / "building.sqlite"
+    with ResultDatabase(path) as db:
+        db.add_shape_tables(shapes_path)
+        db.refresh(VAV_DATA, infer=False)
+        counts = _registry_counts(db)
+        db.add_shape_tables(shapes_path)
+        assert _registry_counts(db) == counts
+
+    # A rerun setup script reopens the file and registers the same shapes.
+    with ResultDatabase(path) as db:
+        db.add_shape_tables(shapes_path)
+        assert _registry_counts(db) == counts
+        db.refresh(VAV_DATA, infer=False)
+        assert db.connection.execute(
+            "SELECT COUNT(*) FROM [ex:VavShape]"
+        ).fetchone() == (2,)
+
+
+def test_blank_node_labels_and_triple_order_do_not_matter():
+    with ResultDatabase() as db:
+        db.add_shape_tables(VAV_SHAPES)
+        counts = _registry_counts(db)
+        db.add_shape_tables(REORDERED_VAV_SHAPES)
+        assert _registry_counts(db) == counts
+
+
+def test_changed_shapes_with_the_same_columns_are_rejected():
+    stricter = VAV_SHAPES.replace(
+        "sh:qualifiedValueShape [ sh:class ex:Airflow ] ; sh:qualifiedMinCount 1",
+        "sh:qualifiedValueShape [ sh:class ex:Airflow ] ; sh:qualifiedMinCount 2",
+    )
+    assert stricter != VAV_SHAPES
+    with ResultDatabase() as db:
+        db.add_shape_tables(VAV_SHAPES)
+        with pytest.raises(ValueError, match="from a different shapes graph"):
+            db.add_shape_tables(stricter)
+
+
+def test_same_shapes_with_a_different_name_path_are_rejected():
+    with ResultDatabase() as db:
+        db.add_shape_tables(VAV_SHAPES)
+        with pytest.raises(ValueError, match="with a different name_path"):
+            db.add_shape_tables(VAV_SHAPES, name_path=["sh:name"])
+
+
+def test_adding_the_same_query_table_again_changes_nothing():
+    query = 'SELECT ("x" AS ?value) WHERE {}'
+    with ResultDatabase() as db:
+        db.add_query_table("example", query)
+        db.add_query_table("example", query)
+        assert db.connection.execute(
+            "SELECT COUNT(*) FROM _shifty_result_queries"
+        ).fetchone() == (1,)
+        with pytest.raises(ValueError, match="different query"):
+            db.add_query_table("example", 'SELECT ("y" AS ?value) WHERE {}')
+        with pytest.raises(ValueError, match="different graph_mode"):
+            db.add_query_table("example", query, graph_mode="data")
+
+
+def test_overlapping_selections_from_one_graph_register_each_shape_once():
+    shapes = (
+        PREFIXES
+        + """
+    ex:VavShape a sh:NodeShape ; sh:targetClass ex:Vav ; ex:publish true ;
+        sh:property [ sh:path ex:hasPoint ] .
+    ex:MeterShape a sh:NodeShape ; sh:targetClass ex:Meter ;
+        sh:property [ sh:path ex:reading ] .
+    """
+    )
+    published = """
+        PREFIX ex: <https://example.org/>
+        SELECT ?shape WHERE { ?shape ex:publish true }
+    """
+    tables = "SELECT table_name FROM _shifty_result_tables ORDER BY table_name"
+    with ResultDatabase() as db:
+        db.add_shape_tables(shapes, shape_query=published)
+        db.add_shape_tables(shapes)
+        db.add_shape_tables(shapes, shape_names=["https://example.org/MeterShape"])
+        assert db.connection.execute(tables).fetchall() == [
+            ("ex:MeterShape",),
+            ("ex:VavShape",),
+        ]
+        # The graph is stored once, so SPARQL tables see it once.
+        assert db.connection.execute(
+            "SELECT COUNT(*) FROM _shifty_result_registrations"
+        ).fetchone() == (1,)
+        db.refresh(
+            PREFIXES + "ex:v a ex:Vav ; ex:hasPoint ex:p . ex:m a ex:Meter .",
+            infer=False,
+        )
+        assert db.connection.execute(
+            "SELECT table_name, focus FROM _shifty_result_validation ORDER BY 1"
+        ).fetchall() == [
+            ("ex:MeterShape", "<https://example.org/m>"),
+            ("ex:VavShape", "<https://example.org/v>"),
+        ]

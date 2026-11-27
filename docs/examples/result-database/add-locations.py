@@ -1,7 +1,6 @@
 from shifty.experimental.result_database import ResultDatabase
 
-db = ResultDatabase()
-db.add_shape_tables("shapes.ttl")
+db = ResultDatabase("building.sqlite")
 db.add_query_table(
     "vav_locations",
     """
@@ -17,12 +16,4 @@ db.add_query_table(
     """,
 )
 db.refresh("data.ttl")
-
-query = """
-SELECT vav.focus, vav.airflow, locations.room, locations.profile_label
-FROM [ex:VavShape] AS vav
-JOIN vav_locations AS locations USING (focus)
-ORDER BY vav.focus, vav.airflow
-"""
-for row in db.connection.execute(query):
-    print(row)
+db.close()

@@ -3677,6 +3677,10 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
         m
     )?)?;
     m.add_function(wrap_pyfunction!(
+        result_database::_result_database_canonical_shapes,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
         result_database::_result_database_query_columns,
         m
     )?)?;

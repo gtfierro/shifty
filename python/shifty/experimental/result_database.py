@@ -17,6 +17,7 @@ from urllib.parse import unquote, urlsplit
 
 from shifty import EvidenceSession, GraphInputs, _coalesce_graph_input, _to_rdf_input
 from shifty._shifty import (
+    _result_database_canonical_shapes,
     _result_database_query_columns,
     _result_database_scope_shapes,
     _result_database_snapshot,
@@ -107,30 +108,58 @@ class ResultDatabase:
         """
         document = _snapshot(shapes_graph, base)
         session = EvidenceSession(document.encode(), b"", infer=False)
+        digest = _shapes_digest(document)
         name_paths = _name_paths(name_path)
         tables = _compile_tables(session, name_paths, shape_names, shape_query)
 
         with self._transaction():
+            # The same graph and name paths always produce the same table, so a
+            # shape registered that way already is skipped. A shape registered
+            # from a different graph or with other name paths is a conflict,
+            # because result identifiers give each shape one table.
+            new_tables = []
+            for table in tables:
+                existing = self.connection.execute(
+                    "SELECT t.table_name, r.shapes_digest, r.name_paths "
+                    "FROM main._shifty_result_tables AS t "
+                    "JOIN main._shifty_result_registrations AS r "
+                    "ON r.id = t.registration WHERE t.shape_iri = ?",
+                    (table.iri,),
+                ).fetchone()
+                if existing is None:
+                    new_tables.append(table)
+                    continue
+                existing_name, existing_digest, existing_paths = existing
+                if existing_digest != digest:
+                    reason = "from a different shapes graph"
+                elif json.loads(existing_paths) != name_paths:
+                    reason = "with a different name_path"
+                else:
+                    continue
+                raise ValueError(
+                    f"shape {table.iri} already has a result table, "
+                    f"{existing_name}, registered {reason}"
+                )
+            tables = new_tables
             self._check_table_names(
                 name for table in tables for name in (table.name, table.index_name)
             )
-            # Result identifiers hash the shape IRI, so each shape feeds one table.
-            for table in tables:
-                existing = self.connection.execute(
-                    "SELECT table_name FROM main._shifty_result_tables "
-                    "WHERE shape_iri = ?",
-                    (table.iri,),
-                ).fetchone()
-                if existing is not None:
-                    raise ValueError(
-                        f"shape {table.iri} already has a result table: {existing[0]}"
-                    )
-            # A registration with no tables still supplies RDF to SPARQL queries.
-            registration = self.connection.execute(
-                "INSERT INTO main._shifty_result_registrations (shapes, name_paths) "
-                "VALUES (?, ?)",
-                (document, json.dumps(name_paths)),
-            ).lastrowid
+            # Store each graph once. New shapes from an already registered graph
+            # join that registration. A registration with no tables still
+            # supplies RDF to SPARQL queries.
+            existing = self.connection.execute(
+                "SELECT id FROM main._shifty_result_registrations "
+                "WHERE shapes_digest = ? AND name_paths = ? ORDER BY id",
+                (digest, json.dumps(name_paths)),
+            ).fetchone()
+            if existing is not None:
+                registration = existing[0]
+            else:
+                registration = self.connection.execute(
+                    "INSERT INTO main._shifty_result_registrations "
+                    "(shapes, shapes_digest, name_paths) VALUES (?, ?, ?)",
+                    (document, digest, json.dumps(name_paths)),
+                ).lastrowid
             for table in tables:
                 self.connection.execute(
                     "INSERT INTO main._shifty_result_tables VALUES (?, ?, ?)",
@@ -167,6 +196,19 @@ class ResultDatabase:
         _check_names(columns, ())
         schema = ", ".join(f"{_quote(column)} TEXT" for column in columns)
         with self._transaction():
+            existing = self.connection.execute(
+                "SELECT query, graph_mode FROM main._shifty_result_queries "
+                "WHERE table_name = ?",
+                (name,),
+            ).fetchone()
+            # Adding the same query table again changes nothing.
+            if existing == (query, graph_mode):
+                return
+            if existing is not None:
+                raise ValueError(
+                    f"query table {name} already exists with a different "
+                    + ("query" if existing[0] != query else "graph_mode")
+                )
             self._check_table_names((name,))
             self.connection.execute(f"CREATE TABLE {_main_table(name)} ({schema})")
             self.connection.execute(
@@ -318,7 +360,8 @@ class ResultDatabase:
 
 _REGISTRY = (
     """CREATE TABLE IF NOT EXISTS main._shifty_result_registrations (
-        id INTEGER PRIMARY KEY, shapes TEXT NOT NULL, name_paths TEXT NOT NULL
+        id INTEGER PRIMARY KEY, shapes TEXT NOT NULL, shapes_digest TEXT NOT NULL,
+        name_paths TEXT NOT NULL
     )""",
     """CREATE TABLE IF NOT EXISTS main._shifty_result_tables (
         table_name TEXT PRIMARY KEY NOT NULL, shape_iri TEXT NOT NULL UNIQUE,
@@ -489,6 +532,12 @@ def _compile_tables(
         _check_names((column for column, _ in table.columns), ())
         tables.append(table)
     return tables
+
+
+def _shapes_digest(document: str) -> str:
+    """A digest of a shapes snapshot that ignores blank-node labels and order."""
+    canonical = _result_database_canonical_shapes(document)
+    return hashlib.sha256(canonical.encode()).hexdigest()
 
 
 def _result_id(shape_iri: str, focus: str) -> str:

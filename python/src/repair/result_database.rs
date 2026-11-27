@@ -3,6 +3,7 @@
 use crate::{InputSpec, py_value_error};
 use oxigraph::io::{RdfFormat, RdfParser};
 use oxigraph::sparql::{QueryResults, SparqlEvaluator};
+use oxrdf::dataset::{CanonicalizationAlgorithm, CanonicalizationHashAlgorithm};
 use oxrdf::{
     BlankNode, Dataset, Graph, GraphNameRef, NamedNodeRef, NamedOrBlankNode, NamedOrBlankNodeRef,
     Term, TermRef,
@@ -51,6 +52,34 @@ fn snapshot(graph: Loaded) -> PyResult<String> {
         writer.serialize_triple(triple).map_err(value_error)?;
     }
     String::from_utf8(writer.finish().map_err(value_error)?).map_err(value_error)
+}
+
+/// The canonical form of a stored shapes snapshot, for recognizing a repeated
+/// registration. Two snapshots of the same graph differ in blank-node labels
+/// and triple order, so the triples are canonicalized with RDFC-1.0 and sorted.
+/// The base IRI and prefix declarations are kept because authored SPARQL
+/// constraints and table names depend on them.
+#[pyfunction]
+pub(super) fn _result_database_canonical_shapes(document: &str) -> PyResult<String> {
+    let Loaded {
+        mut graph,
+        mut prefixes,
+        base,
+    } = Loaded::from_turtle(document.as_bytes(), None).map_err(value_error)?;
+    graph.canonicalize(CanonicalizationAlgorithm::Rdfc10 {
+        hash_algorithm: CanonicalizationHashAlgorithm::Sha256,
+    });
+    prefixes.sort();
+    let mut triples: Vec<String> = graph.iter().map(|triple| format!("{triple} .")).collect();
+    triples.sort();
+    let mut lines = vec![format!("base {}", base.unwrap_or_default())];
+    lines.extend(
+        prefixes
+            .iter()
+            .map(|(prefix, iri)| format!("prefix {prefix}: <{iri}>")),
+    );
+    lines.extend(triples);
+    Ok(lines.join("\n"))
 }
 
 /// Keep the data labels and give colliding shapes blank nodes fresh labels.

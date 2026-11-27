@@ -27,18 +27,21 @@ And here is data for two VAVs, where ``vav1`` has no airflow sensor and
 Creating the database
 ---------------------
 
-This script registers the shapes with ``add_shape_tables()``, which creates an
-empty table for each node shape. It then calls ``refresh()``, which validates
-the data and fills the tables, and prints the ``[ex:VavShape]`` table:
+This script creates ``building.sqlite``, registers the shapes with
+``add_shape_tables()``, which creates an empty table for each node shape, and
+calls ``refresh()``, which validates the data and fills the tables:
 
-.. literalinclude:: ../../examples/result-database/vav-table.py
+.. literalinclude:: ../../examples/result-database/create.py
    :language: python
 
-.. program-output:: python vav-table.py
-   :cwd: ../../examples/result-database
+Pass ``":memory:"``, or nothing, to keep the database in memory instead. Open
+``building.sqlite`` with any SQLite tool and look at the VAV table:
 
-The columns are ``result_id``, ``focus``, ``supply_air_temperature``, and
-``airflow``. Python prints SQL ``NULL`` as ``None``.
+.. literalinclude:: ../../examples/result-database/vav-table.sql
+   :language: sql
+
+.. program-output:: python ../../_ext/result_database_table.py vav-table.sql
+   :cwd: ../../examples/result-database
 
 ``vav1`` fails the shape because it has no airflow sensor, but its
 temperature sensor still matched, so it gets a row with ``airflow`` left
@@ -52,43 +55,30 @@ written in N-Triples form. See :doc:`advanced` to name columns from other
 predicates. The ``result_id`` column links each row to the validation result
 for its focus node, as described in `Running queries`_.
 
-``ResultDatabase()`` keeps the database in memory. To save it to a file you
-can open with any SQLite tool, pass a filename, such as
-``ResultDatabase("building.sqlite")``.
-
 Running queries
 ---------------
 
-You can open the database with any SQLite tool. Alongside the shape tables,
-every refresh records how each focus did against its shape in
-``_shifty_result_validation``, one row per focus and shape. Each of those
-rows has a ``result_id``, and every row of the shape table carries the
-``result_id`` of its focus as a foreign key. Both of ``vav2``'s rows share one
-``result_id``.
-
-Each query below comes from a complete script in
-``docs/examples/result-database``, which builds the database the same way as
-``vav-table.py``.
+Alongside the shape tables, every refresh records how each focus did against
+its shape in ``_shifty_result_validation``, one row per focus and shape. Each
+of those rows has a ``result_id``, and every row of the shape table carries
+the ``result_id`` of its focus as a foreign key. Both of ``vav2``'s rows share
+one ``result_id``.
 
 To find the VAVs that fail, join the shape table to the validation results:
 
-.. literalinclude:: ../../examples/result-database/failing.py
+.. literalinclude:: ../../examples/result-database/failing.sql
    :language: sql
-   :start-after: query = """
-   :end-before: """
 
-.. program-output:: python failing.py
+.. program-output:: python ../../_ext/result_database_table.py failing.sql
    :cwd: ../../examples/result-database
 
 To see what each failing focus is missing, query the
 ``_shifty_result_missing_required_values`` view:
 
-.. literalinclude:: ../../examples/result-database/missing.py
+.. literalinclude:: ../../examples/result-database/missing.sql
    :language: sql
-   :start-after: query = """
-   :end-before: """
 
-.. program-output:: python missing.py
+.. program-output:: python ../../_ext/result_database_table.py missing.sql
    :cwd: ../../examples/result-database
 
 For the full picture, ``_shifty_result_binding_status`` records every field
@@ -96,12 +86,10 @@ of every result: whether it passed, how many values matched, and how many are
 missing. It has ``table_name`` and ``focus`` as well as ``result_id``, so you
 can filter it directly or join it on ``result_id``:
 
-.. literalinclude:: ../../examples/result-database/binding-status.py
+.. literalinclude:: ../../examples/result-database/binding-status.sql
    :language: sql
-   :start-after: query = """
-   :end-before: """
 
-.. program-output:: python binding-status.py
+.. program-output:: python ../../_ext/result_database_table.py binding-status.sql
    :cwd: ../../examples/result-database
 
 A ``result_id`` is a 16-character hex string hashed from the shape IRI and
@@ -120,6 +108,9 @@ shapes, so you can reopen it later and refresh with just the new data:
 
    db = ResultDatabase("building.sqlite")
    db.refresh("data-v2.ttl")
+
+You can also run ``create.py`` again. Registering the same shapes a second time
+has no effect, so the script just refreshes the tables.
 
 .. warning::
 

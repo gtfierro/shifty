@@ -13,19 +13,23 @@ Add tables from SPARQL
 Some useful facts are not part of any shape. In the VAV example, the shape
 says nothing about which room a VAV serves. ``add_query_table()`` turns a
 SPARQL ``SELECT`` into a table. Each variable becomes a column and each
-solution becomes a row. This script adds a ``vav_locations`` table that finds
+solution becomes a row. This script reopens the database from the
+:doc:`VAV example <index>` and adds a ``vav_locations`` table. The table finds
 each VAV's room in the data, and the label of the shape that checks it in the
-shapes graph. It then joins that table to the shape table on ``focus``:
+shapes graph:
 
-.. literalinclude:: ../../examples/result-database/locations.py
+.. literalinclude:: ../../examples/result-database/add-locations.py
    :language: python
 
-.. program-output:: python locations.py
-   :cwd: ../../examples/result-database
+A variable with no value becomes ``NULL``. Declare the prefixes in the query
+itself. Query tables write RDF terms the same way shape tables do, so you can
+join the two kinds of table on ``focus``:
 
-A variable with no value becomes ``NULL``, which Python prints as ``None``.
-Declare the prefixes in the query itself. Query tables write RDF terms the
-same way shape tables do, which is why the join on ``focus`` works.
+.. literalinclude:: ../../examples/result-database/locations.sql
+   :language: sql
+
+.. program-output:: python ../../_ext/result_database_table.py add-locations.py locations.sql
+   :cwd: ../../examples/result-database
 
 ``vav1`` has no room, so its ``room`` is ``NULL``. Each refresh updates both
 kinds of table together.
@@ -83,8 +87,24 @@ A helper shape that a selected shape refers to, for example through
 so SPARQL tables can read from it.
 
 You can call ``add_shape_tables()`` more than once to register several
-shapes graphs in one database. Each shape can have only one table, so
-registering a shape that already has one raises an error.
+shapes graphs in one database.
+
+``add_shape_tables()`` is idempotent: registering a shape that already has a
+table has no effect. The same shapes graph with the same ``name_path`` always
+produces the same table, so there is nothing to change. This lets you rerun a
+setup script such as ``create.py`` against an existing database file. It also
+covers reaching the same shape twice, for example once through a
+``shape_query`` and again by registering the whole file. The second call skips
+the shapes that already have tables and adds the rest. ``add_query_table()``
+works the same way when the name, query, and ``graph_mode`` all match.
+
+Shifty compares shapes graphs with `RDF Dataset Canonicalization
+<https://www.w3.org/TR/rdf-canon/>`_ (RDFC-1.0), so reordered triples or
+relabelled blank nodes don't count as a change. The base IRI and prefix
+declarations must also match. Registering a shape from a changed graph, such
+as one with a different ``sh:minCount`` or a new ``rdfs:label``, or with a
+different ``name_path``, raises an error, because each shape can have only one
+table.
 
 Name tables and columns
 -----------------------
