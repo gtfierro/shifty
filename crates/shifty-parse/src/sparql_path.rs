@@ -278,7 +278,7 @@ fn resolve_prefixed_name(token: &str, prefixes: &[(String, String)]) -> Result<N
         .map(|(_, namespace)| namespace.as_str())
         // These are standard fallbacks, not overrides: an explicit document
         // declaration retains its normal SPARQL meaning.
-        .or_else(|| match prefix {
+        .or(match prefix {
             "sh" => Some(vocab::SH),
             "rdfs" => Some(vocab::RDFS),
             _ => None,

@@ -63,6 +63,7 @@ mod focus;
 pub mod frozen;
 pub mod gate;
 mod infer;
+pub mod names;
 mod native_exec;
 mod node_expr;
 pub mod path;

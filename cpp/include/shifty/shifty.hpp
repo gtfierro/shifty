@@ -706,7 +706,7 @@ public:
     }
     [[nodiscard]] BindingStatus status() const noexcept { return status_; }
 
-    /// The author's names for the slot (`name_path`), if any.
+    /// The author's names for the slot (`name_paths`), if any.
     [[nodiscard]] const std::vector<std::string> &names() const noexcept {
         return names_;
     }
@@ -881,11 +881,13 @@ struct ShapeMapOptions {
     Severity minimum_severity = Severity::Info;
     std::vector<std::string> shape_names;
 
-    /// A SPARQL 1.1 property path evaluated from each property shape's own
-    /// node over the shapes graph to carry the author's name for a slot.
-    /// Defaults to `sh:name`; set to empty to skip name resolution. A
-    /// singleton property slot retains this name after normalization.
-    std::string name_path = "sh:name";
+    /// SPARQL 1.1 property paths evaluated, in order, from each property
+    /// shape's own node over the shapes graph to carry the author's names for
+    /// a slot. The first path that reaches a value supplies `Binding::name()`.
+    /// Defaults to `sh:name`, then `rdfs:label`, as in Python; set to empty to
+    /// skip name resolution. A singleton property slot retains its names
+    /// after normalization.
+    std::vector<std::string> name_paths = {"sh:name", "rdfs:label"};
 
     /// `label -> path` pairs evaluated from each bound value over the data
     /// graph, annotating it (`Binding::annotated_values()`). An optional
@@ -1717,6 +1719,7 @@ public:
         ShapeMapOptions options = {}) const {
         ShiftyShapeMap *raw = nullptr;
         const auto shape_names = detail::string_views(options.shape_names);
+        const auto name_paths = detail::string_views(options.name_paths);
         const auto value_pairs =
             detail::build_value_path_pairs(options.value_paths);
         detail::check(shifty_prepared_validator_shape_map(
@@ -1727,8 +1730,8 @@ public:
             detail::to_c(options.minimum_severity),
             shape_names.data(),
             shape_names.size(),
-            detail::optional_data(options.name_path),
-            options.name_path.size(),
+            name_paths.data(),
+            name_paths.size(),
             value_pairs.data(),
             value_pairs.size(),
             &raw));

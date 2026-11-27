@@ -325,7 +325,7 @@ int main() {
     std::filesystem::remove(shapes_b_path);
 
     // ── shape-map v2: typed key -> value bindings ────────────────────────
-    // Typed Key -> Binding pairs with cardinality, sh:name via name_path, and
+    // Typed Key -> Binding pairs with cardinality, sh:name via name_paths, and
     // value_paths annotations on bound values.
     constexpr std::string_view smap_shapes = R"(
         @prefix sh:  <http://www.w3.org/ns/shacl#> .
@@ -392,9 +392,9 @@ int main() {
     smap_dataset.load(smap_data);
     shifty::PreparedValidator smap_validator(smap_shapes);
     // The shape map itself: typed keys with qualifiers, cardinality/severity
-    // read from the source constraints, and sh:name via name_path.
+    // read from the source constraints, and sh:name via name_paths.
     shifty::ShapeMapOptions smap_options;
-    smap_options.name_path = "sh:name";
+    smap_options.name_paths = {"sh:name"};
     smap_options.shape_names = {
         "urn:shifty-smoke/ZoneShape",
         "urn:shifty-smoke/VavShape",

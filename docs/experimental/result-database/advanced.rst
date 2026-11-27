@@ -119,7 +119,8 @@ work in SQL.
 A column is named after the first one of these that exists:
 
 1. the property shape's ``sql:columnName``, used exactly as written
-2. the first value reached by the name paths, tried in order
+2. the property's shape-map name: the first value reached by the name paths,
+   tried in order, using a literal's text or an IRI's local name
 3. the local name of the property shape's IRI
 4. the local name of the property's path
 

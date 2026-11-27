@@ -441,35 +441,39 @@ fn sql_alias(
     }
 }
 
-/// The first `name_paths` entry that reaches a literal from the property shape
-/// names the field, using its smallest literal. Without one, the property
-/// shape's IRI or its path supplies a local name.
+/// A field is named like its shape-map binding: by the first authored name
+/// that can label a column, a literal's text or an IRI's local name. Without
+/// one, the property shape's IRI or its path supplies a local name.
 fn field_label(
     shapes: &Loaded,
     name_paths: &[Path],
     property: &NamedOrBlankNode,
     path: &Term,
 ) -> Option<String> {
-    let start = Term::from(property.clone());
-    name_paths
+    let names = shifty_engine::names::authored_names(
+        &shapes.graph,
+        &Term::from(property.clone()),
+        name_paths,
+    );
+    names
         .iter()
-        .find_map(|name_path| {
-            shifty_engine::path::succ(&shapes.graph, &start, name_path)
-                .into_iter()
-                .filter_map(|name| match name {
-                    Term::Literal(name) => Some(name.value().to_owned()),
-                    _ => None,
-                })
-                .min()
-        })
-        .or_else(|| match (property, path) {
-            (NamedOrBlankNode::NamedNode(iri), _) | (_, Term::NamedNode(iri)) => iri
-                .as_str()
-                .rsplit(['#', '/', ':'])
-                .find(|part| !part.is_empty())
-                .map(str::to_owned),
+        .find_map(|name| match name {
+            Term::Literal(name) => Some(name.value().to_owned()),
+            Term::NamedNode(iri) => local_name(iri.as_str()),
             _ => None,
         })
+        .or_else(|| match (property, path) {
+            (NamedOrBlankNode::NamedNode(iri), _) | (_, Term::NamedNode(iri)) => {
+                local_name(iri.as_str())
+            }
+            _ => None,
+        })
+}
+
+fn local_name(iri: &str) -> Option<String> {
+    iri.rsplit(['#', '/', ':'])
+        .find(|part| !part.is_empty())
+        .map(str::to_owned)
 }
 
 fn select_shapes(shapes: &Loaded, query: &str) -> PyResult<Vec<String>> {

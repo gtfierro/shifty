@@ -98,13 +98,13 @@ The C++ shape-map view follows Python ``shifty.shape_map()``. Each selected
 typed ``Term``\ s, including for nodes that only partially conform. Failed
 bindings expose shortfalls and near-misses.
 
-A node shape with one property retains that property's ``name_path`` value.
+A node shape with one property retains that property's ``name_paths`` value.
 An unbounded ``sh:qualifiedValueShape`` also exposes matching values.
 
 .. code-block:: cpp
 
    shifty::ShapeMapOptions opts;
-   opts.name_path = "sh:name";            // author's name per slot, shapes graph
+   opts.name_paths = {"sh:name"};        // author's name per slot, shapes graph
    opts.value_paths = {{"ts", "demo:hasTimeseriesId"}};  // annotate each value
 
    const auto smap = validator.shape_map(dataset, opts);
@@ -134,10 +134,12 @@ An unbounded ``sh:qualifiedValueShape`` also exposes matching values.
      - Validation behavior used while extracting bindings.
    * - ``shape_names``
      - Optional named entry shapes; empty selects every target-bearing shape.
-   * - ``name_path``
-     - Property path naming the *slot*, evaluated from the authored
-       property-shape node over the **shapes** graph. Constant per property
-       shape. Defaults to ``"sh:name"``; set empty to skip slot naming.
+   * - ``name_paths``
+     - Property paths naming the *slot*, evaluated in order from the authored
+       property-shape node over the **shapes** graph. The first path that
+       reaches a value supplies ``name()``. Constant per property shape.
+       Defaults to ``{"sh:name", "rdfs:label"}``, the same as Python; set
+       empty to skip slot naming.
    * - ``value_paths``
      - ``std::vector<std::pair<std::string, std::string>>`` — ``label -> path``
        pairs annotating each *bound value*, evaluated from the value node over
@@ -226,7 +228,7 @@ Unlike Python, the C++ shape map is materialized eagerly at build time, so a
      - Whether the key is usable; ``BindingStatus::Bound`` or ``Unbound``.
    * - ``name()`` / ``names()``
      - The resolved slot name (first value of ``names()``, or ``nullptr``), and
-       every value ``name_path`` reached.
+       every value ``name_paths`` reached, earlier paths first.
    * - ``values()``
      - The bound values as ``Term`` objects. For a failing key these are the
        qualifying near-matches (same as ``partial_values()``).

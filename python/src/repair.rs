@@ -9,8 +9,7 @@
 
 use crate::{
     Constraint, ConstraintKind, InputSpec, Violation, constraint_kind_to_py, constraint_to_py,
-    graph_to_ntriples, parse_minimum_severity, parse_mode, py_value_error, term_text,
-    violation_to_py,
+    graph_to_ntriples, parse_minimum_severity, parse_mode, py_value_error, violation_to_py,
 };
 use oxrdf::{Graph, Term};
 use pyo3::prelude::*;
@@ -3072,21 +3071,10 @@ impl EvidenceSession {
                 continue;
             };
             let names = by_owner.entry(owner).or_insert_with(|| {
-                let mut names: Vec<String> = Vec::new();
-                for path in &paths {
-                    let mut matches: Vec<String> =
-                        shifty_engine::path::succ(&self.shapes.graph, source, path)
-                            .into_iter()
-                            .map(|t| term_text(&t))
-                            .collect();
-                    matches.sort();
-                    for name in matches {
-                        if !names.contains(&name) {
-                            names.push(name);
-                        }
-                    }
-                }
-                names
+                shifty_engine::names::authored_names(&self.shapes.graph, source, &paths)
+                    .iter()
+                    .map(shifty_engine::names::name_text)
+                    .collect()
             });
             if !names.is_empty() {
                 out.insert(id, names.clone());
@@ -3100,13 +3088,7 @@ impl EvidenceSession {
         &self,
         name_paths: &[String],
     ) -> PyResult<Vec<shifty_algebra::Path>> {
-        name_paths
-            .iter()
-            .map(|expr| {
-                shifty_parse::parse_property_path(expr, &self.shapes)
-                    .map_err(|e| py_value_error(format!("invalid name_path {expr:?}: {e}")))
-            })
-            .collect()
+        shifty_engine::names::parse_name_paths(name_paths, &self.shapes).map_err(py_value_error)
     }
 
     /// Backward-compatible internal extraction helper.

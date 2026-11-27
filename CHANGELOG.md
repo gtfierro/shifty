@@ -8,8 +8,10 @@
   so property shapes with only an `rdfs:label` now get a `Binding.name`.
   `Binding.names` lists the names in path order. `rdfs:` now resolves in
   property paths without a prefix declaration, like `sh:`. Pass
-  `name_path="sh:name"` to keep the previous behavior. The C++ API still takes
-  a single path, defaulting to `sh:name`.
+  `name_path="sh:name"` to keep the previous behavior. The C++ API follows:
+  `ShapeMapOptions::name_path` (a string) is now `name_paths` (a list) with the
+  same default, and the C function takes an array of string views. Python,
+  C++, and result database column names share one resolver.
 - `Mapping.conforms` now honours `minimum_severity`, in Python and C++. A focus
   whose only failures fall below the threshold conforms, matching
   `ShapeMap.conforms`. Its bindings still report the failure. Each

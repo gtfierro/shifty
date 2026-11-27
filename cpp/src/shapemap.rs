@@ -772,7 +772,7 @@ fn irrefutable_node() -> Value {
 }
 
 /// The session-backed pieces the builder cannot derive from the run alone.
-type BindingNamesFn<'a> = dyn Fn(Option<&str>) -> Result<HashMap<u32, Vec<String>>, String> + 'a;
+type BindingNamesFn<'a> = dyn Fn(&[String]) -> Result<HashMap<u32, Vec<String>>, String> + 'a;
 type BindingValuesFn<'a> = dyn Fn(&str, u32) -> Result<Vec<TermInfo>, String> + 'a;
 type MaterializeConstraintFn<'a> = dyn Fn(&str, u32) -> Result<Option<Value>, String> + 'a;
 type ResolvePathFn<'a> =
@@ -781,7 +781,7 @@ type ResolvePathFn<'a> =
 pub struct ShapeMapBuildInputs<'a> {
     /// The raw schema's shape name for a source constraint id.
     pub shape_name_of: &'a dyn Fn(u32) -> Option<String>,
-    /// `name_path` -> constraint id -> reached names over the shapes graph.
+    /// `name_paths` -> constraint id -> reached names over the shapes graph.
     pub binding_names: &'a BindingNamesFn<'a>,
     /// Values for an authored property constraint normalized away as `Top`.
     pub binding_values: &'a BindingValuesFn<'a>,
@@ -808,12 +808,12 @@ pub struct StatementMeta {
     pub foci: Vec<FocusMeta>,
 }
 
-/// Build the shape map from a parsed run. `name_path` (`None` to skip) names
+/// Build the shape map from a parsed run. `name_paths` (empty to skip) names
 /// each slot from the shapes graph; `value_paths` annotates each bound value
 /// from the data graph, resolved in one batched call per label.
 pub fn build(
     run: &Value,
-    name_path: Option<&str>,
+    name_paths: &[String],
     value_paths: &[(String, String)],
     statements: &[StatementMeta],
     inputs: &ShapeMapBuildInputs,
@@ -828,8 +828,8 @@ pub fn build(
             .unwrap_or(&Value::Null),
     );
 
-    let names_table = if name_path.is_some() {
-        (inputs.binding_names)(name_path)?
+    let names_table = if !name_paths.is_empty() {
+        (inputs.binding_names)(name_paths)?
     } else {
         HashMap::new()
     };

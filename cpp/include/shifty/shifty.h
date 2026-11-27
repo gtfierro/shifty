@@ -297,15 +297,16 @@ ShiftyStringView shifty_algebra_reason_annotation_value(const ShiftyAlgebraResul
  * Shape map: typed key -> value bindings for every selected (shape, focus)
  * pair.
  *
- * `name_path` is a SPARQL 1.1 property path (non-NULL) evaluated from each
- * property shape's own node over the shapes graph to carry the author's name
- * for a slot; an empty path falls back to `sh:name`. Pass a NULL pointer with
- * length 0 to *skip* name resolution entirely.
+ * `name_paths` is an ordered array of SPARQL 1.1 property paths evaluated from
+ * each property shape's own node over the shapes graph to carry the author's
+ * names for a slot. Earlier paths come first, so the first path that reaches a
+ * value supplies the slot's name. `sh:` and `rdfs:` need no prefix
+ * declaration. Pass NULL with length 0 to *skip* name resolution entirely.
  *
  * `value_paths` is an array of (label, path) pairs; each path is evaluated
  * from each bound value over the evaluation graph to annotate it. Pass
  * NULL with length 0 for none.
- * Singleton property slots retain their `name_path` result, and an optional
+ * Singleton property slots retain their `name_paths` result, and an optional
  * qualified property still exposes the values satisfying its qualifier.
  *
  * All ShiftyStringView / ShiftyTerm values handed out by the accessors below
@@ -320,8 +321,8 @@ ShiftyStatus shifty_prepared_validator_shape_map(
     ShiftySeverity minimum_severity,
     const ShiftyStringView *shape_names,
     size_t shape_names_len,
-    const char *name_path,
-    size_t name_path_len,
+    const ShiftyStringView *name_paths,
+    size_t name_paths_len,
     const ShiftyStringPair *value_paths,
     size_t value_paths_len,
     ShiftyShapeMap **out);

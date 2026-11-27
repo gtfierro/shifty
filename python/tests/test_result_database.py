@@ -947,3 +947,26 @@ def test_columns_follow_the_shape_map_bindings():
             "in_and": "3",
             "in_helper": "4",
         }
+
+
+def test_column_names_follow_binding_names():
+    shapes = (
+        PREFIXES
+        + """
+    @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+    ex:S a sh:NodeShape ; sh:targetNode ex:x ; sh:property [
+        sh:path ex:p ; ex:quantity ex:SupplyTemperature ; rdfs:label "fallback"
+    ] .
+    """
+    )
+    data = PREFIXES + "ex:x ex:p 1 ."
+    name_path = ["ex:quantity", "rdfs:label"]
+    (mapping,) = list(shape_map(data, shapes, name_path=name_path, infer=False))
+    (binding,) = mapping.bindings.values()
+    # The first name is an IRI, so the column takes its local name.
+    assert binding.names == ["<https://example.org/SupplyTemperature>", "fallback"]
+    with ResultDatabase() as db:
+        db.add_shape_tables(shapes, name_path=name_path)
+        db.refresh(data, infer=False)
+        columns = db.connection.execute("SELECT * FROM [ex:S]").description
+        assert [column[0] for column in columns][2:] == ["supply_temperature"]
