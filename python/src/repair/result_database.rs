@@ -1,7 +1,6 @@
 //! Authored shape catalogs and SPARQL results for the experimental SQLite projection.
 
 use crate::{InputSpec, py_value_error};
-use oxigraph::io::{RdfFormat, RdfParser};
 use oxigraph::sparql::{QueryResults, SparqlEvaluator};
 use oxrdf::dataset::{CanonicalizationAlgorithm, CanonicalizationHashAlgorithm};
 use oxrdf::{
@@ -9,7 +8,7 @@ use oxrdf::{
     Term, TermRef,
 };
 use pyo3::{prelude::*, pybacked::PyBackedBytes};
-use shifty_algebra::Path;
+use shifty_algebra::{Path, Shape, ShapeId};
 use shifty_parse::{Loaded, graph::term_to_node, vocab};
 use spargebra::{Query, SparqlParser, algebra::GraphPattern};
 use std::cell::OnceCell;
@@ -82,65 +81,134 @@ pub(super) fn _result_database_canonical_shapes(document: &str) -> PyResult<Stri
     Ok(lines.join("\n"))
 }
 
-/// Keep the data labels and give colliding shapes blank nodes fresh labels.
-/// Both projections read these same documents for the duration of a refresh.
-#[pyfunction]
-pub(super) fn _result_database_scope_shapes(
-    data: &[u8],
-    shapes: Vec<String>,
-) -> PyResult<Vec<String>> {
-    let data = shifty_parse::load_turtle(data, None).map_err(value_error)?;
-    let mut used: HashSet<_> = blank_nodes(&data.graph).collect();
-    let mut next = 0;
-    shapes
-        .into_iter()
-        .map(|document| {
-            let mut loaded =
-                shifty_parse::load_turtle(document.as_bytes(), None).map_err(value_error)?;
-            let mut replacements = HashMap::new();
-            let mut blanks: Vec<_> = blank_nodes(&loaded.graph)
-                .collect::<HashSet<_>>()
-                .into_iter()
-                .collect();
-            blanks.sort_unstable_by(|left, right| left.as_str().cmp(right.as_str()));
-            for blank in blanks {
-                if used.insert(blank.clone()) {
-                    continue;
-                }
-                loop {
-                    next += 1;
-                    let replacement = BlankNode::new_unchecked(format!("shifty_result_{next}"));
-                    if used.insert(replacement.clone()) {
-                        replacements.insert(blank, replacement);
-                        break;
-                    }
-                }
+/// One refresh's data and shapes graphs, each parsed once and shared by every
+/// validation session and the SPARQL query dataset.
+#[pyclass(unsendable, name = "_ResultDatabaseRefresh")]
+pub(super) struct ResultDatabaseRefresh {
+    data: Graph,
+    shapes: Vec<Loaded>,
+}
+
+#[pymethods]
+impl ResultDatabaseRefresh {
+    #[new]
+    #[pyo3(signature = (data, path, format, base, shapes))]
+    fn new(
+        data: Option<PyBackedBytes>,
+        path: Option<String>,
+        format: &str,
+        base: Option<&str>,
+        shapes: Vec<String>,
+    ) -> PyResult<Self> {
+        let data = InputSpec::new(data, path, format, "graph")
+            .and_then(|input| input.load(base))
+            .map_err(py_value_error)?
+            .graph;
+        // Keep the data labels and give colliding shapes blank nodes fresh
+        // labels, so the sessions and the query dataset agree on every label.
+        let mut used: HashSet<_> = blank_nodes(&data).collect();
+        let mut next = 0;
+        let shapes = shapes
+            .iter()
+            .map(|document| {
+                let mut loaded =
+                    shifty_parse::load_turtle(document.as_bytes(), None).map_err(value_error)?;
+                relabel_collisions(&mut loaded.graph, &mut used, &mut next);
+                Ok(loaded)
+            })
+            .collect::<PyResult<_>>()?;
+        Ok(Self { data, shapes })
+    }
+
+    /// A validation session over the data and one registered shapes graph.
+    fn session(
+        &self,
+        index: usize,
+        infer: bool,
+        graph_mode: &str,
+    ) -> PyResult<super::EvidenceSession> {
+        let shapes = self
+            .shapes
+            .get(index)
+            .ok_or_else(|| py_value_error(format!("no shapes graph at index {index}")))?;
+        super::EvidenceSession::from_loaded(
+            Loaded {
+                graph: shapes.graph.clone(),
+                prefixes: shapes.prefixes.clone(),
+                base: shapes.base.clone(),
+            },
+            Some(self.data.clone()),
+            infer,
+            crate::parse_mode(graph_mode).map_err(py_value_error)?,
+            crate::engine_options("error").map_err(py_value_error)?,
+        )
+    }
+
+    /// The dataset for query tables. Shapes are left out when no query reads them.
+    fn query_dataset(&self, include_shapes: bool) -> ResultDatabaseQueryDataset {
+        let mut shapes = Dataset::new();
+        if include_shapes {
+            for loaded in &self.shapes {
+                shapes.extend(default_graph(&loaded.graph).iter());
             }
-            if replacements.is_empty() {
-                return Ok(document);
-            }
-            // Rewrite both ends of each triple with one map for this graph.
-            loaded.graph = loaded
-                .graph
-                .iter()
-                .map(|triple| {
-                    let mut triple = triple.into_owned();
-                    if let NamedOrBlankNode::BlankNode(node) = &mut triple.subject
-                        && let Some(replacement) = replacements.get(node)
-                    {
-                        *node = replacement.clone();
-                    }
-                    if let Term::BlankNode(node) = &mut triple.object
-                        && let Some(replacement) = replacements.get(node)
-                    {
-                        *node = replacement.clone();
-                    }
-                    triple
-                })
-                .collect();
-            snapshot(loaded)
-        })
+        }
+        ResultDatabaseQueryDataset {
+            data: default_graph(&self.data),
+            shapes,
+            union: OnceCell::new(),
+        }
+    }
+}
+
+fn default_graph(graph: &Graph) -> Dataset {
+    graph
+        .iter()
+        .map(|triple| triple.in_graph(GraphNameRef::DefaultGraph))
         .collect()
+}
+
+/// Give this graph's blank nodes that are already `used` fresh labels.
+fn relabel_collisions(graph: &mut Graph, used: &mut HashSet<BlankNode>, next: &mut usize) {
+    let mut blanks: Vec<_> = blank_nodes(graph)
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .collect();
+    blanks.sort_unstable_by(|left, right| left.as_str().cmp(right.as_str()));
+    let mut replacements = HashMap::new();
+    for blank in blanks {
+        if used.insert(blank.clone()) {
+            continue;
+        }
+        loop {
+            *next += 1;
+            let replacement = BlankNode::new_unchecked(format!("shifty_result_{next}"));
+            if used.insert(replacement.clone()) {
+                replacements.insert(blank, replacement);
+                break;
+            }
+        }
+    }
+    if replacements.is_empty() {
+        return;
+    }
+    // Rewrite both ends of each triple with one map for this graph.
+    *graph = graph
+        .iter()
+        .map(|triple| {
+            let mut triple = triple.into_owned();
+            if let NamedOrBlankNode::BlankNode(node) = &mut triple.subject
+                && let Some(replacement) = replacements.get(node)
+            {
+                *node = replacement.clone();
+            }
+            if let Term::BlankNode(node) = &mut triple.object
+                && let Some(replacement) = replacements.get(node)
+            {
+                *node = replacement.clone();
+            }
+            triple
+        })
+        .collect();
 }
 
 fn blank_nodes(graph: &Graph) -> impl Iterator<Item = BlankNode> + '_ {
@@ -204,27 +272,6 @@ pub(super) struct ResultDatabaseQueryDataset {
 
 #[pymethods]
 impl ResultDatabaseQueryDataset {
-    #[new]
-    fn new(data: &[u8], shapes: Vec<String>) -> PyResult<Self> {
-        let parser = RdfParser::from_format(RdfFormat::Turtle).without_named_graphs();
-        let data = parser
-            .clone()
-            .for_slice(data)
-            .collect::<Result<Dataset, _>>()
-            .map_err(value_error)?;
-        let mut merged = Dataset::new();
-        for document in shapes {
-            for quad in parser.clone().for_slice(document.as_bytes()) {
-                merged.insert(&quad.map_err(value_error)?);
-            }
-        }
-        Ok(Self {
-            data,
-            shapes: merged,
-            union: OnceCell::new(),
-        })
-    }
-
     fn select(&self, query: &str, graph_mode: &str) -> PyResult<(Vec<String>, QueryRows)> {
         let query = SparqlParser::new()
             .parse_query(query)
@@ -276,19 +323,15 @@ impl super::EvidenceSession {
         shape_query: Option<&str>,
     ) -> PyResult<Vec<TableLayout>> {
         let name_paths = self.parse_name_paths(name_paths)?;
-        // Index authored sources so SQL fields and shape-map bindings use the
-        // same property identifiers, even when their labels or paths overlap.
         let mut nodes = BTreeMap::new();
-        let mut source_ids = HashMap::new();
         for (id, source) in &self.raw_schema.sources {
-            let Some(node) = term_to_node(source) else {
-                continue;
-            };
-            source_ids.insert(source, id.0);
-            if let NamedOrBlankNode::NamedNode(iri) = &node
-                && self.shapes.object(&node, vocab::SH_PATH).is_none()
+            if let Term::NamedNode(iri) = source
+                && self
+                    .shapes
+                    .object(&NamedOrBlankNode::from(iri.clone()), vocab::SH_PATH)
+                    .is_none()
             {
-                nodes.insert(iri.as_str().to_owned(), node);
+                nodes.insert(iri.as_str().to_owned(), (iri.clone(), *id));
             }
         }
         let selected: BTreeSet<_> = match (shape_names, shape_query) {
@@ -302,41 +345,83 @@ impl super::EvidenceSession {
             }
         };
 
-        let identities = self.binding_layout.entries();
+        let owners = self.binding_source_ids_impl();
+        let entries = self.binding_layout.entries();
         selected
             .into_iter()
             .map(|iri| {
-                let node = nodes.get(&iri).ok_or_else(|| {
+                let (named, id) = nodes.get(&iri).ok_or_else(|| {
                     py_value_error(format!("expected a named node shape in this graph: {iri}"))
                 })?;
-                let table_name = sql_alias(&self.shapes, node, TABLE_NAME)?
+                let node = NamedOrBlankNode::from(named.clone());
+                let table_name = sql_alias(&self.shapes, &node, TABLE_NAME)?
                     .or_else(|| self.raw_schema.prefixes.compact_declared(&iri))
                     .unwrap_or_else(|| iri.clone());
                 let mut fields = Vec::new();
-                for source in self.shapes.objects(node, vocab::SH_PROPERTY) {
-                    let property = term_to_node(&source).ok_or_else(|| {
+                for property_id in self.property_slots(*id, &owners) {
+                    let source = &self.raw_schema.sources[&ShapeId(property_id)];
+                    let property = term_to_node(source).ok_or_else(|| {
                         py_value_error(format!("invalid property shape for {iri}: {source}"))
                     })?;
-                    let Some(path) = self.shapes.object(&property, vocab::SH_PATH) else {
-                        return Err(py_value_error(format!(
-                            "property shape {source} on {iri} has no sh:path"
-                        )));
-                    };
-                    let id = source_ids.get(&source).copied().ok_or_else(|| {
-                        py_value_error(format!("no authored property {source} on {iri}"))
-                    })?;
-                    let identity = identities[&id].1.clone();
+                    let path = self
+                        .shapes
+                        .object(&property, vocab::SH_PATH)
+                        .expect("binding owners are property shapes");
+                    let (order, identity, _) = &entries[&property_id];
                     let alias = sql_alias(&self.shapes, &property, COLUMN_NAME)?;
                     let label = field_label(&self.shapes, &name_paths, &property, &path);
-                    fields.push((identity, (id, alias, label)));
+                    let order = order
+                        .as_deref()
+                        .and_then(|order| order.parse::<f64>().ok())
+                        .filter(|order| order.is_finite());
+                    fields.push(((order, identity.clone()), (property_id, alias, label)));
                 }
-                // Order columns by the canonical property identity, not by the
-                // authored triple order.
-                fields.sort_by(|a, b| a.0.cmp(&b.0));
+                // Match the shape map's binding order: sh:order, then identity.
+                fields.sort_by(|(a, _), (b, _)| {
+                    (a.0.is_none(), a.0.unwrap_or(0.0), &a.1)
+                        .partial_cmp(&(b.0.is_none(), b.0.unwrap_or(0.0), &b.1))
+                        .expect("orders are finite")
+                });
                 let fields = fields.into_iter().map(|(_, field)| field).collect();
                 Ok((iri, table_name, fields))
             })
             .collect()
+    }
+
+    /// The authored property shapes a node shape's shape-map bindings come
+    /// from, independent of any data. Shape maps bind each member of the node
+    /// shape's conjunction, grouped under its property shape. A member that is
+    /// not inside one, such as a single-property `sh:node` or `sh:and`, binds
+    /// the property shape it wraps. Keep this in step with `slot_layout` in
+    /// `shifty/shapemap.py`.
+    fn property_slots(&self, node: ShapeId, owners: &HashMap<u32, u32>) -> Vec<u32> {
+        let arena = &self.raw_schema.arena;
+        let mut children = shifty_engine::evidence::source_children(arena, node);
+        // Without a conjunction to report, the node shape is its own member.
+        if children.is_empty() {
+            children.push(node);
+        }
+        let mut slots = Vec::new();
+        for child in children {
+            let mut property = owners.get(&child.0).copied();
+            let mut current = child;
+            let mut seen = HashSet::new();
+            while property.is_none() && seen.insert(current) {
+                if owners.get(&current.0) == Some(&current.0) {
+                    property = Some(current.0);
+                } else if let Shape::Annotated { shape, .. } = arena.get(current) {
+                    current = *shape;
+                } else {
+                    break;
+                }
+            }
+            if let Some(property) = property
+                && !slots.contains(&property)
+            {
+                slots.push(property);
+            }
+        }
+        slots
     }
 }
 

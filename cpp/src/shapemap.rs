@@ -931,7 +931,10 @@ fn build_mapping(
     inputs: &ShapeMapBuildInputs,
     names_table: &HashMap<u32, Vec<String>>,
 ) -> Result<ShapeMapMapping, String> {
-    let conforms = focus.pointer("/evidence/status").and_then(Value::as_str) == Some("pass");
+    let conforms = focus
+        .get("conforms")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
     let root = focus.pointer("/evidence/evidence").unwrap_or(&Value::Null);
     let progress = focus
         .get("progress")

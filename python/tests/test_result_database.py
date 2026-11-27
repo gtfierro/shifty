@@ -4,6 +4,7 @@ import sqlite3
 import pytest
 
 from shifty.experimental.result_database import ResultDatabase
+from shifty.shapemap import shape_map
 
 PREFIXES = """
 @prefix ex: <https://example.org/> .
@@ -911,3 +912,38 @@ def test_overlapping_selections_from_one_graph_register_each_shape_once():
             ("ex:MeterShape", "<https://example.org/m>"),
             ("ex:VavShape", "<https://example.org/v>"),
         ]
+
+
+def test_columns_follow_the_shape_map_bindings():
+    shapes = (
+        PREFIXES
+        + """
+    ex:S a sh:NodeShape ; sh:targetClass ex:T ;
+        sh:property [ sh:path ex:z ; sh:name "zed" ; sh:order 1 ] ;
+        sh:property [ sh:path ex:a ; sh:name "aye" ; sh:order 2 ] ;
+        sh:and ( [ sh:path ex:inner ; sh:name "in and" ] ) ;
+        sh:node ex:Helper .
+    ex:Helper a sh:NodeShape ;
+        sh:property [ sh:path ex:helped ; sh:name "in helper" ] .
+    """
+    )
+    data = PREFIXES + "ex:x a ex:T ; ex:z 1 ; ex:a 2 ; ex:inner 3 ; ex:helped 4 ."
+    (mapping,) = list(shape_map(data, shapes, infer=False))
+    with ResultDatabase() as db:
+        db.add_shape_tables(shapes, shape_names=["https://example.org/S"])
+        db.refresh(data, infer=False)
+        cursor = db.connection.execute("SELECT * FROM [ex:S]")
+        columns = [column[0] for column in cursor.description][2:]
+        # sh:order comes first; unordered properties follow by identity.
+        assert columns[:2] == ["zed", "aye"]
+        assert sorted(columns[2:]) == ["in_and", "in_helper"]
+        assert columns == [
+            binding.name.replace(" ", "_") for binding in mapping.bindings.values()
+        ]
+        row = dict(zip(columns, cursor.fetchone()[2:]))
+        assert {name: value[1:2] for name, value in row.items()} == {
+            "zed": "1",
+            "aye": "2",
+            "in_and": "3",
+            "in_helper": "4",
+        }

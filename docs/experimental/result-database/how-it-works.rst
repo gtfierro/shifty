@@ -10,8 +10,11 @@ the :doc:`VAV example <index>`.
 Shapes define the columns
 -------------------------
 
-Each selected node shape gets a table. Each direct ``sh:property`` gets
-its own column, even when two property shapes share a path.
+Each selected node shape gets a table, with one column for each property
+the shape map binds. That is every ``sh:property``, even when two property
+shapes share a path, plus the property inside a single-property ``sh:node``
+or ``sh:and``. Columns follow the shape map's binding order: ``sh:order``
+first, then a stable order for the rest.
 
 .. code-block:: text
 

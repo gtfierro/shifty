@@ -17,7 +17,7 @@ from shifty import (
     Star,
     Term,
 )
-from shifty.shapemap import DEFAULT_NAME_PATHS, _local, _path_from_json
+from shifty.shapemap import DEFAULT_NAME_PATHS, _local, _path_from_json, shape_map
 from shifty.terms import parse as term_parse
 
 PREFIXES = """
@@ -1102,3 +1102,19 @@ def test_local_name_compaction():
     assert _local("http://ex/hasPoint") == "hasPoint"
     assert _local("http://ex#hasPoint") == "hasPoint"
     assert _local("urn:zonepac-app/zonepac-zone") == "zonepac-zone"
+
+
+def test_mapping_conformance_follows_minimum_severity():
+    prefixes = "@prefix ex: <urn:ex:> . @prefix sh: <http://www.w3.org/ns/shacl#> .\n"
+    shapes = prefixes + (
+        "ex:S a sh:NodeShape ; sh:targetClass ex:T ; sh:property "
+        '[ sh:path ex:p ; sh:minCount 1 ; sh:severity sh:Warning ; sh:name "p" ] .'
+    )
+    data = prefixes + "ex:x a ex:T ."
+    strict = shape_map(data, shapes, infer=False)
+    lenient = shape_map(data, shapes, minimum_severity="violation", infer=False)
+    assert (strict.conforms, [m.conforms for m in strict]) == (False, [False])
+    assert (lenient.conforms, [m.conforms for m in lenient]) == (True, [True])
+    # The binding still records the warning.
+    (mapping,) = list(lenient)
+    assert [b.status for b in mapping.bindings.values()] == ["fail"]

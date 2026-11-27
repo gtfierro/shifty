@@ -58,6 +58,7 @@ from .terms import parse as _term_parse
 
 if TYPE_CHECKING:  # pragma: no cover
     from . import EvidenceRun, EvidenceSession
+    from ._shifty import EvidenceSession as _NativeSession
 
 __all__ = [
     "Id",
@@ -368,6 +369,9 @@ class _Catalog:
 
     def __init__(self, records: list[dict]) -> None:
         self._by_id = {record["id"]: record["constraint"] for record in records}
+        # Both depend only on the constraint, but are asked once per focus.
+        self._signatures: dict[int, str] = {}
+        self.count_domains: dict[int, frozenset[tuple[str, str]]] = {}
 
     def get(self, constraint_id: Optional[int]):
         return self._by_id.get(constraint_id)
@@ -389,6 +393,16 @@ class _Catalog:
 
     def signature(self, constraint_id: int, stack: tuple[int, ...] = ()) -> str:
         """Structural fallback for synthetic constraints with no RDF source."""
+        if not stack:
+            cached = self._signatures.get(constraint_id)
+            if cached is None:
+                cached = self._signatures[constraint_id] = self._signature(
+                    constraint_id, ()
+                )
+            return cached
+        return self._signature(constraint_id, stack)
+
+    def _signature(self, constraint_id: int, stack: tuple[int, ...]) -> str:
         if constraint_id in stack:
             return json.dumps(["cycle", stack.index(constraint_id)])
         constraint = self.get(constraint_id)
@@ -589,8 +603,19 @@ def _has_universal_value_constraint(
     return False
 
 
-def _count_domains(catalog: _Catalog, constraint_id: int) -> set[tuple[str, str]]:
+def _count_domains(catalog: _Catalog, constraint_id: int) -> frozenset[tuple[str, str]]:
     """Distinct authored count domains, excluding synthetic universal counts."""
+    cached = catalog.count_domains.get(constraint_id)
+    if cached is None:
+        cached = catalog.count_domains[constraint_id] = frozenset(
+            _uncached_count_domains(catalog, constraint_id)
+        )
+    return cached
+
+
+def _uncached_count_domains(
+    catalog: _Catalog, constraint_id: int
+) -> set[tuple[str, str]]:
     constraint = catalog.logical(constraint_id)
     if isinstance(constraint, dict) and "Count" in constraint:
         count = constraint["Count"]
@@ -1410,7 +1435,7 @@ class ShapeMap:
     def from_run(
         cls,
         run: "EvidenceRun",
-        session: "Optional[EvidenceSession]" = None,
+        session: "Optional[EvidenceSession | _NativeSession]" = None,
         *,
         name_path: NamePaths = DEFAULT_NAME_PATHS,
         value_paths: "Optional[dict[str, str]]" = None,
@@ -1511,7 +1536,7 @@ def _build_mapping(
     layout: "dict[int, tuple[Optional[str], str, list[str]]]",
     order_cache: dict[tuple[int, ...], _BindingOrder],
 ) -> Mapping:
-    conforms = focus["evidence"]["status"] == "pass"
+    conforms = focus["conforms"]
     root = focus["evidence"]["evidence"]
     progress = (focus.get("progress") or {}).get("evaluated_children", [])
 

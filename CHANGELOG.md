@@ -10,6 +10,11 @@
   property paths without a prefix declaration, like `sh:`. Pass
   `name_path="sh:name"` to keep the previous behavior. The C++ API still takes
   a single path, defaulting to `sh:name`.
+- `Mapping.conforms` now honours `minimum_severity`, in Python and C++. A focus
+  whose only failures fall below the threshold conforms, matching
+  `ShapeMap.conforms`. Its bindings still report the failure. Each
+  `FocusEvaluation` in an evidence run has a new `conforms` flag carrying the
+  same verdict.
 
 ## 0.7.0-alpha.1
 

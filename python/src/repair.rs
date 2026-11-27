@@ -1478,16 +1478,6 @@ impl FocusWitness {
         out
     }
 
-    fn _meets_threshold(&self, minimum_severity: &str) -> PyResult<bool> {
-        let minimum = parse_minimum_severity(minimum_severity).map_err(py_value_error)?;
-        Ok(shifty_engine::evidence::failure_meets_threshold(
-            &self.schema.arena,
-            ShapeId(self.constraint_id),
-            &self.inner.failure,
-            &minimum,
-        ))
-    }
-
     /// The full witness tree, rendered as indented text.
     fn explain(&self) -> String {
         let mut out = Vec::new();
@@ -1774,6 +1764,9 @@ pub struct FocusEvidence {
     focus: String,
     #[pyo3(get)]
     status: String,
+    /// Whether the focus conforms at the run's `minimum_severity`.
+    #[pyo3(get)]
+    conforms: bool,
     satisfaction: Option<Py<FocusSatisfaction>>,
     failure: Option<Py<FocusWitness>>,
     progress: Option<Py<PyEvaluationProgress>>,
@@ -2361,6 +2354,71 @@ pub struct EvidenceSession {
 }
 
 impl EvidenceSession {
+    /// Prepare a session from graphs that are already parsed.
+    pub(super) fn from_loaded(
+        shapes: shifty_parse::Loaded,
+        data: Option<Graph>,
+        run_infer: bool,
+        mode: shifty_engine::ValidationGraphMode,
+        engine: shifty_engine::EngineOptions,
+    ) -> PyResult<Self> {
+        let compiled =
+            CompiledShapes::compile(shapes).map_err(|error| py_value_error(error.to_string()))?;
+        let session_data = data.map_or(SessionData::Embedded, SessionData::Separate);
+        let session = compiled
+            .session(
+                session_data,
+                SessionOptions {
+                    graph_mode: mode,
+                    inference: run_infer,
+                    engine,
+                },
+            )
+            .map_err(crate::py_session_error)?;
+        let diagnostics = compiled
+            .diagnostics()
+            .iter()
+            .map(ToString::to_string)
+            .chain(
+                session
+                    .diagnostics()
+                    .iter()
+                    .map(|diagnostic| diagnostic.message.clone()),
+            )
+            .collect();
+        let normalized_schema = compiled.normalized_schema_shared();
+        let raw_schema = compiled.authored_schema_shared();
+        let data = session.data_shared();
+        let mapped_shapes = session.public_shapes_graph_if_relabelled();
+        let shapes = compiled.source_shared();
+        let binding_layout = Arc::new(shapemap::BindingLayout::new(
+            Arc::clone(&raw_schema),
+            Arc::clone(&shapes),
+            (0..raw_schema.arena.len())
+                .filter_map(|id| {
+                    session
+                        .prepared_evidence()
+                        .normalized_constraint(ShapeId(id as u32))
+                        .map(|normalized| (id as u32, normalized.0))
+                })
+                .collect(),
+        ));
+
+        Ok(Self {
+            session,
+            raw_schema,
+            normalized_schema,
+            data,
+            run_infer,
+            shapes,
+            mapped_shapes,
+            path_graph: OnceLock::new(),
+            graph_mode: mode,
+            diagnostics,
+            binding_layout,
+        })
+    }
+
     fn path_graph(&self) -> &Graph {
         match self.graph_mode {
             shifty_engine::ValidationGraphMode::Data => &self.data,
@@ -2414,67 +2472,17 @@ impl EvidenceSession {
         let mode = parse_mode(graph_mode).map_err(py_value_error)?;
         let engine = crate::engine_options(on_unsupported).map_err(py_value_error)?;
         let shapes_loaded = shapes_spec.load(base.as_deref()).map_err(py_value_error)?;
-        let compiled = CompiledShapes::compile(shapes_loaded)
-            .map_err(|error| py_value_error(error.to_string()))?;
         let data_loaded = data_spec
             .map(|spec| spec.load(base.as_deref()))
             .transpose()
             .map_err(py_value_error)?;
-        let session_data = data_loaded.map_or(SessionData::Embedded, |loaded| {
-            SessionData::Separate(loaded.graph)
-        });
-        let session = compiled
-            .session(
-                session_data,
-                SessionOptions {
-                    graph_mode: mode,
-                    inference: run_infer,
-                    engine,
-                },
-            )
-            .map_err(crate::py_session_error)?;
-        let diagnostics = compiled
-            .diagnostics()
-            .iter()
-            .map(ToString::to_string)
-            .chain(
-                session
-                    .diagnostics()
-                    .iter()
-                    .map(|diagnostic| diagnostic.message.clone()),
-            )
-            .collect();
-        let normalized_schema = compiled.normalized_schema_shared();
-        let raw_schema = compiled.authored_schema_shared();
-        let data = session.data_shared();
-        let mapped_shapes = session.public_shapes_graph_if_relabelled();
-        let shapes = compiled.source_shared();
-        let binding_layout = Arc::new(shapemap::BindingLayout::new(
-            Arc::clone(&raw_schema),
-            Arc::clone(&shapes),
-            (0..raw_schema.arena.len())
-                .filter_map(|id| {
-                    session
-                        .prepared_evidence()
-                        .normalized_constraint(ShapeId(id as u32))
-                        .map(|normalized| (id as u32, normalized.0))
-                })
-                .collect(),
-        ));
-
-        Ok(Self {
-            session,
-            raw_schema,
-            normalized_schema,
-            data,
+        Self::from_loaded(
+            shapes_loaded,
+            data_loaded.map(|loaded| loaded.graph),
             run_infer,
-            shapes,
-            mapped_shapes,
-            path_graph: OnceLock::new(),
-            graph_mode: mode,
-            diagnostics,
-            binding_layout,
-        })
+            mode,
+            engine,
+        )
     }
 
     #[getter]
@@ -2820,6 +2828,7 @@ impl EvidenceSession {
 
             for result in statement.selected_foci {
                 let focus = result.focus.to_string();
+                let focus_conforms = result.conforms;
                 let progress = result
                     .progress
                     .map(|progress| {
@@ -2907,6 +2916,7 @@ impl EvidenceSession {
                     FocusEvidence {
                         focus,
                         status,
+                        conforms: focus_conforms,
                         satisfaction,
                         failure,
                         progress,
@@ -3686,10 +3696,6 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
         m
     )?)?;
     m.add_function(wrap_pyfunction!(
-        result_database::_result_database_scope_shapes,
-        m
-    )?)?;
-    m.add_function(wrap_pyfunction!(
         result_database::_result_database_canonical_shapes,
         m
     )?)?;
@@ -3698,6 +3704,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
         m
     )?)?;
     m.add_class::<result_database::ResultDatabaseQueryDataset>()?;
+    m.add_class::<result_database::ResultDatabaseRefresh>()?;
     m.add_class::<EvidenceSession>()?;
     m.add_class::<EvidenceValidationOutcome>()?;
     m.add_class::<PyStatementEvaluation>()?;

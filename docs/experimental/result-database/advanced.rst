@@ -81,7 +81,9 @@ for publishing:
 If you pass both, Shifty creates a table for every shape either one selects.
 
 A helper shape that a selected shape refers to, for example through
-``sh:node``, is still checked. It just doesn't get its own table.
+``sh:node``, is still checked. It just doesn't get its own table. If the
+helper has a single property, that property becomes a column of the selected
+shape's table, the same way it becomes a shape-map binding.
 
 ``shape_names=[]`` creates no tables. The shapes graph is still registered,
 so SPARQL tables can read from it.

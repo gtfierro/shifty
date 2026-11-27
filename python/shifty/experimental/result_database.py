@@ -16,12 +16,13 @@ from typing import Optional
 from urllib.parse import unquote, urlsplit
 
 from shifty import EvidenceSession, GraphInputs, _coalesce_graph_input, _to_rdf_input
+from shifty._shifty import EvidenceSession as _NativeSession
 from shifty._shifty import (
     _result_database_canonical_shapes,
     _result_database_query_columns,
-    _result_database_scope_shapes,
     _result_database_snapshot,
     _ResultDatabaseQueryDataset,
+    _ResultDatabaseRefresh,
 )
 from shifty.shapemap import (
     DEFAULT_NAME_PATHS,
@@ -110,7 +111,7 @@ class ResultDatabase:
         session = EvidenceSession(document.encode(), b"", infer=False)
         digest = _shapes_digest(document)
         name_paths = _name_paths(name_path)
-        tables = _compile_tables(session, name_paths, shape_names, shape_query)
+        tables = _compile_tables(session._inner, name_paths, shape_names, shape_query)
 
         with self._transaction():
             # The same graph and name paths always produce the same table, so a
@@ -231,14 +232,14 @@ class ResultDatabase:
             ).fetchall()
             if not registrations and not queries:
                 return
-            data = _snapshot(data_graph, base).encode()
-            # Both projections must see the same labels for shared blank nodes.
-            shapes = (
-                _result_database_scope_shapes(
-                    data, [document for _, document, _ in registrations]
-                )
-                if registrations
-                else []
+            # Parse the data once for every session and the query dataset.
+            source = _to_rdf_input(_coalesce_graph_input(data_graph))
+            snapshot = _ResultDatabaseRefresh(
+                source.data,
+                source.path,
+                source.format,
+                base,
+                [document for _, document, _ in registrations],
             )
             # Clear the rows that reference validation results before the
             # results themselves, so the delete does not cascade row by row.
@@ -248,7 +249,7 @@ class ResultDatabase:
                 self.connection.execute(f"DELETE FROM {_main_table(name)}")
             self.connection.execute("DELETE FROM main._shifty_result_binding_status")
             self.connection.execute("DELETE FROM main._shifty_result_validation")
-            for (registration, _, name_paths), document in zip(registrations, shapes):
+            for index, (registration, _, name_paths) in enumerate(registrations):
                 selected = dict(
                     self.connection.execute(
                         "SELECT shape_iri, table_name FROM main._shifty_result_tables "
@@ -258,9 +259,7 @@ class ResultDatabase:
                 )
                 if not selected:
                     continue
-                session = EvidenceSession(
-                    document.encode(), data, infer=infer, graph_mode=graph_mode
-                )
+                session = snapshot.session(index, infer, graph_mode)
                 tables = _compile_tables(
                     session, json.loads(name_paths), list(selected)
                 )
@@ -268,27 +267,25 @@ class ResultDatabase:
                     raise ValueError(
                         "registered result tables do not match the stored shapes"
                     )
-                run = session.validate(
-                    shape_names=list(selected), minimum_severity=minimum_severity
-                )
+                run = session.validate(list(selected), minimum_severity)
                 # The run's session can recover qualifying values omitted by
                 # failure evidence, including values from passing siblings.
                 shape_map = ShapeMap.from_run(run, session, name_path=None)
                 for table in tables:
                     table.replace(
-                        self.connection,
-                        shape_map.mappings.get(table.iri, []),
-                        minimum_severity,
+                        self.connection, shape_map.mappings.get(table.iri, [])
                     )
             if queries:
-                if all(mode == "data" for _, _, mode in queries):
-                    shapes = []
-                self._refresh_queries(data, shapes, queries)
+                dataset = snapshot.query_dataset(
+                    any(mode != "data" for _, _, mode in queries)
+                )
+                self._refresh_queries(dataset, queries)
 
     def _refresh_queries(
-        self, data: bytes, shapes: list[str], queries: list[tuple[str, str, str]]
+        self,
+        dataset: _ResultDatabaseQueryDataset,
+        queries: list[tuple[str, str, str]],
     ) -> None:
-        dataset = _ResultDatabaseQueryDataset(data, shapes)
         for name, query, graph_mode in queries:
             columns, rows = dataset.select(query, graph_mode)
             names = ", ".join(_quote(column) for column in columns)
@@ -399,9 +396,7 @@ class _Table:
             f"ON {_quote(self.name)} (result_id)"
         )
 
-    def replace(
-        self, db: sqlite3.Connection, mappings: Sequence[Mapping], minimum_severity: str
-    ) -> None:
+    def replace(self, db: sqlite3.Connection, mappings: Sequence[Mapping]) -> None:
         validation_rows = []
         binding_rows = []
         shape_rows: list[Iterable[tuple[str | None, ...]]] = []
@@ -413,10 +408,8 @@ class _Table:
                 continue
             seen.add(focus)
             result_id = _result_id(self.iri, focus)
-            # Apply the threshold to conformance while saving raw binding status.
-            failure = mapping.evaluation.failure
-            conforms = failure is None or not failure._meets_threshold(minimum_severity)
-            validation_rows.append((result_id, self.name, focus, conforms))
+            # Conformance honours minimum_severity; binding status stays raw.
+            validation_rows.append((result_id, self.name, focus, mapping.conforms))
             # Distinct property shapes can share a path but bind different values.
             bindings = {
                 binding._property_source_id: binding
@@ -470,12 +463,12 @@ def _shape_rows(
 
 
 def _compile_tables(
-    session: EvidenceSession,
+    session: _NativeSession,
     name_paths: list[str],
     shape_names: Optional[Sequence[str]],
     shape_query: Optional[str] = None,
 ) -> list[_Table]:
-    layout = session._inner._result_database_layout(
+    layout = session._result_database_layout(
         name_paths, list(shape_names) if shape_names is not None else None, shape_query
     )
     tables = []
