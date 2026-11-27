@@ -14,7 +14,7 @@ use crate::{
 use oxrdf::{Graph, Term};
 use pyo3::prelude::*;
 use pyo3::pybacked::PyBackedBytes;
-use shifty_algebra::{Prefixes, Schema, Selector, Shape, ShapeArena, ShapeId};
+use shifty_algebra::{Prefixes, Schema, Selector, ShapeArena, ShapeId};
 use shifty_engine::{
     CompiledShapes, ConformanceOptions, EvaluationSession, Evidence as IrEvidence,
     EvidenceKind as IrEvidenceKind, EvidenceOrigin as IrEvidenceOrigin, FocusSat as IrSat,
@@ -2119,6 +2119,10 @@ impl EvidenceValidationOutcome {
         self.binding_layout.entries().clone()
     }
 
+    fn _binding_property_sources(&self) -> HashMap<u32, u32> {
+        self.binding_layout.property_sources().clone()
+    }
+
     fn _binding_constraint_map(&self) -> HashMap<u32, u32> {
         self.binding_layout.constraint_map()
     }
@@ -3008,7 +3012,7 @@ impl EvidenceSession {
 
     /// For every *raw* (source) constraint with shapes-graph provenance, and
     /// every lowered child of an authored property shape, the values
-    /// values `name_paths` reach from that originating property/source node,
+    /// `name_paths` reach from that originating property/source node,
     /// evaluated over the shapes graph. Paths are tried in order: each path's
     /// values are sorted and appended after those of earlier paths, skipping
     /// duplicates, so the first name comes from the first path that reaches
@@ -3017,26 +3021,12 @@ impl EvidenceSession {
     /// lexical form; IRIs/blank nodes render as `<…>`/`_:…`.
     fn binding_names_impl(&self, name_paths: &[String]) -> PyResult<HashMap<u32, Vec<String>>> {
         let paths = self.parse_name_paths(name_paths)?;
-        let owners = self.binding_source_ids_impl();
-        // Many lowered slots share one authored owner; resolve each owner once.
-        let mut by_owner: HashMap<ShapeId, Vec<String>> = HashMap::new();
-        let mut out = HashMap::new();
-        for id in 0..self.raw_schema.arena.len() as u32 {
-            let owner = ShapeId(*owners.get(&id).unwrap_or(&id));
-            let Some(source) = self.raw_schema.sources.get(&owner) else {
-                continue;
-            };
-            let names = by_owner.entry(owner).or_insert_with(|| {
-                shifty_engine::names::authored_names(&self.shapes.graph, source, &paths)
-                    .iter()
-                    .map(shifty_engine::names::name_text)
-                    .collect()
-            });
-            if !names.is_empty() {
-                out.insert(id, names.clone());
-            }
-        }
-        Ok(out)
+        Ok(shifty_engine::names::binding_names(
+            &self.raw_schema,
+            &self.shapes.graph,
+            &paths,
+            self.binding_layout.source_owners(),
+        ))
     }
 
     /// Parse `name_path` entries against the shapes graph's prefixes.
@@ -3626,15 +3616,17 @@ impl RepairOutcome {
     }
 }
 
+#[pyfunction]
+fn _iri_local_name(iri: &str) -> &str {
+    shifty_engine::names::local_name(iri)
+}
+
 /// Register the repair classes on the `_shifty` module.
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(expand_evidence_json, m)?)?;
+    m.add_function(wrap_pyfunction!(_iri_local_name, m)?)?;
     m.add_function(wrap_pyfunction!(
-        result_database::_result_database_snapshot,
-        m
-    )?)?;
-    m.add_function(wrap_pyfunction!(
-        result_database::_result_database_canonical_shapes,
+        result_database::_result_database_prepare_shapes,
         m
     )?)?;
     m.add_function(wrap_pyfunction!(

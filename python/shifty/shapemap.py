@@ -52,6 +52,7 @@ import re
 from decimal import Decimal, InvalidOperation
 from typing import TYPE_CHECKING, Any, Callable, Iterator, Optional, Sequence, Union
 
+from ._shifty import _iri_local_name as _local
 from .terms import BNode, Iri, Literal, Term
 from .terms import from_json as _term_from_json
 from .terms import parse as _term_parse
@@ -165,13 +166,21 @@ def _component_label(component: str) -> str:
     return re.sub(r"(?<=[a-z])(?=[A-Z])", " ", name).lower()
 
 
-_LOCAL_RE = re.compile(r"([^#/:]+)[#/:]*$")
+def _binding_order_value(raw_order: Optional[str]) -> Optional[Decimal]:
+    if raw_order is not None:
+        try:
+            order = Decimal(raw_order)
+            if order.is_finite():
+                return order
+        except InvalidOperation:
+            pass
+    return None
 
 
-def _local(iri: str) -> str:
-    """The local name of an IRI: the segment after the last '#', '/', or ':'."""
-    match = _LOCAL_RE.search(iri)
-    return match.group(1) if match else iri
+def _binding_order_key(
+    order: Optional[Decimal], identity: str
+) -> tuple[bool, Decimal, str]:
+    return order is None, order or Decimal(0), identity
 
 
 # ── paths (mirror shifty_algebra::Path) ─────────────────────────────────────────
@@ -1463,6 +1472,7 @@ class ShapeMap:
         source_catalog = _Catalog(data["constraints"]["source"])
         normalized_catalog = _Catalog(data["constraints"]["normalized"])
         layout = run._binding_layout()
+        property_sources = run._binding_property_sources()
         constraint_map = run._binding_constraint_map()
         # Accept the public wrapper, the native session, and lightweight
         # session proxies used by instrumentation callers.
@@ -1506,6 +1516,7 @@ class ShapeMap:
                     names_table,
                     shape_name_of,
                     source_owners,
+                    property_sources,
                     layout,
                     order_cache,
                 )
@@ -1533,6 +1544,7 @@ def _build_mapping(
     names_table: "dict[int, list[str]]",
     shape_name_of: "Optional[Callable[[int], Optional[str]]]",
     source_owners: "dict[int, int]",
+    property_sources: "dict[int, int]",
     layout: "dict[int, tuple[Optional[str], str, list[str]]]",
     order_cache: dict[tuple[int, ...], _BindingOrder],
 ) -> Mapping:
@@ -1591,39 +1603,23 @@ def _build_mapping(
 
     def slot_layout(owner):
         source_id = groups[owner][0][2]
-        metadata = layout.get(owner)
-        property_source_id = source_owners.get(owner)
-        # Singleton NodeShapes can transparently wrap their property's source.
-        seen = set()
-        while source_id not in seen:
-            seen.add(source_id)
-            if source_owners.get(source_id) == source_id:
-                metadata = layout.get(source_id)
-                property_source_id = source_id
-                break
-            constraint = source_catalog.get(source_id)
-            if not (isinstance(constraint, dict) and "Annotated" in constraint):
-                break
-            source_id = constraint["Annotated"]["shape"]
+        property_source_id = property_sources.get(source_id)
+        if property_source_id is not None:
+            source_id = property_source_id
+        metadata = layout.get(
+            owner if property_source_id is None else property_source_id
+        )
         raw_order, identity, components = metadata or (
             None,
             source_catalog.signature(owner),
             None,
         )
         vacuous_property = (
-            source_owners.get(source_id) == source_id
+            property_source_id is not None
             and source_catalog.logical(source_id) == "Top"
         )
-        order = None
-        if raw_order is not None:
-            try:
-                value = Decimal(raw_order)
-                if value.is_finite():
-                    order = value
-            except InvalidOperation:
-                pass
         return _SlotLayout(
-            order,
+            _binding_order_value(raw_order),
             identity,
             (tuple(components) if components is not None else None),
             vacuous_property,
@@ -1640,10 +1636,8 @@ def _build_mapping(
     if cache_key not in order_cache:
         slots = {owner: slot_layout(owner) for owner in group_order}
         group_order.sort(
-            key=lambda owner: (
-                slots[owner].order is None,
-                slots[owner].order or Decimal(0),
-                slots[owner].identity,
+            key=lambda owner: _binding_order_key(
+                slots[owner].order, slots[owner].identity
             )
         )
         order_cache[cache_key] = _BindingOrder(group_order, slots)
@@ -1686,23 +1680,13 @@ def _build_mapping(
         )
         # A singleton node shape wraps its property shape directly: prefer
         # `property_source_id` so the node shape's own label does not shadow
-        # its property's name, otherwise follow transparent `Annotated` wrappers.
+        # its property's name. The native names table resolves transparent wrappers.
         name_source_id = (
             ordered.slots[owner].property_source_id
             if ordered.slots[owner].property_source_id is not None
             else source_id
         )
-        seen = set()
-        names = None
-        while name_source_id not in seen:
-            seen.add(name_source_id)
-            names = names_table.get(name_source_id)
-            if names:
-                break
-            constraint = source_catalog.get(name_source_id)
-            if not (isinstance(constraint, dict) and "Annotated" in constraint):
-                break
-            name_source_id = constraint["Annotated"]["shape"]
+        names = names_table.get(name_source_id)
 
         resolve_observation = None
         if inner is not None:

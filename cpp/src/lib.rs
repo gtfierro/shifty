@@ -9,6 +9,7 @@ mod shapemap;
 use oxrdf::{Dataset as OxDataset, Graph, GraphName, Quad, Term};
 use oxttl::{NTriplesSerializer, TurtleSerializer};
 use shifty_algebra::{Schema, Severity, ShapeId};
+use shifty_engine::names::local_name;
 use shifty_engine::{
     CompiledShapes, EngineOptions, EvidenceRun, FindingOptions, SessionData, SessionOptions,
     UnsupportedPolicy, ValidationGraphMode, ValidationOptions as EngineValidationOptions,
@@ -881,18 +882,12 @@ impl ShapeMapSession {
     fn binding_names(&self, name_paths: &[String]) -> Result<HashMap<u32, Vec<String>>, ApiError> {
         let paths = shifty_engine::names::parse_name_paths(name_paths, &self.shapes)
             .map_err(|error| ApiError::new(ShiftyStatus::InvalidArgument, error))?;
-        let mut out = HashMap::new();
-        for (id, source) in &self.raw_schema.sources {
-            let names: Vec<String> =
-                shifty_engine::names::authored_names(&self.shapes.graph, source, &paths)
-                    .iter()
-                    .map(shifty_engine::names::name_text)
-                    .collect();
-            if !names.is_empty() {
-                out.insert(id.0, names);
-            }
-        }
-        Ok(out)
+        Ok(shifty_engine::names::binding_names(
+            &self.raw_schema,
+            &self.shapes.graph,
+            &paths,
+            &HashMap::new(),
+        ))
     }
 
     /// Recover values for a property constraint that lowered to `Top`.
@@ -905,7 +900,7 @@ impl ShapeMapSession {
         constraint_id: u32,
     ) -> Result<Vec<shapemap::TermInfo>, ApiError> {
         let focus = parse_term(focus)?;
-        let Some((_, property)) = shifty_engine::names::unwrap_property_shape(
+        let Some((_, property, path_term)) = shifty_engine::names::unwrap_property_shape(
             &self.raw_schema,
             &self.shapes,
             ShapeId(constraint_id),
@@ -913,9 +908,6 @@ impl ShapeMapSession {
             return Ok(Vec::new());
         };
 
-        let Some(path_term) = self.shapes.object(&property, shifty_parse::vocab::SH_PATH) else {
-            return Ok(Vec::new());
-        };
         let path = shifty_parse::path::parse_path(&self.shapes, &path_term)
             .map_err(|error| ApiError::new(ShiftyStatus::InvalidArgument, error))?;
 
@@ -1197,12 +1189,6 @@ fn format_report_text(report: &ValidationReport) -> String {
         let _ = writeln!(output);
     }
     output
-}
-
-fn local_name(iri: &str) -> &str {
-    iri.rsplit_once('#')
-        .or_else(|| iri.rsplit_once('/'))
-        .map_or(iri, |(_, local)| local)
 }
 
 fn utf8(bytes: Vec<u8>) -> Result<String, ApiError> {

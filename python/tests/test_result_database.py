@@ -379,13 +379,25 @@ def test_invalid_query_tables_leave_the_database_unchanged():
             )
         with pytest.raises(ValueError, match="requires a SPARQL SELECT"):
             db.add_query_table("example", "ASK { ?s ?p ?o }")
-        with pytest.raises(ValueError, match="at least one projected variable"):
+        with pytest.raises(ValueError, match=r"SELECT \* has no in-scope variables"):
             db.add_query_table("example", "SELECT * WHERE {}")
         with pytest.raises(ValueError, match="SQL name 'ex:VavShape'"):
             db.add_query_table("ex:VavShape", "SELECT ?s WHERE { ?s ?p ?o }")
         assert (
             db.connection.execute("SELECT * FROM _shifty_result_queries").fetchall()
             == []
+        )
+
+
+def test_select_star_uses_in_scope_variables():
+    with ResultDatabase() as db:
+        db.add_query_table("triples", "SELECT * WHERE { ?s ?p ?o }")
+        db.refresh(PREFIXES + "ex:x ex:p ex:y .")
+        assert _columns(db, "triples") == ["o", "p", "s"]
+        assert db.connection.execute("SELECT s, p, o FROM triples").fetchone() == (
+            "<https://example.org/x>",
+            "<https://example.org/p>",
+            "<https://example.org/y>",
         )
 
 
@@ -919,10 +931,11 @@ def test_columns_follow_the_shape_map_bindings():
         PREFIXES
         + """
     ex:S a sh:NodeShape ; sh:targetClass ex:T ;
-        sh:property [ sh:path ex:z ; sh:name "zed" ; sh:order 1 ] ;
-        sh:property [ sh:path ex:a ; sh:name "aye" ; sh:order 2 ] ;
+        sh:property ex:Z, ex:A ;
         sh:and ( [ sh:path ex:inner ; sh:name "in and" ] ) ;
         sh:node ex:Helper .
+    ex:Z sh:path ex:z ; sh:name "zed" ; sh:order 9007199254740992 .
+    ex:A sh:path ex:a ; sh:name "aye" ; sh:order 9007199254740993 .
     ex:Helper a sh:NodeShape ;
         sh:property [ sh:path ex:helped ; sh:name "in helper" ] .
     """
@@ -955,7 +968,8 @@ def test_column_names_follow_binding_names():
         + """
     @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
     ex:S a sh:NodeShape ; sh:targetNode ex:x ; sh:property [
-        sh:path ex:p ; ex:quantity ex:SupplyTemperature ; rdfs:label "fallback"
+        sh:path ex:p ; ex:quantity <https://example.org/a#Supply/Temperature> ;
+        rdfs:label "fallback"
     ] .
     """
     )
@@ -964,7 +978,7 @@ def test_column_names_follow_binding_names():
     (mapping,) = list(shape_map(data, shapes, name_path=name_path, infer=False))
     (binding,) = mapping.bindings.values()
     # The first name is an IRI, so the column takes its local name.
-    assert binding.names == ["<https://example.org/SupplyTemperature>", "fallback"]
+    assert binding.names == ["<https://example.org/a#Supply/Temperature>", "fallback"]
     with ResultDatabase() as db:
         db.add_shape_tables(shapes, name_path=name_path)
         db.refresh(data, infer=False)
@@ -987,6 +1001,7 @@ def test_same_graph_registered_with_different_name_paths_is_stored_once():
     data = PREFIXES + "ex:a a ex:First ; ex:p 1 . ex:b a ex:Second ; ex:q 2 ."
     with ResultDatabase() as db:
         db.add_shape_tables(shapes, shape_names=[], name_path="sh:name")
+        db.add_shape_tables(shapes, shape_names=[], name_path="rdfs:label")
         db.add_shape_tables(
             shapes, shape_names=["https://example.org/FirstShape"], name_path="sh:name"
         )
@@ -1013,13 +1028,67 @@ def test_same_graph_registered_with_different_name_paths_is_stored_once():
         ]
 
 
+def test_refresh_upgrades_registrations_and_keeps_existing_column_names(tmp_path):
+    path = tmp_path / "legacy.sqlite"
+    shapes = (
+        PREFIXES
+        + """
+    @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+    ex:S a sh:NodeShape ; sh:targetNode ex:x ; sh:property ex:Z, ex:A .
+    ex:A sh:path ex:first ; sh:name "?!..." ; sh:order 9007199254740993 .
+    ex:Z sh:path ex:second ; sh:name "second" ; sh:order 9007199254740992 .
+    ex:T a sh:NodeShape ; sh:targetNode ex:x ;
+        sh:property [ sh:path ex:p ; rdfs:label "other" ] .
+    """
+    )
+    with sqlite3.connect(path) as connection:
+        connection.executescript("""
+            CREATE TABLE _shifty_result_registrations (
+                id INTEGER PRIMARY KEY, shapes TEXT NOT NULL,
+                shapes_digest TEXT NOT NULL, name_paths TEXT NOT NULL
+            );
+            CREATE TABLE _shifty_result_tables (
+                table_name TEXT PRIMARY KEY NOT NULL, shape_iri TEXT NOT NULL UNIQUE,
+                registration INTEGER NOT NULL
+            );
+            CREATE TABLE [ex:S] (result_id TEXT, focus TEXT, field_1 TEXT, second TEXT);
+            CREATE TABLE [ex:T] (result_id TEXT, focus TEXT, other TEXT);
+            INSERT INTO _shifty_result_tables VALUES
+                ('ex:S', 'https://example.org/S', 1),
+                ('ex:T', 'https://example.org/T', 2);
+        """)
+        connection.executemany(
+            "INSERT INTO _shifty_result_registrations VALUES (?, ?, ?, ?)",
+            [(1, shapes, "same", '["sh:name"]'), (2, shapes, "same", '["rdfs:label"]')],
+        )
+    with ResultDatabase(path) as db:
+        db.add_query_table(
+            "properties", "SELECT * WHERE { ?s <http://www.w3.org/ns/shacl#path> ?p }"
+        )
+        db.refresh(PREFIXES + 'ex:x ex:first "a" ; ex:second "z" ; ex:p "value" .')
+        assert _registry_counts(db) == (1, 2)
+        assert db.connection.execute(
+            "SELECT field_1, second FROM [ex:S]"
+        ).fetchone() == (
+            '"a"',
+            '"z"',
+        )
+        assert db.connection.execute("SELECT other FROM [ex:T]").fetchone() == (
+            '"value"',
+        )
+        assert db.connection.execute("SELECT COUNT(*) FROM properties").fetchone() == (
+            3,
+        )
+
+
 def test_blank_name_path_literals_do_not_shadow_fallbacks():
     shapes = (
         PREFIXES
         + """
     @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
     ex:S a sh:NodeShape ; sh:targetNode ex:x ;
-        sh:property [ sh:path ex:p ; sh:name "   " ; rdfs:label "temperature" ; sh:order 1 ] ,
+        sh:property [ sh:path ex:p ; sh:name "   ", "?!..." ;
+                      rdfs:label "temperature" ; sh:order 1 ] ,
                     [ sh:path ex:q ; sh:name "" ; sh:order 2 ] .
     """
     )

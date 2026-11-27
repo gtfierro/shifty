@@ -13,6 +13,7 @@
 use oxrdf::{Graph, Term, Triple};
 use serde::Serialize;
 use shifty_algebra::{Schema, Severity};
+use shifty_engine::names::local_name;
 use shifty_engine::{
     CompiledShapes, EngineOptions, EvaluationSession, FindingOptions, SessionData, SessionOptions,
     UnsupportedPolicy, ValidationGraphMode, ValidationOptions, ValidationReport, Violation,
@@ -595,13 +596,6 @@ fn format_sparql_diagnostic(d: &shifty_engine::SparqlDiagnostic, indent: &str) -
         let _ = writeln!(out, "{indent}  Did not use the native executor: {reason}");
     }
     out
-}
-
-fn local_name(iri: &str) -> &str {
-    iri.rsplit_once('#')
-        .or_else(|| iri.rsplit_once('/'))
-        .map(|(_, local)| local)
-        .unwrap_or(iri)
 }
 
 #[cfg(test)]

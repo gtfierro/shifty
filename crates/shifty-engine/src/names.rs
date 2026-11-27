@@ -4,7 +4,7 @@
 //! way, so the rules live here once: paths are tried in order, each path's
 //! values are sorted by their text, and a name already found is not repeated.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use oxrdf::{Graph, NamedOrBlankNode, Term};
 use shifty_algebra::{Path, Schema, Shape, ShapeId};
@@ -50,32 +50,74 @@ pub fn name_text(term: &Term) -> String {
     }
 }
 
-/// The local name of an IRI: the last non-empty segment after `#`, `/`, or `:`.
-pub fn local_name(iri: &str) -> Option<&str> {
-    iri.rsplit(['#', '/', ':']).find(|part| !part.is_empty())
+/// The suffix after the last `#`, `/`, or `:`, tried in that order.
+pub fn local_name(iri: &str) -> &str {
+    ['#', '/', ':']
+        .into_iter()
+        .filter_map(|separator| iri.rsplit_once(separator))
+        .map(|(_, tail)| tail)
+        .find(|tail| !tail.is_empty())
+        .unwrap_or(iri)
 }
 
 /// Follow transparent `Annotated` wrappers from `id` to an authored property
-/// shape (`sh:path` present in `shapes`).
+/// shape and return its authored `sh:path`.
 pub fn unwrap_property_shape(
     schema: &Schema,
     shapes: &Loaded,
-    mut id: ShapeId,
-) -> Option<(ShapeId, NamedOrBlankNode)> {
+    id: ShapeId,
+) -> Option<(ShapeId, NamedOrBlankNode, Term)> {
+    annotated_chain(schema, id).find_map(|id| {
+        let node = term_to_node(schema.sources.get(&id)?)?;
+        let path = shapes.object(&node, vocab::SH_PATH)?;
+        Some((id, node, path))
+    })
+}
+
+fn annotated_chain(schema: &Schema, id: ShapeId) -> impl Iterator<Item = ShapeId> + '_ {
+    let mut next = Some(id);
     let mut seen = HashSet::new();
-    while seen.insert(id) {
-        if let Some(source) = schema.sources.get(&id)
-            && let Some(node) = term_to_node(source)
-            && shapes.object(&node, vocab::SH_PATH).is_some()
-        {
-            return Some((id, node));
+    std::iter::from_fn(move || {
+        let id = next.take()?;
+        if !seen.insert(id) {
+            return None;
         }
-        match schema.arena.get(id) {
-            Shape::Annotated { shape, .. } => id = *shape,
-            _ => break,
+        if let Shape::Annotated { shape, .. } = schema.arena.get(id) {
+            next = Some(*shape);
+        }
+        Some(id)
+    })
+}
+
+/// Resolve names once per authored RDF node, then inherit the first names
+/// available through transparent annotations for every raw constraint.
+pub fn binding_names(
+    schema: &Schema,
+    graph: &Graph,
+    paths: &[Path],
+    source_owners: &HashMap<u32, u32>,
+) -> HashMap<u32, Vec<String>> {
+    let mut by_source = HashMap::new();
+    let mut result = HashMap::new();
+    for index in 0..schema.arena.len() as u32 {
+        for id in annotated_chain(schema, ShapeId(index)) {
+            let owner = ShapeId(*source_owners.get(&id.0).unwrap_or(&id.0));
+            let Some(source) = schema.sources.get(&owner) else {
+                continue;
+            };
+            let names: &mut Vec<String> = by_source.entry(source).or_insert_with(|| {
+                authored_names(graph, source, paths)
+                    .iter()
+                    .map(name_text)
+                    .collect()
+            });
+            if !names.is_empty() {
+                result.insert(index, names.clone());
+                break;
+            }
         }
     }
-    None
+    result
 }
 
 #[cfg(test)]
@@ -107,15 +149,12 @@ mod tests {
     }
 
     #[test]
-    fn local_name_uses_last_nonempty_segment() {
-        assert_eq!(local_name("http://ex/hasPoint"), Some("hasPoint"));
-        assert_eq!(local_name("http://ex#hasPoint"), Some("hasPoint"));
-        assert_eq!(
-            local_name("urn:zonepac-app/zonepac-zone"),
-            Some("zonepac-zone")
-        );
-        assert_eq!(local_name("http://ex/a#b/c"), Some("c"));
-        assert_eq!(local_name("http://ex/a#"), Some("a"));
-        assert_eq!(local_name("#/"), None);
+    fn local_name_prefers_a_nonempty_fragment() {
+        assert_eq!(local_name("http://ex/hasPoint"), "hasPoint");
+        assert_eq!(local_name("http://ex#hasPoint"), "hasPoint");
+        assert_eq!(local_name("urn:zonepac-app/zonepac-zone"), "zonepac-zone");
+        assert_eq!(local_name("http://ex/a#b/c"), "b/c");
+        assert_eq!(local_name("urn:ex:value"), "value");
+        assert_eq!(local_name("http://ex/a#"), "a#");
     }
 }

@@ -5,7 +5,8 @@ use crate::{InputSpec, py_value_error};
 use oxigraph::sparql::{QueryResults, SparqlEvaluator};
 use oxrdf::dataset::{CanonicalizationAlgorithm, CanonicalizationHashAlgorithm};
 use oxrdf::{
-    BlankNode, Dataset, Graph, NamedNodeRef, NamedOrBlankNode, NamedOrBlankNodeRef, Term, TermRef,
+    BlankNode, Dataset, Graph, GraphNameRef, NamedNodeRef, NamedOrBlankNode, NamedOrBlankNodeRef,
+    Term, TermRef,
 };
 use pyo3::{prelude::*, pybacked::PyBackedBytes};
 use shifty_algebra::{Path, ShapeId};
@@ -19,31 +20,40 @@ const TABLE_NAME: NamedNodeRef<'static> =
 const COLUMN_NAME: NamedNodeRef<'static> =
     NamedNodeRef::new_unchecked("https://shifty.gtf.fyi/ns/sql#columnName");
 
-type FieldLayout = (u32, Option<String>, Option<String>);
+type FieldLayout = (u32, Option<String>, Vec<String>, Option<String>, String);
 pub(super) type TableLayout = (String, String, Vec<FieldLayout>);
 
 #[pyfunction]
 #[pyo3(signature = (data, path, format, base))]
-pub(super) fn _result_database_snapshot(
+pub(super) fn _result_database_prepare_shapes(
     data: Option<PyBackedBytes>,
     path: Option<String>,
     format: &str,
     base: Option<&str>,
-) -> PyResult<String> {
-    let graph = InputSpec::new(data, path, format, "graph")
+) -> PyResult<(super::EvidenceSession, String, String)> {
+    let shapes = InputSpec::new(data, path, format, "graph")
         .and_then(|input| input.load(base))
         .map_err(py_value_error)?;
-    snapshot(graph)
+    let document = snapshot(&shapes)?;
+    let canonical = canonical_shapes(&shapes);
+    let session = super::EvidenceSession::from_loaded(
+        shapes,
+        Some(Graph::new()),
+        false,
+        shifty_engine::ValidationGraphMode::Union,
+        crate::engine_options("error").map_err(py_value_error)?,
+    )?;
+    Ok((session, document, canonical))
 }
 
-fn snapshot(graph: Loaded) -> PyResult<String> {
+fn snapshot(graph: &Loaded) -> PyResult<String> {
     // Resolved RDF terms alone would lose the base and prefixes used by
     // authored SPARQL constraints when the database is reopened.
     let mut serializer = oxttl::TurtleSerializer::new();
-    if let Some(base) = graph.base {
+    if let Some(base) = &graph.base {
         serializer = serializer.with_base_iri(base).map_err(value_error)?;
     }
-    for (prefix, iri) in graph.prefixes {
+    for (prefix, iri) in &graph.prefixes {
         serializer = serializer.with_prefix(prefix, iri).map_err(value_error)?;
     }
     let mut writer = serializer.for_writer(Vec::new());
@@ -58,27 +68,26 @@ fn snapshot(graph: Loaded) -> PyResult<String> {
 /// and triple order, so the triples are canonicalized with RDFC-1.0 and sorted.
 /// The base IRI and prefix declarations are kept because authored SPARQL
 /// constraints and table names depend on them.
-#[pyfunction]
-pub(super) fn _result_database_canonical_shapes(document: &str) -> PyResult<String> {
-    let Loaded {
-        mut graph,
-        mut prefixes,
-        base,
-    } = Loaded::from_turtle(document.as_bytes(), None).map_err(value_error)?;
+fn canonical_shapes(shapes: &Loaded) -> String {
+    let mut graph = shapes.graph.clone();
+    let mut prefixes = shapes.prefixes.clone();
     graph.canonicalize(CanonicalizationAlgorithm::Rdfc10 {
         hash_algorithm: CanonicalizationHashAlgorithm::Sha256,
     });
     prefixes.sort();
     let mut triples: Vec<String> = graph.iter().map(|triple| format!("{triple} .")).collect();
     triples.sort();
-    let mut lines = vec![format!("base {}", base.unwrap_or_default())];
+    let mut lines = vec![format!(
+        "base {}",
+        shapes.base.as_deref().unwrap_or_default()
+    )];
     lines.extend(
         prefixes
             .iter()
             .map(|(prefix, iri)| format!("prefix {prefix}: <{iri}>")),
     );
     lines.extend(triples);
-    Ok(lines.join("\n"))
+    lines.join("\n")
 }
 
 /// One refresh's data and shapes graphs, each parsed once and shared by every
@@ -91,6 +100,13 @@ pub(super) struct ResultDatabaseRefresh {
 
 #[pymethods]
 impl ResultDatabaseRefresh {
+    #[staticmethod]
+    fn validate_options(graph_mode: &str, minimum_severity: &str) -> PyResult<()> {
+        crate::parse_mode(graph_mode).map_err(py_value_error)?;
+        crate::parse_minimum_severity(minimum_severity).map_err(py_value_error)?;
+        Ok(())
+    }
+
     #[new]
     #[pyo3(signature = (data, path, format, base, shapes))]
     fn new(
@@ -148,8 +164,9 @@ impl ResultDatabaseRefresh {
     fn query_dataset(&self, include_shapes: bool) -> ResultDatabaseQueryDataset {
         let mut shapes = Dataset::new();
         if include_shapes {
+            let mut default = shapes.graph_mut(GraphNameRef::DefaultGraph);
             for loaded in &self.shapes {
-                shapes.extend(default_graph(&loaded.graph).iter());
+                default.extend(loaded.graph.iter());
             }
         }
         ResultDatabaseQueryDataset {
@@ -247,7 +264,7 @@ fn query_columns(query: &Query) -> PyResult<Vec<String>> {
             | GraphPattern::Slice { inner, .. } => pattern = inner,
             _ => {
                 return Err(py_value_error(
-                    "query table requires at least one projected variable".into(),
+                    "SELECT * has no in-scope variables to use as query table columns".into(),
                 ));
             }
         }
@@ -349,6 +366,7 @@ impl super::EvidenceSession {
                     .or_else(|| self.raw_schema.prefixes.compact_declared(&iri))
                     .unwrap_or_else(|| iri.clone());
                 let mut fields = Vec::new();
+                let entries = self.binding_layout.entries();
                 for property_id in self.binding_layout.property_slots(*id) {
                     let source = &self.raw_schema.sources[&ShapeId(property_id)];
                     let property = term_to_node(source).ok_or_else(|| {
@@ -359,8 +377,9 @@ impl super::EvidenceSession {
                         .object(&property, vocab::SH_PATH)
                         .expect("binding owners are property shapes");
                     let alias = sql_alias(&self.shapes, &property, COLUMN_NAME)?;
-                    let label = field_label(&self.shapes, &name_paths, &property, &path);
-                    fields.push((property_id, alias, label));
+                    let labels = field_labels(&self.shapes, &name_paths, &property, &path);
+                    let (order, identity, _) = &entries[&property_id];
+                    fields.push((property_id, alias, labels, order.clone(), identity.clone()));
                 }
                 Ok((iri, table_name, fields))
             })
@@ -384,38 +403,32 @@ fn sql_alias(
     }
 }
 
-/// A field is named like its shape-map binding: by the first authored name
-/// that can label a column, a nonempty literal's text or an IRI's local name.
-/// Without one, the property shape's IRI or its path supplies a local name.
-fn field_label(
+/// Candidate labels in priority order. The SQLite projection decides which
+/// candidate can become a column name.
+fn field_labels(
     shapes: &Loaded,
     name_paths: &[Path],
     property: &NamedOrBlankNode,
     path: &Term,
-) -> Option<String> {
+) -> Vec<String> {
     let names = shifty_engine::names::authored_names(
         &shapes.graph,
         &Term::from(property.clone()),
         name_paths,
     );
     names
-        .iter()
-        .find_map(|name| match name {
-            Term::Literal(name) => {
-                let text = name.value().trim();
-                (!text.is_empty()).then(|| text.to_owned())
-            }
-            Term::NamedNode(iri) => {
-                shifty_engine::names::local_name(iri.as_str()).map(str::to_owned)
-            }
+        .into_iter()
+        .chain(
+            [Term::from(property.clone()), path.clone()]
+                .into_iter()
+                .filter(|term| matches!(term, Term::NamedNode(_))),
+        )
+        .filter_map(|name| match name {
+            Term::Literal(name) => Some(name.value().to_owned()),
+            Term::NamedNode(iri) => Some(shifty_engine::names::local_name(iri.as_str()).to_owned()),
             _ => None,
         })
-        .or_else(|| match (property, path) {
-            (NamedOrBlankNode::NamedNode(iri), _) | (_, Term::NamedNode(iri)) => {
-                shifty_engine::names::local_name(iri.as_str()).map(str::to_owned)
-            }
-            _ => None,
-        })
+        .collect()
 }
 
 fn select_shapes(shapes: &Loaded, query: &str) -> PyResult<Vec<String>> {

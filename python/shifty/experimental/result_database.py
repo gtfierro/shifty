@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import re
 import sqlite3
 from collections.abc import Iterable, Iterator, Sequence
@@ -15,12 +16,11 @@ from string import ascii_lowercase, ascii_uppercase
 from typing import Optional
 from urllib.parse import unquote, urlsplit
 
-from shifty import EvidenceSession, GraphInputs, _coalesce_graph_input, _to_rdf_input
+from shifty import GraphInputs, _coalesce_graph_input, _to_rdf_input
 from shifty._shifty import EvidenceSession as _NativeSession
 from shifty._shifty import (
-    _result_database_canonical_shapes,
+    _result_database_prepare_shapes,
     _result_database_query_columns,
-    _result_database_snapshot,
     _ResultDatabaseQueryDataset,
     _ResultDatabaseRefresh,
 )
@@ -29,6 +29,8 @@ from shifty.shapemap import (
     Mapping,
     NamePaths,
     ShapeMap,
+    _binding_order_key,
+    _binding_order_value,
     _name_paths,
 )
 from shifty.terms import parse as parse_term
@@ -66,6 +68,7 @@ class ResultDatabase:
             with self._transaction():
                 for statement in _REGISTRY:
                     self.connection.execute(statement)
+                _upgrade_registry(self.connection)
         except BaseException:
             self.close()
             raise
@@ -101,17 +104,19 @@ class ResultDatabase:
 
         ``name_path`` names the columns. It takes a SPARQL property path or an
         ordered sequence of them, evaluated from each property shape over the
-        shapes graph. The first path that reaches a literal names the column.
-        The default is ``("sh:name", "rdfs:label")``. When no path reaches a
-        literal, the property shape's IRI or path supplies a local name.
-        ``sql:columnName`` overrides all of these. The paths are stored with
-        the registration so refreshes keep the same columns.
+        shapes graph. The first usable literal text or IRI local name becomes
+        the column name. Candidates that yield an empty SQL identifier are
+        skipped. The default is ``("sh:name", "rdfs:label")``. The property
+        shape's IRI and path supply fallback local names. ``sql:columnName``
+        overrides all of these. Paths are stored per table for refreshes.
         """
-        document = _snapshot(shapes_graph, base)
-        session = EvidenceSession(document.encode(), b"", infer=False)
-        digest = _shapes_digest(document)
+        source = _to_rdf_input(_coalesce_graph_input(shapes_graph))
+        session, document, canonical = _result_database_prepare_shapes(
+            source.data, source.path, source.format, base
+        )
+        digest = hashlib.sha256(canonical.encode()).hexdigest()
         name_paths = _name_paths(name_path)
-        tables = _compile_tables(session._inner, name_paths, shape_names, shape_query)
+        tables = _compile_tables(session, name_paths, shape_names, shape_query)
 
         with self._transaction():
             # The same graph and name paths always produce the same table, so a
@@ -164,7 +169,8 @@ class ResultDatabase:
             encoded_paths = json.dumps(name_paths)
             for table in tables:
                 self.connection.execute(
-                    "INSERT INTO main._shifty_result_tables VALUES (?, ?, ?, ?)",
+                    "INSERT INTO main._shifty_result_tables "
+                    "(table_name, shape_iri, registration, name_paths) VALUES (?, ?, ?, ?)",
                     (table.name, table.iri, registration, encoded_paths),
                 )
                 table.create(self.connection)
@@ -177,6 +183,7 @@ class ResultDatabase:
         ``union`` queries the supplied data and all registered shapes together.
         Choose ``data`` for the supplied data graph or ``shapes`` for the union
         of the registered shapes graphs. Set any SPARQL prefixes in the query.
+        ``SELECT *`` includes every in-scope variable in alphabetical order.
         """
         _validate_table_name(name)
         if graph_mode not in ("union", "data", "shapes"):
@@ -223,15 +230,7 @@ class ResultDatabase:
         evaluation. ``minimum_severity`` determines which failures make a
         focus nonconforming. Query tables use the saved graph mode.
         """
-        if graph_mode not in ("data", "union", "union-all"):
-            raise ValueError(
-                f"unknown graph_mode {graph_mode!r}; expected 'data', 'union', or 'union-all'"
-            )
-        if minimum_severity.lower() not in ("info", "warning", "violation"):
-            raise ValueError(
-                f"unknown minimum_severity {minimum_severity!r}; "
-                "expected 'info', 'warning', or 'violation'"
-            )
+        _ResultDatabaseRefresh.validate_options(graph_mode, minimum_severity)
         with self._transaction():
             registrations = self.connection.execute(
                 "SELECT id, shapes FROM main._shifty_result_registrations ORDER BY id"
@@ -260,7 +259,7 @@ class ResultDatabase:
             self.connection.execute("DELETE FROM main._shifty_result_validation")
             for index, (registration, _) in enumerate(registrations):
                 rows = self.connection.execute(
-                    "SELECT shape_iri, table_name, name_paths "
+                    "SELECT shape_iri, table_name, name_paths, legacy_layout "
                     "FROM main._shifty_result_tables WHERE registration = ?",
                     (registration,),
                 ).fetchall()
@@ -268,14 +267,25 @@ class ResultDatabase:
                     continue
                 by_paths: dict[str, dict[str, str]] = {}
                 selected: list[str] = []
-                for shape_iri, table_name, paths_json in rows:
+                legacy_columns: dict[str, list[str]] = {}
+                for shape_iri, table_name, paths_json, legacy_layout in rows:
                     selected.append(shape_iri)
                     by_paths.setdefault(paths_json, {})[shape_iri] = table_name
+                    if legacy_layout:
+                        legacy_columns[shape_iri] = [
+                            row[1]
+                            for row in self.connection.execute(
+                                f"PRAGMA main.table_info({_quote(table_name)})"
+                            )
+                        ][2:]
                 session = snapshot.session(index, infer, graph_mode)
                 tables = []
                 for paths_json, group in by_paths.items():
                     compiled = _compile_tables(
-                        session, json.loads(paths_json), list(group)
+                        session,
+                        json.loads(paths_json),
+                        list(group),
+                        legacy_columns=legacy_columns,
                     )
                     if {table.iri: table.name for table in compiled} != group:
                         raise ValueError(
@@ -345,7 +355,8 @@ _REGISTRY = (
     )""",
     """CREATE TABLE IF NOT EXISTS main._shifty_result_tables (
         table_name TEXT PRIMARY KEY NOT NULL, shape_iri TEXT NOT NULL UNIQUE,
-        registration INTEGER NOT NULL, name_paths TEXT NOT NULL
+        registration INTEGER NOT NULL, name_paths TEXT NOT NULL,
+        legacy_layout INTEGER NOT NULL DEFAULT 0
     )""",
     """CREATE TABLE IF NOT EXISTS main._shifty_result_queries (
         table_name TEXT PRIMARY KEY NOT NULL, query TEXT NOT NULL, graph_mode TEXT NOT NULL
@@ -369,6 +380,55 @@ _REGISTRY = (
         WHERE missing > 0
     """,
 )
+
+
+def _upgrade_registry(db: sqlite3.Connection) -> None:
+    table_columns = {
+        row[1] for row in db.execute("PRAGMA main.table_info(_shifty_result_tables)")
+    }
+    if "name_paths" not in table_columns:
+        registration_columns = {
+            row[1]
+            for row in db.execute(
+                "PRAGMA main.table_info(_shifty_result_registrations)"
+            )
+        }
+        if "shapes_digest" not in registration_columns:
+            raise ValueError("result database registry predates shapes digests")
+        db.execute(
+            "ALTER TABLE main._shifty_result_tables ADD COLUMN name_paths TEXT NOT NULL DEFAULT '[]'"
+        )
+        db.execute(
+            """WITH canonical_registrations AS (
+                SELECT shapes_digest, MIN(id) AS id
+                FROM main._shifty_result_registrations GROUP BY shapes_digest
+            )
+            UPDATE main._shifty_result_tables
+            SET (name_paths, registration) = (
+                SELECT original.name_paths, canonical.id
+                FROM main._shifty_result_registrations AS original
+                JOIN canonical_registrations AS canonical USING (shapes_digest)
+                WHERE original.id = _shifty_result_tables.registration
+            )"""
+        )
+        db.execute(
+            "ALTER TABLE main._shifty_result_registrations "
+            "RENAME TO _shifty_result_registrations_legacy"
+        )
+        db.execute(_REGISTRY[0])
+        db.execute(
+            """INSERT INTO main._shifty_result_registrations (id, shapes, shapes_digest)
+            SELECT id, shapes, shapes_digest FROM main._shifty_result_registrations_legacy
+            WHERE id IN (
+                SELECT MIN(id) FROM main._shifty_result_registrations_legacy GROUP BY shapes_digest
+            )"""
+        )
+        db.execute("DROP TABLE main._shifty_result_registrations_legacy")
+    if "legacy_layout" not in table_columns:
+        db.execute(
+            "ALTER TABLE main._shifty_result_tables ADD COLUMN legacy_layout INTEGER NOT NULL DEFAULT 0"
+        )
+        db.execute("UPDATE main._shifty_result_tables SET legacy_layout = 1")
 
 
 @dataclass(frozen=True)
@@ -481,6 +541,8 @@ def _compile_tables(
     name_paths: list[str],
     shape_names: Optional[Sequence[str]],
     shape_query: Optional[str] = None,
+    *,
+    legacy_columns: Optional[dict[str, list[str]]] = None,
 ) -> list[_Table]:
     layout = session._result_database_layout(
         name_paths, list(shape_names) if shape_names is not None else None, shape_query
@@ -488,9 +550,24 @@ def _compile_tables(
     tables = []
     for iri, name, slots in layout:
         _validate_table_name(name)
+        stored_columns = legacy_columns.get(iri) if legacy_columns is not None else None
+        if stored_columns is not None:
+            if len(stored_columns) != len(slots):
+                raise ValueError(
+                    "registered result tables do not match the stored shapes"
+                )
+            slots.sort(key=lambda slot: _legacy_order_key(slot[3], slot[4]))
+            fields = [
+                _Field(slot[0], column) for slot, column in zip(slots, stored_columns)
+            ]
+            tables.append(_Table(name, iri, fields))
+            continue
+        slots.sort(
+            key=lambda slot: _binding_order_key(_binding_order_value(slot[3]), slot[4])
+        )
         fields = []
-        for index, (source_id, alias, label) in enumerate(slots, 1):
-            field_name = _sql_name(alias, label or "", f"field_{index}")
+        for index, (source_id, alias, labels, _, _) in enumerate(slots, 1):
+            field_name = _sql_name(alias, labels, f"field_{index}")
             fields.append(_Field(source_id, field_name))
         table = _Table(name, iri, fields)
         _check_names((column for column, _ in table.columns), ())
@@ -498,10 +575,21 @@ def _compile_tables(
     return tables
 
 
-def _shapes_digest(document: str) -> str:
-    """A digest of a shapes snapshot that ignores blank-node labels and order."""
-    canonical = _result_database_canonical_shapes(document)
-    return hashlib.sha256(canonical.encode()).hexdigest()
+def _legacy_order_key(
+    raw_order: Optional[str], identity: str
+) -> tuple[bool, float, str]:
+    # Existing physical columns were sorted using Rust's f64 parser.
+    if (
+        raw_order is not None
+        and raw_order.isascii()
+        and re.fullmatch(
+            r"[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?", raw_order
+        )
+    ):
+        order = float(raw_order)
+        if math.isfinite(order):
+            return False, order, identity
+    return True, 0.0, identity
 
 
 def _result_id(shape_iri: str, focus: str) -> str:
@@ -539,13 +627,17 @@ def _check_names(names: Iterable[str], reserved: Iterable[str]) -> None:
         seen.add(folded)
 
 
-def _sql_name(alias: Optional[str], label: str, fallback: str) -> str:
+def _sql_name(alias: Optional[str], labels: Iterable[str], fallback: str) -> str:
     if alias is not None:
         if "\x00" in alias:
             raise ValueError("SQL names cannot contain a NUL character")
         return alias
-    words = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", label)
-    return re.sub(r"[^a-z0-9]+", "_", words.lower()).strip("_") or fallback
+    for label in labels:
+        words = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", label)
+        name = re.sub(r"[^a-z0-9]+", "_", words.lower()).strip("_")
+        if name:
+            return name
+    return fallback
 
 
 def _quote(name: str) -> str:
@@ -566,8 +658,3 @@ def _filename(database: str | Path) -> str:
     if not filename:
         raise ValueError("SQLite URL must name a database file or :memory:")
     return filename
-
-
-def _snapshot(graph: GraphInputs, base: Optional[str]) -> str:
-    source = _to_rdf_input(_coalesce_graph_input(graph))
-    return _result_database_snapshot(source.data, source.path, source.format, base)

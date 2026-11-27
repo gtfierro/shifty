@@ -59,7 +59,7 @@ fn function_parameters(shapes: &Loaded, func: &NamedOrBlankNode) -> Vec<(String,
             let name = match shapes.object(&node, vocab::SH_NAME) {
                 Some(Term::Literal(value)) => value.value().to_string(),
                 _ => match shapes.object(&node, vocab::SH_PATH) {
-                    Some(Term::NamedNode(path)) => local_name(path.as_str()).to_string(),
+                    Some(Term::NamedNode(path)) => parameter_name(path.as_str()).to_string(),
                     _ => return None,
                 },
             };
@@ -74,7 +74,8 @@ fn function_parameters(shapes: &Loaded, func: &NamedOrBlankNode) -> Vec<(String,
         .collect()
 }
 
-fn local_name(iri: &str) -> &str {
+/// The SPARQL variable name derived from an authored SHACL parameter path.
+pub fn parameter_name(iri: &str) -> &str {
     iri.rsplit(['#', '/']).next().unwrap_or(iri)
 }
 

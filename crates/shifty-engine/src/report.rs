@@ -742,7 +742,7 @@ fn build_components(
             let Some(Term::NamedNode(path)) = shapes.object(&pn, vocab::SH_PATH) else {
                 continue;
             };
-            let var = local_name(path.as_str()).to_string();
+            let var = shifty_parse::functions::parameter_name(path.as_str()).to_string();
             let optional = matches!(
                 shapes.object(&pn, vocab::SH_OPTIONAL),
                 Some(Term::Literal(ref l)) if l.value() == "true"
@@ -794,10 +794,6 @@ fn parse_validator(shapes: &Loaded, node: &Term) -> Result<ComponentValidator, S
 
 /// The local name of an IRI (after the last `#` or `/`) — the SHACL rule for a
 /// parameter's pre-bound variable name (SHACL §6.2.1).
-fn local_name(iri: &str) -> &str {
-    iri.rsplit(['#', '/']).next().unwrap_or(iri)
-}
-
 /// Discover `sh:SPARQLFunction`s in the shapes graph (SHACL-AF §5) and build
 /// their registrable [`FunctionDef`]s: the function IRI, its parameter variable
 /// names in positional order (`sh:order`, then local name), and its prefix-

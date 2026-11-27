@@ -106,7 +106,8 @@ relabelled blank nodes don't count as a change. The base IRI and prefix
 declarations must also match. Registering a shape from a changed graph, such
 as one with a different ``sh:minCount`` or a new ``rdfs:label``, or with a
 different ``name_path``, raises an error, because each shape can have only one
-table.
+table. Different shapes from the same graph can use different name paths.
+Query tables see the shared graph once.
 
 Name tables and columns
 -----------------------
@@ -116,19 +117,21 @@ file. ``ex:VavShape`` becomes the table ``[ex:VavShape]``. Without a matching
 prefix, the table uses the full IRI. Square brackets or double quotes both
 work in SQL.
 
-A column is named after the first one of these that exists:
+A column uses the first usable name from these sources:
 
 1. the property shape's ``sql:columnName``, used exactly as written
-2. the property's shape-map name: the first value reached by the name paths,
-   tried in order, using a literal's text or an IRI's local name
+2. the values reached by the name paths, tried in order, using a literal's
+   text or an IRI's local name
 3. the local name of the property shape's IRI
 4. the local name of the property's path
 
 Shifty converts every name except ``sql:columnName`` to snake case, so
 ``rdfs:label "supply air temperature"`` becomes ``supply_air_temperature``.
+Candidates that yield an empty identifier, such as a label consisting only
+of punctuation, are skipped.
 
-The name paths default to ``sh:name``, then ``rdfs:label``. A property shape
-with both uses its ``sh:name``. To read names from other predicates, pass
+The name paths default to ``sh:name``, then ``rdfs:label``. A usable
+``sh:name`` takes priority. To read names from other predicates, pass
 ``name_path`` to ``add_shape_tables()``. It takes one SPARQL property path or
 an ordered list, and replaces the defaults:
 

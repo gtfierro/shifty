@@ -1025,7 +1025,7 @@ fn build_mapping(
         };
 
         let (min, max) = collect_bounds(source_catalog, Some(source_id));
-        let names = binding_names(source_catalog, names_table, source_id);
+        let names = names_table.get(&source_id).cloned().unwrap_or_default();
         let values = if status == "pass"
             && source_catalog.logical(Some(source_id)) == Some(&Value::String("Top".to_string()))
         {
@@ -1071,34 +1071,6 @@ fn build_mapping(
         conforms,
         bindings,
     })
-}
-
-/// Names from a property's own source node, following transparent authored
-/// wrappers left when a singleton conjunction is normalized away.
-fn binding_names(
-    catalog: &Catalog,
-    names_table: &HashMap<u32, Vec<String>>,
-    source_id: u32,
-) -> Vec<String> {
-    let mut current = Some(source_id);
-    let mut seen = HashSet::new();
-    while let Some(id) = current {
-        if !seen.insert(id) {
-            break;
-        }
-        if let Some(names) = names_table.get(&id)
-            && !names.is_empty()
-        {
-            return names.clone();
-        }
-        current = catalog
-            .get(Some(id))
-            .and_then(|constraint| constraint.get("Annotated"))
-            .and_then(|annotated| annotated.get("shape"))
-            .and_then(Value::as_u64)
-            .map(|id| id as u32);
-    }
-    Vec::new()
 }
 
 /// One batched `resolve_path` call per label, over every distinct bound value

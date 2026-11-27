@@ -115,6 +115,7 @@ pub(super) struct BindingLayout {
     shapes: Arc<Loaded>,
     entries: OnceLock<LayoutEntries>,
     source_owners: OnceLock<HashMap<u32, u32>>,
+    property_sources: OnceLock<HashMap<u32, u32>>,
     constraint_map: HashMap<u32, u32>,
 }
 
@@ -137,7 +138,7 @@ impl super::EvidenceSession {
         constraint_id: u32,
     ) -> PyResult<Option<Observation>> {
         let focus = super::parse_term(focus).map_err(super::py_value_error)?;
-        let Some((current, property)) = shifty_engine::names::unwrap_property_shape(
+        let Some((current, property, path_term)) = shifty_engine::names::unwrap_property_shape(
             &self.raw_schema,
             &self.shapes,
             ShapeId(constraint_id),
@@ -145,10 +146,6 @@ impl super::EvidenceSession {
             return Ok(None);
         };
         let mut seen = HashSet::new();
-        let path_term = self
-            .shapes
-            .object(&property, vocab::SH_PATH)
-            .expect("checked above");
         let path = shifty_parse::path::parse_path(&self.shapes, &path_term)
             .map_err(super::py_value_error)?;
         let raw_id = |term: &Term| {
@@ -317,6 +314,7 @@ impl BindingLayout {
             shapes,
             entries: OnceLock::new(),
             source_owners: OnceLock::new(),
+            property_sources: OnceLock::new(),
             constraint_map,
         }
     }
@@ -371,45 +369,45 @@ impl BindingLayout {
         })
     }
 
+    /// Include bindings that reach their property through a transparent wrapper.
+    pub(super) fn property_sources(&self) -> &HashMap<u32, u32> {
+        self.property_sources.get_or_init(|| {
+            let owners = self.source_owners();
+            (0..self.schema.arena.len() as u32)
+                .filter_map(|id| {
+                    let owner = owners.get(&id).copied().or_else(|| {
+                        shifty_engine::names::unwrap_property_shape(
+                            &self.schema,
+                            &self.shapes,
+                            ShapeId(id),
+                        )
+                        .map(|(owner, _, _)| owner.0)
+                    })?;
+                    Some((id, owner))
+                })
+                .collect()
+        })
+    }
+
     /// The authored property shapes a node shape's shape-map bindings come
-    /// from, in binding order (`sh:order`, then canonical identity),
-    /// independent of any data. Shape maps bind each member of the node
+    /// from, independent of any data. Shape maps bind each member of the node
     /// shape's conjunction, grouped under its property shape; a member not
     /// inside one (such as a single-property `sh:node` or `sh:and`) binds
     /// the property shape it wraps.
     pub(super) fn property_slots(&self, node: ShapeId) -> Vec<u32> {
         let arena = &self.schema.arena;
-        let owners = self.source_owners();
-        let entries = self.entries();
+        let properties = self.property_sources();
         let mut children = shifty_engine::evidence::source_children(arena, node);
         // Without a conjunction to report, the node shape is its own member.
         if children.is_empty() {
             children.push(node);
         }
-        let mut slots: Vec<(Option<f64>, String, u32)> = Vec::new();
         let mut seen_slots = HashSet::new();
-        for child in children {
-            let property = owners.get(&child.0).copied().or_else(|| {
-                shifty_engine::names::unwrap_property_shape(&self.schema, &self.shapes, child)
-                    .map(|(id, _)| id.0)
-            });
-            if let Some(property) = property
-                && seen_slots.insert(property)
-            {
-                let (order, identity, _) = &entries[&property];
-                let order = order
-                    .as_deref()
-                    .and_then(|order| order.parse::<f64>().ok())
-                    .filter(|order| order.is_finite());
-                slots.push((order, identity.clone(), property));
-            }
-        }
-        slots.sort_by(|a, b| {
-            (a.0.is_none(), a.0.unwrap_or(0.0), &a.1)
-                .partial_cmp(&(b.0.is_none(), b.0.unwrap_or(0.0), &b.1))
-                .expect("orders are finite")
-        });
-        slots.into_iter().map(|(_, _, id)| id).collect()
+        children
+            .into_iter()
+            .filter_map(|child| properties.get(&child.0).copied())
+            .filter(|id| seen_slots.insert(*id))
+            .collect()
     }
 
     pub(super) fn entries(&self) -> &LayoutEntries {
